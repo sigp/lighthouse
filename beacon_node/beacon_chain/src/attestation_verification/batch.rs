@@ -136,7 +136,7 @@ pub fn batch_verify_unaggregated_attestations<'a, T, I>(
 ) -> Result<Vec<Result<VerifiedUnaggregatedAttestation<'a, T>, Error>>, Error>
 where
     T: BeaconChainTypes,
-    I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
+    I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
 {
     let mut num_partially_verified = 0;
     let mut num_failed = 0;

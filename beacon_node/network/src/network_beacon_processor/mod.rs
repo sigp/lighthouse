@@ -74,19 +74,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.beacon_processor_send.try_send(event)
     }
 
-    /// Create a new `Work` event for some `SingleAttestation`.
-    pub fn send_single_attestation(
+    /// Create a new `Work` event for some unaggregated attestation.
+    pub fn send_unaggregated_attestation(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        single_attestation: SingleAttestation,
+        attestation: SingleAttestation,
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
+        // Define a closure for processing individual attestations.
         let processor = self.clone();
         let process_individual = move |package: GossipAttestationPackage<SingleAttestation>| {
-            processor.process_gossip_attestation_to_convert(
+            processor.process_gossip_attestation(
                 package.message_id,
                 package.peer_id,
                 package.attestation,
@@ -96,47 +97,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.seen_timestamp,
             )
         };
-
-        self.try_send(BeaconWorkEvent {
-            drop_during_sync: true,
-            work: Work::GossipAttestationToConvert {
-                attestation: Box::new(GossipAttestationPackage {
-                    message_id,
-                    peer_id,
-                    attestation: Box::new(single_attestation),
-                    subnet_id,
-                    should_import,
-                    seen_timestamp,
-                }),
-                process_individual: Box::new(process_individual),
-            },
-        })
-    }
-
-    /// Create a new `Work` event for some unaggregated attestation.
-    pub fn send_unaggregated_attestation(
-        self: &Arc<Self>,
-        message_id: MessageId,
-        peer_id: PeerId,
-        attestation: Attestation<T::EthSpec>,
-        subnet_id: SubnetId,
-        should_import: bool,
-        seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
-        // Define a closure for processing individual attestations.
-        let processor = self.clone();
-        let process_individual =
-            move |package: GossipAttestationPackage<Attestation<T::EthSpec>>| {
-                processor.process_gossip_attestation(
-                    package.message_id,
-                    package.peer_id,
-                    package.attestation,
-                    package.subnet_id,
-                    package.should_import,
-                    true,
-                    package.seen_timestamp,
-                )
-            };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();

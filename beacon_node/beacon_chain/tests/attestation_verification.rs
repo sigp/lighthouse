@@ -8,24 +8,22 @@ use beacon_chain::test_utils::{MakeAttestationOptions, HARNESS_GENESIS_TIME};
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
-        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+        single_attestation_to_attestation, test_spec, AttestationStrategy, BeaconChainHarness,
+        BlockStrategy, EphemeralHarnessType,
     },
     BeaconChain, BeaconChainError, BeaconChainTypes, ChainConfig, WhenSlotSkipped,
 };
 use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
-use ssz_types::BitVector;
-use state_processing::{
-    per_block_processing::errors::AttestationValidationError, per_slot_processing,
-};
+use state_processing::per_slot_processing;
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
 use types::{
     signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
     test_utils::generate_deterministic_keypair, Address, AggregateSignature, Attestation,
-    AttestationRef, AttestationRefMut, BeaconStateError, BitList, ChainSpec, Epoch, EthSpec,
-    FixedBytesExtended, ForkName, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
-    SignedAggregateAndProof, Slot, SubnetId, Unsigned,
+    AttestationRef, ChainSpec, Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, Keypair,
+    MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot,
+    SubnetId, Unsigned,
 };
 
 pub type E = MainnetEthSpec;
@@ -122,7 +120,7 @@ fn get_harness_capella_spec(
 /// Also returns some info about who created it.
 fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> (Attestation<T::EthSpec>, usize, usize, SecretKey, SubnetId) {
+) -> (SingleAttestation, SecretKey, SubnetId) {
     let head = chain.head_snapshot();
     let current_slot = chain.slot().expect("should get slot");
 
@@ -156,8 +154,15 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
         )
         .expect("should sign attestation");
 
-    let subnet_id = SubnetId::compute_subnet_for_attestation::<T::EthSpec>(
-        valid_attestation.to_ref(),
+    let single_attestation = SingleAttestation {
+        committee_index: valid_attestation.committee_index().unwrap(),
+        attester_index: validator_index as u64,
+        data: valid_attestation.data().clone(),
+        signature: valid_attestation.signature().clone(),
+    };
+
+    let subnet_id = SubnetId::compute_subnet_for_single_attestation::<T::EthSpec>(
+        &single_attestation,
         head.beacon_state
             .get_committee_count_at_slot(current_slot)
             .expect("should get committee count"),
@@ -165,13 +170,7 @@ fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     )
     .expect("should get subnet_id");
 
-    (
-        valid_attestation,
-        validator_index,
-        validator_committee_index,
-        validator_sk,
-        subnet_id,
-    )
+    (single_attestation, validator_sk, subnet_id)
 }
 
 fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
@@ -275,15 +274,13 @@ struct GossipTester {
     /*
      * Valid unaggregated attestation
      */
-    valid_attestation: Attestation<E>,
-    attester_validator_index: usize,
-    attester_committee_index: usize,
+    valid_attestation: SingleAttestation,
     attester_sk: SecretKey,
     attestation_subnet_id: SubnetId,
     /*
      * Valid unaggregated attestation for batch testing
      */
-    invalid_attestation: Attestation<E>,
+    invalid_attestation: SingleAttestation,
     /*
      * Valid aggregate
      */
@@ -312,22 +309,33 @@ impl GossipTester {
         // Advance into a slot where there have not been blocks or attestations produced.
         harness.advance_slot();
 
-        let (
-            valid_attestation,
-            attester_validator_index,
-            attester_committee_index,
-            attester_sk,
-            attestation_subnet_id,
-        ) = get_valid_unaggregated_attestation(&harness.chain);
+        let (valid_attestation, attester_sk, attestation_subnet_id) =
+            get_valid_unaggregated_attestation(&harness.chain);
+
+        let head = harness.chain.head_snapshot();
+        let state = &head.beacon_state;
+        let committee = state
+            .get_beacon_committee(
+                valid_attestation.data.slot,
+                valid_attestation.committee_index,
+            )
+            .unwrap();
+        let fork_name = harness
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(valid_attestation.data.slot);
+        let valid_aggregate_attestation =
+            single_attestation_to_attestation(&valid_attestation, committee.committee, fork_name)
+                .unwrap();
 
         let (valid_aggregate, aggregator_validator_index, aggregator_sk) =
-            get_valid_aggregated_attestation(&harness.chain, valid_attestation.clone());
+            get_valid_aggregated_attestation(&harness.chain, valid_aggregate_attestation.clone());
 
         let mut invalid_attestation = valid_attestation.clone();
-        invalid_attestation.data_mut().beacon_block_root = Hash256::repeat_byte(13);
+        invalid_attestation.data.beacon_block_root = Hash256::repeat_byte(13);
 
         let (mut invalid_aggregate, _, _) =
-            get_valid_aggregated_attestation(&harness.chain, invalid_attestation.clone());
+            get_valid_aggregated_attestation(&harness.chain, valid_aggregate_attestation.clone());
 
         match invalid_aggregate.to_mut() {
             SignedAggregateAndProofRefMut::Base(att) => {
@@ -341,8 +349,6 @@ impl GossipTester {
         Self {
             harness,
             valid_attestation,
-            attester_validator_index,
-            attester_committee_index,
             attester_sk,
             attestation_subnet_id,
             invalid_attestation,
@@ -467,12 +473,12 @@ impl GossipTester {
 
     pub fn inspect_unaggregate_err<G, I>(self, desc: &str, get_attn: G, inspect_err: I) -> Self
     where
-        G: Fn(&Self, &mut Attestation<E>, &mut SubnetId),
+        G: Fn(&Self, &mut SingleAttestation, &mut SubnetId, &ChainSpec),
         I: Fn(&Self, AttnError),
     {
         let mut attn = self.valid_attestation.clone();
         let mut subnet_id = self.attestation_subnet_id;
-        get_attn(&self, &mut attn, &mut subnet_id);
+        get_attn(&self, &mut attn, &mut subnet_id, &self.harness.spec);
 
         /*
          * Individual verification
@@ -912,32 +918,20 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with invalid committee index",
-            |tester, a, _| {
-                match a.to_mut() {
-                    AttestationRefMut::Base(attn) => {
-                        attn.data.index =  tester
-                            .harness
-                            .chain
-                            .head_snapshot()
-                            .beacon_state
-                            .get_committee_count_at_slot(attn.data.slot)
-                            .unwrap();
-                    }
-                    AttestationRefMut::Electra(attn) => {
-                        let committee_index = tester
-                            .harness
-                            .chain
-                            .head_snapshot()
-                            .beacon_state
-                            .get_committee_count_at_slot(attn.data.slot)
-                            .unwrap();
-                        // overwrite the existing committee bits before setting
-                        attn.committee_bits = BitVector::default();
-                        attn.committee_bits.set(committee_index as usize, true).unwrap();
-                    }
-                }
+            |tester, a, _, _| {
+                let committee_index = tester
+                    .harness
+                    .chain
+                    .head_snapshot()
+                    .beacon_state
+                    .get_committee_count_at_slot(a.data.slot)
+                    .unwrap();
+
+                a.committee_index = committee_index;
             },
-            |_, err| assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. })),
+            |_, err| {
+                assert!(matches!(err, AttnError::NoCommitteeForSlotAndIndex { .. }))
+            },
         )
         /*
          * The following test ensures:
@@ -946,8 +940,8 @@ async fn unaggregated_gossip_verification() {
          * attestation.data.slot, attestation.data.index) == subnet_id).
          */
         .inspect_unaggregate_err(
-            "attestation with invalid committee index",
-            |_, _, subnet_id| *subnet_id = SubnetId::new(42),
+            "attestation with invalid subnet_id",
+            |_, _, subnet_id, _| *subnet_id = SubnetId::new(42),
             |tester, err| {
                 assert!(matches!(
                     err,
@@ -969,7 +963,7 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation from future slot",
-            |tester, a, _| a.data_mut().slot = tester.slot() + 1,
+            |tester, a, _, _| a.data.slot = tester.slot() + 1,
             |tester, err| {
                 assert!(matches!(
                     err,
@@ -983,10 +977,10 @@ async fn unaggregated_gossip_verification() {
         )
         .inspect_unaggregate_err(
             "attestation from past slot",
-            |tester, a, _| {
+            |tester, a, _, _| {
                 let too_early_slot = tester.earliest_valid_attestation_slot() - 1;
-                a.data_mut().slot = too_early_slot;
-                a.data_mut().target.epoch = too_early_slot.epoch(E::slots_per_epoch());
+                a.data.slot = too_early_slot;
+                a.data.target.epoch = too_early_slot.epoch(E::slots_per_epoch());
             },
             |tester, err| {
                 let valid_early_slot = tester.earliest_valid_attestation_slot();
@@ -1010,109 +1004,11 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with invalid target epoch",
-            |_, a, _| a.data_mut().target.epoch += 1,
+            |_, a, _, _| a.data.target.epoch += 1,
             |_, err| {
                 assert!(matches!(
                     err,
                     AttnError::InvalidTargetEpoch { .. }
-                ))
-            },
-        )
-        /*
-         * The following two tests ensure:
-         *
-         * The attestation is unaggregated -- that is, it has exactly one participating validator
-         * (len([bit for bit in attestation.aggregation_bits if bit == 0b1]) == 1).
-         */
-        .inspect_unaggregate_err(
-            "attestation without any aggregation bits set",
-            |tester, mut a, _| {
-                match &mut a {
-                    Attestation::Base(ref mut att) => {
-                        att.aggregation_bits
-                            .set(tester.attester_committee_index, false)
-                            .expect("should unset aggregation bit");
-                        assert_eq!(
-                            att.aggregation_bits.num_set_bits(),
-                            0,
-                            "test requires no set bits"
-                        );
-                    }
-                    Attestation::Electra(ref mut att) => {
-                        att.aggregation_bits
-                            .set(tester.attester_committee_index, false)
-                            .expect("should unset aggregation bit");
-                        assert_eq!(
-                            att.aggregation_bits.num_set_bits(),
-                            0,
-                            "test requires no set bits"
-                        );
-                    }
-                }
-            },
-            |_, err| {
-                assert!(matches!(
-                    err,
-                    AttnError::NotExactlyOneAggregationBitSet(0)
-                ))
-            },
-        )
-        .inspect_unaggregate_err(
-            "attestation with two aggregation bits set",
-            |tester, mut a, _| {
-                match &mut a {
-                    Attestation::Base(ref mut att) => {
-                        att.aggregation_bits
-                            .set(tester.attester_committee_index + 1, true)
-                            .expect("should set second aggregation bit");
-                    }
-                    Attestation::Electra(ref mut att) => {
-                        att.aggregation_bits
-                            .set(tester.attester_committee_index + 1, true)
-                            .expect("should set second aggregation bit");
-                    }
-                }
-            },
-            |_, err| {
-                assert!(matches!(
-                    err,
-                    AttnError::NotExactlyOneAggregationBitSet(2)
-                ))
-            },
-        )
-        /*
-         * The following test ensures:
-         *
-         * The number of aggregation bits matches the committee size -- i.e.
-         *   `len(attestation.aggregation_bits) == len(get_beacon_committee(state, data.slot,
-         *   data.index))`.
-         */
-        .inspect_unaggregate_err(
-            "attestation with invalid bitfield",
-            |_, mut a, _| {
-                match &mut a {
-                    Attestation::Base(ref mut att) => {
-                        let bits = att.aggregation_bits.iter().collect::<Vec<_>>();
-                        att.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
-                        for (i, bit) in bits.into_iter().enumerate() {
-                            att.aggregation_bits.set(i, bit).unwrap();
-                        }
-                    }
-                    Attestation::Electra(ref mut att) => {
-                        let bits = att.aggregation_bits.iter().collect::<Vec<_>>();
-                        att.aggregation_bits = BitList::with_capacity(bits.len() + 1).unwrap();
-                        for (i, bit) in bits.into_iter().enumerate() {
-                            att.aggregation_bits.set(i, bit).unwrap();
-                        }
-                    }
-                }
-            },
-            |_, err| {
-                assert!(matches!(
-                    err,
-                    AttnError::Invalid(AttestationValidationError::BeaconStateError(
-                        BeaconStateError::InvalidBitfield
-                    ))
                 ))
             },
         )
@@ -1123,8 +1019,8 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with unknown head block",
-            |_, a, _| {
-                a.data_mut().beacon_block_root = Hash256::repeat_byte(42);
+            |_, a, _, _| {
+                a.data.beacon_block_root = Hash256::repeat_byte(42);
             },
             |_, err| {
                 assert!(matches!(
@@ -1145,8 +1041,8 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with invalid target root",
-            |_, a, _| {
-                a.data_mut().target.root = Hash256::repeat_byte(42);
+            |_, a, _, _| {
+                a.data.target.root = Hash256::repeat_byte(42);
             },
             |_, err| {
                 assert!(matches!(
@@ -1162,10 +1058,10 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation with bad signature",
-            |tester, a, _| {
+            |tester, a, _, _| {
                 let mut agg_sig = AggregateSignature::infinity();
                 agg_sig.add_assign(&tester.attester_sk.sign(Hash256::repeat_byte(42)));
-                *a.signature_mut() = agg_sig;
+                a.signature = agg_sig;
             },
             |_, err| {
                 assert!(matches!(
@@ -1186,7 +1082,7 @@ async fn unaggregated_gossip_verification() {
          */
         .inspect_unaggregate_err(
             "attestation that has already been seen",
-            |_, _, _| {},
+            |_, _, _, _| {},
             |tester, err| {
                 assert!(matches!(
                     err,
@@ -1194,7 +1090,7 @@ async fn unaggregated_gossip_verification() {
                         validator_index,
                         epoch,
                     }
-                    if validator_index == tester.attester_validator_index as u64 && epoch == tester.epoch()
+                    if validator_index == tester.valid_attestation.attester_index && epoch == tester.epoch()
                 ))
             },
         );
@@ -1243,7 +1139,7 @@ async fn attestation_that_skips_epochs() {
     let state_root = state.update_tree_hash_cache().unwrap();
 
     let (attestation, subnet_id) = harness
-        .get_unaggregated_attestations(
+        .get_single_attestations(
             &AttestationStrategy::AllValidators,
             &state,
             state_root,
@@ -1256,7 +1152,7 @@ async fn attestation_that_skips_epochs() {
         .cloned()
         .expect("should have at least one attestation in committee");
 
-    let block_root = attestation.data().beacon_block_root;
+    let block_root = attestation.data.beacon_block_root;
     let block_slot = harness
         .chain
         .store
@@ -1267,7 +1163,7 @@ async fn attestation_that_skips_epochs() {
         .slot();
 
     assert!(
-        attestation.data().slot - block_slot > E::slots_per_epoch() * 2,
+        attestation.data.slot - block_slot > E::slots_per_epoch() * 2,
         "the attestation must skip more than two epochs"
     );
 
@@ -1357,7 +1253,7 @@ async fn attestation_validator_receive_proposer_reward_and_withdrawals() {
     // Verifying the attestation triggers an inconsistent state replay.
     let remaining_attesters = (two_thirds..VALIDATOR_COUNT).collect();
     let (attestation, subnet_id) = harness
-        .get_unaggregated_attestations(
+        .get_single_attestations(
             &AttestationStrategy::SomeValidators(remaining_attesters),
             &state,
             state_root,
@@ -1426,7 +1322,7 @@ async fn attestation_to_finalized_block() {
     let state_root = state.update_tree_hash_cache().unwrap();
 
     let (attestation, subnet_id) = harness
-        .get_unaggregated_attestations(
+        .get_single_attestations(
             &AttestationStrategy::AllValidators,
             &state,
             state_root,
@@ -1438,7 +1334,7 @@ async fn attestation_to_finalized_block() {
         .first()
         .cloned()
         .expect("should have at least one attestation in committee");
-    assert_eq!(attestation.data().beacon_block_root, earlier_block_root);
+    assert_eq!(attestation.data.beacon_block_root, earlier_block_root);
 
     // Attestation should be rejected for attesting to a pre-finalization block.
     let res = harness
@@ -1481,8 +1377,23 @@ async fn verify_aggregate_for_gossip_doppelganger_detection() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, _attester_index, _attester_committee_index, _, _) =
-        get_valid_unaggregated_attestation(&harness.chain);
+    let (valid_attestation, _, _) = get_valid_unaggregated_attestation(&harness.chain);
+
+    let head = harness.chain.head_snapshot();
+    let state = &head.beacon_state;
+    let committee = state
+        .get_beacon_committee(
+            valid_attestation.data.slot,
+            valid_attestation.committee_index,
+        )
+        .unwrap();
+    let fork_name = harness
+        .chain
+        .spec
+        .fork_name_at_slot::<E>(valid_attestation.data.slot);
+    let valid_attestation =
+        single_attestation_to_attestation(&valid_attestation, committee.committee, fork_name)
+            .unwrap();
     let (valid_aggregate, _, _) =
         get_valid_aggregated_attestation(&harness.chain, valid_attestation);
 
@@ -1540,15 +1451,16 @@ async fn verify_attestation_for_gossip_doppelganger_detection() {
         "the test requires a new epoch to avoid already-seen errors"
     );
 
-    let (valid_attestation, index, _attester_committee_index, _, subnet_id) =
-        get_valid_unaggregated_attestation(&harness.chain);
+    let (valid_attestation, _, subnet_id) = get_valid_unaggregated_attestation(&harness.chain);
+
+    let index = valid_attestation.attester_index as usize;
 
     harness
         .chain
         .verify_unaggregated_attestation_for_gossip(&valid_attestation, Some(subnet_id))
         .expect("should verify attestation");
 
-    let epoch = valid_attestation.data().target.epoch;
+    let epoch = valid_attestation.data.target.epoch;
     assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
     // Check the correct beacon cache is populated
@@ -1612,7 +1524,7 @@ async fn attestation_verification_use_head_state_fork() {
         let attesters = (0..VALIDATOR_COUNT / 2).collect::<Vec<_>>();
         let capella_fork = spec.fork_for_name(ForkName::Capella).unwrap();
         let committee_attestations = harness
-            .make_unaggregated_attestations_with_opts(
+            .make_single_attestations_with_opts(
                 attesters.as_slice(),
                 &state,
                 state_root,
@@ -1642,7 +1554,7 @@ async fn attestation_verification_use_head_state_fork() {
         let attesters = (VALIDATOR_COUNT / 2..VALIDATOR_COUNT).collect::<Vec<_>>();
         let bellatrix_fork = spec.fork_for_name(ForkName::Bellatrix).unwrap();
         let committee_attestations = harness
-            .make_unaggregated_attestations_with_opts(
+            .make_single_attestations_with_opts(
                 attesters.as_slice(),
                 &state,
                 state_root,
