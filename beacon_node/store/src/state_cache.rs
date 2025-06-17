@@ -78,12 +78,16 @@ pub enum PutStateOutcome {
 
 #[allow(clippy::len_without_is_empty)]
 impl<E: EthSpec> StateCache<E> {
-    pub fn new(capacity: NonZeroUsize, headroom: NonZeroUsize) -> Self {
+    pub fn new(
+        state_capacity: NonZeroUsize,
+        headroom: NonZeroUsize,
+        hdiff_capacity: NonZeroUsize,
+    ) -> Self {
         StateCache {
             finalized_state: None,
-            states: LruCache::new(capacity),
+            states: LruCache::new(state_capacity),
             block_map: BlockMap::default(),
-            hdiff_buffers: HotHDiffBufferCache::new(NonZeroUsize::new(16).unwrap()),
+            hdiff_buffers: HotHDiffBufferCache::new(hdiff_capacity),
             max_epoch: Epoch::new(0),
             head_block_root: Hash256::ZERO,
             headroom,
