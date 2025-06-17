@@ -13,7 +13,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
-use std::fmt::{self, Display, Formatter};
+use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -756,15 +756,6 @@ pub enum GraffitiPolicy {
     #[default]
     PreserveUserGraffiti,
     AppendClientVersions,
-}
-
-impl fmt::Display for GraffitiPolicy {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            GraffitiPolicy::PreserveUserGraffiti => write!(f, "PreserveUserGraffiti"),
-            GraffitiPolicy::AppendClientVersions => write!(f, "AppendClientVersions"),
-        }
-    }
 }
 
 #[derive(Clone, Deserialize)]
