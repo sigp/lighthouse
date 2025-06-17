@@ -9,7 +9,7 @@ use eth2::types::{
 };
 use ssz::Encode;
 use std::sync::Arc;
-use types::{BeaconResponse, ForkName, Hash256, LightClientBootstrap};
+use types::{BeaconResponse, EthSpec, ForkName, Hash256, LightClientBootstrap};
 use warp::{
     hyper::{Body, Response},
     reply::Reply,

@@ -1,21 +1,19 @@
 use parking_lot::RwLock;
 
-use crate::{ChainSpec, EthSpec, ForkName, Hash256, Slot};
-use std::{collections::HashMap, marker::PhantomData};
+use crate::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot};
+use std::collections::{HashMap, HashSet};
 
 /// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
 #[derive(Debug)]
-pub struct ForkContext<E: EthSpec> {
-    relevant_epoch: Epoch,
+pub struct ForkContext {
+    digest_epoch: RwLock<Epoch>,
     enabled_forks: HashSet<ForkName>,
     genesis_validators_root: Hash256,
-    epoch_to_digest: BTreeMap<Epoch, [u8; 4]>,
     digest_to_fork: HashMap<[u8; 4], ForkName>,
     pub spec: ChainSpec,
-    phantom_data: PhantomData<E>,
 }
 
-impl<E: EthSpec> ForkContext<E> {
+impl ForkContext {
     /// Creates a new `ForkContext` object by enumerating all enabled forks and computing their
     /// fork digest.
     ///
@@ -27,13 +25,13 @@ impl<E: EthSpec> ForkContext<E> {
     ) -> Self {
         let enabled_forks = ForkName::list_all()
             .into_iter()
-            .filter(|fork| spec.fork_epoch(fork).is_some());
+            .filter(|fork| spec.fork_epoch(*fork).is_some())
+            .collect();
 
-        let epoch_to_digest = spec
+        let epoch_to_digest: HashMap<_, _> = spec
             .all_digest_epochs()
             .into_iter()
             .map(|epoch| {
-                let fork_version = spec.fork_version_for_epoch(epoch);
                 let fork_digest = spec.compute_fork_digest(genesis_validators_root, epoch);
                 (epoch, fork_digest)
             })
@@ -42,45 +40,46 @@ impl<E: EthSpec> ForkContext<E> {
         let digest_to_fork = epoch_to_digest
             .iter()
             .map(|(epoch, digest)| {
-                let fork_name = spec.fork_name_at_epoch(epoch);
+                let fork_name = spec.fork_name_at_epoch(*epoch);
                 (*digest, fork_name)
             })
             .collect();
 
-        let relevant_epoch = RwLock::new(current_slot.epoch(E::slots_per_epoch()));
+        let digest_epoch = RwLock::new(current_slot.epoch(E::slots_per_epoch()));
 
         Self {
-            relevant_epoch,
+            digest_epoch,
             enabled_forks,
             genesis_validators_root,
-            epoch_to_digest,
             digest_to_fork,
             spec: spec.clone(),
-            phantom_data: PhantomData::<E>::default(),
         }
     }
 
     /// Returns `true` if the provided `fork_name` exists in the `ForkContext` object.
     pub fn fork_exists(&self, fork_name: ForkName) -> bool {
-        self.enabled_forks.contains_key(&fork_name)
+        self.enabled_forks.contains(&fork_name)
     }
 
     /// Returns the `current_fork`.
     pub fn current_fork(&self) -> ForkName {
-        *self.current_fork.read()
+        self.spec.fork_name_at_epoch(self.digest_epoch())
     }
 
-    /// Updates the `current_fork` field to a new fork.
-    pub fn update_current_fork(&self, new_fork: ForkName) {
-        *self.current_fork.write() = new_fork;
+    /// Returns the current digest epoch
+    pub fn digest_epoch(&self) -> Epoch {
+        *self.digest_epoch.read()
+    }
+
+    /// Updates the `digest_epoch` field to a new digest epoch.
+    pub fn update_digest_epoch(&self, epoch: Epoch) {
+        *self.digest_epoch.write() = epoch;
     }
 
     /// Returns the context bytes/fork_digest corresponding to the genesis fork version.
     pub fn genesis_context_bytes(&self) -> [u8; 4] {
-        *self
-            .fork_to_digest
-            .get(&ForkName::Base)
-            .expect("ForkContext must contain genesis context bytes")
+        self.spec
+            .compute_fork_digest(self.genesis_validators_root, Epoch::new(0))
     }
 
     /// Returns the fork type given the context bytes/fork_digest.
@@ -89,15 +88,8 @@ impl<E: EthSpec> ForkContext<E> {
         self.digest_to_fork.get(&context)
     }
 
-    /// Returns the context bytes/fork_digest corresponding to a fork name.
-    /// Returns `None` if the `ForkName` has not been initialized.
-    pub fn to_context_bytes(&self, fork_name: ForkName) -> Option<[u8; 4]> {
-        self.fork_to_digest.get(&fork_name).cloned()
-    }
-
-    // TODO: we may delete this entire object and just use the spec
-    pub fn context_bytes(&self, slot: Slot) -> [u8; 4] {
-        let epoch = slot.epoch(E::slots_per_epoch());
+    // TODO: we *may* delete this entire object and just use the spec
+    pub fn context_bytes(&self, epoch: Epoch) -> [u8; 4] {
         self.spec
             .compute_fork_digest(self.genesis_validators_root, epoch)
     }

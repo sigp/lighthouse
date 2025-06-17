@@ -754,10 +754,10 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
         match self {
             Self::BlocksByRange(r) | Self::BlocksByRoot(r) => Some(r.slot()),
             Self::BlobsByRange(r) | Self::BlobsByRoot(r) => {
-                Some(r.signed_block_header.message().slot())
+                Some(r.signed_block_header.message.slot)
             }
             Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => {
-                Some(r.signed_block_header.message().slot())
+                Some(r.signed_block_header.message.slot)
             }
             Self::LightClientBootstrap(r) => Some(r.get_slot()),
             Self::LightClientFinalityUpdate(r) => Some(r.get_attested_header_slot()),

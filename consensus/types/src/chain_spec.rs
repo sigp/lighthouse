@@ -2,11 +2,11 @@ use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
+use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_utils::quoted_u64::MaybeQuoted;
-use sha2::Sha256;
 use ssz::Encode;
 use std::fs::File;
 use std::path::Path;
@@ -550,7 +550,7 @@ impl ChainSpec {
     ///
     /// This is a digest primarily used for domain separation on the p2p layer.
     /// 4-bytes suffices for practical separation of forks/chains.
-    pub fn compute_fork_digest(self, genesis_validators_root: Hash256, epoch: Epoch) -> [u8; 4] {
+    pub fn compute_fork_digest(&self, genesis_validators_root: Hash256, epoch: Epoch) -> [u8; 4] {
         let fork_version = self.fork_version_for_epoch(epoch);
         let mut base_digest = [0u8; 4];
         let root = Self::compute_fork_data_root(fork_version, genesis_validators_root);
@@ -568,11 +568,11 @@ impl ChainSpec {
             Some(fulu_epoch) if epoch >= fulu_epoch => {
                 // Concatenate epoch and max_blobs_per_block as u64 bytes
                 let mut input = Vec::with_capacity(16);
-                input.extend_from_slice(&blob_parameters.epoch.as_u64().to_be_bytes());
-                input.extend_from_slice(&blob_parameters.max_blobs_per_block.to_be_bytes());
+                input.extend_from_slice(&blob_parameters.epoch.as_u64().to_le_bytes());
+                input.extend_from_slice(&blob_parameters.max_blobs_per_block.to_le_bytes());
 
                 // Hash the concatenated bytes
-                let hash = Sha256::digest(input);
+                let hash = hash(&input);
 
                 // XOR the base digest with the first 4 bytes of the hash
                 let mut masked_digest = [0u8; 4];
@@ -585,17 +585,32 @@ impl ChainSpec {
         }
     }
 
-    pub fn all_digest_epochs(&self) -> Iter<Epoch> {
+    pub fn all_digest_epochs(&self) -> impl std::iter::Iterator<Item = Epoch> {
         let mut relevant_epochs = ForkName::list_all_fork_epochs(self)
+            .into_iter()
             .filter_map(|(_, epoch)| epoch)
-            .collect::<HashSet<_>>();
+            .collect::<std::collections::HashSet<_>>();
 
         if self.fulu_fork_epoch.is_some() {
-            for blob_parameters in self.blob_schedule {
+            for blob_parameters in &self.blob_schedule {
                 relevant_epochs.insert(blob_parameters.epoch);
             }
         }
-        relevant_epochs.iter().sorted()
+        let mut vec = relevant_epochs.into_iter().collect::<Vec<_>>();
+        vec.sort();
+        vec.into_iter()
+    }
+
+    pub fn next_digest_epoch(&self, epoch: Epoch) -> Option<Epoch> {
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => self
+                .all_digest_epochs()
+                .find(|digest_epoch| *digest_epoch > epoch),
+            _ => self
+                .fork_name_at_epoch(epoch)
+                .next_fork()
+                .and_then(|fork_name| self.fork_epoch(fork_name)),
+        }
     }
 
     /// Compute a domain by applying the given `fork_version`.
@@ -2585,6 +2600,88 @@ mod yaml_tests {
             default_max_blobs_per_block_electra()
         );
         assert_eq!(spec.max_blobs_per_block_within_fork(ForkName::Fulu), 20);
+    }
+
+    #[test]
+    fn blob_schedule_fork_digest() {
+        let spec_contents = r#"
+        PRESET_BASE: 'mainnet'
+        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
+        MIN_GENESIS_TIME: 1748264340
+        GENESIS_FORK_VERSION: 0x10355025
+        GENESIS_DELAY: 60
+        SECONDS_PER_SLOT: 12
+        SECONDS_PER_ETH1_BLOCK: 12
+        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+        SHARD_COMMITTEE_PERIOD: 256
+        ETH1_FOLLOW_DISTANCE: 2048
+        INACTIVITY_SCORE_BIAS: 4
+        INACTIVITY_SCORE_RECOVERY_RATE: 16
+        EJECTION_BALANCE: 16000000000
+        MIN_PER_EPOCH_CHURN_LIMIT: 4
+        CHURN_LIMIT_QUOTIENT: 65536
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
+        PROPOSER_SCORE_BOOST: 40
+        REORG_HEAD_WEIGHT_THRESHOLD: 20
+        REORG_PARENT_WEIGHT_THRESHOLD: 160
+        REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
+        DEPOSIT_CHAIN_ID: 7042643276
+        DEPOSIT_NETWORK_ID: 7042643276
+        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+
+        ALTAIR_FORK_VERSION: 0x20355025
+        ALTAIR_FORK_EPOCH: 0
+        BELLATRIX_FORK_VERSION: 0x30355025
+        BELLATRIX_FORK_EPOCH: 0
+        CAPELLA_FORK_VERSION: 0x40355025
+        CAPELLA_FORK_EPOCH: 0
+        DENEB_FORK_VERSION: 0x50355025
+        DENEB_FORK_EPOCH: 0
+        ELECTRA_FORK_VERSION: 0x60000000
+        ELECTRA_FORK_EPOCH: 9
+        FULU_FORK_VERSION: 0x06000000
+        FULU_FORK_EPOCH: 100
+        BLOB_SCHEDULE:
+          - EPOCH: 9
+            MAX_BLOBS_PER_BLOCK: 9
+          - EPOCH: 100
+            MAX_BLOBS_PER_BLOCK: 100
+          - EPOCH: 150
+            MAX_BLOBS_PER_BLOCK: 175
+          - EPOCH: 200
+            MAX_BLOBS_PER_BLOCK: 200
+          - EPOCH: 250
+            MAX_BLOBS_PER_BLOCK: 275
+          - EPOCH: 300
+            MAX_BLOBS_PER_BLOCK: 300
+        "#;
+        let config: Config =
+            serde_yaml::from_str(spec_contents).expect("error while deserializing");
+        let spec =
+            ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
+
+        let genesis_validators_root = Hash256::from_slice(&[0; 32]);
+
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(100));
+        assert_eq!(digest, [0xdf, 0x67, 0x55, 0x7b]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(101));
+        assert_eq!(digest, [0xdf, 0x67, 0x55, 0x7b]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(150));
+        assert_eq!(digest, [0x8a, 0xb3, 0x8b, 0x59]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(199));
+        assert_eq!(digest, [0x8a, 0xb3, 0x8b, 0x59]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(200));
+        assert_eq!(digest, [0xd9, 0xb8, 0x14, 0x38]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(201));
+        assert_eq!(digest, [0xd9, 0xb8, 0x14, 0x38]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(250));
+        assert_eq!(digest, [0x4e, 0xf3, 0x2a, 0x62]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(299));
+        assert_eq!(digest, [0x4e, 0xf3, 0x2a, 0x62]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(300));
+        assert_eq!(digest, [0xca, 0x10, 0x0d, 0x64]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(301));
+        assert_eq!(digest, [0xca, 0x10, 0x0d, 0x64]);
     }
 
     #[test]

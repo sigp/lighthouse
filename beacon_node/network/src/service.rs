@@ -188,8 +188,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     /// A delay that expires when a new fork takes place.
     next_fork_update: Pin<Box<OptionFuture<Sleep>>>,
-    /// A delay the expires when the next digest update takes place.
-    next_digest_update: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to subscribe to a new fork's topics.
     next_fork_subscriptions: Pin<Box<OptionFuture<Sleep>>>,
     /// A delay that expires when we need to unsubscribe from old fork topics.
@@ -266,7 +264,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             &beacon_chain.spec,
         ));
 
-        debug!(fork_name = ?fork_context.current_fork(), "Current fork");
+        //debug!(fork_name = ?fork_context.current_fork(), "Current fork");
 
         // construct the libp2p service context
         let service_context = Context {
@@ -390,29 +388,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let fork_context = &self.fork_context;
         let spec = &self.beacon_chain.spec;
         let current_slot = self.beacon_chain.slot().unwrap_or(spec.genesis_slot);
-        let current_fork = fork_context.current_fork();
+        let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
-        let mut result = vec![fork_context
-            .to_context_bytes(current_fork)
-            .unwrap_or_else(|| {
-                panic!(
-                    "{} fork bytes should exist as it's initialized in ForkContext",
-                    current_fork
-                )
-            })];
+        let mut result = vec![fork_context.context_bytes(current_epoch)];
 
-        if let Some((next_fork, fork_epoch)) = spec.next_fork_epoch::<T::EthSpec>(current_slot) {
+        if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch) {
             if current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
-                >= fork_epoch.start_slot(T::EthSpec::slots_per_epoch())
+                >= next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch())
             {
-                let next_fork_context_bytes =
-                    fork_context.to_context_bytes(next_fork).unwrap_or_else(|| {
-                        panic!(
-                            "context bytes should exist as spec.next_fork_epoch({}) returned Some({})",
-                            current_slot, next_fork
-                        )
-                    });
-                result.push(next_fork_context_bytes);
+                let next_digest = fork_context.context_bytes(next_digest_epoch);
+                result.push(next_digest);
             }
         }
 
@@ -465,9 +450,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
 
                     Some(_) = &mut self.next_fork_subscriptions => {
-                        if let Some((fork_name, _)) = self.beacon_chain.duration_to_next_fork() {
+                        if let Some((epoch, _)) = self.beacon_chain.duration_to_next_digest() {
+                            let fork_name = self.beacon_chain.spec.fork_name_at_epoch(epoch);
                             let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
-                            let fork_digest = ChainSpec::compute_fork_digest(fork_version, self.beacon_chain.genesis_validators_root);
+                            let fork_digest = self.beacon_chain.spec.compute_fork_digest(self.beacon_chain.genesis_validators_root, epoch);
                             info!("Subscribing to new fork topics");
                             self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
                             self.next_fork_subscriptions = Box::pin(None.into());
@@ -832,20 +818,30 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn update_next_fork(&mut self) {
         let new_enr_fork_id = self.beacon_chain.enr_fork_id();
+        let current_epoch = self.beacon_chain.epoch().expect("dont fail!!");
         let new_fork_digest = new_enr_fork_id.fork_digest;
 
         let fork_context = &self.fork_context;
         if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
-            info!(
-                old_fork = ?fork_context.current_fork(),
-                new_fork = ?new_fork_name,
-                "Transitioned to new fork"
-            );
-            fork_context.update_current_fork(*new_fork_name);
+            if fork_context.current_fork() == *new_fork_name {
+                // BPO FORK
+                info!(
+                    epoch = ?current_epoch,
+                    "BPO Fork Triggered"
+                )
+            } else {
+                info!(
+                    old_fork = ?fork_context.current_fork(),
+                    new_fork = ?new_fork_name,
+                    "Transitioned to new fork"
+                );
+            }
+
+            fork_context.update_digest_epoch(current_epoch);
 
             self.libp2p.update_fork_version(new_enr_fork_id);
             // Reinitialize the next_fork_update
-            self.next_fork_update = Box::pin(next_fork_delay(&self.beacon_chain).into());
+            self.next_fork_update = Box::pin(next_digest_delay(&self.beacon_chain).into());
 
             // Set the next_unsubscribe delay.
             let epoch_duration =
@@ -854,7 +850,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
             // Update the `next_fork_subscriptions` timer if the next fork is known.
             self.next_fork_subscriptions =
-                Box::pin(next_fork_subscriptions_delay(&self.beacon_chain).into());
+                Box::pin(next_digest_subscriptions_delay(&self.beacon_chain).into());
             self.next_unsubscribe = Box::pin(Some(tokio::time::sleep(unsubscribe_delay)).into());
             info!(
                 remaining_epochs = UNSUBSCRIBE_DELAY_EPOCHS,
@@ -897,6 +893,9 @@ fn next_fork_delay<T: BeaconChainTypes>(
 fn next_digest_delay<T: BeaconChainTypes>(
     beacon_chain: &BeaconChain<T>,
 ) -> Option<tokio::time::Sleep> {
+    beacon_chain
+        .duration_to_next_digest()
+        .map(|(_, until_epoch)| tokio::time::sleep(until_epoch))
 }
 
 /// Returns a `Sleep` that triggers `SUBSCRIBE_DELAY_SLOTS` before the next fork.
@@ -906,6 +905,20 @@ fn next_fork_subscriptions_delay<T: BeaconChainTypes>(
 ) -> Option<tokio::time::Sleep> {
     if let Some((_, duration_to_fork)) = beacon_chain.duration_to_next_fork() {
         let duration_to_subscription = duration_to_fork.saturating_sub(Duration::from_secs(
+            beacon_chain.spec.seconds_per_slot * SUBSCRIBE_DELAY_SLOTS,
+        ));
+        if !duration_to_subscription.is_zero() {
+            return Some(tokio::time::sleep(duration_to_subscription));
+        }
+    }
+    None
+}
+
+fn next_digest_subscriptions_delay<T: BeaconChainTypes>(
+    beacon_chain: &BeaconChain<T>,
+) -> Option<tokio::time::Sleep> {
+    if let Some((_, duration_to_epoch)) = beacon_chain.duration_to_next_digest() {
+        let duration_to_subscription = duration_to_epoch.saturating_sub(Duration::from_secs(
             beacon_chain.spec.seconds_per_slot * SUBSCRIBE_DELAY_SLOTS,
         ));
         if !duration_to_subscription.is_zero() {

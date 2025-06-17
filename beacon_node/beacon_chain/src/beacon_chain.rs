@@ -6813,6 +6813,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|duration| (fork_name, duration))
     }
 
+    pub fn duration_to_next_digest(&self) -> Option<(Epoch, Duration)> {
+        // If we are unable to read the slot clock we assume that it is prior to genesis and
+        // therefore use the genesis slot.
+        let slot = self.slot().unwrap_or(self.spec.genesis_slot);
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+
+        let next_digest_epoch = self.spec.next_digest_epoch(epoch)?;
+        let next_digest_slot = next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch());
+
+        self.slot_clock
+            .duration_to_slot(next_digest_slot)
+            .map(|duration| (next_digest_epoch, duration))
+    }
+
     /// This method serves to get a sense of the current chain health. It is used in block proposal
     /// to determine whether we should outsource payload production duties.
     ///
