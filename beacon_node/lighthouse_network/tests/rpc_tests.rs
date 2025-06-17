@@ -1451,7 +1451,7 @@ fn test_request_too_large_blobs_by_range() {
     let spec = Arc::new(E::default_spec());
 
     let max_request_blobs_count = spec.max_request_blob_sidecars(ForkName::Base) as u64
-        / spec.max_blobs_per_block_by_fork(ForkName::Base);
+        / spec.max_blobs_per_block_within_fork(ForkName::Base);
     test_request_too_large(
         AppRequestId::Sync(SyncRequestId::BlobsByRange(BlobsByRangeRequestId {
             id: 1,
