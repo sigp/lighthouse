@@ -1,0 +1,34 @@
+[Unit]
+Description=Lighthouse Ethereum Beacon Chain Client
+Documentation=https://lighthouse-book.sigmaprime.io/
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+DynamicUser=true
+User=lighthouse
+Group=eth
+Restart=always
+RestartSec=5
+TimeoutStopSec=180
+Environment="RUST_LOG=info"
+ExecStart=/usr/bin/lighthouse \
+    bn \
+    --checkpoint-sync-url https://sync-mainnet.beaconcha.in \
+    --execution-endpoint http://localhost:8551 \
+    --execution-jwt /etc/jwt.hex \
+    --suggested-fee-recipient 0x0 \
+    --always-prepare-payload \
+    --prepare-payload-lookahead 8000 \
+    --disable-deposit-contract-sync \
+    --http \
+    --port 9000 \
+    --http-port 3500 \
+    --metrics \
+    --metrics-address 127.0.0.1 \
+    --metrics-port 5054 \
+    --datadir /mnt/data/lighthouse
+
+[Install]
+WantedBy=default.target

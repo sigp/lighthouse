@@ -93,3 +93,33 @@ zeroize = { workspace = true }
 [[test]]
 name = "lighthouse_tests"
 path = "tests/main.rs"
+
+[package.metadata.deb]
+# Package metadata
+maintainer = "Sigma Prime <team@sigmaprime.io>"
+extended-description = """\
+Lighthouse is a Rust implementation of the Ethereum beacon chain, \
+built by Sigma Prime. It implements the official Ethereum 2.0 specification."""
+
+# Dependencies
+depends = "$auto, systemd"
+section = "net"
+priority = "optional"
+
+# System integration
+systemd-units = { enable = false, start = false }
+
+# Assets to include in the package
+assets = [
+    # Binary - use target/release/ prefix (cargo-deb will replace with actual path)
+    ["target/release/lighthouse", "usr/bin/", "755"],
+    
+    # Systemd service (in lighthouse directory)
+    ["lighthouse.service", "lib/systemd/system/", "644"],
+    
+    # Documentation (in parent directory)  
+    ["../README.md", "usr/share/doc/lighthouse/", "644"],
+]
+
+# Use default features - let Makefile handle the building
+default-features = false
