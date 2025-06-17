@@ -185,7 +185,6 @@ pub static BEACON_HDIFF_BUFFER_LOAD_TIME: LazyLock<Result<HistogramVec>> = LazyL
         &["db"],
     )
 });
-// NB: the `hot` version of this metric doesn't currently exist as we don't cache hot buffers
 pub static BEACON_HDIFF_BUFFER_CLONE_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {
     try_create_histogram_vec(
         "store_hdiff_buffer_clone_seconds",
@@ -281,7 +280,7 @@ pub static STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(
             "store_beacon_hdiff_buffer_cache_size",
-            "Current count of hdiff buffers in the historic state cache",
+            "Current count of hdiff buffers cached in memory",
             &["db"],
         )
     });
@@ -289,7 +288,7 @@ pub static STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE: LazyLock<Result<IntGaugeVe
     LazyLock::new(|| {
         try_create_int_gauge_vec(
             "store_beacon_hdiff_buffer_cache_byte_size",
-            "Memory consumed by hdiff buffers in the historic state cache",
+            "Memory consumed by hdiff buffers cached in memory",
             &["db"],
         )
     });

@@ -1955,6 +1955,15 @@ fn hot_hdiff_buffer_cache_size_default() {
         });
 }
 #[test]
+fn hot_hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hot-hdiff-buffer-cache-size", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hot_hdiff_buffer_cache_size.get(), 3);
+        });
+}
+#[test]
 fn auto_compact_db_flag() {
     CommandLineTest::new()
         .flag("auto-compact-db", Some("false"))

@@ -275,14 +275,18 @@ impl<E: EthSpec> StateCache<E> {
     pub fn get_hdiff_buffer_by_state_root(&mut self, state_root: Hash256) -> Option<HDiffBuffer> {
         if let Some(buffer) = self.hdiff_buffers.get(&state_root) {
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
-            return Some(buffer.clone());
+            let timer =
+                metrics::start_timer_vec(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIME, HOT_METRIC);
+            let result = Some(buffer.clone());
+            drop(timer);
+            return result;
         }
         if let Some(buffer) = self
             .get_by_state_root(state_root)
             .map(HDiffBuffer::from_state)
         {
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
-            return Some(buffer.clone());
+            return Some(buffer);
         }
         metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
         None
