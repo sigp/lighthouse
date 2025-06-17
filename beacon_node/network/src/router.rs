@@ -6,7 +6,7 @@
 #![allow(clippy::unit_arg)]
 
 use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
-use crate::service::NetworkMessage;
+use crate::service::{NetworkMessage, SyncServiceMessage};
 use crate::status::status_message;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -84,6 +84,7 @@ impl<T: BeaconChainTypes> Router<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
+        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
         executor: task_executor::TaskExecutor,
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
@@ -117,6 +118,7 @@ impl<T: BeaconChainTypes> Router<T> {
             network_send.clone(),
             network_beacon_processor.clone(),
             sync_recv,
+            sync_service_recv,
             fork_context,
         );
 

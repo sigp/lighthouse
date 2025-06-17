@@ -5,6 +5,7 @@ use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
 use crate::NetworkConfig;
+use beacon_chain::validator_custody::CustodyCountChanged;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
@@ -131,6 +132,15 @@ pub enum ValidatorSubscriptionMessage {
     },
 }
 
+/// Messages that Lighthouse services send to communicate with the Sync service.
+#[derive(Debug, Clone, IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum SyncServiceMessage {
+    /// Custody group count changed due to a change in validators' weight.
+    /// Trigger data column backfill.
+    CustodyCountChanged(CustodyCountChanged),
+}
+
 #[derive(Clone)]
 pub struct NetworkSenders<E: EthSpec> {
     network_send: mpsc::UnboundedSender<NetworkMessage<E>>,
@@ -182,6 +192,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// The sending channel for the network service to send messages to be routed throughout
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
+    /// The sending channel for the network service to send messages to the sync service.
+    sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
     /// A reference to lighthouse's database to persist the DHT.
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
@@ -205,10 +217,13 @@ pub struct NetworkService<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> NetworkService<T> {
+    #[allow(clippy::too_many_arguments)]
     async fn build(
         beacon_chain: Arc<BeaconChain<T>>,
         config: Arc<NetworkConfig>,
         executor: task_executor::TaskExecutor,
+        sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
+        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
@@ -312,6 +327,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain.clone(),
             network_globals.clone(),
             network_senders.network_send(),
+            sync_service_recv,
             executor.clone(),
             invalid_block_storage,
             beacon_processor_send,
@@ -344,6 +360,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             subnet_service,
             network_recv,
             validator_subscription_recv,
+            sync_service_send,
             router_send,
             store,
             network_globals: network_globals.clone(),
@@ -369,10 +386,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>), String> {
+        let (sync_service_send, sync_service_recv) = mpsc::unbounded_channel();
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
             config,
             executor.clone(),
+            sync_service_send,
+            sync_service_recv,
             libp2p_registry,
             beacon_processor_send,
             beacon_processor_reprocess_tx,
@@ -768,6 +788,13 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
                 self.libp2p.update_enr_cgc(new_custody_group_count);
+                let message = SyncServiceMessage::CustodyCountChanged(CustodyCountChanged {
+                    new_custody_group_count,
+                    sampling_count,
+                });
+                if let Err(e) = self.sync_service_send.send(message.clone()) {
+                    tracing::error!(error = %e, ?message, "Could not send message to the syn service.");
+                }
             }
         }
     }

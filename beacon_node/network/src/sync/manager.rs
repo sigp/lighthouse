@@ -42,7 +42,7 @@ use super::peer_sampling::{Sampling, SamplingConfig, SamplingResult};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
-use crate::service::NetworkMessage;
+use crate::service::{NetworkMessage, SyncServiceMessage};
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
@@ -234,6 +234,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// A receiving channel sent by the message processor thread.
     input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
 
+    /// A receiving channel sent by external lighthouse services.
+    service_channel: mpsc::UnboundedReceiver<SyncServiceMessage>,
+
     /// A network context to contact the network service.
     network: SyncNetworkContext<T>,
 
@@ -261,6 +264,7 @@ pub fn spawn<T: BeaconChainTypes>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
+    sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
     fork_context: Arc<ForkContext>,
 ) {
     assert!(
@@ -274,6 +278,7 @@ pub fn spawn<T: BeaconChainTypes>(
         network_send,
         beacon_processor,
         sync_recv,
+        sync_service_recv,
         SamplingConfig::Default,
         fork_context,
     );
@@ -296,6 +301,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
+        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
         sampling_config: SamplingConfig,
         fork_context: Arc<ForkContext>,
     ) -> Self {
@@ -303,6 +309,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         Self {
             chain: beacon_chain.clone(),
             input_channel: sync_recv,
+            service_channel: sync_service_recv,
             network: SyncNetworkContext::new(
                 network_send,
                 beacon_processor.clone(),
@@ -736,6 +743,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Some(sync_message) = self.input_channel.recv() => {
                     self.handle_message(sync_message);
                 },
+                Some(service_message) = self.service_channel.recv() => {
+                    self.handle_service_message(service_message)
+                }
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
                 }
@@ -749,6 +759,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.network.register_metrics();
                 }
             }
+        }
+    }
+
+    pub(crate) fn handle_service_message(&mut self, sync_service_message: SyncServiceMessage) {
+        match sync_service_message {
+            SyncServiceMessage::CustodyCountChanged(_custody_count_changed) => {
+                self.backfill_sync;
+                todo!()
+            },
         }
     }
 

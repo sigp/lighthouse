@@ -255,6 +255,7 @@ impl CustodyContext {
 
 /// The custody count changed because of a change in the
 /// number of validators being managed.
+#[derive(Debug, Clone)]
 pub struct CustodyCountChanged {
     pub new_custody_group_count: u64,
     pub sampling_count: u64,

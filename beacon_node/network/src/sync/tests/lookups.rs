@@ -124,6 +124,7 @@ impl TestRig {
                 beacon_processor.into(),
                 // Pass empty recv not tied to any tx
                 mpsc::unbounded_channel().1,
+                mpsc::unbounded_channel().1,
                 SamplingConfig::Custom {
                     required_successes: vec![SAMPLING_REQUIRED_SUCCESSES],
                 },
