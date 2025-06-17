@@ -491,7 +491,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .await;
 
         let head = harness.chain.head_snapshot();
-        late_attestations.extend(harness.get_unaggregated_attestations(
+        late_attestations.extend(harness.get_single_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
             head.beacon_state_root(),
@@ -511,7 +511,7 @@ async fn epoch_boundary_state_attestation_processing() {
 
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
-        let block_root = attestation.data().beacon_block_root;
+        let block_root = attestation.data.beacon_block_root;
         let block = store
             .get_blinded_block(&block_root)
             .unwrap()
@@ -536,7 +536,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data().slot;
+        let expected_attestation_slot = attestation.data.slot;
         // Extra -1 to handle gossip clock disparity.
         let expected_earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
@@ -2704,7 +2704,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             slot,
         );
         harness.advance_slot();
-        harness.process_attestations(attestations);
+        harness.process_attestations(attestations, &advanced_split_state);
     }
 }
 
@@ -2866,8 +2866,8 @@ async fn revert_minority_fork_on_resume() {
         );
         harness1.set_current_slot(slot);
         harness2.set_current_slot(slot);
-        harness1.process_attestations(attestations.clone());
-        harness2.process_attestations(attestations);
+        harness1.process_attestations(attestations.clone(), &state);
+        harness2.process_attestations(attestations, &state);
 
         let ((block, blobs), new_state) = harness1.make_block(state, slot).await;
 
@@ -2907,7 +2907,7 @@ async fn revert_minority_fork_on_resume() {
             slot,
         );
         harness2.set_current_slot(slot);
-        harness2.process_attestations(attestations);
+        harness2.process_attestations(attestations, &state2);
 
         // Minority chain block (no attesters).
         let ((block1, blobs1), new_state1) = harness1.make_block(state1, slot).await;

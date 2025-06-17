@@ -2074,7 +2074,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         AttestationError,
     >
     where
-        I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
+        I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
     {
         batch_verify_unaggregated_attestations(attestations, self)
     }
@@ -2086,7 +2086,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// aggregation bit set.
     pub fn verify_unaggregated_attestation_for_gossip<'a>(
         &self,
-        unaggregated_attestation: &'a Attestation<T::EthSpec>,
+        unaggregated_attestation: &'a SingleAttestation,
         subnet_id: Option<SubnetId>,
     ) -> Result<VerifiedUnaggregatedAttestation<'a, T>, AttestationError> {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
@@ -2102,13 +2102,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             .spec
                             .fork_name_at_slot::<T::EthSpec>(v.attestation().data().slot);
                         if current_fork.electra_enabled() {
-                            // I don't see a situation where this could return None. The upstream unaggregated attestation checks
-                            // should have already verified that this is an attestation with a single committee bit set.
-                            if let Some(single_attestation) = v.single_attestation() {
-                                event_handler.register(EventKind::SingleAttestation(Box::new(
-                                    single_attestation,
-                                )));
-                            }
+                            event_handler.register(EventKind::SingleAttestation(Box::new(
+                                v.single_attestation(),
+                            )));
                         }
                     }
 

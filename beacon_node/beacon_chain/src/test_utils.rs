@@ -1118,9 +1118,14 @@ where
                 attn.aggregation_bits
                     .set(aggregation_bit_index, true)
                     .unwrap();
-                attn
+                Attestation::Electra(attn)
             }
-            Attestation::Base(_) => panic!("Must be an Electra attestation"),
+            Attestation::Base(mut attn) => {
+                attn.aggregation_bits
+                    .set(aggregation_bit_index, true)
+                    .unwrap();
+                Attestation::Base(attn)
+            }
         };
 
         let aggregation_bits = attestation.get_aggregation_bits();
@@ -1148,8 +1153,10 @@ where
         let single_attestation =
             attestation.to_single_attestation_with_attester_index(attester_index as u64)?;
 
+        let fork_name = self.spec.fork_name_at_slot::<E>(attestation.data().slot);
         let attestation: Attestation<E> =
-            single_attestation_to_attestation(&single_attestation, committee.committee).unwrap();
+            single_attestation_to_attestation(&single_attestation, committee.committee, fork_name)
+                .unwrap();
 
         assert_eq!(
             single_attestation.committee_index,
@@ -2407,7 +2414,11 @@ where
         })
     }
 
-    pub fn process_attestations(&self, attestations: HarnessAttestations<E>) {
+    pub fn process_attestations(
+        &self,
+        attestations: HarnessAttestations<E>,
+        state: &BeaconState<E>,
+    ) {
         let num_validators = self.validator_keypairs.len();
         let mut unaggregated = Vec::with_capacity(num_validators);
         // This is an over-allocation, but it should be fine. It won't be *that* memory hungry and
@@ -2416,7 +2427,35 @@ where
 
         for (unaggregated_attestations, maybe_signed_aggregate) in attestations.iter() {
             for (attn, subnet) in unaggregated_attestations {
-                unaggregated.push((attn, Some(*subnet)));
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+
+                let single_attestation = attn
+                    .to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap();
+
+                unaggregated.push((single_attestation, Some(*subnet)));
             }
 
             if let Some(a) = maybe_signed_aggregate {
@@ -2426,7 +2465,9 @@ where
 
         for result in self
             .chain
-            .batch_verify_unaggregated_attestations_for_gossip(unaggregated.into_iter())
+            .batch_verify_unaggregated_attestations_for_gossip(
+                unaggregated.iter().map(|(attn, subnet)| (attn, *subnet)),
+            )
             .unwrap()
         {
             let verified = result.unwrap();
@@ -2493,7 +2534,7 @@ where
     ) {
         let attestations =
             self.make_attestations(validators, state, state_root, block_hash, block.slot());
-        self.process_attestations(attestations);
+        self.process_attestations(attestations, state);
     }
 
     pub fn sync_committee_sign_block(

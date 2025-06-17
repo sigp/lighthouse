@@ -45,7 +45,6 @@ pub use block_id::BlockId;
 use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
-use either::Either;
 use eth2::types::{
     self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
     ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, StateId as CoreStateId,
@@ -64,7 +63,6 @@ pub use publish_blocks::{
     publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use slot_clock::SlotClock;
 use ssz::Encode;
 pub use state_id::StateId;
@@ -87,13 +85,13 @@ use tokio_stream::{
     StreamExt,
 };
 use tracing::{debug, error, info, warn};
-use types::AttestationData;
 use types::{
-    Attestation, AttestationShufflingId, AttesterSlashing, BeaconStateError, ChainSpec, Checkpoint,
-    CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256, ProposerPreparationData,
-    ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBlindedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    Attestation, AttestationData, AttestationShufflingId, AttesterSlashing, BeaconStateError,
+    ChainSpec, Checkpoint, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, Hash256,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    SignedBlindedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof,
+    SignedValidatorRegistrationData, SignedVoluntaryExit, SingleAttestation, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use validator::pubkey_to_validator_index;
 use version::{
@@ -1981,68 +1979,21 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone());
 
-    let post_beacon_pool_attestations_v1 = beacon_pool_path
-        .clone()
-        .and(warp::path("attestations"))
-        .and(warp::path::end())
-        .and(warp_utils::json::json())
-        .and(network_tx_filter.clone())
-        .and(reprocess_send_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>,
-             chain: Arc<BeaconChain<T>>,
-             attestations: Vec<Attestation<T::EthSpec>>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             reprocess_tx: Option<Sender<ReprocessQueueMessage>>| async move {
-                let attestations = attestations.into_iter().map(Either::Left).collect();
-                let result = crate::publish_attestations::publish_attestations(
-                    task_spawner,
-                    chain,
-                    attestations,
-                    network_tx,
-                    reprocess_tx,
-                )
-                .await
-                .map(|()| warp::reply::json(&()));
-                convert_rejection(result).await
-            },
-        );
-
     let post_beacon_pool_attestations_v2 = beacon_pool_path_v2
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and(warp_utils::json::json::<Value>())
+        .and(warp_utils::json::json::<Vec<SingleAttestation>>())
         .and(optional_consensus_version_header_filter)
         .and(network_tx_filter.clone())
         .and(reprocess_send_filter.clone())
         .then(
             |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             payload: Value,
-             fork_name: Option<ForkName>,
+             attestations: Vec<SingleAttestation>,
+             _fork_name: Option<ForkName>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              reprocess_tx: Option<Sender<ReprocessQueueMessage>>| async move {
-                let attestations =
-                    match crate::publish_attestations::deserialize_attestation_payload::<T>(
-                        payload, fork_name,
-                    ) {
-                        Ok(attestations) => attestations,
-                        Err(err) => {
-                            warn!(
-                                error = ?err,
-                                "Unable to deserialize attestation POST request"
-                            );
-                            return warp::reply::with_status(
-                                warp::reply::json(
-                                    &"Unable to deserialize request body".to_string(),
-                                ),
-                                eth2::StatusCode::BAD_REQUEST,
-                            )
-                            .into_response();
-                        }
-                    };
-
                 let result = crate::publish_attestations::publish_attestations(
                     task_spawner,
                     chain,
@@ -5058,7 +5009,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_beacon_blinded_blocks)
                     .uor(post_beacon_blocks_v2)
                     .uor(post_beacon_blinded_blocks_v2)
-                    .uor(post_beacon_pool_attestations_v1)
                     .uor(post_beacon_pool_attestations_v2)
                     .uor(post_beacon_pool_attester_slashings)
                     .uor(post_beacon_pool_proposer_slashings)
