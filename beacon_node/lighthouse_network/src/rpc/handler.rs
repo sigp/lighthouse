@@ -12,7 +12,8 @@ use futures::prelude::*;
 use futures::SinkExt;
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
-    FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
+    FullyNegotiatedInbound, FullyNegotiatedOutbound, ListenUpgradeError, StreamUpgradeError,
+    SubstreamProtocol,
 };
 use libp2p::swarm::{ConnectionId, Stream};
 use libp2p::PeerId;
@@ -892,19 +893,20 @@ where
             ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
                 self.on_dial_upgrade_error(info, error)
             }
-            ConnectionEvent::ListenUpgradeError(e) => {
-                if matches!(e.error.1, RPCError::InvalidData(_)) {
-                    // Peer is not complying with the protocol. Notify the application and disconnect.
-                    let inbound_substream_id = self.current_inbound_substream_id;
-                    self.current_inbound_substream_id.0 += 1;
+            ConnectionEvent::ListenUpgradeError(ListenUpgradeError {
+                error: (proto, error),
+                ..
+            }) if matches!(error, RPCError::InvalidData(_)) => {
+                // Peer is not complying with the protocol. Notify the application and disconnect.
+                let inbound_substream_id = self.current_inbound_substream_id;
+                self.current_inbound_substream_id.0 += 1;
 
-                    self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                        id: inbound_substream_id,
-                        proto: e.error.0,
-                        error: e.error.1,
-                    }));
-                    self.shutdown(None);
-                }
+                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                    id: inbound_substream_id,
+                    proto,
+                    error,
+                }));
+                self.shutdown(None);
             }
             _ => {
                 // NOTE: ConnectionEvent is a non exhaustive enum so updates should be based on
