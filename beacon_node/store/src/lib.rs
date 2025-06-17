@@ -339,6 +339,8 @@ pub enum DBColumn {
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
     DhtEnrs,
+    #[strum(serialize = "cus")]
+    CustodyContext,
     /// DEPRECATED. For Optimistically Imported Merge Transition Blocks
     #[strum(serialize = "otb")]
     OptimisticTransitionBlock,
@@ -397,6 +399,7 @@ impl DBColumn {
             | Self::PubkeyCache
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
+            | Self::CustodyContext
             | Self::OptimisticTransitionBlock => 32,
             Self::BeaconBlockRoots
             | Self::BeaconBlockRootsChunked

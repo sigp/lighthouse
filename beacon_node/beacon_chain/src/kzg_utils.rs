@@ -187,9 +187,9 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
         .collect::<Vec<_>>();
 
     // NOTE: assumes blob sidecars are ordered by index
-    let blob_cells_and_proofs_vec = blobs
+    let zipped: Vec<_> = blobs.iter().zip(proof_chunks).collect();
+    let blob_cells_and_proofs_vec = zipped
         .into_par_iter()
-        .zip(proof_chunks.into_par_iter())
         .map(|(blob, proofs)| {
             let blob = blob
                 .as_ref()

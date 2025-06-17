@@ -42,7 +42,7 @@ hardware. 32 ETH is a significant outlay and joining a testnet is a great way to
 
 ### Step 1. Create validator keys
 
-The Ethereum Foundation provides the [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases) for creating validator keys. Download and run the `staking-deposit-cli` with the command:
+EthStaker provides the [ethstaker-deposit-cli](https://github.com/eth-educators/ethstaker-deposit-cli/releases) for creating validator keys. Download and run the `ethstaker-deposit-cli` with the command:
 
 ```bash
 ./deposit new-mnemonic
@@ -52,7 +52,7 @@ and follow the instructions to generate the keys. When prompted for a network, s
 
 > **Important note:** A mnemonic (or seed phrase) is a 24-word string randomly generated in the process. It is highly recommended to write down the mnemonic and keep it safe offline. It is important to ensure that the mnemonic is never stored in any digital form (computers, mobile phones, etc) connected to the internet. Please also make one or more backups of the mnemonic to ensure your ETH is not lost in the case of data loss. It is very important to keep your mnemonic private as it represents the ultimate control of your ETH.
 
-Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.json` will be created. The keys that are generated from staking-deposit-cli can be easily loaded into a Lighthouse validator client (`lighthouse vc`) in [Step 3](#step-3-import-validator-keys-to-lighthouse). In fact, both of these programs are designed to work with each other.
+Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.json` will be created. The keys that are generated from `ethstaker-deposit-cli` can be easily loaded into a Lighthouse validator client (`lighthouse vc`) in [Step 3](#step-3-import-validator-keys-to-lighthouse). In fact, both of these programs are designed to work with each other.
 
 > Lighthouse also supports creating validator keys, see [Validator Manager Create](./validator_manager_create.md) for more info.
 
@@ -62,19 +62,19 @@ Start an execution client and Lighthouse beacon node according to the [Run a Nod
 
 ### Step 3. Import validator keys to Lighthouse
 
-In [Step 1](#step-1-create-validator-keys), the staking-deposit-cli will generate the validator keys into a `validator_keys` directory. Let's assume that
-this directory is `$HOME/staking-deposit-cli/validator_keys`. Using the default `validators` directory in Lighthouse (`~/.lighthouse/mainnet/validators`), run the following command to import validator keys:
+In [Step 1](#step-1-create-validator-keys), the `ethstaker-deposit-cli` will generate the validator keys into a `validator_keys` directory. Let's assume that
+this directory is `$HOME/ethstaker-deposit-cli/validator_keys`. Using the default `validators` directory in Lighthouse (`~/.lighthouse/mainnet/validators`), run the following command to import validator keys:
 
 Mainnet:
 
 ```bash
-lighthouse --network mainnet account validator import --directory $HOME/staking-deposit-cli/validator_keys
+lighthouse --network mainnet account validator import --directory $HOME/ethstaker-deposit-cli/validator_keys
 ```
 
 Hoodi testnet:
 
 ```bash
-lighthouse --network hoodi account validator import --directory $HOME/staking-deposit-cli/validator_keys
+lighthouse --network hoodi account validator import --directory $HOME/ethstaker-deposit-cli/validator_keys
 ```
 
 > Note: The user must specify the consensus client network that they are importing the keys by using the `--network` flag.
@@ -88,7 +88,7 @@ lighthouse --network hoodi account validator import --directory $HOME/staking-de
 The user will be prompted for a password for each keystore discovered:
 
 ```
-Keystore found at "/home/{username}/staking-deposit-cli/validator_keys/keystore-m_12381_3600_0_0_0-1595406747.json":
+Keystore found at "/home/{username}/ethstaker-deposit-cli/validator_keys/keystore-m_12381_3600_0_0_0-1595406747.json":
 
  - Public key: 0xa5e8702533f6d66422e042a0bf3471ab9b302ce115633fa6fdc5643f804b6b4f1c33baf95f125ec21969a3b1e0dd9e56
  - UUID: 8ea4cf99-8719-43c5-9eda-e97b8a4e074f

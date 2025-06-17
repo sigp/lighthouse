@@ -491,7 +491,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .await;
 
         let head = harness.chain.head_snapshot();
-        late_attestations.extend(harness.get_unaggregated_attestations(
+        late_attestations.extend(harness.get_single_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
             head.beacon_state_root(),
@@ -511,7 +511,7 @@ async fn epoch_boundary_state_attestation_processing() {
 
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
-        let block_root = attestation.data().beacon_block_root;
+        let block_root = attestation.data.beacon_block_root;
         let block = store
             .get_blinded_block(&block_root)
             .unwrap()
@@ -536,7 +536,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data().slot;
+        let expected_attestation_slot = attestation.data.slot;
         // Extra -1 to handle gossip clock disparity.
         let expected_earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
@@ -2644,11 +2644,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_eq!(split.block_root, valid_fork_block.parent_root());
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
-    let invalid_fork_rpc_block = RpcBlock::new_without_blobs(
-        None,
-        invalid_fork_block.clone(),
-        harness.sampling_column_count,
-    );
+    let invalid_fork_rpc_block = RpcBlock::new_without_blobs(None, invalid_fork_block.clone());
     // Applying the invalid block should fail.
     let err = harness
         .chain
@@ -2664,11 +2660,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
 
     // Applying the valid block should succeed, but it should not become head.
-    let valid_fork_rpc_block = RpcBlock::new_without_blobs(
-        None,
-        valid_fork_block.clone(),
-        harness.sampling_column_count,
-    );
+    let valid_fork_rpc_block = RpcBlock::new_without_blobs(None, valid_fork_block.clone());
     harness
         .chain
         .process_block(
@@ -2712,7 +2704,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             slot,
         );
         harness.advance_slot();
-        harness.process_attestations(attestations);
+        harness.process_attestations(attestations, &advanced_split_state);
     }
 }
 
@@ -2874,8 +2866,8 @@ async fn revert_minority_fork_on_resume() {
         );
         harness1.set_current_slot(slot);
         harness2.set_current_slot(slot);
-        harness1.process_attestations(attestations.clone());
-        harness2.process_attestations(attestations);
+        harness1.process_attestations(attestations.clone(), &state);
+        harness2.process_attestations(attestations, &state);
 
         let ((block, blobs), new_state) = harness1.make_block(state, slot).await;
 
@@ -2915,7 +2907,7 @@ async fn revert_minority_fork_on_resume() {
             slot,
         );
         harness2.set_current_slot(slot);
-        harness2.process_attestations(attestations);
+        harness2.process_attestations(attestations, &state2);
 
         // Minority chain block (no attesters).
         let ((block1, blobs1), new_state1) = harness1.make_block(state1, slot).await;
@@ -3023,7 +3015,6 @@ async fn schema_downgrade_to_min_version() {
         .await;
 
     let min_version = SchemaVersion(22);
-    let genesis_state_root = Some(harness.chain.genesis_state_root);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -3036,22 +3027,12 @@ async fn schema_downgrade_to_min_version() {
     let store = get_store(&db_path);
 
     // Downgrade.
-    migrate_schema::<DiskHarnessType<E>>(
-        store.clone(),
-        genesis_state_root,
-        CURRENT_SCHEMA_VERSION,
-        min_version,
-    )
-    .expect("schema downgrade to minimum version should work");
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), CURRENT_SCHEMA_VERSION, min_version)
+        .expect("schema downgrade to minimum version should work");
 
     // Upgrade back.
-    migrate_schema::<DiskHarnessType<E>>(
-        store.clone(),
-        genesis_state_root,
-        min_version,
-        CURRENT_SCHEMA_VERSION,
-    )
-    .expect("schema upgrade from minimum version should work");
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), min_version, CURRENT_SCHEMA_VERSION)
+        .expect("schema upgrade from minimum version should work");
 
     // Recreate the harness.
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
@@ -3069,13 +3050,8 @@ async fn schema_downgrade_to_min_version() {
 
     // Check that downgrading beyond the minimum version fails (bound is *tight*).
     let min_version_sub_1 = SchemaVersion(min_version.as_u64().checked_sub(1).unwrap());
-    migrate_schema::<DiskHarnessType<E>>(
-        store.clone(),
-        genesis_state_root,
-        CURRENT_SCHEMA_VERSION,
-        min_version_sub_1,
-    )
-    .expect_err("should not downgrade below minimum version");
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), CURRENT_SCHEMA_VERSION, min_version_sub_1)
+        .expect_err("should not downgrade below minimum version");
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.

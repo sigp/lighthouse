@@ -2680,6 +2680,16 @@ fn invalid_gossip_verified_blocks_path() {
 }
 
 #[test]
+fn advertise_false_custody_group_count() {
+    CommandLineTest::new()
+        .flag("advertise-false-custody-group-count", Some("64"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.advertise_false_custody_group_count, Some(64))
+        });
+}
+
+#[test]
 fn beacon_processor() {
     CommandLineTest::new()
         .run_with_zero_port()

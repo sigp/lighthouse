@@ -40,7 +40,7 @@ pub enum LookupRequestError {
     /// Inconsistent lookup request state
     BadState(String),
     /// Lookup failed for some other reason and should be dropped
-    Failed,
+    Failed(/* reason: */ String),
     /// Received MissingComponents when all components have been processed. This should never
     /// happen, and indicates some internal bug
     MissingComponentsAfterAllProcessed,

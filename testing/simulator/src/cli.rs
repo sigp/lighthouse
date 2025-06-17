@@ -20,7 +20,7 @@ pub fn cli_app() -> Command {
                         .short('n')
                         .long("nodes")
                         .action(ArgAction::Set)
-                        .default_value("3")
+                        .default_value("2")
                         .help("Number of beacon nodes"),
                 )
                 .arg(
@@ -28,7 +28,7 @@ pub fn cli_app() -> Command {
                         .short('p')
                         .long("proposer-nodes")
                         .action(ArgAction::Set)
-                        .default_value("3")
+                        .default_value("1")
                         .help("Number of proposer-only beacon nodes"),
                 )
                 .arg(

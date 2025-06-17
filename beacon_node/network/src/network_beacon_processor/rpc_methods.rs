@@ -70,14 +70,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        let irrelevant_reason = if local.fork_digest != remote.fork_digest {
+        let irrelevant_reason = if local.fork_digest() != remote.fork_digest() {
             // The node is on a different network/fork
             Some(format!(
                 "Incompatible forks Ours:{} Theirs:{}",
-                hex::encode(local.fork_digest),
-                hex::encode(remote.fork_digest)
+                hex::encode(local.fork_digest()),
+                hex::encode(remote.fork_digest())
             ))
-        } else if remote.head_slot
+        } else if *remote.head_slot()
             > self
                 .chain
                 .slot()
@@ -88,11 +88,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // current slot. This could be because they are using a different genesis time, or that
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
-        } else if (remote.finalized_epoch == local.finalized_epoch
-            && remote.finalized_root == local.finalized_root)
-            || remote.finalized_root.is_zero()
-            || local.finalized_root.is_zero()
-            || remote.finalized_epoch > local.finalized_epoch
+        } else if (remote.finalized_epoch() == local.finalized_epoch()
+            && remote.finalized_root() == local.finalized_root())
+            || remote.finalized_root().is_zero()
+            || local.finalized_root().is_zero()
+            || remote.finalized_epoch() > local.finalized_epoch()
         {
             // Fast path. Remote finalized checkpoint is either identical, or genesis, or we are at
             // genesis, or they are ahead. In all cases, we should allow this peer to connect to us
@@ -100,7 +100,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             None
         } else {
             // Remote finalized epoch is less than ours.
-            let remote_finalized_slot = start_slot(remote.finalized_epoch);
+            let remote_finalized_slot = start_slot(*remote.finalized_epoch());
             if remote_finalized_slot < self.chain.store.get_oldest_block_slot() {
                 // Peer's finalized checkpoint is older than anything in our DB. We are unlikely
                 // to be able to help them sync.
@@ -112,7 +112,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if self
                     .chain
                     .block_root_at_slot(remote_finalized_slot, WhenSlotSkipped::Prev)
-                    .map(|root_opt| root_opt != Some(remote.finalized_root))
+                    .map(|root_opt| root_opt != Some(*remote.finalized_root()))
                     .map_err(Box::new)?
                 {
                     Some("Different finalized chain".to_string())
@@ -138,10 +138,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Ok(None) => {
                 let info = SyncInfo {
-                    head_slot: status.head_slot,
-                    head_root: status.head_root,
-                    finalized_epoch: status.finalized_epoch,
-                    finalized_root: status.finalized_root,
+                    head_slot: *status.head_slot(),
+                    head_root: *status.head_root(),
+                    finalized_epoch: *status.finalized_epoch(),
+                    finalized_root: *status.finalized_root(),
+                    earliest_available_slot: status.earliest_available_slot().ok().cloned(),
                 };
                 self.send_sync_message(SyncMessage::AddPeer(peer_id, info));
             }

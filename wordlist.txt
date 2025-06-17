@@ -34,7 +34,7 @@ Esat's
 ETH
 EthDocker
 Ethereum
-Ethstaker
+EthStaker
 Exercism
 Extractable
 FFG
@@ -89,6 +89,7 @@ SSD
 SSL
 SSZ
 Styleguide
+TBD
 TCP
 Teku
 TLS

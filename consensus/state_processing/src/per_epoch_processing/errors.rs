@@ -30,6 +30,7 @@ pub enum EpochProcessingError {
     MissingEarliestExitEpoch,
     MissingExitBalanceToConsume,
     PendingDepositsLogicError,
+    ProposerLookaheadOutOfBounds(usize),
 }
 
 impl From<InclusionError> for EpochProcessingError {
