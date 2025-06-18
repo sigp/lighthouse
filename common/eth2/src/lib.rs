@@ -18,7 +18,6 @@ use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
 use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
 use derivative::Derivative;
-use either::Either;
 use futures::Stream;
 use futures_util::StreamExt;
 use libp2p_identity::PeerId;
@@ -1434,29 +1433,10 @@ impl BeaconNodeHttpClient {
             .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
-    /// `POST v1/beacon/pool/attestations`
-    pub async fn post_beacon_pool_attestations_v1<E: EthSpec>(
-        &self,
-        attestations: &[Attestation<E>],
-    ) -> Result<(), Error> {
-        let mut path = self.eth_path(V1)?;
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("pool")
-            .push("attestations");
-
-        self.post_with_timeout(path, &attestations, self.timeouts.attestation)
-            .await?;
-
-        Ok(())
-    }
-
     /// `POST v2/beacon/pool/attestations`
     pub async fn post_beacon_pool_attestations_v2<E: EthSpec>(
         &self,
-        attestations: Either<Vec<Attestation<E>>, Vec<SingleAttestation>>,
+        attestations: Vec<SingleAttestation>,
         fork_name: ForkName,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V2)?;
@@ -1467,26 +1447,13 @@ impl BeaconNodeHttpClient {
             .push("pool")
             .push("attestations");
 
-        match attestations {
-            Either::Right(attestations) => {
-                self.post_with_timeout_and_consensus_header(
-                    path,
-                    &attestations,
-                    self.timeouts.attestation,
-                    fork_name,
-                )
-                .await?;
-            }
-            Either::Left(attestations) => {
-                self.post_with_timeout_and_consensus_header(
-                    path,
-                    &attestations,
-                    self.timeouts.attestation,
-                    fork_name,
-                )
-                .await?;
-            }
-        };
+        self.post_with_timeout_and_consensus_header(
+            path,
+            &attestations,
+            self.timeouts.attestation,
+            fork_name,
+        )
+        .await?;
 
         Ok(())
     }

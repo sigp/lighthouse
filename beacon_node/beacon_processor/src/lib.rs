@@ -63,7 +63,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, trace, warn};
 use types::{
-    Attestation, BeaconState, ChainSpec, EthSpec, Hash256, RelativeEpoch, SignedAggregateAndProof,
+    BeaconState, ChainSpec, EthSpec, Hash256, RelativeEpoch, SignedAggregateAndProof,
     SingleAttestation, Slot, SubnetId,
 };
 use work_reprocessing_queue::{
@@ -557,32 +557,23 @@ pub enum BlockingOrAsync {
     Blocking(BlockingFn),
     Async(AsyncFn),
 }
-pub type GossipAttestationBatch<E> = Vec<GossipAttestationPackage<Attestation<E>>>;
+pub type GossipAttestationBatch = Vec<GossipAttestationPackage<SingleAttestation>>;
 
 /// Indicates the type of work to be performed and therefore its priority and
 /// queuing specifics.
 pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: Box<GossipAttestationPackage<Attestation<E>>>,
-        process_individual: Box<dyn FnOnce(GossipAttestationPackage<Attestation<E>>) + Send + Sync>,
-        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
-    },
-    // Attestation requiring conversion before processing.
-    //
-    // For now this is a `SingleAttestation`, but eventually we will switch this around so that
-    // legacy `Attestation`s are converted and the main processing pipeline operates on
-    // `SingleAttestation`s.
-    GossipAttestationToConvert {
         attestation: Box<GossipAttestationPackage<SingleAttestation>>,
         process_individual:
             Box<dyn FnOnce(GossipAttestationPackage<SingleAttestation>) + Send + Sync>,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
     },
     UnknownBlockAttestation {
         process_fn: BlockingFn,
     },
     GossipAttestationBatch {
-        attestations: GossipAttestationBatch<E>,
-        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
+        attestations: GossipAttestationBatch,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
     },
     GossipAggregate {
         aggregate: Box<GossipAggregatePackage<E>>,
@@ -712,7 +703,6 @@ impl<E: EthSpec> Work<E> {
     fn to_type(&self) -> WorkType {
         match self {
             Work::GossipAttestation { .. } => WorkType::GossipAttestation,
-            Work::GossipAttestationToConvert { .. } => WorkType::GossipAttestationToConvert,
             Work::GossipAttestationBatch { .. } => WorkType::GossipAttestationBatch,
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
@@ -1330,9 +1320,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         match work {
                             _ if can_spawn => self.spawn_worker(work, idle_tx),
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
-                            Work::GossipAttestationToConvert { .. } => {
-                                attestation_to_convert_queue.push(work)
-                            }
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
@@ -1575,12 +1562,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 attestation,
                 process_individual,
                 process_batch: _,
-            } => task_spawner.spawn_blocking(move || {
-                process_individual(*attestation);
-            }),
-            Work::GossipAttestationToConvert {
-                attestation,
-                process_individual,
             } => task_spawner.spawn_blocking(move || {
                 process_individual(*attestation);
             }),
