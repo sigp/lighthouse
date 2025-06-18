@@ -34,7 +34,9 @@ jobs:
                        x86_64-unknown-linux-gnu,
                        x86_64-apple-darwin,
                        aarch64-apple-darwin,
-                       x86_64-windows]
+                       x86_64-windows,
+                       x86_64-unknown-linux-gnu-deb,
+                       aarch64-unknown-linux-gnu-deb]
                 include:
                     -   arch: aarch64-unknown-linux-gnu
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
@@ -51,6 +53,17 @@ jobs:
                     -   arch: x86_64-windows
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "release"]') || 'windows-2019'  }}
                         profile: maxperf
+                    # Debian package builds
+                    -   arch: x86_64-unknown-linux-gnu-deb
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
+                        profile: maxperf
+                        rust_target: x86_64-unknown-linux-gnu
+                        gcc_package: gcc
+                    -   arch: aarch64-unknown-linux-gnu-deb
+                        runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
+                        profile: maxperf
+                        rust_target: aarch64-unknown-linux-gnu
+                        gcc_package: gcc-aarch64-linux-gnu
 
         runs-on:    ${{ matrix.runner }}
         needs: extract-version
@@ -75,7 +88,25 @@ jobs:
               run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
 
             # ==============================
-            #       Builds
+            # Debian build dependencies
+            # ==============================
+
+            - name: Install Debian build dependencies
+              if: endsWith(matrix.arch, '-deb')
+              run: |
+                sudo apt-get update
+                sudo apt-get install -y libclang-dev cmake ${{ matrix.gcc_package }}
+
+            - name: Install Rust target for Debian builds
+              if: endsWith(matrix.arch, '-deb')
+              run: rustup target add ${{ matrix.rust_target }}
+
+            - name: Install cargo-deb
+              if: endsWith(matrix.arch, '-deb')
+              run: cargo install cargo-deb
+
+            # ==============================
+            #       Builds - Binaries
             # ==============================
 
             - name: Build Lighthouse for aarch64-unknown-linux-gnu
@@ -91,7 +122,7 @@ jobs:
                 env CROSS_PROFILE=${{ matrix.profile }} make build-x86_64
 
             - name: Move cross-compiled binary
-              if:  contains(matrix.arch, 'unknown-linux-gnu')
+              if:  contains(matrix.arch, 'unknown-linux-gnu') && !endsWith(matrix.arch, '-deb')
               run: mv target/${{ matrix.arch }}/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
 
             - name: Build Lighthouse for x86_64-apple-darwin
@@ -106,8 +137,44 @@ jobs:
               if:   matrix.arch == 'x86_64-windows'
               run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
+            # ==============================
+            #       Builds - Debian Packages
+            # ==============================
+
+            - name: Build reproducible Debian package
+              if: endsWith(matrix.arch, '-deb')
+              run: |
+                make deb-cargo RUST_TARGET=${{ matrix.rust_target }} PROFILE=${{ matrix.profile }}
+
+            - name: Find and prepare Debian package
+              if: endsWith(matrix.arch, '-deb')
+              run: |
+                VERSION=${{ needs.extract-version.outputs.VERSION }}
+                DEB_FILE=$(find target/${{ matrix.rust_target }}/debian -name "*.deb" | head -1)
+                if [ -n "$DEB_FILE" ]; then
+                  # Create standardized filename to match existing pattern
+                  ARCH_SHORT=$(echo "${{ matrix.rust_target }}" | cut -d'-' -f1)
+                  NEW_NAME="lighthouse-${{ needs.extract-version.outputs.VERSION }}-${ARCH_SHORT}.deb"
+                  cp "$DEB_FILE" "$NEW_NAME"
+                  echo "DEB_PACKAGE=$NEW_NAME" >> $GITHUB_ENV
+                  
+                  # Generate checksums  
+                  sha256sum "$NEW_NAME" > "$NEW_NAME.sha256"
+                  sha512sum "$NEW_NAME" > "$NEW_NAME.sha512"
+                  
+                  echo "Debian package built: $NEW_NAME"
+                  echo "Size: $(du -h "$NEW_NAME" | cut -f1)"
+                else
+                  echo "❌ No .deb package found"
+                  exit 1
+                fi
+
+            # ==================================
+            #       Binary Artifacts (existing)
+            # ==================================
+
             - name: Configure GPG and create artifacts
-              if: startsWith(matrix.arch, 'x86_64-windows') != true
+              if: startsWith(matrix.arch, 'x86_64-windows') != true && !endsWith(matrix.arch, '-deb')
               env:
                   GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
                   GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -140,12 +207,26 @@ jobs:
                   gpg --passphrase "$env:GPG_PASSPHRASE" --batch --pinentry-mode loopback -ab lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
                   move *tar.gz* ..
 
+            # ==============================
+            #       Debian Package Artifacts
+            # ==============================
+
+            - name: Sign Debian package
+              if: endsWith(matrix.arch, '-deb')
+              env:
+                  GPG_SIGNING_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+                  GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+              run: |
+                  export GPG_TTY=$(tty)
+                  echo "$GPG_SIGNING_KEY" | gpg --batch --import
+                  echo "$GPG_PASSPHRASE" | gpg --passphrase-fd 0 --pinentry-mode loopback --batch -ab "$DEB_PACKAGE"
+
             # =======================================================================
-            # Upload artifacts
-            # This is required to share artifacts between different jobs
+            # Upload artifacts - Binaries (existing)
             # =======================================================================
 
             - name: Upload artifact
+              if: !endsWith(matrix.arch, '-deb')
               uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz
@@ -153,10 +234,41 @@ jobs:
                   compression-level: 0
 
             - name: Upload signature
+              if: !endsWith(matrix.arch, '-deb')
               uses: actions/upload-artifact@v4
               with:
                   name: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
                   path: lighthouse-${{ needs.extract-version.outputs.VERSION }}-${{ matrix.arch }}.tar.gz.asc
+                  compression-level: 0
+
+            # =======================================================================
+            # Upload artifacts - Debian packages
+            # =======================================================================
+
+            - name: Upload Debian package
+              if: endsWith(matrix.arch, '-deb')
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.DEB_PACKAGE }}
+                  path: ${{ env.DEB_PACKAGE }}
+                  compression-level: 0
+
+            - name: Upload Debian package signature
+              if: endsWith(matrix.arch, '-deb')
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.DEB_PACKAGE }}.asc
+                  path: ${{ env.DEB_PACKAGE }}.asc
+                  compression-level: 0
+
+            - name: Upload Debian package checksums
+              if: endsWith(matrix.arch, '-deb')
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ env.DEB_PACKAGE }}-checksums
+                  path: |
+                      ${{ env.DEB_PACKAGE }}.sha256
+                      ${{ env.DEB_PACKAGE }}.sha512
                   compression-level: 0
 
     draft-release:
@@ -249,11 +361,34 @@ jobs:
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/linux/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/linux/black" ><img src="https://cdn.simpleicons.org/linux" width="32" alt="Linux logo"> </picture> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/raspberrypi/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/raspberrypi/black" > <img src="https://cdn.simpleicons.org/raspberrypi" width="32" alt="Raspberrypi logo"> </picture> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://upload.wikimedia.org/wikipedia/commons/8/87/Windows_logo_-_2021.svg"> <source media="(prefers-color-scheme: light)" srcset="https://upload.wikimedia.org/wikipedia/commons/c/c4/Windows_logo_-_2021_%28Black%29.svg"> <img src="https://upload.wikimedia.org/wikipedia/commons/c/c4/Windows_logo_-_2021_%28Black%29.svg" width="32" alt="Windows logo"> </picture> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-windows.tar.gz.asc) |
+                  
+                  ## Debian Packages
+
+                  For Debian/Ubuntu users, we provide pre-built `.deb` packages with systemd integration:
+
+                  | System | Architecture | Package | PGP Signature | Checksums |
+                  |:---:|:---:|:---:|:---:|:---:|
+                  | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/debian/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/debian/black" ><img src="https://cdn.simpleicons.org/debian" width="32" alt="Debian logo"> </picture> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64.deb](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64.deb) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64.deb.asc) | [SHA256](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64.deb.sha256) / [SHA512](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64.deb.sha512) |
+                  | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/debian/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/debian/black" ><img src="https://cdn.simpleicons.org/debian" width="32" alt="Debian logo"> </picture> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64.deb](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64.deb) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64.deb.asc) | [SHA256](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64.deb.sha256) / [SHA512](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64.deb.sha512) |
+
+                  ### Installation:
+                  \`\`\`bash
+                  # Download and install (x86_64)
+                  wget https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64.deb
+                  sudo dpkg -i lighthouse-${{ env.VERSION }}-x86_64.deb
+                  sudo apt-get install -f  # Fix dependencies if needed
+                  
+                  # Enable and start service
+                  sudo systemctl enable lighthouse
+                  sudo systemctl start lighthouse
+                  \`\`\`
+
                   | | | | |
+                  |:---:|:---:|:---:|:---:|
                   | **System** | **Option** | - | **Resource** |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/docker/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/docker/black" > <img src="https://cdn.simpleicons.org/docker/black" width="32" alt="Docker logo"></picture>  | Docker | [${{ env.VERSION }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}/tags?page=1&ordering=last_updated&name=${{ env.VERSION }}) | [${{ env.IMAGE_NAME }}](https://hub.docker.com/r/${{ env.IMAGE_NAME }}) |
                   ENDBODY
                   )
-                  assets=(./lighthouse-*.tar.gz*/lighthouse-*.tar.gz*)
+                  assets=(./lighthouse-*.tar.gz*/lighthouse-*.tar.gz* ./lighthouse-*.deb*/lighthouse-*.deb*)
                   tag_name="${{ env.VERSION }}"
                   echo "$body" | gh release create --draft -F "-" "$tag_name" "${assets[@]}"
