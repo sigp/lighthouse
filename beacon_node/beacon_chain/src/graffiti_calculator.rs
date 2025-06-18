@@ -98,7 +98,7 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
             GraffitiSettings::Specified { graffiti, policy } => match policy {
                 GraffitiPolicy::PreserveUserGraffiti => graffiti,
                 GraffitiPolicy::AppendClientVersions => {
-                    self.calculate_combined_graffiti(None).await
+                    self.calculate_combined_graffiti(Some(graffiti)).await
                 }
             },
             GraffitiSettings::Unspecified => self.calculate_combined_graffiti(None).await,
@@ -106,10 +106,6 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
     }
 
     async fn calculate_combined_graffiti(&self, validator_graffiti: Option<Graffiti>) -> Graffiti {
-        if let Some(graffiti) = validator_graffiti {
-            return graffiti;
-        }
-
         match self.beacon_graffiti {
             GraffitiOrigin::UserSpecified(graffiti) => graffiti,
             GraffitiOrigin::Calculated(default_graffiti) => {
