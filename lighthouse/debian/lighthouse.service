@@ -1,14 +1,12 @@
 [Unit]
-Description=Lighthouse Ethereum Beacon Chain Client
-Documentation=https://lighthouse-book.sigmaprime.io/
+Description=Lighthouse Ethereum Beacon Node
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
-DynamicUser=true
 User=lighthouse
-Group=eth
+Group=lighthouse
 Restart=always
 RestartSec=5
 TimeoutStopSec=180

@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+# Create lighthouse user if it doesn't exist
+if ! getent passwd lighthouse >/dev/null 2>&1; then
+    adduser --system --group --home /var/lib/lighthouse \
+            --shell /bin/false --gecos "Lighthouse Beacon Node" lighthouse
+fi
+
+# Create data directory
+mkdir -p /var/lib/lighthouse
+chown lighthouse:lighthouse /var/lib/lighthouse
+chmod 750 /var/lib/lighthouse
+
+# Create log directory  
+mkdir -p /var/log/lighthouse
+chown lighthouse:lighthouse /var/log/lighthouse
+chmod 750 /var/log/lighthouse
+
+# Reload systemd
+systemctl daemon-reload || true
+
+#DEBHELPER#
+
+exit 0

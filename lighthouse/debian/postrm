@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "purge" ]; then
+    # Remove user (optional - some prefer to keep it)
+    if getent passwd lighthouse >/dev/null 2>&1; then
+        deluser lighthouse || true
+    fi
+    
+    # Remove data directory (be careful!)
+    # rm -rf /var/lib/lighthouse || true
+    # rm -rf /var/log/lighthouse || true
+fi
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ]; then
+    # Stop service if running
+    systemctl stop lighthouse || true
+    systemctl disable lighthouse || true
+fi
+
+#DEBHELPER#
+
+exit 0
