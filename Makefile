@@ -342,27 +342,9 @@ clean:
 	make -C $(EF_TESTS) clean
 	make -C $(STATE_TRANSITION_VECTORS) clean
 
-.PHONY: install-cargo-deb deb-cargo deb-cargo-x86_64 deb-cargo-aarch64 deb-cargo-all test-deb-reproducible install-deb-local remove-deb-local clean-deb help-deb
-## Install cargo-deb if not present
-install-cargo-deb:
-	@if ! command -v cargo-deb &> /dev/null; then \
-		echo "Installing cargo-deb..."; \
-		cargo install cargo-deb; \
-	else \
-		echo "cargo-deb already installed"; \
-	fi
-
-## Build .deb package using cargo-deb with reproducible settings
-deb-cargo: install-cargo-deb build-reproducible
+.PHONY: deb-cargo
+deb-cargo: build-reproducible ## Build .deb package using cargo-deb with reproducible settings
 	@echo "Building .deb package with cargo-deb..."
-	@if [ ! -f "lighthouse/lighthouse.service" ]; then \
-		echo "❌ lighthouse.service not found in lighthouse/ directory"; \
-		exit 1; \
-	fi
-	@if [ ! -f "README.md" ]; then \
-		echo "❌ README.md not found in current directory"; \
-		exit 1; \
-	fi
 	
 	cd lighthouse && \
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE) \
@@ -374,65 +356,26 @@ deb-cargo: install-cargo-deb build-reproducible
 	@echo "✅ Package built successfully!"
 	@find target/$(RUST_TARGET)/debian -name "*.deb" -exec ls -la {} \;
 
-## Build .deb for specific architectures
-deb-cargo-x86_64:
+
+.PHONY: deb-cargo-x86_64
+deb-cargo-x86_64: ## Build .deb for specific architectures
 	$(MAKE) deb-cargo RUST_TARGET=x86_64-unknown-linux-gnu
 
+.PHONY: deb-cargo-aarch64
 deb-cargo-aarch64:
 	$(MAKE) deb-cargo RUST_TARGET=aarch64-unknown-linux-gnu
 
+.PHONY: deb-cargo-all
 deb-cargo-all: deb-cargo-x86_64 deb-cargo-aarch64
 
-## Test reproducibility of cargo-deb packages
-test-deb-reproducible: 
-	@echo "Testing cargo-deb package reproducibility..."
-	@if ! command -v diffoscope &> /dev/null; then \
-		echo "Installing diffoscope..."; \
-		sudo apt-get update; \
-		sudo apt-get install -y diffoscope binutils-multiarch; \
-	fi
-	
-	@echo "Building first package..."
-	@rm -f lighthouse_*.deb lighthouse-deb-*.deb
-	@$(MAKE) clean || true
-	@$(MAKE) deb-cargo
-	@FIRST_PACKAGE=$$(find target/$(RUST_TARGET)/debian -name "*.deb" | head -1); \
-	if [ -n "$$FIRST_PACKAGE" ]; then \
-		cp "$$FIRST_PACKAGE" ./lighthouse-deb-build-1.deb; \
-	else \
-		echo "❌ First package not found"; exit 1; \
-	fi
-	
-	@echo "Building second package..."
-	@$(MAKE) clean || true
-	@$(MAKE) deb-cargo
-	@SECOND_PACKAGE=$$(find target/$(RUST_TARGET)/debian -name "*.deb" | head -1); \
-	if [ -n "$$SECOND_PACKAGE" ]; then \
-		cp "$$SECOND_PACKAGE" ./lighthouse-deb-build-2.deb; \
-	else \
-		echo "❌ Second package not found"; exit 1; \
-	fi
-	
-	@echo "Comparing packages..."
-	@echo "=== Package sizes ==="
-	@ls -la lighthouse-deb-build-*.deb
-	@echo "=== SHA256 checksums ==="
-	@sha256sum lighthouse-deb-build-*.deb
-	
-	@if cmp -s lighthouse-deb-build-1.deb lighthouse-deb-build-2.deb; then \
-		echo "✅ SUCCESS: cargo-deb packages are identical!"; \
-		echo "✅ Reproducible build PASSED"; \
-	else \
-		echo "❌ FAILED: cargo-deb packages differ"; \
-		echo "Running detailed analysis with diffoscope..."; \
-		diffoscope --text lighthouse-deb-build-1.deb lighthouse-deb-build-2.deb > cargo-deb-diff.txt || true; \
-		echo "Differences saved to cargo-deb-diff.txt"; \
-		echo "❌ Reproducible build FAILED"; \
-		exit 1; \
-	fi
 
-## Install .deb package locally for testing
-install-deb-local:
+.PHONY: test-deb-reproducible
+test-deb-reproducible: ## Test reproducibility of cargo-deb packages
+	@./scripts/test-deb-reproducible.sh $(RUST_TARGET)
+
+
+.PHONY: install-deb-local
+install-deb-local: ## Install .deb package locally for testing
 	@PACKAGE=$$(find target/$(RUST_TARGET)/debian -name "*.deb" | head -1); \
 	if [ -n "$$PACKAGE" ]; then \
 		echo "Installing lighthouse package: $$PACKAGE"; \
@@ -449,22 +392,23 @@ install-deb-local:
 		echo "❌ No .deb package found. Run 'make deb-cargo' first."; \
 	fi
 
-## Remove installed lighthouse package
-remove-deb-local:
+
+.PHONY: remove-deb-local
+remove-deb-local: ## Remove installed lighthouse package
 	@echo "Removing lighthouse package..."
 	sudo dpkg -r lighthouse || true
 	sudo systemctl daemon-reload || true
 
-## Clean up debian packaging artifacts
-clean-deb:
+.PHONY: clean-deb
+clean-deb: ## Clean up debian packaging artifacts
 	@echo "Cleaning up debian packaging artifacts..."
 	rm -f lighthouse_*.deb lighthouse-deb-*.deb *-diff.txt
 	rm -rf target/*/debian/
 
-## Show help for debian packaging
-help-deb:
+
+.PHONY: help-deb
+help-deb: ## Show help for debian packaging
 	@echo "Clean Debian Packaging Targets:"
-	@echo "  install-cargo-deb      - Install cargo-deb tool"
 	@echo "  deb-cargo              - Build .deb package with cargo-deb"
 	@echo "  deb-cargo-x86_64       - Build x86_64 .deb package"
 	@echo "  deb-cargo-aarch64      - Build aarch64 .deb package"
