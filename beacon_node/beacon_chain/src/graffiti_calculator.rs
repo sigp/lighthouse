@@ -163,7 +163,8 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                             CommitPrefix("00000000".to_string())
                         });
 
-                engine_version.calculate_graffiti(lighthouse_commit_prefix)
+                engine_version
+                    .calculate_graffiti_append(lighthouse_commit_prefix, validator_graffiti)
             }
         }
     }

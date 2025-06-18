@@ -751,4 +751,40 @@ impl ClientVersionV1 {
 
         Graffiti::from(graffiti_bytes)
     }
+
+    pub fn calculate_graffiti_append(
+        &self,
+        lighthouse_commit_prefix: CommitPrefix,
+        validator_graffiti: Option<Graffiti>,
+    ) -> Graffiti {
+        let base_graffiti = format!(
+            "{}{}LH{}",
+            self.code,
+            self.commit
+                .0
+                .get(..4)
+                .map_or_else(|| self.commit.0.as_str(), |s| s)
+                .to_lowercase(),
+            lighthouse_commit_prefix
+                .0
+                .get(..4)
+                .unwrap_or("0000")
+                .to_lowercase(),
+        );
+
+        let graffiti_string = match validator_graffiti {
+            Some(graffiti) => {
+                let graffiti_str = graffiti.as_utf8_lossy();
+                format!("{} {}", base_graffiti, graffiti_str)
+            }
+            None => base_graffiti,
+        };
+
+        let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
+        let bytes_to_copy = std::cmp::min(graffiti_string.len(), GRAFFITI_BYTES_LEN);
+        graffiti_bytes[..bytes_to_copy]
+            .copy_from_slice(&graffiti_string.as_bytes()[..bytes_to_copy]);
+
+        Graffiti::from(graffiti_bytes)
+    }
 }
