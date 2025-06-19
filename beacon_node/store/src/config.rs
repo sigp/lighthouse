@@ -24,7 +24,8 @@ pub const DEFAULT_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 pub const DEFAULT_STATE_CACHE_HEADROOM: NonZeroUsize = new_non_zero_usize(1);
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
 pub const DEFAULT_HISTORIC_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(1);
-pub const DEFAULT_HDIFF_BUFFER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
+pub const DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
+pub const DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(1);
 const EST_COMPRESSION_FACTOR: usize = 2;
 pub const DEFAULT_EPOCHS_PER_BLOB_PRUNE: u64 = 1;
 pub const DEFAULT_BLOB_PUNE_MARGIN_EPOCHS: u64 = 0;
@@ -42,8 +43,10 @@ pub struct StoreConfig {
     pub compression_level: i32,
     /// Maximum number of historic states to store in the in-memory historic state cache.
     pub historic_state_cache_size: NonZeroUsize,
-    /// Maximum number of `HDiffBuffer`s to store in memory.
-    pub hdiff_buffer_cache_size: NonZeroUsize,
+    /// Maximum number of cold `HDiffBuffer`s to store in memory.
+    pub cold_hdiff_buffer_cache_size: NonZeroUsize,
+    /// Maximum number of hot `HDiffBuffers` to store in memory.
+    pub hot_hdiff_buffer_cache_size: NonZeroUsize,
     /// Whether to compact the database on initialization.
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
@@ -106,7 +109,8 @@ impl Default for StoreConfig {
             state_cache_size: DEFAULT_STATE_CACHE_SIZE,
             state_cache_headroom: DEFAULT_STATE_CACHE_HEADROOM,
             historic_state_cache_size: DEFAULT_HISTORIC_STATE_CACHE_SIZE,
-            hdiff_buffer_cache_size: DEFAULT_HDIFF_BUFFER_CACHE_SIZE,
+            cold_hdiff_buffer_cache_size: DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE,
+            hot_hdiff_buffer_cache_size: DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE,
             compression_level: DEFAULT_COMPRESSION_LEVEL,
             compact_on_init: false,
             compact_on_prune: true,

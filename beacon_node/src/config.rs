@@ -418,7 +418,13 @@ pub fn get_config<E: EthSpec>(
     if let Some(hdiff_buffer_cache_size) =
         clap_utils::parse_optional(cli_args, "hdiff-buffer-cache-size")?
     {
-        client_config.store.hdiff_buffer_cache_size = hdiff_buffer_cache_size;
+        client_config.store.cold_hdiff_buffer_cache_size = hdiff_buffer_cache_size;
+    }
+
+    if let Some(hdiff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "hot-hdiff-buffer-cache-size")?
+    {
+        client_config.store.hot_hdiff_buffer_cache_size = hdiff_buffer_cache_size;
     }
 
     client_config.store.compact_on_init = cli_args.get_flag("compact-db");

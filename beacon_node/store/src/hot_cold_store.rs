@@ -222,9 +222,10 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
+                config.hot_hdiff_buffer_cache_size,
             )),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
-                config.hdiff_buffer_cache_size,
+                config.cold_hdiff_buffer_cache_size,
                 config.historic_state_cache_size,
             )),
             config,
@@ -273,9 +274,10 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
+                config.hot_hdiff_buffer_cache_size,
             )),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
-                config.hdiff_buffer_cache_size,
+                config.cold_hdiff_buffer_cache_size,
                 config.historic_state_cache_size,
             )),
             config,
@@ -456,9 +458,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block_root: Hash256,
         state: BeaconState<E>,
     ) -> Result<(), Error> {
-        self.state_cache
-            .lock()
-            .update_finalized_state(state_root, block_root, state)
+        let start_slot = self.get_anchor_info().anchor_slot;
+        let pre_finalized_slots_to_retain = self
+            .hierarchy
+            .closest_layer_points(state.slot(), start_slot);
+        self.state_cache.lock().update_finalized_state(
+            state_root,
+            block_root,
+            state,
+            &pre_finalized_slots_to_retain,
+        )
     }
 
     pub fn state_cache_len(&self) -> usize {
@@ -476,20 +485,34 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &metrics::STORE_BEACON_BLOB_CACHE_SIZE,
             self.block_cache.lock().blob_cache.len() as i64,
         );
+        let state_cache = self.state_cache.lock();
         metrics::set_gauge(
             &metrics::STORE_BEACON_STATE_CACHE_SIZE,
-            self.state_cache.lock().len() as i64,
+            state_cache.len() as i64,
         );
+        metrics::set_gauge_vec(
+            &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE,
+            HOT_METRIC,
+            state_cache.num_hdiff_buffers() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
+            HOT_METRIC,
+            state_cache.hdiff_buffer_mem_usage() as i64,
+        );
+        drop(state_cache);
         metrics::set_gauge(
             &metrics::STORE_BEACON_HISTORIC_STATE_CACHE_SIZE,
             hsc_metrics.num_state as i64,
         );
-        metrics::set_gauge(
+        metrics::set_gauge_vec(
             &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_SIZE,
+            COLD_METRIC,
             hsc_metrics.num_hdiff as i64,
         );
-        metrics::set_gauge(
+        metrics::set_gauge_vec(
             &metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_BYTE_SIZE,
+            COLD_METRIC,
             hsc_metrics.hdiff_byte_size as i64,
         );
 
@@ -1455,9 +1478,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        // Avoid storing states in the database if they already exist in the state cache.
-        // The exception to this is the finalized state, which must exist in the cache before it
-        // is stored on disk.
         match self.state_cache.lock().put_state(
             *state_root,
             state.get_latest_block_root(*state_root),
@@ -1483,7 +1503,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // the state summary below and rely on that instead.
             }
             // Continue to store.
-            PutStateOutcome::Finalized | PutStateOutcome::PreFinalizedIgnored => {}
+            PutStateOutcome::Finalized | PutStateOutcome::PreFinalizedHDiffBuffer => {}
         }
 
         // Computing diffs is expensive so we avoid it if we already have this state stored on
@@ -1653,6 +1673,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     fn load_hot_hdiff_buffer(&self, state_root: Hash256) -> Result<HDiffBuffer, Error> {
+        if let Some(buffer) = self
+            .state_cache
+            .lock()
+            .get_hdiff_buffer_by_state_root(state_root)
+        {
+            return Ok(buffer);
+        }
+
         let Some(HotStateSummary {
             slot,
             diff_base_state,
@@ -1662,7 +1690,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Err(Error::MissingHotStateSummary(state_root));
         };
 
-        match self.hot_storage_strategy(slot)? {
+        let buffer = match self.hot_storage_strategy(slot)? {
             StorageStrategy::Snapshot => {
                 let Some(state) = self.load_hot_state_as_snapshot(state_root)? else {
                     let existing_snapshots = self.load_hot_state_snapshot_roots()?;
@@ -1673,8 +1701,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     );
                     return Err(Error::MissingHotStateSnapshot(state_root, slot));
                 };
-                let buffer = HDiffBuffer::from_state(state);
-                Ok(buffer)
+                HDiffBuffer::from_state(state)
             }
             StorageStrategy::DiffFrom(from_slot) => {
                 let from_state_root = diff_base_state.get_root(from_slot)?;
@@ -1691,7 +1718,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         metrics::start_timer_vec(&metrics::BEACON_HDIFF_APPLY_TIME, HOT_METRIC);
                     diff.apply(&mut buffer, &self.config)?;
                 }
-                Ok(buffer)
+                buffer
             }
             StorageStrategy::ReplayFrom(from_slot) => {
                 let from_state_root = diff_base_state.get_root(from_slot)?;
@@ -1701,9 +1728,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         from_state_root,
                         e.into(),
                     )
-                })
+                })?
             }
-        }
+        };
+
+        // Add buffer to cache for future calls.
+        self.state_cache
+            .lock()
+            .put_hdiff_buffer(state_root, slot, &buffer);
+
+        Ok(buffer)
     }
 
     fn load_hot_hdiff(&self, state_root: Hash256) -> Result<HDiff, Error> {
@@ -2194,10 +2228,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 %slot,
                 "Hit hdiff buffer cache"
             );
-            metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT);
+            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, COLD_METRIC);
             return Ok((slot, buffer));
         }
-        metrics::inc_counter(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS);
+        metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, COLD_METRIC);
 
         // Load buffer for the previous state.
         // This amount of recursion (<10 levels) should be OK.
