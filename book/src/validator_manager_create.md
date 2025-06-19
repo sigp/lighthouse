@@ -8,7 +8,7 @@ mnemonic and produces two files:
 - `validators.json`: the keystores and passwords for the newly generated
     validators, in JSON format.
 - `deposits.json`: a JSON file of the same format as
-    [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli) which can
+    [ethstaker-deposit-cli](https://github.com/eth-educators/ethstaker-deposit-cli) which can
     be used for deposit submission via the [Ethereum Staking
     Launchpad][].
 
@@ -69,7 +69,7 @@ lighthouse \
 > Be sure to remove `./validators.json` after the import is successful since it
 > contains unencrypted validator keystores.
 
-> Note: To import validators with validator-manager using keystore files created using the staking deposit CLI, refer to [Managing Validators](./validator_manager_api.md#import).
+> Note: To import validators with validator-manager using keystore files created using the `ethstaker-deposit-cli`, refer to [Managing Validators](./validator_manager_api.md#import).
 
 ## Detailed Guide
 

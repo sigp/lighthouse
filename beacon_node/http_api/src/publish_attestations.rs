@@ -36,16 +36,13 @@
 //! attestations and there's no immediate cause for concern.
 use crate::task_spawner::{Priority, TaskSpawner};
 use beacon_chain::{
-    single_attestation::single_attestation_to_attestation, validator_monitor::timestamp_now,
-    AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    validator_monitor::timestamp_now, AttestationError, BeaconChain, BeaconChainError,
+    BeaconChainTypes,
 };
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
-use either::Either;
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use serde_json::Value;
-use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{
@@ -53,7 +50,7 @@ use tokio::sync::{
     oneshot,
 };
 use tracing::{debug, error, warn};
-use types::{Attestation, EthSpec, ForkName, SingleAttestation};
+use types::SingleAttestation;
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
@@ -65,8 +62,6 @@ pub enum Error {
     ReprocessDisabled,
     ReprocessFull,
     ReprocessTimeout,
-    InvalidJson(#[allow(dead_code)] serde_json::Error),
-    FailedConversion(#[allow(dead_code)] Box<BeaconChainError>),
 }
 
 enum PublishAttestationResult {
@@ -76,66 +71,24 @@ enum PublishAttestationResult {
     Failure(Error),
 }
 
-#[allow(clippy::type_complexity)]
-pub fn deserialize_attestation_payload<T: BeaconChainTypes>(
-    payload: Value,
-    fork_name: Option<ForkName>,
-) -> Result<Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>, Error> {
-    if fork_name.is_some_and(|fork_name| fork_name.electra_enabled()) || fork_name.is_none() {
-        if fork_name.is_none() {
-            warn!("No Consensus Version header specified.");
-        }
-
-        Ok(serde_json::from_value::<Vec<SingleAttestation>>(payload)
-            .map_err(Error::InvalidJson)?
-            .into_iter()
-            .map(Either::Right)
-            .collect())
-    } else {
-        Ok(
-            serde_json::from_value::<Vec<Attestation<T::EthSpec>>>(payload)
-                .map_err(Error::InvalidJson)?
-                .into_iter()
-                .map(Either::Left)
-                .collect(),
-        )
-    }
-}
-
 fn verify_and_publish_attestation<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    either_attestation: &Either<Attestation<T::EthSpec>, SingleAttestation>,
+    attestation: &SingleAttestation,
     seen_timestamp: Duration,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) -> Result<(), Error> {
-    let attestation = convert_to_attestation(chain, either_attestation)?;
     let verified_attestation = chain
-        .verify_unaggregated_attestation_for_gossip(&attestation, None)
+        .verify_unaggregated_attestation_for_gossip(attestation, None)
         .map_err(Error::Validation)?;
 
-    match either_attestation {
-        Either::Left(attestation) => {
-            // Publish.
-            network_tx
-                .send(NetworkMessage::Publish {
-                    messages: vec![PubsubMessage::Attestation(Box::new((
-                        verified_attestation.subnet_id(),
-                        attestation.clone(),
-                    )))],
-                })
-                .map_err(|_| Error::Publication)?;
-        }
-        Either::Right(single_attestation) => {
-            network_tx
-                .send(NetworkMessage::Publish {
-                    messages: vec![PubsubMessage::SingleAttestation(Box::new((
-                        verified_attestation.subnet_id(),
-                        single_attestation.clone(),
-                    )))],
-                })
-                .map_err(|_| Error::Publication)?;
-        }
-    }
+    network_tx
+        .send(NetworkMessage::Publish {
+            messages: vec![PubsubMessage::Attestation(Box::new((
+                verified_attestation.subnet_id(),
+                attestation.clone(),
+            )))],
+        })
+        .map_err(|_| Error::Publication)?;
 
     // Notify the validator monitor.
     chain
@@ -172,57 +125,10 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
     }
 }
 
-fn convert_to_attestation<'a, T: BeaconChainTypes>(
-    chain: &Arc<BeaconChain<T>>,
-    attestation: &'a Either<Attestation<T::EthSpec>, SingleAttestation>,
-) -> Result<Cow<'a, Attestation<T::EthSpec>>, Error> {
-    match attestation {
-        Either::Left(a) => Ok(Cow::Borrowed(a)),
-        Either::Right(single_attestation) => {
-            let conversion_result = chain.with_committee_cache(
-                single_attestation.data.target.root,
-                single_attestation
-                    .data
-                    .slot
-                    .epoch(T::EthSpec::slots_per_epoch()),
-                |committee_cache, _| {
-                    let Some(committee) = committee_cache.get_beacon_committee(
-                        single_attestation.data.slot,
-                        single_attestation.committee_index,
-                    ) else {
-                        return Ok(Err(AttestationError::NoCommitteeForSlotAndIndex {
-                            slot: single_attestation.data.slot,
-                            index: single_attestation.committee_index,
-                        }));
-                    };
-
-                    Ok(single_attestation_to_attestation::<T::EthSpec>(
-                        single_attestation,
-                        committee.committee,
-                    )
-                    .map(Cow::Owned))
-                },
-            );
-            match conversion_result {
-                Ok(Ok(attestation)) => Ok(attestation),
-                Ok(Err(e)) => Err(Error::Validation(e)),
-                // Map the error returned by `with_committee_cache` for unknown blocks into the
-                // `UnknownHeadBlock` error that is gracefully handled.
-                Err(BeaconChainError::MissingBeaconBlock(beacon_block_root)) => {
-                    Err(Error::Validation(AttestationError::UnknownHeadBlock {
-                        beacon_block_root,
-                    }))
-                }
-                Err(e) => Err(Error::FailedConversion(Box::new(e))),
-            }
-        }
-    }
-}
-
 pub async fn publish_attestations<T: BeaconChainTypes>(
     task_spawner: TaskSpawner<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
-    attestations: Vec<Either<Attestation<T::EthSpec>, SingleAttestation>>,
+    attestations: Vec<SingleAttestation>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     reprocess_send: Option<Sender<ReprocessQueueMessage>>,
 ) -> Result<(), warp::Rejection> {
@@ -230,10 +136,7 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
     let attestation_metadata = attestations
         .iter()
-        .map(|att| match att {
-            Either::Left(att) => (att.data().slot, att.committee_index()),
-            Either::Right(att) => (att.data.slot, Some(att.committee_index)),
-        })
+        .map(|att| (att.data.slot, Some(att.committee_index)))
         .collect::<Vec<_>>();
 
     // Gossip validate and publish attestations that can be immediately processed.

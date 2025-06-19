@@ -33,8 +33,14 @@ pub fn construct_logger<E: EthSpec>(
     let subcommand_name = matches.subcommand_name();
     let logfile_prefix = subcommand_name.unwrap_or("lighthouse");
 
+    let file_mode = if logger_config.is_restricted {
+        0o600
+    } else {
+        0o644
+    };
+
     let (builder, stdout_logging_layer, file_logging_layer, sse_logging_layer_opt) =
-        environment_builder.init_tracing(logger_config.clone(), logfile_prefix);
+        environment_builder.init_tracing(logger_config.clone(), logfile_prefix, file_mode);
 
     let libp2p_discv5_layer = if let Some(subcommand_name) = subcommand_name {
         if subcommand_name == "beacon_node"
@@ -49,6 +55,7 @@ pub fn construct_logger<E: EthSpec>(
                 create_libp2p_discv5_tracing_layer(
                     logger_config.path.clone(),
                     logger_config.max_log_size,
+                    file_mode,
                 )
             }
         } else {

@@ -1,5 +1,6 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use doppelganger_service::DoppelgangerService;
+use eth2::types::PublishBlockRequest;
 use initialized_validators::InitializedValidators;
 use logging::crit;
 use parking_lot::{Mutex, RwLock};
@@ -733,14 +734,18 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
         current_slot: Slot,
     ) -> Result<SignedBlock<E>, Error> {
         match block {
-            UnsignedBlock::Full(block) => self
-                .sign_abstract_block(validator_pubkey, block, current_slot)
-                .await
-                .map(SignedBlock::Full),
+            UnsignedBlock::Full(block) => {
+                let (block, blobs) = block.deconstruct();
+                self.sign_abstract_block(validator_pubkey, block, current_slot)
+                    .await
+                    .map(|block| {
+                        SignedBlock::Full(PublishBlockRequest::new(Arc::new(block), blobs))
+                    })
+            }
             UnsignedBlock::Blinded(block) => self
                 .sign_abstract_block(validator_pubkey, block, current_slot)
                 .await
-                .map(SignedBlock::Blinded),
+                .map(|block| SignedBlock::Blinded(Arc::new(block))),
         }
     }
 

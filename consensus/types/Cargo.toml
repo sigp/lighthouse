@@ -4,9 +4,15 @@ version = "0.2.1"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
 edition = { workspace = true }
 
-[[bench]]
-name = "benches"
-harness = false
+[features]
+default = ["sqlite", "legacy-arith"]
+# Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
+legacy-arith = []
+sqlite = ["dep:rusqlite"]
+# The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
+# For simplicity `Arbitrary` is now derived regardless of the feature's presence.
+arbitrary-fuzz = []
+portable = ["bls/supranational-portable"]
 
 [dependencies]
 alloy-primitives = { workspace = true }
@@ -62,12 +68,6 @@ paste = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
 
-[features]
-default = ["sqlite", "legacy-arith"]
-# Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
-legacy-arith = []
-sqlite = ["dep:rusqlite"]
-# The `arbitrary-fuzz` feature is a no-op provided for backwards compatibility.
-# For simplicity `Arbitrary` is now derived regardless of the feature's presence.
-arbitrary-fuzz = []
-portable = ["bls/supranational-portable"]
+[[bench]]
+name = "benches"
+harness = false

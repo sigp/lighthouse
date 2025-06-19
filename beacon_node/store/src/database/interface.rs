@@ -105,15 +105,6 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    fn begin_rw_transaction(&self) -> parking_lot::MutexGuard<()> {
-        match self {
-            #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::begin_rw_transaction(txn),
-            #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(txn) => redb_impl::Redb::begin_rw_transaction(txn),
-        }
-    }
-
     fn compact(&self) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]

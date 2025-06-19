@@ -5,6 +5,9 @@ version = "7.1.0-beta.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
+[package.metadata.cargo-udeps.ignore]
+normal = ["malloc_utils"]
+
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
@@ -42,6 +45,3 @@ tracing-subscriber = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
 validator_dir = { workspace = true }
-
-[package.metadata.cargo-udeps.ignore]
-normal = ["malloc_utils"]

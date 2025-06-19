@@ -21,7 +21,7 @@ using Lighthouse.
 Rather than continuing to read this page, we recommend users visit either:
 
 - The [Staking Launchpad][launchpad] for detailed, beginner-friendly instructions.
-- The [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli) for a CLI tool used by the [Staking Launchpad][launchpad].
+- The [ethstaker-deposit-cli](https://github.com/eth-educators/ethstaker-deposit-cli/releases) for a CLI tool used by the [Staking Launchpad][launchpad].
 - The [validator-manager documentation](./validator_manager.md) for a Lighthouse-specific tool for streamlined validator management tools.
 
 ## The `lighthouse account-manager`

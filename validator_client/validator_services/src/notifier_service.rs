@@ -1,18 +1,20 @@
-use crate::{DutiesService, ProductionValidatorClient};
-use lighthouse_validator_store::LighthouseValidatorStore;
-use metrics::set_gauge;
+use crate::duties_service::DutiesService;
 use slot_clock::SlotClock;
+use std::sync::Arc;
+use task_executor::TaskExecutor;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info};
-use types::EthSpec;
+use types::{ChainSpec, EthSpec};
+use validator_metrics::set_gauge;
+use validator_store::ValidatorStore;
 
 /// Spawns a notifier service which periodically logs information about the node.
-pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Result<(), String> {
-    let context = client.context.service_context("notifier".into());
-    let executor = context.executor.clone();
-    let duties_service = client.duties_service.clone();
-
-    let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
+pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
+    duties_service: Arc<DutiesService<S, T>>,
+    executor: TaskExecutor,
+    spec: &ChainSpec,
+) -> Result<(), String> {
+    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
 
     let interval_fut = async move {
         loop {
@@ -33,9 +35,7 @@ pub fn spawn_notifier<E: EthSpec>(client: &ProductionValidatorClient<E>) -> Resu
 }
 
 /// Performs a single notification routine.
-async fn notify<T: SlotClock + 'static, E: EthSpec>(
-    duties_service: &DutiesService<LighthouseValidatorStore<T, E>, T>,
-) {
+async fn notify<S: ValidatorStore, T: SlotClock + 'static>(duties_service: &DutiesService<S, T>) {
     let (candidate_info, num_available, num_synced) =
         duties_service.beacon_nodes.get_notifier_info().await;
     let num_total = candidate_info.len();
@@ -102,7 +102,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
     }
 
     if let Some(slot) = duties_service.slot_clock.now() {
-        let epoch = slot.epoch(E::slots_per_epoch());
+        let epoch = slot.epoch(S::E::slots_per_epoch());
 
         let total_validators = duties_service.total_validator_count();
         let proposing_validators = duties_service.proposer_count(epoch);

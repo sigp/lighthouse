@@ -43,21 +43,26 @@ pub fn upgrade_to_v23<T: BeaconChainTypes>(
         let state_root = state_root_result?;
         debug!(
             ?state_root,
-            "Deleting temporary state flag on v23 schema migration"
+            "Deleting temporary state on v23 schema migration"
         );
         ops.push(KeyValueStoreOp::DeleteKey(
             DBColumn::BeaconStateTemporary,
             state_root.as_slice().to_vec(),
         ));
-        // Here we SHOULD delete the items for key `state_root` in columns `BeaconState` and
-        // `BeaconStateSummary`. However, in the event we have dangling temporary states at the time
-        // of the migration, the first pruning routine will prune them. They will be a tree branch /
-        // root not part of the finalized tree and trigger a warning log once.
-        //
-        // We believe there may be race conditions concerning temporary flags where a necessary
-        // canonical state is marked as temporary. In current stable, a restart with that DB will
-        // corrupt the DB. In the unlikely case this happens we choose to leave the states and
-        // allow pruning to clean them.
+
+        // We also delete the temporary states themselves. Although there are known issue with
+        // temporary states and this could lead to DB corruption, we will only corrupt the DB in
+        // cases where the DB would be corrupted by restarting on v7.0.x. We consider these DBs
+        // "too far gone". Deleting here has the advantage of not generating warnings about
+        // disjoint state DAGs in the v24 upgrade, or the first pruning after migration.
+        ops.push(KeyValueStoreOp::DeleteKey(
+            DBColumn::BeaconState,
+            state_root.as_slice().to_vec(),
+        ));
+        ops.push(KeyValueStoreOp::DeleteKey(
+            DBColumn::BeaconStateSummary,
+            state_root.as_slice().to_vec(),
+        ));
     }
 
     Ok(ops)
