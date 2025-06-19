@@ -389,6 +389,29 @@ fn genesis_backfill_with_historic_flag() {
         .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
+// Tests for Eth1 flags.
+// DEPRECATED but should not crash
+#[test]
+fn eth1_blocks_per_log_query_flag() {
+    CommandLineTest::new()
+        .flag("eth1-blocks-per-log-query", Some("500"))
+        .run_with_zero_port();
+}
+// DEPRECATED but should not crash
+#[test]
+fn eth1_purge_cache_flag() {
+    CommandLineTest::new()
+        .flag("eth1-purge-cache", None)
+        .run_with_zero_port();
+}
+// DEPRECATED but should not crash
+#[test]
+fn eth1_cache_follow_distance_manual() {
+    CommandLineTest::new()
+        .flag("eth1-cache-follow-distance", Some("128"))
+        .run_with_zero_port();
+}
+
 // Tests for Bellatrix flags.
 fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
     use sensitive_url::SensitiveUrl;
@@ -2452,6 +2475,20 @@ fn logfile_format_flag() {
                 Some("JSON".to_string())
             )
         });
+}
+
+// DEPRECATED but should not crash.
+#[test]
+fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("disable-deposit-contract-sync", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port();
 }
 
 #[test]
