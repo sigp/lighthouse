@@ -148,7 +148,6 @@ pub struct BackFillSync<T: BeaconChainTypes> {
 
 impl<T: BeaconChainTypes> BackFillSync<T> {
     #[instrument(parent = None,
-        level = "info",
         name = "backfill_sync",
         skip_all
     )]

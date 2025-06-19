@@ -92,7 +92,7 @@ impl TaskExecutor {
     /// This function should only be used during testing. In production, prefer to obtain an
     /// instance of `Self` via a `environment::RuntimeContext` (see the `lighthouse/environment`
     /// crate).
-    #[instrument(parent = None,level = "info", fields(service = service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None,fields(service = service_name), name = "task_executor", skip_all)]
     pub fn new<T: Into<HandleProvider>>(
         handle: T,
         exit: async_channel::Receiver<()>,

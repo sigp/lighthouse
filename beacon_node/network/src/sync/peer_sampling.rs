@@ -39,7 +39,6 @@ impl<T: BeaconChainTypes> Sampling<T> {
 
     #[cfg(test)]
     #[instrument(parent = None,
-        level = "info",
         fields(service = "sampling"),
         name = "sampling",
         skip_all

@@ -139,7 +139,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     #[cfg(test)]
     #[instrument(parent = None,
-        level = "info",
         fields(service = "lookup_sync"),
         name = "lookup_sync",
         skip_all
