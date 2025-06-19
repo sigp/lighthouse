@@ -122,7 +122,7 @@ use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
     BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
-    KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+    KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
@@ -2054,7 +2054,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         AttestationError,
     >
     where
-        I: Iterator<Item = (&'a Attestation<T::EthSpec>, Option<SubnetId>)> + ExactSizeIterator,
+        I: Iterator<Item = (&'a SingleAttestation, Option<SubnetId>)> + ExactSizeIterator,
     {
         batch_verify_unaggregated_attestations(attestations, self)
     }
@@ -2066,7 +2066,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// aggregation bit set.
     pub fn verify_unaggregated_attestation_for_gossip<'a>(
         &self,
-        unaggregated_attestation: &'a Attestation<T::EthSpec>,
+        unaggregated_attestation: &'a SingleAttestation,
         subnet_id: Option<SubnetId>,
     ) -> Result<VerifiedUnaggregatedAttestation<'a, T>, AttestationError> {
         metrics::inc_counter(&metrics::UNAGGREGATED_ATTESTATION_PROCESSING_REQUESTS);
@@ -2082,13 +2082,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             .spec
                             .fork_name_at_slot::<T::EthSpec>(v.attestation().data().slot);
                         if current_fork.electra_enabled() {
-                            // I don't see a situation where this could return None. The upstream unaggregated attestation checks
-                            // should have already verified that this is an attestation with a single committee bit set.
-                            if let Some(single_attestation) = v.single_attestation() {
-                                event_handler.register(EventKind::SingleAttestation(Box::new(
-                                    single_attestation,
-                                )));
-                            }
+                            event_handler.register(EventKind::SingleAttestation(Box::new(
+                                v.single_attestation(),
+                            )));
                         }
                     }
 
@@ -4016,8 +4012,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        let txn_lock = self.store.hot_db.begin_rw_transaction();
-
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
                 msg = "Restoring fork choice from disk",
@@ -4029,7 +4023,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .err()
                 .unwrap_or(e.into()));
         }
-        drop(txn_lock);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
@@ -6744,12 +6737,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn chain_dump(
         &self,
     ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
+        self.chain_dump_from_slot(Slot::new(0))
+    }
+
+    /// As for `chain_dump` but dumping only the portion of the chain newer than `from_slot`.
+    #[allow(clippy::type_complexity)]
+    pub fn chain_dump_from_slot(
+        &self,
+        from_slot: Slot,
+    ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
         let mut dump = vec![];
 
         let mut prev_block_root = None;
         let mut prev_beacon_state = None;
 
-        for res in self.forwards_iter_block_roots(Slot::new(0))? {
+        for res in self.forwards_iter_block_roots(from_slot)? {
             let (beacon_block_root, _) = res?;
 
             // Do not include snapshots at skipped slots.

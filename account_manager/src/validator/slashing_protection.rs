@@ -90,7 +90,7 @@ pub fn cli_run<E: EthSpec>(
             let slashing_protection_database =
                 SlashingDatabase::open_or_create(&slashing_protection_db_path).map_err(|e| {
                     format!(
-                        "Unable to open database at {}: {:?}",
+                        "Unable to open slashing protection database at {}: {:?}",
                         slashing_protection_db_path.display(),
                         e
                     )
@@ -198,7 +198,7 @@ pub fn cli_run<E: EthSpec>(
             let slashing_protection_database = SlashingDatabase::open(&slashing_protection_db_path)
                 .map_err(|e| {
                     format!(
-                        "Unable to open database at {}: {:?}",
+                        "Unable to open slashing protection database at {}: {:?}",
                         slashing_protection_db_path.display(),
                         e
                     )

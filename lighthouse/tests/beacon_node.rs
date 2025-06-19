@@ -1860,19 +1860,40 @@ fn hdiff_buffer_cache_size_flag() {
         .flag("hdiff-buffer-cache-size", Some("1"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.store.hdiff_buffer_cache_size.get(), 1);
+            assert_eq!(config.store.cold_hdiff_buffer_cache_size.get(), 1);
         });
 }
 #[test]
 fn hdiff_buffer_cache_size_default() {
-    use beacon_node::beacon_chain::store::config::DEFAULT_HDIFF_BUFFER_CACHE_SIZE;
+    use beacon_node::beacon_chain::store::config::DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE;
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.store.hdiff_buffer_cache_size,
-                DEFAULT_HDIFF_BUFFER_CACHE_SIZE
+                config.store.cold_hdiff_buffer_cache_size,
+                DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE
             );
+        });
+}
+#[test]
+fn hot_hdiff_buffer_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.hot_hdiff_buffer_cache_size,
+                DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn hot_hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hot-hdiff-buffer-cache-size", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hot_hdiff_buffer_cache_size.get(), 3);
         });
 }
 #[test]
@@ -2576,6 +2597,16 @@ fn invalid_gossip_verified_blocks_path() {
                 config.network.invalid_block_storage,
                 Some(PathBuf::from(path))
             )
+        });
+}
+
+#[test]
+fn advertise_false_custody_group_count() {
+    CommandLineTest::new()
+        .flag("advertise-false-custody-group-count", Some("64"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.advertise_false_custody_group_count, Some(64))
         });
 }
 
