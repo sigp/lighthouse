@@ -90,7 +90,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
 use std::sync::Arc;
-use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
+use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
 use tracing::{debug, error};
@@ -1467,28 +1467,19 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // processing, but we get early access to it.
                 let state_root = state.update_tree_hash_cache()?;
 
-                // Store the state immediately.
-                let txn_lock = chain.store.hot_db.begin_rw_transaction();
+                // Store the state immediately. States are ONLY deleted on finalization pruning, so
+                // we won't have race conditions where we should have written a state and didn't.
                 let state_already_exists =
                     chain.store.load_hot_state_summary(&state_root)?.is_some();
 
-                let state_batch = if state_already_exists {
+                if state_already_exists {
                     // If the state exists, we do not need to re-write it.
-                    vec![]
                 } else {
-                    vec![if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
-                        StoreOp::PutState(state_root, &state)
-                    } else {
-                        StoreOp::PutStateSummary(
-                            state_root,
-                            HotStateSummary::new(&state_root, &state)?,
-                        )
-                    }]
+                    // Recycle store codepath to create a state summary and store the state / diff
+                    let mut ops = vec![];
+                    chain.store.store_hot_state(&state_root, &state, &mut ops)?;
+                    chain.store.hot_db.do_atomically(ops)?;
                 };
-                chain
-                    .store
-                    .do_atomically_with_block_and_blobs_cache(state_batch)?;
-                drop(txn_lock);
 
                 state_root
             };
