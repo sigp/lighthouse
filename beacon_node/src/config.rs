@@ -471,7 +471,7 @@ pub fn get_config<E: EthSpec>(
 
     info!(
         deploy_block = eth2_network_config.deposit_contract_deploy_block,
-        address = &format!("{:?}", spec.deposit_contract_address),
+        address = ?spec.deposit_contract_address,
         "Deposit contract"
     );
 
