@@ -153,7 +153,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Check if the chain has peers from which to process batches.
-    #[instrument(parent = None,level = "info", fields(chain = self.id , service = "range_sync"), skip_all)]
+    #[instrument(parent = None,fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn available_peers(&self) -> usize {
         self.peers.len()
     }
@@ -211,7 +211,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// A block has been received for a batch on this chain.
     /// If the block correctly completes the batch it will be processed if possible.
-    #[instrument(parent = None,level = "info", fields(chain = self.id , service = "range_sync"), skip_all)]
+    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn on_block_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,

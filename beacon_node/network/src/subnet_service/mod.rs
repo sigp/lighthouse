@@ -114,7 +114,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /// Establish the service based on the passed configuration.
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
