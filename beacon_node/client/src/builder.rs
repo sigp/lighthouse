@@ -482,7 +482,6 @@ where
             context.executor,
             libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
-            beacon_processor_channels.work_reprocessing_tx.clone(),
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
@@ -620,9 +619,6 @@ where
                 network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
-                beacon_processor_reprocess_send: Some(
-                    beacon_processor_channels.work_reprocessing_tx.clone(),
-                ),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
             });
 
@@ -686,8 +682,6 @@ where
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
-                    beacon_processor_channels.work_reprocessing_tx.clone(),
-                    beacon_processor_channels.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
                     beacon_chain.spec.maximum_gossip_clock_disparity(),
@@ -761,7 +755,7 @@ where
                         compute_light_client_updates(
                             &inner_chain,
                             light_client_server_rv,
-                            beacon_processor_channels.work_reprocessing_tx,
+                            beacon_processor_channels.beacon_processor_tx,
                         )
                         .await
                     },

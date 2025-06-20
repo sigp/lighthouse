@@ -199,8 +199,6 @@ impl TestRig {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
@@ -244,7 +242,6 @@ impl TestRig {
             chain: harness.chain.clone(),
             network_tx,
             sync_tx,
-            reprocess_tx: work_reprocessing_tx.clone(),
             network_globals: network_globals.clone(),
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor: executor.clone(),
@@ -259,8 +256,6 @@ impl TestRig {
         }
         .spawn_manager(
             beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx,
             Some(work_journal_tx),
             harness.chain.slot_clock.clone(),
             chain.spec.maximum_gossip_clock_disparity(),
