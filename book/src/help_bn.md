@@ -171,10 +171,10 @@ Options:
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
       --hdiff-buffer-cache-size <SIZE>
-          Number of hierarchical diff (hdiff) buffers to cache in memory. Each
-          buffer is around the size of a BeaconState so you should be cautious
-          about setting this value too high. This flag is irrelevant for most
-          nodes, which run with state pruning enabled. [default: 16]
+          Number of cold hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. This flag is irrelevant
+          for most nodes, which run with state pruning enabled. [default: 16]
       --hierarchy-exponents <EXPONENTS>
           Specifies the frequency for storing full state snapshots and
           hierarchical diffs in the freezer DB. Accepts a comma-separated list
@@ -187,6 +187,12 @@ Options:
       --historic-state-cache-size <SIZE>
           Specifies how many states from the freezer database should be cached
           in memory [default: 1]
+      --hot-hdiff-buffer-cache-size <SIZE>
+          Number of hot hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. Setting this value higher
+          can reduce the time taken to store new states on disk at the cost of
+          higher memory usage. [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>

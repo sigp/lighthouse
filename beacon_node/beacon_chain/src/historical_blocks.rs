@@ -151,6 +151,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
+                debug!(%slot, ?block_root, "Storing frozen block to root mapping");
                 cold_batch.push(KeyValueStoreOp::PutKeyValue(
                     DBColumn::BeaconBlockRoots,
                     slot.to_be_bytes().to_vec(),

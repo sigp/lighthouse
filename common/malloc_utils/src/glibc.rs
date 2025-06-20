@@ -33,7 +33,7 @@ const M_MMAP_THRESHOLD: c_int = -3;
 /// https://man7.org/linux/man-pages/man3/mallopt.3.html
 const ENV_VAR_MMAP_THRESHOLD: &str = "MALLOC_MMAP_THRESHOLD_";
 
-pub static GLOBAL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| <_>::default());
+pub static GLOBAL_LOCK: LazyLock<Mutex<()>> = LazyLock::new(Default::default);
 
 // Metrics for the malloc. For more information, see:
 //
