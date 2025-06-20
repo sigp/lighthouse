@@ -2374,7 +2374,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
-        // TODO(pawan): do we want to differentiate between full node/staking node function
         let (attestation, attesting_indices) = verified_attestation.into_attestation_and_indices();
         self.op_pool
             .insert_attestation(attestation, attesting_indices)
@@ -2394,7 +2393,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
-        // TODO(pawan): do we want to differentiate between full node/staking node function
         self.op_pool
             .insert_sync_contribution(contribution.contribution())
             .map_err(Error::from)?;
@@ -2533,8 +2531,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
     pub fn import_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit, T::EthSpec>) {
-        // TODO(pawan): do we want to differentiate between full node/staking node function
-
         self.op_pool.insert_voluntary_exit(exit)
     }
 
@@ -2565,7 +2561,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // TODO(pawan): do we want to differentiate between full node/staking node function
         self.op_pool.insert_proposer_slashing(proposer_slashing)
     }
 
@@ -2605,7 +2600,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Add to the op pool (if we have the ability to propose blocks).
-        // TODO(pawan): do we want to differentiate between full node/staking node function
         self.op_pool.insert_attester_slashing(attester_slashing)
     }
 
@@ -2678,7 +2672,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // TODO(pawan): do we want to differentiate between full node/staking node function
         self.op_pool
             .insert_bls_to_execution_change(bls_to_execution_change, received_pre_capella)
     }
