@@ -4479,6 +4479,18 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/staking
+    let get_lighthouse_staking = warp::path("lighthouse")
+        .and(warp::path("staking"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .then(|task_spawner: TaskSpawner<T::EthSpec>| {
+            // This API is fairly useless since we abolished the distinction between staking and
+            // non-staking nodes. We keep it for backwards-compatibility with LH v7.0.0, and in case
+            // we want to reintroduce the distinction in future.
+            task_spawner.blocking_json_task(Priority::P1, move || Ok(()))
+        });
+
     let database_path = warp::path("lighthouse").and(warp::path("database"));
 
     // GET lighthouse/database/info
@@ -4810,6 +4822,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_proto_array)
                 .uor(get_lighthouse_validator_inclusion_global)
                 .uor(get_lighthouse_validator_inclusion)
+                .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
