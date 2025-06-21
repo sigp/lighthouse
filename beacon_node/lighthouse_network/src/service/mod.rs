@@ -885,14 +885,16 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
-    /// Subscribe to all data columns determined by the cgc.
+    /// Subscribe to all data columns determined by the cgc and return the newly subscribed columns
     #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p"),
         name = "libp2p",
         skip_all
     )]
-    pub fn subscribe_new_data_column_subnets(&mut self, custody_column_count: u64) {
+    pub fn subscribe_new_data_column_subnets(&mut self, custody_column_count: u64) -> Vec<u64> {
+        let old_columns = self.network_globals.sampling_columns();
+
         self.network_globals
             .update_data_column_subnets(custody_column_count);
 
@@ -900,6 +902,12 @@ impl<E: EthSpec> Network<E> {
             let kind = GossipKind::DataColumnSidecar(column);
             self.subscribe_kind(kind);
         }
+
+        self.network_globals
+            .sampling_columns()
+            .difference(&old_columns)
+            .cloned()
+            .collect()
     }
 
     /// Returns the scoring parameters for a topic if set.

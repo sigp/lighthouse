@@ -261,6 +261,13 @@ pub struct CustodyCountChanged {
     pub sampling_count: u64,
 }
 
+/// The data columns to backfill due to a custody count change.
+#[derive(Debug, Clone)]
+pub struct CustodyColumnBackfill {
+    pub columns_to_backfill: Vec<u64>,
+    pub start_epoch: Epoch,
+}
+
 /// The custody information that gets persisted across runs.
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct CustodyContextSsz {

@@ -5,7 +5,7 @@ use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
 use crate::NetworkConfig;
-use beacon_chain::validator_custody::CustodyCountChanged;
+use beacon_chain::validator_custody::CustodyColumnBackfill;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
 use futures::channel::mpsc::Sender;
@@ -37,8 +37,8 @@ use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use types::{
-    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    Unsigned, ValidatorSubscription,
+    ChainSpec, Epoch, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -138,7 +138,7 @@ pub enum ValidatorSubscriptionMessage {
 pub enum SyncServiceMessage {
     /// Custody group count changed due to a change in validators' weight.
     /// Trigger data column backfill.
-    CustodyCountChanged(CustodyCountChanged),
+    CustodyColumnBackfill(CustodyColumnBackfill),
 }
 
 #[derive(Clone)]
@@ -769,7 +769,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 sampling_count,
             } => {
                 // subscribe to `sampling_count` subnets
-                self.libp2p
+                let columns_to_backfill = self
+                    .libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
                 if self
                     .network_globals
@@ -778,10 +779,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .is_none()
                 {
                     self.libp2p.update_enr_cgc(new_custody_group_count);
-                    let message = SyncServiceMessage::CustodyCountChanged(CustodyCountChanged {
-                        new_custody_group_count,
-                        sampling_count,
-                    });
+                    let message =
+                        SyncServiceMessage::CustodyColumnBackfill(CustodyColumnBackfill {
+                            columns_to_backfill,
+                            // TODO(cgc-backfill) use correct start epoch (we might not need this)
+                            start_epoch: Epoch::new(0),
+                        });
                     if let Err(e) = self.sync_service_send.send(message.clone()) {
                         tracing::error!(error = %e, ?message, "Could not send message to the syn service.");
                     }
