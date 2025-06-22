@@ -3,7 +3,6 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
-use either::Either;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
@@ -1907,18 +1906,46 @@ impl ApiTester {
     }
 
     pub async fn test_post_beacon_pool_attestations_valid(mut self) -> Self {
-        self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
-            .await
-            .unwrap();
-
         let fork_name = self
             .attestations
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
 
-        let attestations = Either::Left(self.attestations.clone());
+        let state = &self.chain.head_snapshot().beacon_state;
+
+        let attestations = self
+            .attestations
+            .clone()
+            .into_iter()
+            .map(|attn| {
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+                attn.to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
 
         self.client
             .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
@@ -1943,9 +1970,8 @@ impl ApiTester {
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data.slot))
             .unwrap();
 
-        let attestations = Either::Right(self.single_attestations.clone());
         self.client
-            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(self.single_attestations.clone(), fork_name)
             .await
             .unwrap();
         assert!(
@@ -1958,18 +1984,87 @@ impl ApiTester {
 
     pub async fn test_post_beacon_pool_attestations_invalid_v1(mut self) -> Self {
         let mut attestations = Vec::new();
+        let state = &self.chain.head_snapshot().beacon_state;
         for attestation in &self.attestations {
             let mut invalid_attestation = attestation.clone();
             invalid_attestation.data_mut().slot += 1;
+
+            // Convert valid attestation into valid `SingleAttestation`
+            let aggregation_bits = attestation.get_aggregation_bits();
+
+            if aggregation_bits.len() != 1 {
+                panic!("Must be an unaggregated attestation")
+            }
+
+            let aggregation_bit = *aggregation_bits.first().unwrap();
+
+            let committee = state
+                .get_beacon_committee(
+                    attestation.data().slot,
+                    attestation.committee_index().unwrap(),
+                )
+                .unwrap();
+
+            let attester_index = committee
+                .committee
+                .iter()
+                .enumerate()
+                .find_map(|(i, &index)| {
+                    if aggregation_bit as usize == i {
+                        return Some(index);
+                    }
+                    None
+                })
+                .unwrap();
+            let attestation = attestation
+                .to_single_attestation_with_attester_index(attester_index as u64)
+                .unwrap();
+
+            // Convert invalid attestation to invalid `SingleAttestation`
+            let aggregation_bits = invalid_attestation.get_aggregation_bits();
+
+            if aggregation_bits.len() != 1 {
+                panic!("Must be an unaggregated attestation")
+            }
+
+            let aggregation_bit = *aggregation_bits.first().unwrap();
+
+            let committee = state
+                .get_beacon_committee(
+                    invalid_attestation.data().slot,
+                    invalid_attestation.committee_index().unwrap(),
+                )
+                .unwrap();
+
+            let attester_index = committee
+                .committee
+                .iter()
+                .enumerate()
+                .find_map(|(i, &index)| {
+                    if aggregation_bit as usize == i {
+                        return Some(index);
+                    }
+                    None
+                })
+                .unwrap();
+            let invalid_attestation = invalid_attestation
+                .to_single_attestation_with_attester_index(attester_index as u64)
+                .unwrap();
 
             // add both to ensure we only fail on invalid attestations
             attestations.push(attestation.clone());
             attestations.push(invalid_attestation);
         }
 
+        let fork_name = self
+            .attestations
+            .first()
+            .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
+            .unwrap();
+
         let err = self
             .client
-            .post_beacon_pool_attestations_v1(attestations.as_slice())
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap_err();
 
@@ -2011,7 +2106,6 @@ impl ApiTester {
             .first()
             .map(|att| self.chain.spec.fork_name_at_slot::<E>(att.data().slot))
             .unwrap();
-        let attestations = Either::Right(attestations);
         let err_v2 = self
             .client
             .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
@@ -4177,9 +4271,47 @@ impl ApiTester {
 
         assert_eq!(result, expected);
 
+        let attestations = self
+            .attestations
+            .clone()
+            .into_iter()
+            .map(|attn| {
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = head_state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+                attn.to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+
         // Attest to the current slot
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -5916,9 +6048,47 @@ impl ApiTester {
 
         assert_eq!(result, expected);
 
+        let attestations = self
+            .attestations
+            .clone()
+            .into_iter()
+            .map(|attn| {
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = head_state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+                attn.to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+
         // Attest to the current slot
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -5973,8 +6143,47 @@ impl ApiTester {
 
         let expected_attestation_len = self.attestations.len();
 
+        let state = self.harness.get_current_state();
+        let attestations = self
+            .attestations
+            .clone()
+            .into_iter()
+            .map(|attn| {
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+                attn.to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+
+        let fork_name = self
+            .chain
+            .spec
+            .fork_name_at_slot::<E>(attestations.first().unwrap().data.slot);
+
         self.client
-            .post_beacon_pool_attestations_v1(self.attestations.as_slice())
+            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
             .await
             .unwrap();
 
@@ -6247,9 +6456,9 @@ impl ApiTester {
             .chain
             .spec
             .fork_name_at_slot::<E>(self.chain.slot().unwrap());
-        let attestations = Either::Right(self.single_attestations.clone());
+
         self.client
-            .post_beacon_pool_attestations_v2::<E>(attestations, fork_name)
+            .post_beacon_pool_attestations_v2::<E>(self.single_attestations.clone(), fork_name)
             .await
             .unwrap();
 

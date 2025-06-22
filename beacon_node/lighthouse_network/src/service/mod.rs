@@ -202,12 +202,10 @@ impl<E: EthSpec> Network<E> {
         )?;
 
         // Construct the metadata
-        let custody_group_count_metadata = ctx
-            .chain_spec
-            .is_peer_das_scheduled()
-            .then_some(custody_group_count);
-        let meta_data =
-            utils::load_or_build_metadata(&config.network_dir, custody_group_count_metadata);
+        let advertised_cgc = config
+            .advertise_false_custody_group_count
+            .unwrap_or(custody_group_count);
+        let meta_data = utils::load_or_build_metadata(&config.network_dir, advertised_cgc);
         let seq_number = *meta_data.seq_number();
         let globals = NetworkGlobals::new(
             enr,

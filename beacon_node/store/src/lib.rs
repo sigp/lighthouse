@@ -35,10 +35,8 @@ pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::memory_store::MemoryStore;
 pub use crate::metadata::BlobInfo;
 pub use errors::Error;
-pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
-use parking_lot::MutexGuard;
 use std::collections::HashSet;
 use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoStaticStr};
@@ -76,12 +74,6 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Execute either all of the operations in `batch` or none at all, returning an error.
     fn do_atomically(&self, batch: Vec<KeyValueStoreOp>) -> Result<(), Error>;
 
-    /// Return a mutex guard that can be used to synchronize sensitive transactions.
-    ///
-    /// This doesn't prevent other threads writing to the DB unless they also use
-    /// this method. In future we may implement a safer mandatory locking scheme.
-    fn begin_rw_transaction(&self) -> MutexGuard<()>;
-
     /// Compact a single column in the database, freeing space used by deleted items.
     fn compact_column(&self, column: DBColumn) -> Result<(), Error>;
 
@@ -91,7 +83,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
         // i.e. entries being created and deleted.
         for column in [
             DBColumn::BeaconState,
-            DBColumn::BeaconStateSummary,
+            DBColumn::BeaconStateHotSummary,
             DBColumn::BeaconBlock,
         ] {
             self.compact_column(column)?;
@@ -130,7 +122,10 @@ impl Key for Hash256 {
         if key.len() == 32 {
             Ok(Hash256::from_slice(key))
         } else {
-            Err(Error::InvalidKey)
+            Err(Error::InvalidKey(format!(
+                "Hash256 key unexpected len {}",
+                key.len()
+            )))
         }
     }
 }
@@ -162,7 +157,10 @@ pub fn get_data_column_key(block_root: &Hash256, column_index: &ColumnIndex) -> 
 
 pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Error> {
     if data.len() != DBColumn::BeaconDataColumn.key_size() {
-        return Err(Error::InvalidKey);
+        return Err(Error::InvalidKey(format!(
+            "Unexpected BeaconDataColumn key len {}",
+            data.len()
+        )));
     }
     // split_at panics if 32 < 40 which will never happen after the length check above
     let (block_root_bytes, column_index_bytes) = data.split_at(32);
@@ -171,7 +169,7 @@ pub fn parse_data_column_key(data: Vec<u8>) -> Result<(Hash256, ColumnIndex), Er
     let column_index = ColumnIndex::from_le_bytes(
         column_index_bytes
             .try_into()
-            .map_err(|_| Error::InvalidKey)?,
+            .map_err(|e| Error::InvalidKey(format!("Invalid ColumnIndex {e:?}")))?,
     );
     Ok((block_root, column_index))
 }
@@ -267,20 +265,40 @@ pub enum DBColumn {
     #[strum(serialize = "bdc")]
     BeaconDataColumn,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
+    ///
+    /// DEPRECATED.
     #[strum(serialize = "ste")]
     BeaconState,
+    /// For compact `BeaconStateDiff`'s in the hot DB.
+    ///
+    /// hsd = Hot State Diff.
+    #[strum(serialize = "hsd")]
+    BeaconStateHotDiff,
+    /// For beacon state snapshots in the hot DB.
+    ///
+    /// hsn = Hot Snapshot.
+    #[strum(serialize = "hsn")]
+    BeaconStateHotSnapshot,
     /// For beacon state snapshots in the freezer DB.
     #[strum(serialize = "bsn")]
     BeaconStateSnapshot,
     /// For compact `BeaconStateDiff`s in the freezer DB.
     #[strum(serialize = "bsd")]
     BeaconStateDiff,
-    /// Mapping from state root to `HotStateSummary` in the hot DB.
+    /// DEPRECATED
+    ///
+    /// Mapping from state root to `HotStateSummaryV22` in the hot DB.
     ///
     /// Previously this column also served a role in the freezer DB, mapping state roots to
     /// `ColdStateSummary`. However that role is now filled by `BeaconColdStateSummary`.
     #[strum(serialize = "bss")]
     BeaconStateSummary,
+    /// Mapping from state root to `HotStateSummaryV23` in the hot DB.
+    ///
+    /// This column is populated after DB schema version 23 superseding `BeaconStateSummary`. The
+    /// new column is necessary to have a safe migration without data loss.
+    #[strum(serialize = "bs3")]
+    BeaconStateHotSummary,
     /// Mapping from state root to `ColdStateSummary` in the cold DB.
     #[strum(serialize = "bcs")]
     BeaconColdStateSummary,
@@ -389,6 +407,9 @@ impl DBColumn {
             | Self::BeaconState
             | Self::BeaconBlob
             | Self::BeaconStateSummary
+            | Self::BeaconStateHotDiff
+            | Self::BeaconStateHotSnapshot
+            | Self::BeaconStateHotSummary
             | Self::BeaconColdStateSummary
             | Self::BeaconStateTemporary
             | Self::ExecPayload

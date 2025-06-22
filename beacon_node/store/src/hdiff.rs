@@ -27,6 +27,7 @@ pub enum Error {
     Compression(std::io::Error),
     InvalidSszState(ssz::DecodeError),
     InvalidBalancesLength,
+    LessThanStart(Slot, Slot),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
@@ -65,6 +66,10 @@ impl FromStr for HierarchyConfig {
 
         if exponents.windows(2).any(|w| w[0] >= w[1]) {
             return Err("hierarchy-exponents must be in ascending order".to_string());
+        }
+
+        if exponents.is_empty() {
+            return Err("empty exponents".to_string());
         }
 
         Ok(HierarchyConfig { exponents })
@@ -478,7 +483,9 @@ impl ValidatorsDiff {
                                 Hash256::ZERO
                             },
                             // effective_balance can increase and decrease
-                            effective_balance: y.effective_balance - x.effective_balance,
+                            effective_balance: y
+                                .effective_balance
+                                .wrapping_sub(x.effective_balance),
                             // slashed can only change from false into true. In an index re-use it can
                             // switch back to false, but in that case the pubkey will also change.
                             slashed: y.slashed,
@@ -642,10 +649,26 @@ impl HierarchyConfig {
             Err(Error::InvalidHierarchy)
         }
     }
+
+    pub fn exponent_for_slot(slot: Slot) -> u32 {
+        slot.as_u64().trailing_zeros()
+    }
 }
 
 impl HierarchyModuli {
-    pub fn storage_strategy(&self, slot: Slot) -> Result<StorageStrategy, Error> {
+    /// * `slot` - Slot of the storage strategy
+    /// * `start_slot` - Slot before which states are not available. Initial snapshot point, which
+    ///   may not be aligned to the hierarchy moduli values. Given an example of
+    ///   exponents [5,13,21], to reconstruct state at slot 3,000,003: if start = 3,000,002
+    ///   layer 2 diff will point to the start snapshot instead of the layer 1 diff at
+    ///   2998272.
+    pub fn storage_strategy(&self, slot: Slot, start_slot: Slot) -> Result<StorageStrategy, Error> {
+        match slot.cmp(&start_slot) {
+            Ordering::Less => return Err(Error::LessThanStart(slot, start_slot)),
+            Ordering::Equal => return Ok(StorageStrategy::Snapshot),
+            Ordering::Greater => {} // continue
+        }
+
         // last = full snapshot interval
         let last = self.moduli.last().copied().ok_or(Error::InvalidHierarchy)?;
         // first = most frequent diff layer, need to replay blocks from this layer
@@ -667,14 +690,22 @@ impl HierarchyModuli {
             .find_map(|(&n_big, &n_small)| {
                 if slot % n_small == 0 {
                     // Diff from the previous layer.
-                    Some(StorageStrategy::DiffFrom(slot / n_big * n_big))
+                    let from = slot / n_big * n_big;
+                    // Or from start point
+                    let from = std::cmp::max(from, start_slot);
+                    Some(StorageStrategy::DiffFrom(from))
                 } else {
                     // Keep trying with next layer
                     None
                 }
             })
             // Exhausted layers, need to replay from most frequent layer
-            .unwrap_or(StorageStrategy::ReplayFrom(slot / first * first)))
+            .unwrap_or_else(|| {
+                let from = slot / first * first;
+                // Or from start point
+                let from = std::cmp::max(from, start_slot);
+                StorageStrategy::ReplayFrom(from)
+            }))
     }
 
     /// Return the smallest slot greater than or equal to `slot` at which a full snapshot should
@@ -702,6 +733,26 @@ impl HierarchyModuli {
             || Ok(slot == self.next_snapshot_slot(slot)?),
             |second_layer_moduli| Ok(slot % *second_layer_moduli == 0),
         )
+    }
+
+    /// For each layer, returns the closest diff less than or equal to `slot`.
+    pub fn closest_layer_points(&self, slot: Slot, start_slot: Slot) -> Vec<Slot> {
+        let mut layers = self
+            .moduli
+            .iter()
+            .map(|&n| {
+                let from = slot / n * n;
+                // Or from start point
+                std::cmp::max(from, start_slot)
+            })
+            .collect::<Vec<_>>();
+
+        // Remove duplication caused by the capping at `start_slot` (multiple
+        // layers may have the same slot equal to `start_slot`), or shared multiples (a slot that is
+        // a multiple of 2**n will also be a multiple of 2**m for all m < n).
+        layers.dedup();
+
+        layers
     }
 }
 
@@ -732,6 +783,27 @@ impl StorageStrategy {
         }
         .map(Slot::from)
     }
+
+    /// Returns the slot that storage_strategy points to.
+    pub fn diff_base_slot(&self) -> Option<Slot> {
+        match self {
+            Self::ReplayFrom(from) => Some(*from),
+            Self::DiffFrom(from) => Some(*from),
+            Self::Snapshot => None,
+        }
+    }
+
+    pub fn is_replay_from(&self) -> bool {
+        matches!(self, Self::ReplayFrom(_))
+    }
+
+    pub fn is_diff_from(&self) -> bool {
+        matches!(self, Self::DiffFrom(_))
+    }
+
+    pub fn is_snapshot(&self) -> bool {
+        matches!(self, Self::Snapshot)
+    }
 }
 
 #[cfg(test)]
@@ -743,34 +815,37 @@ mod tests {
     fn default_storage_strategy() {
         let config = HierarchyConfig::default();
         config.validate().unwrap();
+        let sslot = Slot::new(0);
 
         let moduli = config.to_moduli().unwrap();
 
         // Full snapshots at multiples of 2^21.
         let snapshot_freq = Slot::new(1 << 21);
         assert_eq!(
-            moduli.storage_strategy(Slot::new(0)).unwrap(),
+            moduli.storage_strategy(Slot::new(0), sslot).unwrap(),
             StorageStrategy::Snapshot
         );
         assert_eq!(
-            moduli.storage_strategy(snapshot_freq).unwrap(),
+            moduli.storage_strategy(snapshot_freq, sslot).unwrap(),
             StorageStrategy::Snapshot
         );
         assert_eq!(
-            moduli.storage_strategy(snapshot_freq * 3).unwrap(),
+            moduli.storage_strategy(snapshot_freq * 3, sslot).unwrap(),
             StorageStrategy::Snapshot
         );
 
         // Diffs should be from the previous layer (the snapshot in this case), and not the previous diff in the same layer.
         let first_layer = Slot::new(1 << 18);
         assert_eq!(
-            moduli.storage_strategy(first_layer * 2).unwrap(),
+            moduli.storage_strategy(first_layer * 2, sslot).unwrap(),
             StorageStrategy::DiffFrom(Slot::new(0))
         );
 
         let replay_strategy_slot = first_layer + 1;
         assert_eq!(
-            moduli.storage_strategy(replay_strategy_slot).unwrap(),
+            moduli
+                .storage_strategy(replay_strategy_slot, sslot)
+                .unwrap(),
             StorageStrategy::ReplayFrom(first_layer)
         );
     }
@@ -939,5 +1014,94 @@ mod tests {
                 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 238, 4, 0, 0, 0
             ]
         );
+    }
+
+    // Test that the diffs and snapshots required for storage of split states are retained in the
+    // hot DB as the split slot advances, if we begin from an initial configuration where this
+    // invariant holds.
+    fn test_slots_retained_invariant(hierarchy: HierarchyModuli, start_slot: u64, epoch_jump: u64) {
+        let start_slot = Slot::new(start_slot);
+        let mut finalized_slot = start_slot;
+
+        // Initially we have just one snapshot stored at the `start_slot`. This is what checkpoint
+        // sync sets up (or the V24 migration).
+        let mut retained_slots = vec![finalized_slot];
+
+        // Iterate until we've reached two snapshots in the future.
+        let stop_at = hierarchy
+            .next_snapshot_slot(hierarchy.next_snapshot_slot(start_slot).unwrap() + 1)
+            .unwrap();
+
+        while finalized_slot <= stop_at {
+            // Jump multiple epocsh at a time because inter-epoch states are not interesting and
+            // would take too long to iterate over.
+            let new_finalized_slot = finalized_slot + 32 * epoch_jump;
+
+            let new_retained_slots = hierarchy.closest_layer_points(new_finalized_slot, start_slot);
+
+            for slot in &new_retained_slots {
+                // All new retained slots must either be already stored prior to the old finalized
+                // slot, OR newer than the finalized slot (i.e. stored in the hot DB as part of
+                // regular state storage).
+                assert!(retained_slots.contains(slot) || *slot >= finalized_slot);
+            }
+
+            retained_slots = new_retained_slots;
+            finalized_slot = new_finalized_slot;
+        }
+    }
+
+    #[test]
+    fn slots_retained_invariant() {
+        let cases = [
+            // Default hierarchy with a start_slot between the 2^13 and 2^16 layers.
+            (
+                HierarchyConfig::default().to_moduli().unwrap(),
+                2 * (1 << 14) - 5 * 32,
+                1,
+            ),
+            // Default hierarchy with a start_slot between the 2^13 and 2^16 layers, with 8 epochs
+            // finalizing at a time (should not make any difference).
+            (
+                HierarchyConfig::default().to_moduli().unwrap(),
+                2 * (1 << 14) - 5 * 32,
+                8,
+            ),
+            // Very dense hierarchy config.
+            (
+                HierarchyConfig::from_str("5,7")
+                    .unwrap()
+                    .to_moduli()
+                    .unwrap(),
+                32,
+                1,
+            ),
+            // Very dense hierarchy config that skips a whole snapshot on its first finalization.
+            (
+                HierarchyConfig::from_str("5,7")
+                    .unwrap()
+                    .to_moduli()
+                    .unwrap(),
+                32,
+                1 << 7,
+            ),
+        ];
+
+        for (hierarchy, start_slot, epoch_jump) in cases {
+            test_slots_retained_invariant(hierarchy, start_slot, epoch_jump);
+        }
+    }
+
+    #[test]
+    fn closest_layer_points_unique() {
+        let hierarchy = HierarchyConfig::default().to_moduli().unwrap();
+
+        let start_slot = Slot::new(0);
+        let end_slot = hierarchy.next_snapshot_slot(Slot::new(1)).unwrap();
+
+        for slot in (0..end_slot.as_u64()).map(Slot::new) {
+            let closest_layer_points = hierarchy.closest_layer_points(slot, start_slot);
+            assert!(closest_layer_points.is_sorted_by(|a, b| a > b));
+        }
     }
 }
