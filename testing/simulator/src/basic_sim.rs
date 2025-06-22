@@ -11,31 +11,39 @@ use node_test_rig::{
 };
 use rayon::prelude::*;
 use std::cmp::max;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+
+use environment::tracing_common;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+use logging::build_workspace_filter;
 use tokio::time::sleep;
+use tracing::Level;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 32;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
-const CAPELLA_FORK_EPOCH: u64 = 1;
-const DENEB_FORK_EPOCH: u64 = 2;
-// const ELECTRA_FORK_EPOCH: u64 = 3;
-// const FULU_FORK_EPOCH: u64  = 4;
+const CAPELLA_FORK_EPOCH: u64 = 0;
+const DENEB_FORK_EPOCH: u64 = 0;
+const ELECTRA_FORK_EPOCH: u64 = 2;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 #[allow(clippy::large_stack_frames)]
 pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
-    let node_count = matches
+    let (_name, subcommand_matches) = matches.subcommand().expect("subcommand");
+    let node_count = subcommand_matches
         .get_one::<String>("nodes")
         .expect("missing nodes default")
         .parse::<usize>()
         .expect("missing nodes default");
-    let proposer_nodes = matches
+    let proposer_nodes = subcommand_matches
         .get_one::<String>("proposer-nodes")
         .unwrap_or(&String::from("0"))
         .parse::<usize>()
@@ -43,21 +51,25 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     // extra beacon node added with delay
     let extra_nodes: usize = 1;
     println!("PROPOSER-NODES: {}", proposer_nodes);
-    let validators_per_node = matches
+    let validators_per_node = subcommand_matches
         .get_one::<String>("validators-per-node")
         .expect("missing validators-per-node default")
         .parse::<usize>()
         .expect("missing validators-per-node default");
-    let speed_up_factor = matches
+    let speed_up_factor = subcommand_matches
         .get_one::<String>("speed-up-factor")
         .expect("missing speed-up-factor default")
         .parse::<u64>()
         .expect("missing speed-up-factor default");
-    let log_level = matches
+    let log_level = subcommand_matches
         .get_one::<String>("debug-level")
         .expect("missing debug-level");
 
-    let continue_after_checks = matches.get_flag("continue-after-checks");
+    let continue_after_checks = subcommand_matches.get_flag("continue-after-checks");
+    let log_dir = subcommand_matches
+        .get_one::<String>("log-dir")
+        .map(PathBuf::from);
+    let disable_stdout_logging = subcommand_matches.get_flag("disable-stdout-logging");
 
     println!("Basic Simulator:");
     println!(" nodes: {}", node_count);
@@ -65,6 +77,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     println!(" validators-per-node: {}", validators_per_node);
     println!(" speed-up-factor: {}", speed_up_factor);
     println!(" continue-after-checks: {}", continue_after_checks);
+    println!(" log-dir: {:?}", log_dir);
+    println!(" disable-stdout-logging: {}", disable_stdout_logging);
 
     // Generate the directories and keystores required for the validator clients.
     let validator_files = (0..node_count)
@@ -82,23 +96,72 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
         })
         .collect::<Vec<_>>();
 
-    let mut env = EnvironmentBuilder::minimal()
-        .initialize_logger(LoggerConfig {
-            path: None,
-            debug_level: log_level.clone(),
-            logfile_debug_level: log_level.clone(),
+    let (
+        env_builder,
+        logger_config,
+        stdout_logging_layer,
+        file_logging_layer,
+        _sse_logging_layer_opt,
+        libp2p_discv5_layer,
+    ) = tracing_common::construct_logger(
+        LoggerConfig {
+            path: log_dir,
+            debug_level: tracing_common::parse_level(&log_level.clone()),
+            logfile_debug_level: tracing_common::parse_level(&log_level.clone()),
             log_format: None,
             logfile_format: None,
-            log_color: false,
+            log_color: true,
+            logfile_color: false,
             disable_log_timestamp: false,
-            max_log_size: 0,
-            max_log_number: 0,
+            max_log_size: 200,
+            max_log_number: 5,
             compression: false,
             is_restricted: true,
             sse_logging: false,
-        })?
-        .multi_threaded_tokio_runtime()?
-        .build()?;
+            extra_info: false,
+        },
+        matches,
+        EnvironmentBuilder::minimal(),
+    );
+
+    let workspace_filter = build_workspace_filter()?;
+    let mut logging_layers = vec![];
+    if !disable_stdout_logging {
+        logging_layers.push(
+            stdout_logging_layer
+                .with_filter(logger_config.debug_level)
+                .with_filter(workspace_filter.clone())
+                .boxed(),
+        );
+    }
+    if let Some(file_logging_layer) = file_logging_layer {
+        logging_layers.push(
+            file_logging_layer
+                .with_filter(logger_config.logfile_debug_level)
+                .with_filter(workspace_filter)
+                .boxed(),
+        );
+    }
+    if let Some(libp2p_discv5_layer) = libp2p_discv5_layer {
+        logging_layers.push(
+            libp2p_discv5_layer
+                .with_filter(
+                    EnvFilter::builder()
+                        .with_default_directive(Level::DEBUG.into())
+                        .from_env_lossy(),
+                )
+                .boxed(),
+        );
+    }
+
+    if let Err(e) = tracing_subscriber::registry()
+        .with(logging_layers)
+        .try_init()
+    {
+        eprintln!("Failed to initialize dependency logging: {e}");
+    }
+
+    let mut env = env_builder.multi_threaded_tokio_runtime()?.build()?;
 
     let mut spec = (*env.eth2_config.spec).clone();
 
@@ -106,8 +169,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let genesis_delay = GENESIS_DELAY;
 
     // Convenience variables. Update these values when adding a newer fork.
-    let latest_fork_version = spec.deneb_fork_version;
-    let latest_fork_start_epoch = DENEB_FORK_EPOCH;
+    let latest_fork_version = spec.electra_fork_version;
+    let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
 
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
@@ -118,8 +181,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.bellatrix_fork_epoch = Some(Epoch::new(BELLATRIX_FORK_EPOCH));
     spec.capella_fork_epoch = Some(Epoch::new(CAPELLA_FORK_EPOCH));
     spec.deneb_fork_epoch = Some(Epoch::new(DENEB_FORK_EPOCH));
-    //spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
-    //spec.fulu_fork_epoch = Some(Epoch::new(FULU_FORK_EPOCH));
+    spec.electra_fork_epoch = Some(Epoch::new(ELECTRA_FORK_EPOCH));
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 

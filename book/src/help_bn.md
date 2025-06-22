@@ -78,8 +78,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --discovery-port <PORT>
           The UDP port that discovery will listen on. Defaults to `port`
       --discovery-port6 <PORT>
@@ -167,15 +166,15 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
       --hdiff-buffer-cache-size <SIZE>
-          Number of hierarchical diff (hdiff) buffers to cache in memory. Each
-          buffer is around the size of a BeaconState so you should be cautious
-          about setting this value too high. This flag is irrelevant for most
-          nodes, which run with state pruning enabled. [default: 16]
+          Number of cold hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. This flag is irrelevant
+          for most nodes, which run with state pruning enabled. [default: 16]
       --hierarchy-exponents <EXPONENTS>
           Specifies the frequency for storing full state snapshots and
           hierarchical diffs in the freezer DB. Accepts a comma-separated list
@@ -188,6 +187,12 @@ Options:
       --historic-state-cache-size <SIZE>
           Specifies how many states from the freezer database should be cached
           in memory [default: 1]
+      --hot-hdiff-buffer-cache-size <SIZE>
+          Number of hot hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. Setting this value higher
+          can reduce the time taken to store new states on disk at the cost of
+          higher memory usage. [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>
@@ -245,15 +250,11 @@ Options:
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -520,8 +521,13 @@ Flags:
           all attestations are received for import.
       --light-client-server
           DEPRECATED
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.

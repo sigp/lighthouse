@@ -10,6 +10,8 @@ X86_64_TAG = "x86_64-unknown-linux-gnu"
 BUILD_PATH_X86_64 = "target/$(X86_64_TAG)/release"
 AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
+RISCV64_TAG = "riscv64gc-unknown-linux-gnu"
+BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
 
@@ -67,6 +69,8 @@ build-aarch64:
 	# pages, which are commonly used by aarch64 systems.
 	# See: https://github.com/sigp/lighthouse/issues/5244
 	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
+build-riscv64:
+	cross build --bin lighthouse --target riscv64gc-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
 build-lcli-x86_64:
 	cross build --bin lcli --target x86_64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
@@ -75,6 +79,39 @@ build-lcli-aarch64:
 	# pages, which are commonly used by aarch64 systems.
 	# See: https://github.com/sigp/lighthouse/issues/5244
 	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+build-lcli-riscv64:
+	cross build --bin lcli --target riscv64gc-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+
+# extracts the current source date for reproducible builds
+SOURCE_DATE := $(shell git log -1 --pretty=%ct)
+
+# Default image for x86_64
+RUST_IMAGE_AMD64 ?= rust:1.82-bullseye@sha256:ac7fe7b0c9429313c0fe87d3a8993998d1fe2be9e3e91b5e2ec05d3a09d87128
+
+# Reproducible build for x86_64
+build-reproducible-x86_64:
+	DOCKER_BUILDKIT=1 docker build \
+		--build-arg RUST_TARGET="x86_64-unknown-linux-gnu" \
+		--build-arg RUST_IMAGE=$(RUST_IMAGE_AMD64) \
+		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
+		-f Dockerfile.reproducible \
+		-t lighthouse:reproducible-amd64 .
+
+# Default image for arm64
+RUST_IMAGE_ARM64 ?= rust:1.82-bullseye@sha256:3c1b8b6487513ad4e753d008b960260f5bcc81bf110883460f6ed3cd72bf439b
+
+# Reproducible build for aarch64
+build-reproducible-aarch64:
+	DOCKER_BUILDKIT=1 docker build \
+		--platform linux/arm64 \
+		--build-arg RUST_TARGET="aarch64-unknown-linux-gnu" \
+		--build-arg RUST_IMAGE=$(RUST_IMAGE_ARM64) \
+		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
+		-f Dockerfile.reproducible \
+		-t lighthouse:reproducible-arm64 .
+
+# Build both architectures
+build-reproducible-all: build-reproducible-x86_64 build-reproducible-aarch64
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -95,6 +132,9 @@ build-release-tarballs:
 	$(call tarball_release_binary,$(BUILD_PATH_X86_64),$(X86_64_TAG),"")
 	$(MAKE) build-aarch64
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"")
+	$(MAKE) build-riscv64
+	$(call tarball_release_binary,$(BUILD_PATH_RISCV64),$(RISCV64_TAG),"")
+
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
@@ -178,6 +218,9 @@ run-state-transition-tests:
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
 
+# Downloads and runs the nightly EF test vectors.
+test-ef-nightly: make-ef-tests-nightly run-ef-tests
+
 # Downloads and runs the EF test vectors with nextest.
 nextest-ef: make-ef-tests nextest-run-ef-tests
 
@@ -237,6 +280,10 @@ lint-full:
 # downloads which extracts into several GB of test vectors.
 make-ef-tests:
 	make -C $(EF_TESTS)
+
+# Download/extract the nightly EF test vectors.
+make-ef-tests-nightly:
+	CONSENSUS_SPECS_TEST_VERSION=nightly make -C $(EF_TESTS)
 
 # Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:

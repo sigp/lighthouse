@@ -10,22 +10,22 @@ use eth2::lighthouse_vc::{
 };
 use eth2_keystore::Keystore;
 use initialized_validators::{Error, InitializedValidators};
+use lighthouse_validator_store::LighthouseValidatorStore;
 use signing_method::SigningMethod;
-use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::runtime::Handle;
+use tracing::{info, warn};
 use types::{EthSpec, PublicKeyBytes};
 use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
-use validator_store::ValidatorStore;
 use warp::Rejection;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
 use zeroize::Zeroizing;
 
 pub fn list<T: SlotClock + 'static, E: EthSpec>(
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
 ) -> ListKeystoresResponse {
     let initialized_validators_rwlock = validator_store.initialized_validators();
     let initialized_validators = initialized_validators_rwlock.read();
@@ -62,9 +62,8 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportKeystoresRequest,
     validator_dir: PathBuf,
     secrets_dir: Option<PathBuf>,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<ImportKeystoresResponse, Rejection> {
     // Check request validity. This is the only cases in which we should return a 4xx code.
     if request.keystores.len() != request.passwords.len() {
@@ -88,18 +87,14 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
                         .iter()
                         .any(|data| data.pubkey == pubkey_bytes)
                     {
-                        warn!(
-                            log,
-                            "Slashing protection data not provided";
-                            "public_key" => ?public_key,
-                        );
+                        warn!(?public_key, "Slashing protection data not provided");
                     }
                 }
             }
 
             validator_store.import_slashing_protection(slashing_protection)
         } else {
-            warn!(log, "No slashing protection data provided with keystores");
+            warn!("No slashing protection data provided with keystores");
             Ok(())
         };
 
@@ -122,7 +117,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
             )
         } else if let Some(handle) = task_executor.handle() {
             // Import the keystore.
-            match import_single_keystore(
+            match import_single_keystore::<_, E>(
                 keystore,
                 password,
                 validator_dir.clone(),
@@ -133,10 +128,9 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
                 Ok(status) => Status::ok(status),
                 Err(e) => {
                     warn!(
-                        log,
-                        "Error importing keystore, skipped";
-                        "pubkey" => pubkey_str,
-                        "error" => ?e,
+                        pubkey = pubkey_str,
+                        error = ?e,
+                        "Error importing keystore, skipped"
                     );
                     Status::error(ImportKeystoreStatus::Error, e)
                 }
@@ -157,9 +151,8 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
 
     if successful_import > 0 {
         info!(
-            log,
-            "Imported keystores via standard HTTP API";
-            "count" => successful_import,
+            count = successful_import,
+            "Imported keystores via standard HTTP API"
         );
     }
 
@@ -171,7 +164,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     password: Zeroizing<String>,
     validator_dir_path: PathBuf,
     secrets_dir: Option<PathBuf>,
-    validator_store: &ValidatorStore<T, E>,
+    validator_store: &LighthouseValidatorStore<T, E>,
     handle: Handle,
 ) -> Result<ImportKeystoreStatus, String> {
     // Check if the validator key already exists, erroring if it is a remote signer validator.
@@ -241,11 +234,10 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
 
 pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<DeleteKeystoresResponse, Rejection> {
-    let export_response = export(request, validator_store, task_executor, log.clone())?;
+    let export_response = export(request, validator_store, task_executor)?;
 
     // Check the status is Deleted to confirm deletion is successful, then only display the log
     let successful_deletion = export_response
@@ -256,9 +248,8 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
 
     if successful_deletion > 0 {
         info!(
-            log,
-            "Deleted keystore via standard HTTP API";
-            "count" => successful_deletion,
+            count = successful_deletion,
+            "Deleted keystore via standard HTTP API"
         );
     }
 
@@ -274,9 +265,8 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
 
 pub fn export<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
-    validator_store: Arc<ValidatorStore<T, E>>,
+    validator_store: Arc<LighthouseValidatorStore<T, E>>,
     task_executor: TaskExecutor,
-    log: Logger,
 ) -> Result<ExportKeystoresResponse, Rejection> {
     // Remove from initialized validators.
     let initialized_validators_rwlock = validator_store.initialized_validators();
@@ -294,10 +284,9 @@ pub fn export<T: SlotClock + 'static, E: EthSpec>(
                 Ok(status) => status,
                 Err(error) => {
                     warn!(
-                        log,
-                        "Error deleting keystore";
-                        "pubkey" => ?pubkey_bytes,
-                        "error" => ?error,
+                        pubkey = ?pubkey_bytes,
+                        ?error,
+                        "Error deleting keystore"
                     );
                     SingleExportKeystoresResponse {
                         status: Status::error(DeleteKeystoreStatus::Error, error),

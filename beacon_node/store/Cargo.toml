@@ -9,12 +9,6 @@ default = ["leveldb"]
 leveldb = ["dep:leveldb"]
 redb = ["dep:redb"]
 
-[dev-dependencies]
-beacon_chain = { workspace = true }
-criterion = { workspace = true }
-rand = { workspace = true, features = ["small_rng"] }
-tempfile = { workspace = true }
-
 [dependencies]
 bls = { workspace = true }
 db-key = "0.0.5"
@@ -30,15 +24,21 @@ parking_lot = { workspace = true }
 redb = { version = "2.1.3", optional = true }
 safe_arith = { workspace = true }
 serde = { workspace = true }
-slog = { workspace = true }
-sloggers = { workspace = true }
 smallvec = { workspace = true }
 state_processing = { workspace = true }
 strum = { workspace = true }
 superstruct = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }
 xdelta3 = { workspace = true }
 zstd = { workspace = true }
+
+[dev-dependencies]
+beacon_chain = { workspace = true }
+criterion = { workspace = true }
+rand = { workspace = true, features = ["small_rng"] }
+tempfile = { workspace = true }
 
 [[bench]]
 name = "hdiff"

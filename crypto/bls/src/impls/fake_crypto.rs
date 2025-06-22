@@ -5,7 +5,7 @@ use crate::{
         GenericPublicKey, TPublicKey, PUBLIC_KEY_BYTES_LEN, PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN,
     },
     generic_secret_key::{TSecretKey, SECRET_KEY_BYTES_LEN},
-    generic_signature::{TSignature, SIGNATURE_BYTES_LEN},
+    generic_signature::{TSignature, SIGNATURE_BYTES_LEN, SIGNATURE_UNCOMPRESSED_BYTES_LEN},
     Error, Hash256, ZeroizeHash, INFINITY_PUBLIC_KEY, INFINITY_SIGNATURE,
 };
 
@@ -106,10 +106,20 @@ impl TSignature<PublicKey> for Signature {
         self.0
     }
 
+    fn serialize_uncompressed(&self) -> [u8; SIGNATURE_UNCOMPRESSED_BYTES_LEN] {
+        let mut ret = [0; SIGNATURE_UNCOMPRESSED_BYTES_LEN];
+        ret[0..SIGNATURE_BYTES_LEN].copy_from_slice(&self.0);
+        ret
+    }
+
     fn deserialize(bytes: &[u8]) -> Result<Self, Error> {
         let mut signature = Self::infinity();
         signature.0[..].copy_from_slice(&bytes[0..SIGNATURE_BYTES_LEN]);
         Ok(signature)
+    }
+
+    fn deserialize_uncompressed(bytes: &[u8]) -> Result<Self, Error> {
+        Self::deserialize(bytes)
     }
 
     fn verify(&self, _pubkey: &PublicKey, _msg: Hash256) -> bool {

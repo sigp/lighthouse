@@ -238,7 +238,8 @@ macro_rules! ssz_static_test_no_run {
 #[cfg(feature = "fake_crypto")]
 mod ssz_static {
     use ef_tests::{
-        FeatureName, Handler, SszStaticHandler, SszStaticTHCHandler, SszStaticWithSpecHandler,
+        DataColumnsByRootIdentifierWrapper, Handler, SszStaticHandler, SszStaticTHCHandler,
+        SszStaticWithSpecHandler,
     };
     use types::historical_summary::HistoricalSummary;
     use types::{
@@ -660,18 +661,24 @@ mod ssz_static {
 
     #[test]
     fn data_column_sidecar() {
-        SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
-        SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
+        SszStaticHandler::<DataColumnSidecar<MinimalEthSpec>, MinimalEthSpec>::fulu_and_later()
+            .run();
+        SszStaticHandler::<DataColumnSidecar<MainnetEthSpec>, MainnetEthSpec>::fulu_and_later()
+            .run();
     }
 
     #[test]
-    fn data_column_identifier() {
-        SszStaticHandler::<DataColumnIdentifier, MinimalEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
-        SszStaticHandler::<DataColumnIdentifier, MainnetEthSpec>::default()
-            .run_for_feature(FeatureName::Fulu);
+    fn data_column_by_root_identifier() {
+        SszStaticWithSpecHandler::<
+            DataColumnsByRootIdentifierWrapper<MinimalEthSpec>,
+            MinimalEthSpec,
+        >::fulu_and_later()
+        .run();
+        SszStaticWithSpecHandler::<
+            DataColumnsByRootIdentifierWrapper<MainnetEthSpec>,
+            MainnetEthSpec,
+        >::fulu_and_later()
+        .run();
     }
 
     #[test]
@@ -827,6 +834,12 @@ fn epoch_processing_participation_flag_updates() {
 }
 
 #[test]
+fn epoch_processing_proposer_lookahead() {
+    EpochProcessingHandler::<MinimalEthSpec, ProposerLookahead>::default().run();
+    EpochProcessingHandler::<MainnetEthSpec, ProposerLookahead>::default().run();
+}
+
+#[test]
 fn fork_upgrade() {
     ForkHandler::<MinimalEthSpec>::default().run();
     ForkHandler::<MainnetEthSpec>::default().run();
@@ -937,6 +950,11 @@ fn kzg_verify_blob_kzg_proof_batch() {
 #[test]
 fn kzg_verify_kzg_proof() {
     KZGVerifyKZGProofHandler::<MainnetEthSpec>::default().run();
+}
+
+#[test]
+fn kzg_compute_cells() {
+    KZGComputeCellsHandler::<MainnetEthSpec>::default().run();
 }
 
 #[test]

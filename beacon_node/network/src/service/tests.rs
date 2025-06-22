@@ -8,8 +8,6 @@ use beacon_processor::{BeaconProcessorChannels, BeaconProcessorConfig};
 use futures::StreamExt;
 use lighthouse_network::types::{GossipEncoding, GossipKind};
 use lighthouse_network::{Enr, GossipTopic};
-use slog::{o, Drain, Level, Logger};
-use sloggers::{null::NullLoggerBuilder, Build};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -21,28 +19,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     }
 }
 
-fn get_logger(actual_log: bool) -> Logger {
-    if actual_log {
-        let drain = {
-            let decorator = slog_term::TermDecorator::new().build();
-            let decorator =
-                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            let drain = slog_async::Async::new(drain).chan_size(2048).build();
-            drain.filter_level(Level::Debug)
-        };
-
-        Logger::root(drain.fuse(), o!())
-    } else {
-        let builder = NullLoggerBuilder;
-        builder.build().expect("should build logger")
-    }
-}
-
 #[test]
 fn test_dht_persistence() {
-    let log = get_logger(false);
-
     let beacon_chain = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .deterministic_keypairs(8)
@@ -60,8 +38,12 @@ fn test_dht_persistence() {
 
     let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-    let executor =
-        task_executor::TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+    let executor = task_executor::TaskExecutor::new(
+        Arc::downgrade(&runtime),
+        exit,
+        shutdown_tx,
+        "test-dht-persistence".to_string(),
+    );
 
     let mut config = NetworkConfig::default();
     config.set_ipv4_listening_address(std::net::Ipv4Addr::UNSPECIFIED, 21212, 21212, 21213);
@@ -76,8 +58,6 @@ fn test_dht_persistence() {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx: _beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx: _work_reprocessing_rx,
         } = <_>::default();
 
         let _network_service = NetworkService::start(
@@ -86,7 +66,6 @@ fn test_dht_persistence() {
             executor,
             None,
             beacon_processor_tx,
-            work_reprocessing_tx,
         )
         .await
         .unwrap();
@@ -137,8 +116,8 @@ fn test_removing_topic_weight_on_old_topics() {
         let executor = task_executor::TaskExecutor::new(
             Arc::downgrade(&runtime),
             exit,
-            get_logger(false),
             shutdown_tx,
+            "test-removing-topic-weight-on-old-topics".to_string(),
         );
 
         let mut config = NetworkConfig::default();
@@ -155,7 +134,6 @@ fn test_removing_topic_weight_on_old_topics() {
             executor.clone(),
             None,
             beacon_processor_channels.beacon_processor_tx,
-            beacon_processor_channels.work_reprocessing_tx,
         )
         .await
         .unwrap()

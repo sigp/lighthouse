@@ -1041,6 +1041,21 @@ impl ProtoArray {
             })
             .map(|node| node.root)
     }
+
+    /// Returns all nodes that have zero children and are descended from the finalized checkpoint.
+    ///
+    /// For informational purposes like the beacon HTTP API, we use this as the list of known heads,
+    /// even though some of them might not be viable. We do this to maintain consistency between the
+    /// definition of "head" used by pruning (which does not consider viability) and fork choice.
+    pub fn heads_descended_from_finalization<E: EthSpec>(&self) -> Vec<&ProtoNode> {
+        self.nodes
+            .iter()
+            .filter(|node| {
+                node.best_child.is_none()
+                    && self.is_finalized_checkpoint_or_descendant::<E>(node.root)
+            })
+            .collect()
+    }
 }
 
 /// A helper method to calculate the proposer boost based on the given `justified_balances`.

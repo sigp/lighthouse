@@ -1,4 +1,5 @@
-use super::{AggregateSignature, EthSpec, SignedRoot};
+use super::{AggregateSignature, EthSpec, ForkName, SignedRoot};
+use crate::context_deserialize;
 use crate::slot_data::SlotData;
 use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
 use serde::{Deserialize, Serialize};
@@ -9,6 +10,7 @@ use tree_hash_derive::TreeHash;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     AlreadySigned(usize),
 }
 
@@ -27,6 +29,7 @@ pub enum Error {
 )]
 #[serde(bound = "E: EthSpec")]
 #[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct SyncCommitteeContribution<E: EthSpec> {
     pub slot: Slot,
     pub beacon_block_root: Hash256,
@@ -51,7 +54,7 @@ impl<E: EthSpec> SyncCommitteeContribution<E> {
     ) -> Result<Self, Error> {
         let mut bits = BitVector::new();
         bits.set(validator_sync_committee_index, true)
-            .map_err(Error::SszTypesError)?;
+            .map_err(Error::BitfieldError)?;
         Ok(Self {
             slot: message.slot,
             beacon_block_root: message.beacon_block_root,

@@ -1,9 +1,9 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, LightClientProducerEvent};
 use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use beacon_processor::{BeaconProcessorSend, Work, WorkEvent};
 use futures::channel::mpsc::Receiver;
 use futures::StreamExt;
-use slog::{error, Logger};
-use tokio::sync::mpsc::Sender;
+use tracing::error;
 
 // Each `LightClientProducerEvent` is ~200 bytes. With the light_client server producing only recent
 // updates it is okay to drop some events in case of overloading. In normal network conditions
@@ -14,8 +14,7 @@ pub(crate) const LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY: usize = 32;
 pub async fn compute_light_client_updates<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     mut light_client_server_rv: Receiver<LightClientProducerEvent<T::EthSpec>>,
-    reprocess_tx: Sender<ReprocessQueueMessage>,
-    log: &Logger,
+    beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
 ) {
     // Should only receive events for recent blocks, import_block filters by blocks close to clock.
     //
@@ -28,12 +27,18 @@ pub async fn compute_light_client_updates<T: BeaconChainTypes>(
         chain
             .recompute_and_cache_light_client_updates(event)
             .unwrap_or_else(|e| {
-                error!(log, "error computing light_client updates {:?}", e);
+                error!("error computing light_client updates {:?}", e);
             });
 
         let msg = ReprocessQueueMessage::NewLightClientOptimisticUpdate { parent_root };
-        if reprocess_tx.try_send(msg).is_err() {
-            error!(log, "Failed to inform light client update"; "parent_root" => %parent_root)
+        if beacon_processor_send
+            .try_send(WorkEvent {
+                drop_during_sync: true,
+                work: Work::Reprocess(msg),
+            })
+            .is_err()
+        {
+            error!(%parent_root,"Failed to inform light client update")
         };
     }
 }

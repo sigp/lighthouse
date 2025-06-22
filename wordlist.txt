@@ -12,6 +12,7 @@ BN
 BNs
 BTC
 BTEC
+Btrfs
 Casper
 CentOS
 Chiado
@@ -33,17 +34,19 @@ Esat's
 ETH
 EthDocker
 Ethereum
-Ethstaker
+EthStaker
 Exercism
 Extractable
 FFG
 Geth
+GiB
 Gitcoin
 Gnosis
 Goerli
 Grafana
 Holesky
 Homebrew
+Hoodi
 Infura
 IPs
 IPv
@@ -64,6 +67,7 @@ Nethermind
 NodeJS
 NullLogger
 PathBuf
+Pectra
 PowerShell
 PPA
 Pre
@@ -85,12 +89,14 @@ SSD
 SSL
 SSZ
 Styleguide
+TBD
 TCP
 Teku
 TLS
 TODOs
 UDP
 UI
+Uncached
 UPnP
 USD
 UX
@@ -100,6 +106,7 @@ VCs
 VPN
 Withdrawable
 WSL
+XFS
 YAML
 aarch
 anonymize
@@ -196,6 +203,7 @@ redb
 reimport
 resync
 roadmap
+routable
 rustfmt
 rustup
 schemas
@@ -220,6 +228,7 @@ tweakers
 ui
 unadvanced
 unaggregated
+uncached
 unencrypted
 unfinalized
 untrusted
@@ -230,6 +239,7 @@ validators
 validator's
 vc
 virt
+walkthrough
 webapp
 withdrawable
 yaml

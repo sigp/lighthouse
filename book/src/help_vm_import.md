@@ -23,8 +23,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --gas-limit <UINT64>
           When provided, the imported validator will use this gas limit. It is
           recommended to leave this as the default value by not specifying this
@@ -37,23 +36,18 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --keystore-file <PATH_TO_KEYSTORE_FILE>
           The path to a keystore JSON file to be imported to the validator
-          client. This file is usually created using staking-deposit-cli or
-          ethstaker-deposit-cli
+          client. This file is usually created using ethstaker-deposit-cli
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -104,8 +98,13 @@ Flags:
           directly cause slashable conditions, it might be an indicator that
           something is amiss. Users should also be careful to avoid submitting
           duplicate deposits for validators that already exist on the VC.
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.

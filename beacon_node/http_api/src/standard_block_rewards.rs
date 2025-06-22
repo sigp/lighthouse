@@ -2,7 +2,7 @@ use crate::sync_committee_rewards::get_state_before_applying_block;
 use crate::BlockId;
 use crate::ExecutionOptimistic;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::lighthouse::StandardBlockReward;
+use eth2::types::StandardBlockReward;
 use std::sync::Arc;
 use warp_utils::reject::unhandled_error;
 /// The difference between block_rewards and beacon_block_rewards is the later returns block

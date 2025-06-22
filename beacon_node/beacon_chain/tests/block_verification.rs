@@ -12,7 +12,7 @@ use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
     InvalidSignature, NotifyExecutionLayer,
 };
-use logging::test_logger;
+use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::{attesting_indices_base, attesting_indices_electra},
@@ -572,11 +572,12 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
+        let rpc_block = RpcBlock::new_without_blobs(None, Arc::new(signed_block));
         let process_res = harness
             .chain
             .process_block(
-                signed_block.canonical_root(),
-                Arc::new(signed_block),
+                rpc_block.block_root(),
+                rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1113,7 +1114,7 @@ async fn block_gossip_verification() {
                     .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
                         block,
                         junk_signature()
-                    )))
+                    )),)
                     .await
             ),
             BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
@@ -1295,15 +1296,11 @@ async fn verify_and_process_gossip_data_sidecars(
 
 #[tokio::test]
 async fn verify_block_for_gossip_slashing_detection() {
+    create_test_tracing_subscriber();
     let slasher_dir = tempdir().unwrap();
     let spec = Arc::new(test_spec::<E>());
     let slasher = Arc::new(
-        Slasher::open(
-            SlasherConfig::new(slasher_dir.path().into()),
-            spec.clone(),
-            test_logger(),
-        )
-        .unwrap(),
+        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), spec.clone()).unwrap(),
     );
 
     let inner_slasher = slasher.clone();
@@ -1524,12 +1521,13 @@ async fn add_base_block_to_altair_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    let base_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(base_block.clone()));
     assert!(matches!(
         harness
             .chain
             .process_block(
-                base_block.canonical_root(),
-                Arc::new(base_block.clone()),
+                base_rpc_block.block_root(),
+                base_rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1660,12 +1658,13 @@ async fn add_altair_block_to_base_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
+    let altair_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(altair_block.clone()));
     assert!(matches!(
         harness
             .chain
             .process_block(
-                altair_block.canonical_root(),
-                Arc::new(altair_block.clone()),
+                altair_rpc_block.block_root(),
+                altair_rpc_block,
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
@@ -1744,11 +1743,12 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let verified_block1 = block
+    let rpc_block = RpcBlock::new_without_blobs(Some(block_root), block.clone());
+    let verified_block1 = rpc_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
-    let verified_block2 = block
+    let verified_block2 = rpc_block
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
         .unwrap();
 

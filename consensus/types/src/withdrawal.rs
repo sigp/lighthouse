@@ -19,6 +19,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct Withdrawal {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,

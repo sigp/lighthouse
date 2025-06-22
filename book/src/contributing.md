@@ -15,7 +15,7 @@ to work on.
 To start contributing,
 
 1. Read our [how to contribute](https://github.com/sigp/lighthouse/blob/unstable/CONTRIBUTING.md) document.
-2. Setup a [development environment](./setup.md).
+2. Setup a [development environment](./contributing_setup.md).
 3. Browse through the [open issues](https://github.com/sigp/lighthouse/issues)
    (tip: look for the [good first
    issue](https://github.com/sigp/lighthouse/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
@@ -127,5 +127,5 @@ suggest:
 - [Rust by example](https://doc.rust-lang.org/stable/rust-by-example/)
 - [Learning Rust With Entirely Too Many Linked Lists](http://cglab.ca/~abeinges/blah/too-many-lists/book/)
 - [Rustlings](https://github.com/rustlings/rustlings)
-- [Rust Exercism](https://exercism.io/tracks/rust)
+- [Rust Exercism](https://exercism.org/tracks/rust)
 - [Learn X in Y minutes - Rust](https://learnxinyminutes.com/docs/rust/)

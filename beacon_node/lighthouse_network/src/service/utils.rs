@@ -1,6 +1,5 @@
 use crate::multiaddr::Protocol;
-use crate::rpc::methods::MetaDataV3;
-use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
+use crate::rpc::{MetaData, MetaDataV2, MetaDataV3};
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind};
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
@@ -9,7 +8,6 @@ use libp2p::core::{multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxe
 use libp2p::identity::{secp256k1, Keypair};
 use libp2p::{core, noise, yamux, PeerId, Transport};
 use prometheus_client::registry::Registry;
-use slog::{debug, warn};
 use ssz::Decode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -17,6 +15,7 @@ use std::io::prelude::*;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, warn};
 use types::{
     ChainSpec, DataColumnSubnetId, EnrForkId, EthSpec, ForkContext, SubnetId, SyncSubnetId,
 };
@@ -107,21 +106,21 @@ fn keypair_from_bytes(mut bytes: Vec<u8>) -> Result<Keypair, String> {
 /// generated and is then saved to disk.
 ///
 /// Currently only secp256k1 keys are allowed, as these are the only keys supported by discv5.
-pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
+pub fn load_private_key(config: &NetworkConfig) -> Keypair {
     // check for key from disk
     let network_key_f = config.network_dir.join(NETWORK_KEY_FILENAME);
     if let Ok(mut network_key_file) = File::open(network_key_f.clone()) {
         let mut key_bytes: Vec<u8> = Vec::with_capacity(36);
         match network_key_file.read_to_end(&mut key_bytes) {
-            Err(_) => debug!(log, "Could not read network key file"),
+            Err(_) => debug!("Could not read network key file"),
             Ok(_) => {
                 // only accept secp256k1 keys for now
                 if let Ok(secret_key) = secp256k1::SecretKey::try_from_bytes(&mut key_bytes) {
                     let kp: secp256k1::Keypair = secret_key.into();
-                    debug!(log, "Loaded network key from disk.");
+                    debug!("Loaded network key from disk.");
                     return kp.into();
                 } else {
-                    debug!(log, "Network key file is not a valid secp256k1 key");
+                    debug!("Network key file is not a valid secp256k1 key");
                 }
             }
         }
@@ -134,12 +133,12 @@ pub fn load_private_key(config: &NetworkConfig, log: &slog::Logger) -> Keypair {
         .and_then(|mut f| f.write_all(&local_private_key.secret().to_bytes()))
     {
         Ok(_) => {
-            debug!(log, "New network key generated and written to disk");
+            debug!("New network key generated and written to disk");
         }
         Err(e) => {
             warn!(
-                log,
-                "Could not write node key to file: {:?}. error: {}", network_key_f, e
+                "Could not write node key to file: {:?}. error: {}",
+                network_key_f, e
             );
         }
     }
@@ -165,48 +164,49 @@ pub fn strip_peer_id(addr: &mut Multiaddr) {
 /// Load metadata from persisted file. Return default metadata if loading fails.
 pub fn load_or_build_metadata<E: EthSpec>(
     network_dir: &Path,
-    custody_group_count_opt: Option<u64>,
-    log: &slog::Logger,
+    custody_group_count: u64,
 ) -> MetaData<E> {
-    // We load a V2 metadata version by default (regardless of current fork)
-    // since a V2 metadata can be converted to V1. The RPC encoder is responsible
+    // We load a V3 metadata version by default (regardless of current fork)
+    // since a V3 metadata can be converted to V1 or V2. The RPC encoder is responsible
     // for sending the correct metadata version based on the negotiated protocol version.
-    let mut meta_data = MetaDataV2 {
+    let mut meta_data = MetaDataV3 {
         seq_number: 0,
         attnets: EnrAttestationBitfield::<E>::default(),
         syncnets: EnrSyncCommitteeBitfield::<E>::default(),
+        custody_group_count,
     };
+
     // Read metadata from persisted file if available
     let metadata_path = network_dir.join(METADATA_FILENAME);
     if let Ok(mut metadata_file) = File::open(metadata_path) {
         let mut metadata_ssz = Vec::new();
         if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
-            // Attempt to read a MetaDataV2 version from the persisted file,
-            // if that fails, read MetaDataV1
-            match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
+            // Attempt to read a MetaDataV3 version from the persisted file,
+            // if that fails, read MetaDataV2
+            match MetaDataV3::<E>::from_ssz_bytes(&metadata_ssz) {
                 Ok(persisted_metadata) => {
                     meta_data.seq_number = persisted_metadata.seq_number;
                     // Increment seq number if persisted attnet is not default
                     if persisted_metadata.attnets != meta_data.attnets
                         || persisted_metadata.syncnets != meta_data.syncnets
+                        || persisted_metadata.custody_group_count != meta_data.custody_group_count
                     {
                         meta_data.seq_number += 1;
                     }
-                    debug!(log, "Loaded metadata from disk");
+                    debug!("Loaded metadata from disk");
                 }
                 Err(_) => {
-                    match MetaDataV1::<E>::from_ssz_bytes(&metadata_ssz) {
+                    match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
                         Ok(persisted_metadata) => {
-                            let persisted_metadata = MetaData::V1(persisted_metadata);
+                            let persisted_metadata = MetaData::V2(persisted_metadata);
                             // Increment seq number as the persisted metadata version is updated
                             meta_data.seq_number = *persisted_metadata.seq_number() + 1;
-                            debug!(log, "Loaded metadata from disk");
+                            debug!("Loaded metadata from disk");
                         }
                         Err(e) => {
                             debug!(
-                                log,
-                                "Metadata from file could not be decoded";
-                                "error" => ?e,
+                                error = ?e,
+                                "Metadata from file could not be decoded"
                             );
                         }
                     }
@@ -215,20 +215,9 @@ pub fn load_or_build_metadata<E: EthSpec>(
         }
     };
 
-    // Wrap the MetaData
-    let meta_data = if let Some(custody_group_count) = custody_group_count_opt {
-        MetaData::V3(MetaDataV3 {
-            attnets: meta_data.attnets,
-            seq_number: meta_data.seq_number,
-            syncnets: meta_data.syncnets,
-            custody_group_count,
-        })
-    } else {
-        MetaData::V2(meta_data)
-    };
-
-    debug!(log, "Metadata sequence number"; "seq_num" => meta_data.seq_number());
-    save_metadata_to_disk(network_dir, meta_data.clone(), log);
+    debug!(seq_num = meta_data.seq_number, "Metadata sequence number");
+    let meta_data = MetaData::V3(meta_data);
+    save_metadata_to_disk(network_dir, meta_data.clone());
     meta_data
 }
 
@@ -275,11 +264,7 @@ pub(crate) fn create_whitelist_filter(
 }
 
 /// Persist metadata to disk
-pub(crate) fn save_metadata_to_disk<E: EthSpec>(
-    dir: &Path,
-    metadata: MetaData<E>,
-    log: &slog::Logger,
-) {
+pub(crate) fn save_metadata_to_disk<E: EthSpec>(dir: &Path, metadata: MetaData<E>) {
     let _ = std::fs::create_dir_all(dir);
     // We always store the metadata v2 to disk because
     // custody_group_count parameter doesn't need to be persisted across runs.
@@ -288,14 +273,13 @@ pub(crate) fn save_metadata_to_disk<E: EthSpec>(
     let metadata_bytes = metadata.metadata_v2().as_ssz_bytes();
     match File::create(dir.join(METADATA_FILENAME)).and_then(|mut f| f.write_all(&metadata_bytes)) {
         Ok(_) => {
-            debug!(log, "Metadata written to disk");
+            debug!("Metadata written to disk");
         }
         Err(e) => {
             warn!(
-                log,
-                "Could not write metadata to disk";
-                "file" => format!("{:?}{:?}", dir, METADATA_FILENAME),
-                "error" => %e
+                file = format!("{:?}{:?}", dir, METADATA_FILENAME),
+                error = %e,
+                "Could not write metadata to disk"
             );
         }
     }

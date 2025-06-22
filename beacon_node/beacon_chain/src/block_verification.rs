@@ -74,7 +74,6 @@ use metrics::TryExt;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -91,14 +90,15 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
 use std::sync::Arc;
-use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
+use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
+use tracing::{debug, error};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
-    Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    Hash256, InconsistentFork, KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -252,7 +252,7 @@ pub enum BlockError {
     ///
     /// We were unable to process this block due to an internal error. It's unclear if the block is
     /// valid.
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
     /// There was an error whilst verifying weak subjectivity. This block conflicts with the
     /// configured weak subjectivity checkpoint and was not imported.
     ///
@@ -475,38 +475,40 @@ impl From<BlockSignatureVerifierError> for BlockError {
                 block,
                 local_shuffling,
             },
-            e => BlockError::BeaconChainError(BeaconChainError::BlockSignatureVerifierError(e)),
+            e => BlockError::BeaconChainError(
+                BeaconChainError::BlockSignatureVerifierError(e).into(),
+            ),
         }
     }
 }
 
 impl From<BeaconChainError> for BlockError {
     fn from(e: BeaconChainError) -> Self {
-        BlockError::BeaconChainError(e)
+        BlockError::BeaconChainError(e.into())
     }
 }
 
 impl From<BeaconStateError> for BlockError {
     fn from(e: BeaconStateError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::BeaconStateError(e))
+        BlockError::BeaconChainError(BeaconChainError::BeaconStateError(e).into())
     }
 }
 
 impl From<SlotProcessingError> for BlockError {
     fn from(e: SlotProcessingError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e))
+        BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e).into())
     }
 }
 
 impl From<DBError> for BlockError {
     fn from(e: DBError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::DBError(e))
+        BlockError::BeaconChainError(BeaconChainError::DBError(e).into())
     }
 }
 
 impl From<ArithError> for BlockError {
     fn from(e: ArithError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::ArithError(e))
+        BlockError::BeaconChainError(BeaconChainError::ArithError(e).into())
     }
 }
 
@@ -751,6 +753,7 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
+    kzg_cell_proofs: KzgProofs<T::EthSpec>,
 ) -> Result<DataColumnSidecarList<T::EthSpec>, DataColumnSidecarError> {
     // Only attempt to build data columns if blobs is non empty to avoid skewing the metrics.
     if blobs.is_empty() {
@@ -762,8 +765,14 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
         &[&blobs.len().to_string()],
     );
     let blob_refs = blobs.iter().collect::<Vec<_>>();
-    let sidecars = blobs_to_data_column_sidecars(&blob_refs, block, &chain.kzg, &chain.spec)
-        .discard_timer_on_break(&mut timer)?;
+    let sidecars = blobs_to_data_column_sidecars(
+        &blob_refs,
+        kzg_cell_proofs.to_vec(),
+        block,
+        &chain.kzg,
+        &chain.spec,
+    )
+    .discard_timer_on_break(&mut timer)?;
     drop(timer);
     Ok(sidecars)
 }
@@ -930,12 +939,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             let (mut parent, block) = load_parent(block, chain)?;
 
             debug!(
-                chain.log,
-                "Proposer shuffling cache miss";
-                "parent_root" => ?parent.beacon_block_root,
-                "parent_slot" => parent.beacon_block.slot(),
-                "block_root" => ?block_root,
-                "block_slot" => block.slot(),
+                parent_root = ?parent.beacon_block_root,
+                parent_slot = %parent.beacon_block.slot(),
+                ?block_root,
+                block_slot = %block.slot(),
+                "Proposer shuffling cache miss"
             );
 
             // The state produced is only valid for determining proposer/attester shuffling indices.
@@ -946,7 +954,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 &chain.spec,
             )?;
 
-            let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+            let epoch = state.current_epoch();
+            let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
             let proposer_index = *proposers
                 .get(block.slot().as_usize() % T::EthSpec::slots_per_epoch() as usize)
                 .ok_or_else(|| BeaconChainError::NoProposerForSlot(block.slot()))?;
@@ -986,7 +995,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .observed_slashable
             .write()
             .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
         // Now the signature is valid, store the proposal so we don't accept another from this
         // validator and slot.
         //
@@ -996,7 +1005,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .observed_block_producers
             .write()
             .observe_proposal(block_root, block.message())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
         {
             SeenBlock::Slashable => {
                 return Err(BlockError::Slashable);
@@ -1251,40 +1260,6 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
     }
 }
 
-impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for Arc<SignedBeaconBlock<T::EthSpec>> {
-    /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
-    /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
-    fn into_execution_pending_block_slashable(
-        self,
-        block_root: Hash256,
-        chain: &Arc<BeaconChain<T>>,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<ExecutionPendingBlock<T>, BlockSlashInfo<BlockError>> {
-        // Perform an early check to prevent wasting time on irrelevant blocks.
-        let block_root = check_block_relevancy(&self, block_root, chain)
-            .map_err(|e| BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e))?;
-        let maybe_available = chain
-            .data_availability_checker
-            .verify_kzg_for_rpc_block(RpcBlock::new_without_blobs(Some(block_root), self.clone()))
-            .map_err(|e| {
-                BlockSlashInfo::SignatureNotChecked(
-                    self.signed_block_header(),
-                    BlockError::AvailabilityCheck(e),
-                )
-            })?;
-        SignatureVerifiedBlock::check_slashable(maybe_available, block_root, chain)?
-            .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
-    }
-
-    fn block(&self) -> &SignedBeaconBlock<T::EthSpec> {
-        self
-    }
-
-    fn block_cloned(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
-        self.clone()
-    }
-}
-
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
@@ -1339,13 +1314,13 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .observed_slashable
             .write()
             .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
 
         chain
             .observed_block_producers
             .write()
             .observe_proposal(block_root, block.message())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
 
         if let Some(parent) = chain
             .canonical_head
@@ -1444,21 +1419,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
 
-        // Stage a batch of operations to be completed atomically if this block is imported
-        // successfully. If there is a skipped slot, we include the state root of the pre-state,
-        // which may be an advanced state that was stored in the DB with a `temporary` flag.
         let mut state = parent.pre_state;
-
-        let mut confirmed_state_roots =
-            if block.slot() > state.slot() && state.slot() > parent.beacon_block.slot() {
-                // Advanced pre-state. Delete its temporary flag.
-                let pre_state_root = state.update_tree_hash_cache()?;
-                vec![pre_state_root]
-            } else {
-                // Pre state is either unadvanced, or should not be stored long-term because there
-                // is no skipped slot between `parent` and `block`.
-                vec![]
-            };
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_block.slot() {
@@ -1506,37 +1467,19 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // processing, but we get early access to it.
                 let state_root = state.update_tree_hash_cache()?;
 
-                // Store the state immediately, marking it as temporary, and staging the deletion
-                // of its temporary status as part of the larger atomic operation.
-                let txn_lock = chain.store.hot_db.begin_rw_transaction();
+                // Store the state immediately. States are ONLY deleted on finalization pruning, so
+                // we won't have race conditions where we should have written a state and didn't.
                 let state_already_exists =
                     chain.store.load_hot_state_summary(&state_root)?.is_some();
 
-                let state_batch = if state_already_exists {
-                    // If the state exists, it could be temporary or permanent, but in neither case
-                    // should we rewrite it or store a new temporary flag for it. We *will* stage
-                    // the temporary flag for deletion because it's OK to double-delete the flag,
-                    // and we don't mind if another thread gets there first.
-                    vec![]
+                if state_already_exists {
+                    // If the state exists, we do not need to re-write it.
                 } else {
-                    vec![
-                        if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
-                            StoreOp::PutState(state_root, &state)
-                        } else {
-                            StoreOp::PutStateSummary(
-                                state_root,
-                                HotStateSummary::new(&state_root, &state)?,
-                            )
-                        },
-                        StoreOp::PutStateTemporaryFlag(state_root),
-                    ]
+                    // Recycle store codepath to create a state summary and store the state / diff
+                    let mut ops = vec![];
+                    chain.store.store_hot_state(&state_root, &state, &mut ops)?;
+                    chain.store.hot_db.do_atomically(ops)?;
                 };
-                chain
-                    .store
-                    .do_atomically_with_block_and_blobs_cache(state_batch)?;
-                drop(txn_lock);
-
-                confirmed_state_roots.push(state_root);
 
                 state_root
             };
@@ -1545,10 +1488,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // Expose Prometheus metrics.
                 if let Err(e) = summary.observe_metrics() {
                     error!(
-                        chain.log,
-                        "Failed to observe epoch summary metrics";
-                        "src" => "block_verification",
-                        "error" => ?e
+                        src = "block_verification",
+                        error = ?e,
+                        "Failed to observe epoch summary metrics"
                     );
                 }
                 summaries.push(summary);
@@ -1576,9 +1518,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                         validator_monitor.process_validator_statuses(epoch, summary, &chain.spec)
                     {
                         error!(
-                            chain.log,
-                            "Failed to process validator statuses";
-                            "error" => ?e
+                            error = ?e,
+                            "Failed to process validator statuses"
                         );
                     }
                 }
@@ -1618,12 +1559,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * invalid.
          */
 
-        write_state(
-            &format!("state_pre_block_{}", block_root),
-            &state,
-            &chain.log,
-        );
-        write_block(block.as_block(), block_root, &chain.log);
+        write_state(&format!("state_pre_block_{}", block_root), &state);
+        write_block(block.as_block(), block_root);
 
         let core_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CORE);
 
@@ -1656,11 +1593,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         metrics::stop_timer(state_root_timer);
 
-        write_state(
-            &format!("state_post_block_{}", block_root),
-            &state,
-            &chain.log,
-        );
+        write_state(&format!("state_post_block_{}", block_root), &state);
 
         /*
          * Check to ensure the state root on the block matches the one we have calculated.
@@ -1702,7 +1635,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // Ignore invalid attestations whilst importing attestations from a block. The
                 // block might be very old and therefore the attestations useless to fork choice.
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
-                Err(e) => Err(BlockError::BeaconChainError(e.into())),
+                Err(e) => Err(BlockError::BeaconChainError(Box::new(e.into()))),
             }?;
         }
         drop(fork_choice);
@@ -1714,9 +1647,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 state,
                 parent_block: parent.beacon_block,
                 parent_eth1_finalization_data,
-                confirmed_state_roots,
                 consensus_context,
-                data_column_recv: None,
             },
             payload_verification_handle,
         })
@@ -1796,7 +1727,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
         if chain
             .store
             .block_exists(&block.parent_root())
-            .map_err(|e| BlockError::BeaconChainError(e.into()))?
+            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
         {
             Err(BlockError::NotFinalizedDescendant {
                 block_parent_root: block.parent_root(),
@@ -1941,7 +1872,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         let root = block.parent_root();
         let parent_block = chain
             .get_blinded_block(&block.parent_root())
-            .map_err(BlockError::BeaconChainError)?
+            .map_err(|e| BlockError::BeaconChainError(Box::new(e)))?
             .ok_or_else(|| {
                 // Return a `MissingBeaconBlock` error instead of a `ParentUnknown` error since
                 // we've already checked fork choice for this block.
@@ -1967,19 +1898,17 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
 
         if !state.all_caches_built() {
             debug!(
-                chain.log,
-                "Parent state lacks built caches";
-                "block_slot" => block.slot(),
-                "state_slot" => state.slot(),
+                block_slot = %block.slot(),
+                state_slot = %state.slot(),
+                "Parent state lacks built caches"
             );
         }
 
         if block.slot() != state.slot() {
             debug!(
-                chain.log,
-                "Parent state is not advanced";
-                "block_slot" => block.slot(),
-                "state_slot" => state.slot(),
+                block_slot = %block.slot(),
+                state_slot = %state.slot(),
+                "Parent state is not advanced"
             );
         }
 
@@ -2185,14 +2114,11 @@ pub fn verify_header_signature<T: BeaconChainTypes, Err: BlockBlobError>(
     }
 }
 
-fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
+fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let mut state = state.clone();
         let Ok(root) = state.canonical_root() else {
-            error!(
-                log,
-                "Unable to hash state for writing";
-            );
+            error!("Unable to hash state for writing");
             return;
         };
         let filename = format!("{}_slot_{}_root_{}.ssz", prefix, state.slot(), root);
@@ -2205,16 +2131,15 @@ fn write_state<E: EthSpec>(prefix: &str, state: &BeaconState<E>, log: &Logger) {
                 let _ = file.write_all(&state.as_ssz_bytes());
             }
             Err(e) => error!(
-                log,
-                "Failed to log state";
-                "path" => format!("{:?}", path),
-                "error" => format!("{:?}", e)
+                ?path,
+                error = ?e,
+                "Failed to log state"
             ),
         }
     }
 }
 
-fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256, log: &Logger) {
+fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256) {
     if WRITE_BLOCK_PROCESSING_SSZ {
         let filename = format!("block_slot_{}_root{}.ssz", block.slot(), root);
         let mut path = std::env::temp_dir().join("lighthouse");
@@ -2226,10 +2151,9 @@ fn write_block<E: EthSpec>(block: &SignedBeaconBlock<E>, root: Hash256, log: &Lo
                 let _ = file.write_all(&block.as_ssz_bytes());
             }
             Err(e) => error!(
-                log,
-                "Failed to log block";
-                "path" => format!("{:?}", path),
-                "error" => format!("{:?}", e)
+                ?path,
+                error = ?e,
+                "Failed to log block"
             ),
         }
     }

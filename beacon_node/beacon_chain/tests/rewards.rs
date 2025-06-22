@@ -9,9 +9,7 @@ use beacon_chain::{
     types::{Epoch, EthSpec, Keypair, MinimalEthSpec},
     BlockError, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
-use eth2::lighthouse::attestation_rewards::TotalAttestationRewards;
-use eth2::lighthouse::StandardAttestationRewards;
-use eth2::types::ValidatorId;
+use eth2::types::{StandardAttestationRewards, TotalAttestationRewards, ValidatorId};
 use state_processing::{BlockReplayError, BlockReplayer};
 use std::array::IntoIter;
 use std::collections::HashMap;
@@ -365,8 +363,7 @@ async fn test_rewards_base_multi_inclusion() {
         .extend_slots(E::slots_per_epoch() as usize * 2 - 4)
         .await;
 
-    // pin to reduce stack size for clippy
-    Box::pin(check_all_base_rewards(&harness, initial_balances)).await;
+    check_all_base_rewards(&harness, initial_balances).await;
 }
 
 #[tokio::test]
@@ -798,7 +795,8 @@ async fn check_all_base_rewards(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     balances: Vec<u64>,
 ) {
-    check_all_base_rewards_for_subset(harness, balances, vec![]).await;
+    // The box reduces the size on the stack for a clippy lint.
+    Box::pin(check_all_base_rewards_for_subset(harness, balances, vec![])).await;
 }
 
 async fn check_all_base_rewards_for_subset(

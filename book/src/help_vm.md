@@ -12,7 +12,7 @@ Commands:
           data. This file can then be imported to a validator client using the
           "import-validators" command. Another, optional JSON file is created
           which contains a list of validator deposits in the same format as the
-          "ethereum/staking-deposit-cli" tool.
+          "ethstaker-deposit-cli" tool.
   import
           Uploads validators to a validator client using the HTTP API. The
           validators are defined in a JSON file which can be generated using the
@@ -39,8 +39,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --genesis-state-url <URL>
           A URL of a beacon-API compatible server from which to download the
           genesis state. Checkpoint sync server URLs can generally be used with
@@ -49,19 +48,15 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -88,8 +83,13 @@ Flags:
           debugging specific memory allocation issues.
   -h, --help
           Prints help information
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.

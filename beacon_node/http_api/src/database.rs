@@ -1,7 +1,17 @@
 use beacon_chain::store::metadata::CURRENT_SCHEMA_VERSION;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2::lighthouse::DatabaseInfo;
+use serde::Serialize;
 use std::sync::Arc;
+use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
+
+#[derive(Debug, Serialize)]
+pub struct DatabaseInfo {
+    pub schema_version: u64,
+    pub config: StoreConfig,
+    pub split: Split,
+    pub anchor: AnchorInfo,
+    pub blob_info: BlobInfo,
+}
 
 pub fn info<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
