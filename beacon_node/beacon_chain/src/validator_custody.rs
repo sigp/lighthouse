@@ -265,7 +265,6 @@ pub struct CustodyCountChanged {
 #[derive(Debug, Clone)]
 pub struct CustodyColumnBackfill {
     pub columns_to_backfill: Vec<u64>,
-    pub start_epoch: Epoch,
 }
 
 /// The custody information that gets persisted across runs.

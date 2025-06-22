@@ -12,8 +12,9 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
-    migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
-    BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
+    historical_blocks::HistoricalDataColumnError, migrate::MigratorConfig, BeaconChain,
+    BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
+    NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
 };
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
@@ -2576,6 +2577,324 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     // Reconstruct states.
     store.clone().reconstruct_historic_states(None).unwrap();
     assert_eq!(store.get_anchor_info().anchor_slot, 0);
+}
+
+#[tokio::test]
+async fn test_import_historical_data_columns_batch() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some());
+        data_columns_list.push(data_columns.unwrap());
+    }
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    harness
+        .chain
+        .import_historical_data_column_batch(data_columns_list)
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some())
+    }
+}
+
+// This should verify that a data column sidecar containing mismatched block roots should fail to be imported.
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_mismatched_block_root() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some());
+        let mut data_column_sidecar = vec![];
+
+        for data_column in data_columns.unwrap() {
+            let mut data_column = (*data_column).clone();
+            if data_column.index % 2 == 0 {
+                data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            }
+
+            data_column_sidecar.push(Arc::new(data_column));
+        }
+        data_columns_list.push(data_column_sidecar);
+    }
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(data_columns_list)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::MismatchedBlockRoot { .. }
+    ));
+}
+
+// This should verify that a data column sidecar associated to a block root that doesn't exist in the store cannot
+// be imported.
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_no_block_found() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some());
+        let mut data_column_sidecar = vec![];
+
+        for data_column in data_columns.unwrap() {
+            let mut data_column = (*data_column).clone();
+            data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            data_column_sidecar.push(Arc::new(data_column));
+        }
+        data_columns_list.push(data_column_sidecar);
+    }
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(data_columns_list)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::NoBlockFound { .. }
+    ));
+}
+
+// This should verify that a data column sidecar with an invalid signature cannot be imported into the store.
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_invalid_signature() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some());
+        let mut data_column_sidecar = vec![];
+
+        for data_column in data_columns.unwrap() {
+            let mut data_column = (*data_column).clone();
+            data_column.signed_block_header.signature = Signature::infinity().unwrap().into();
+            data_column_sidecar.push(Arc::new(data_column));
+        }
+        data_columns_list.push(data_column_sidecar);
+    }
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(data_columns_list)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::InvalidSignature { .. }
+    ));
 }
 
 /// Test that blocks and attestations that refer to states around an unaligned split state are

@@ -37,7 +37,7 @@ use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use types::{
-    ChainSpec, Epoch, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
+    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription,
     SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
@@ -782,8 +782,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     let message =
                         SyncServiceMessage::CustodyColumnBackfill(CustodyColumnBackfill {
                             columns_to_backfill,
-                            // TODO(cgc-backfill) use correct start epoch (we might not need this)
-                            start_epoch: Epoch::new(0),
                         });
                     if let Err(e) = self.sync_service_send.send(message.clone()) {
                         tracing::error!(error = %e, ?message, "Could not send message to the syn service.");

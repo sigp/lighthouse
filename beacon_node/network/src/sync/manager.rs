@@ -764,10 +764,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     pub(crate) fn handle_service_message(&mut self, sync_service_message: SyncServiceMessage) {
         match sync_service_message {
-            SyncServiceMessage::CustodyColumnBackfill(_custody_count_backfill) => {
-                let _ = &self.backfill_sync;
-                todo!()
-            }
+            SyncServiceMessage::CustodyColumnBackfill(_custody_count_backfill) => {}
         }
     }
 
