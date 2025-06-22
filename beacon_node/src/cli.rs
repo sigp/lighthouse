@@ -717,7 +717,6 @@ pub fn cli_app() -> Command {
                 .long("eth1-blocks-per-log-query")
                 .value_name("BLOCKS")
                 .help("DEPRECATED")
-                .default_value("1000")
                 .action(ArgAction::Set)
                 .display_order(0)
                 .hide(true)
