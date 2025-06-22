@@ -18,16 +18,12 @@ mod local_network;
 mod retry;
 
 use cli::cli_app;
-use env_logger::{Builder, Env};
 use local_network::LocalNetwork;
 use types::MinimalEthSpec;
 
 pub type E = MinimalEthSpec;
 
 fn main() {
-    // Debugging output for libp2p and external crates.
-    Builder::from_env(Env::default()).init();
-
     let matches = cli_app().get_matches();
     match matches.subcommand_name() {
         Some("basic-sim") => match basic_sim::run_basic_sim(&matches) {

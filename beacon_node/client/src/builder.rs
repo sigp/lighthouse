@@ -546,7 +546,6 @@ where
                         network_senders: None,
                         network_globals: None,
                         beacon_processor_send: None,
-                        beacon_processor_reprocess_send: None,
                         eth1_service: Some(genesis_service.eth1_service.clone()),
                         sse_logging_components: runtime_context.sse_logging_components.clone(),
                     });
@@ -638,7 +637,6 @@ where
             context.executor,
             libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
-            beacon_processor_channels.work_reprocessing_tx.clone(),
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
@@ -777,9 +775,6 @@ where
                 network_globals: self.network_globals.clone(),
                 eth1_service: self.eth1_service.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
-                beacon_processor_reprocess_send: Some(
-                    beacon_processor_channels.work_reprocessing_tx.clone(),
-                ),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
             });
 
@@ -843,8 +838,6 @@ where
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
-                    beacon_processor_channels.work_reprocessing_tx.clone(),
-                    beacon_processor_channels.work_reprocessing_rx,
                     None,
                     beacon_chain.slot_clock.clone(),
                     beacon_chain.spec.maximum_gossip_clock_disparity(),
@@ -918,7 +911,7 @@ where
                         compute_light_client_updates(
                             &inner_chain,
                             light_client_server_rv,
-                            beacon_processor_channels.work_reprocessing_tx,
+                            beacon_processor_channels.beacon_processor_tx,
                         )
                         .await
                     },
@@ -1002,11 +995,6 @@ where
         blobs_path: &Path,
         config: StoreConfig,
     ) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or("disk_store requires a log")?
-            .service_context("freezer_db".into());
         let spec = self
             .chain_spec
             .clone()
@@ -1015,21 +1003,8 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
-        // Optionally grab the genesis state root.
-        // This will only be required if a DB upgrade to V22 is needed.
-        let genesis_state_root = context
-            .eth2_network_config
-            .as_ref()
-            .and_then(|config| config.genesis_state_root::<E>().transpose())
-            .transpose()?;
-
         let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
-                db,
-                genesis_state_root,
-                from,
-                to,
-            )
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, from, to)
         };
 
         let store = HotColdDB::open(

@@ -13,7 +13,6 @@ use leveldb::{
     iterator::{Iterable, LevelDBIterator},
     options::{Options, ReadOptions},
 };
-use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -23,8 +22,6 @@ use super::interface::WriteOptions;
 
 pub struct LevelDB<E: EthSpec> {
     db: Database<BytesKey>,
-    /// A mutex to synchronise sensitive read-write transactions.
-    transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
 
@@ -43,11 +40,9 @@ impl<E: EthSpec> LevelDB<E> {
         options.create_if_missing = true;
 
         let db = Database::open(path, options)?;
-        let transaction_mutex = Mutex::new(());
 
         Ok(Self {
             db,
-            transaction_mutex,
             _phantom: PhantomData,
         })
     }
@@ -175,10 +170,6 @@ impl<E: EthSpec> LevelDB<E> {
         }
         self.db.write(self.write_options().into(), &leveldb_batch)?;
         Ok(())
-    }
-
-    pub fn begin_rw_transaction(&self) -> MutexGuard<()> {
-        self.transaction_mutex.lock()
     }
 
     /// Compact all values in the states and states flag columns.

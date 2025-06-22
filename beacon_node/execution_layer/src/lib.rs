@@ -129,8 +129,7 @@ impl<E: EthSpec> TryFrom<BuilderBid<E>> for ProvenancedPayload<BlockProposalCont
                 block_value: builder_bid.value,
                 kzg_commitments: builder_bid.blob_kzg_commitments,
                 blobs_and_proofs: None,
-                // TODO(fulu): update this with builder api returning the requests
-                requests: None,
+                requests: Some(builder_bid.execution_requests),
             },
         };
         Ok(ProvenancedPayload::Builder(
@@ -1555,10 +1554,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         age_limit: Option<Duration>,
     ) -> Result<Vec<ClientVersionV1>, Error> {
-        self.engine()
+        let versions = self
+            .engine()
             .request(|engine| engine.get_engine_version(age_limit))
             .await
-            .map_err(Into::into)
+            .map_err(Into::<Error>::into)?;
+        metrics::expose_execution_layer_info(&versions);
+
+        Ok(versions)
     }
 
     /// Used during block production to determine if the merge has been triggered.
@@ -1861,7 +1864,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_blobs_v2(
         &self,
         query: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV2<E>>>, Error> {
+    ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_blobs_v2 {

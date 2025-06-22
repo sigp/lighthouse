@@ -40,9 +40,6 @@ type E = MainnetEthSpec;
  *
  */
 
-// Default custody group count for tests
-const CGC: usize = 8;
-
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=gossip`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn gossip_invalid() {
@@ -374,9 +371,9 @@ pub async fn consensus_partial_pass_only_consensus() {
     );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain, CGC);
+    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain, CGC);
+    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     /* submit `block_b` which should induce equivocation */
@@ -669,10 +666,10 @@ pub async fn equivocation_consensus_late_equivocation() {
     );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain, CGC);
+    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_b.is_ok());
 
-    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain, CGC);
+    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
@@ -1318,9 +1315,9 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         ProvenancedBlock::Builder(b, _, _) => b,
     };
 
-    let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain, CGC);
+    let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain, CGC);
+    let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
@@ -1428,7 +1425,7 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
     // Simulate the block being seen on gossip.
     block
         .clone()
-        .into_gossip_verified_block(&tester.harness.chain, CGC)
+        .into_gossip_verified_block(&tester.harness.chain)
         .unwrap();
 
     // It should not yet be added to fork choice because blobs have not been seen.
@@ -1502,7 +1499,7 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
     // Simulate the block being seen on gossip.
     block
         .clone()
-        .into_gossip_verified_block(&tester.harness.chain, CGC)
+        .into_gossip_verified_block(&tester.harness.chain)
         .unwrap();
 
     // Simulate some of the blobs being seen on gossip.
@@ -1836,6 +1833,5 @@ fn get_custody_columns(tester: &InteractiveTester<E>) -> HashSet<ColumnIndex> {
         .network_globals
         .as_ref()
         .unwrap()
-        .sampling_columns
-        .clone()
+        .sampling_columns()
 }

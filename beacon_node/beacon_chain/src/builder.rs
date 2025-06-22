@@ -13,10 +13,12 @@ use crate::light_client_server_cache::LightClientServerCache;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::observed_data_sidecars::ObservedDataSidecars;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
+use crate::CustodyContext;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
     Eth1ChainBackend, ServerSentEventHandler,
@@ -42,8 +44,8 @@ use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tracing::{debug, error, info};
 use types::{
-    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, Checkpoint, DataColumnSidecarList, Epoch,
-    EthSpec, FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
+    FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -380,21 +382,29 @@ where
     }
 
     /// Starts a new chain from a genesis state.
-    pub fn genesis_state(mut self, beacon_state: BeaconState<E>) -> Result<Self, String> {
+    pub fn genesis_state(mut self, mut beacon_state: BeaconState<E>) -> Result<Self, String> {
         let store = self.store.clone().ok_or("genesis_state requires a store")?;
+
+        // Initialize anchor info before attempting to write the genesis state.
+        // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
+        // historic states from being retained (unless `--reconstruct-historic-states` is set).
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        let genesis_beacon_block = genesis_block(&mut beacon_state, &self.spec)?;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    genesis_beacon_block.parent_root(),
+                    genesis_beacon_block.slot(),
+                    Slot::new(0),
+                    retain_historic_states,
+                )
+                .map_err(|e| format!("Failed to initialize genesis anchor: {:?}", e))?,
+        );
 
         let (genesis, updated_builder) = self.set_genesis_state(beacon_state)?;
         self = updated_builder;
 
         // Stage the database's metadata fields for atomic storage when `build` is called.
-        // Since v4.4.0 we will set the anchor with a dummy state upper limit in order to prevent
-        // historic states from being retained (unless `--reconstruct-historic-states` is set).
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
-        self.pending_io_batch.push(
-            store
-                .init_anchor_info(genesis.beacon_block.message(), retain_historic_states)
-                .map_err(|e| format!("Failed to initialize genesis anchor: {:?}", e))?,
-        );
         self.pending_io_batch.push(
             store
                 .init_blob_info(genesis.beacon_block.slot())
@@ -486,26 +496,45 @@ where
 
         // Verify that blobs (if provided) match the block.
         if let Some(blobs) = &weak_subj_blobs {
-            let commitments = weak_subj_block
-                .message()
-                .body()
-                .blob_kzg_commitments()
-                .map_err(|e| format!("Blobs provided but block does not reference them: {e:?}"))?;
-            if blobs.len() != commitments.len() {
-                return Err(format!(
-                    "Wrong number of blobs, expected: {}, got: {}",
-                    commitments.len(),
-                    blobs.len()
-                ));
-            }
-            if commitments
-                .iter()
-                .zip(blobs.iter())
-                .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
-            {
-                return Err("Checkpoint blob does not match block commitment".into());
+            let fulu_enabled = weak_subj_block.fork_name_unchecked().fulu_enabled();
+            if fulu_enabled && blobs.is_empty() {
+                // Blobs expected for this block, but the checkpoint server is not able to serve them.
+                // This is expected from Fulu, as only supernodes are able to serve blobs.
+                // We can consider using backfill to retrieve the data columns from the p2p network,
+                // but we can ignore this fow now until we have validator custody backfill
+                // implemented as we'll likely be able to reuse the logic.
+                // https://github.com/sigp/lighthouse/issues/6837
+            } else {
+                let commitments = weak_subj_block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .map_err(|e| {
+                        format!("Blobs provided but block does not reference them: {e:?}")
+                    })?;
+                if blobs.len() != commitments.len() {
+                    return Err(format!(
+                        "Wrong number of blobs, expected: {}, got: {}",
+                        commitments.len(),
+                        blobs.len()
+                    ));
+                }
+                if commitments
+                    .iter()
+                    .zip(blobs.iter())
+                    .any(|(commitment, blob)| *commitment != blob.kzg_commitment)
+                {
+                    return Err("Checkpoint blob does not match block commitment".into());
+                }
             }
         }
+
+        debug!(
+            slot = %weak_subj_slot,
+            state_root = ?weak_subj_state_root,
+            block_root = ?weak_subj_block_root,
+            "Storing split from weak subjectivity state"
+        );
 
         // Set the store's split point *before* storing genesis so that genesis is stored
         // immediately in the freezer DB.
@@ -527,6 +556,26 @@ where
             .cold_db
             .do_atomically(block_root_batch)
             .map_err(|e| format!("Error writing frozen block roots: {e:?}"))?;
+        debug!(
+            from = %weak_subj_block.slot(),
+            to_excl = %weak_subj_state.slot(),
+            block_root = ?weak_subj_block_root,
+            "Stored frozen block roots at skipped slots"
+        );
+
+        // Write the anchor to memory before calling `put_state` otherwise hot hdiff can't store
+        // states that do not align with the `start_slot` grid.
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    weak_subj_block.parent_root(),
+                    weak_subj_block.slot(),
+                    weak_subj_slot,
+                    retain_historic_states,
+                )
+                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
 
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
@@ -537,6 +586,8 @@ where
                 weak_subj_state.clone(),
             )
             .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
+        // Note: post hot hdiff must update the anchor info before attempting to put_state otherwise
+        // the write will fail if the weak_subj_slot is not aligned with the snapshot moduli.
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {e:?}"))?;
@@ -566,13 +617,7 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
         // info or split point is written before the `PersistedBeaconChain`.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
         self.pending_io_batch.push(store.store_split_in_batch());
-        self.pending_io_batch.push(
-            store
-                .init_anchor_info(weak_subj_block.message(), retain_historic_states)
-                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
-        );
         self.pending_io_batch.push(
             store
                 .init_blob_info(weak_subj_block.slot())
@@ -583,13 +628,6 @@ where
                 .init_data_column_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
-
-        // Store pruning checkpoint to prevent attempting to prune before the anchor state.
-        self.pending_io_batch
-            .push(store.pruning_checkpoint_store_op(Checkpoint {
-                root: weak_subj_block_root,
-                epoch: weak_subj_state.slot().epoch(E::slots_per_epoch()),
-            }));
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
@@ -914,6 +952,20 @@ where
             }
         };
 
+        // Load the persisted custody context from the db and initialize
+        // the context for this run
+        let custody_context = if let Some(custody) =
+            load_custody_context::<E, THotStore, TColdStore>(store.clone())
+        {
+            Arc::new(CustodyContext::new_from_persisted_custody_context(
+                custody,
+                self.import_all_data_columns,
+            ))
+        } else {
+            Arc::new(CustodyContext::new(self.import_all_data_columns))
+        };
+        debug!(?custody_context, "Loading persisted custody context");
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -987,8 +1039,14 @@ where
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
-                DataAvailabilityChecker::new(slot_clock, self.kzg.clone(), store, self.spec)
-                    .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
+                DataAvailabilityChecker::new(
+                    slot_clock,
+                    self.kzg.clone(),
+                    store,
+                    custody_context,
+                    self.spec,
+                )
+                .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),

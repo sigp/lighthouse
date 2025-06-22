@@ -1,6 +1,5 @@
 use crate::multiaddr::Protocol;
-use crate::rpc::methods::MetaDataV3;
-use crate::rpc::{MetaData, MetaDataV1, MetaDataV2};
+use crate::rpc::{MetaData, MetaDataV2, MetaDataV3};
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipEncoding, GossipKind};
 use crate::{GossipTopic, NetworkConfig};
 use futures::future::Either;
@@ -165,38 +164,41 @@ pub fn strip_peer_id(addr: &mut Multiaddr) {
 /// Load metadata from persisted file. Return default metadata if loading fails.
 pub fn load_or_build_metadata<E: EthSpec>(
     network_dir: &Path,
-    custody_group_count_opt: Option<u64>,
+    custody_group_count: u64,
 ) -> MetaData<E> {
-    // We load a V2 metadata version by default (regardless of current fork)
-    // since a V2 metadata can be converted to V1. The RPC encoder is responsible
+    // We load a V3 metadata version by default (regardless of current fork)
+    // since a V3 metadata can be converted to V1 or V2. The RPC encoder is responsible
     // for sending the correct metadata version based on the negotiated protocol version.
-    let mut meta_data = MetaDataV2 {
+    let mut meta_data = MetaDataV3 {
         seq_number: 0,
         attnets: EnrAttestationBitfield::<E>::default(),
         syncnets: EnrSyncCommitteeBitfield::<E>::default(),
+        custody_group_count,
     };
+
     // Read metadata from persisted file if available
     let metadata_path = network_dir.join(METADATA_FILENAME);
     if let Ok(mut metadata_file) = File::open(metadata_path) {
         let mut metadata_ssz = Vec::new();
         if metadata_file.read_to_end(&mut metadata_ssz).is_ok() {
-            // Attempt to read a MetaDataV2 version from the persisted file,
-            // if that fails, read MetaDataV1
-            match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
+            // Attempt to read a MetaDataV3 version from the persisted file,
+            // if that fails, read MetaDataV2
+            match MetaDataV3::<E>::from_ssz_bytes(&metadata_ssz) {
                 Ok(persisted_metadata) => {
                     meta_data.seq_number = persisted_metadata.seq_number;
                     // Increment seq number if persisted attnet is not default
                     if persisted_metadata.attnets != meta_data.attnets
                         || persisted_metadata.syncnets != meta_data.syncnets
+                        || persisted_metadata.custody_group_count != meta_data.custody_group_count
                     {
                         meta_data.seq_number += 1;
                     }
                     debug!("Loaded metadata from disk");
                 }
                 Err(_) => {
-                    match MetaDataV1::<E>::from_ssz_bytes(&metadata_ssz) {
+                    match MetaDataV2::<E>::from_ssz_bytes(&metadata_ssz) {
                         Ok(persisted_metadata) => {
-                            let persisted_metadata = MetaData::V1(persisted_metadata);
+                            let persisted_metadata = MetaData::V2(persisted_metadata);
                             // Increment seq number as the persisted metadata version is updated
                             meta_data.seq_number = *persisted_metadata.seq_number() + 1;
                             debug!("Loaded metadata from disk");
@@ -213,19 +215,8 @@ pub fn load_or_build_metadata<E: EthSpec>(
         }
     };
 
-    // Wrap the MetaData
-    let meta_data = if let Some(custody_group_count) = custody_group_count_opt {
-        MetaData::V3(MetaDataV3 {
-            attnets: meta_data.attnets,
-            seq_number: meta_data.seq_number,
-            syncnets: meta_data.syncnets,
-            custody_group_count,
-        })
-    } else {
-        MetaData::V2(meta_data)
-    };
-
-    debug!(seq_num = meta_data.seq_number(), "Metadata sequence number");
+    debug!(seq_num = meta_data.seq_number, "Metadata sequence number");
+    let meta_data = MetaData::V3(meta_data);
     save_metadata_to_disk(network_dir, meta_data.clone());
     meta_data
 }

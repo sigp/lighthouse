@@ -24,7 +24,6 @@ pub struct DietAvailabilityPendingExecutedBlock<E: EthSpec> {
     parent_eth1_finalization_data: Eth1FinalizationData,
     consensus_context: OnDiskConsensusContext<E>,
     payload_verification_outcome: PayloadVerificationOutcome,
-    custody_columns_count: usize,
 }
 
 /// just implementing the same methods as `AvailabilityPendingExecutedBlock`
@@ -52,10 +51,6 @@ impl<E: EthSpec> DietAvailabilityPendingExecutedBlock<E> {
             .blob_kzg_commitments()
             .cloned()
             .unwrap_or_default()
-    }
-
-    pub fn custody_columns_count(&self) -> usize {
-        self.custody_columns_count
     }
 
     /// Returns the epoch corresponding to `self.slot()`.
@@ -107,7 +102,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                 executed_block.import_data.consensus_context,
             ),
             payload_verification_outcome: executed_block.payload_verification_outcome,
-            custody_columns_count: executed_block.custody_columns_count,
         }
     }
 
@@ -137,7 +131,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                     .into_consensus_context(),
             },
             payload_verification_outcome: diet_executed_block.payload_verification_outcome,
-            custody_columns_count: diet_executed_block.custody_columns_count,
         })
     }
 
@@ -224,7 +217,6 @@ impl<E: EthSpec> From<AvailabilityPendingExecutedBlock<E>>
                 value.import_data.consensus_context,
             ),
             payload_verification_outcome: value.payload_verification_outcome,
-            custody_columns_count: value.custody_columns_count,
         }
     }
 }
