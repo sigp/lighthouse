@@ -780,7 +780,7 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
 
     let all_column_subnets =
         (0..network_globals.spec.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new);
-    let custody_column_subnets = network_globals.sampling_subnets.iter();
+    let custody_column_subnets = network_globals.sampling_subnets();
 
     // Iterate all subnet values to set to zero the empty entries in peers_per_column_subnet
     for subnet in all_column_subnets {
@@ -794,7 +794,7 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
     // Registering this metric is a duplicate for supernodes but helpful for fullnodes. This way
     // operators can monitor the health of only the subnets of their interest without complex
     // Grafana queries.
-    for subnet in custody_column_subnets {
+    for subnet in custody_column_subnets.iter() {
         set_gauge_entry(
             &PEERS_PER_CUSTODY_COLUMN_SUBNET,
             &[&format!("{subnet}")],

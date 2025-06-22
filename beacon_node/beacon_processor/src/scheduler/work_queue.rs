@@ -123,6 +123,7 @@ pub struct BeaconProcessorQueueLengths {
     rpc_custody_column_queue: usize,
     rpc_verify_data_column_queue: usize,
     sampling_result_queue: usize,
+    column_reconstruction_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
@@ -190,6 +191,7 @@ impl BeaconProcessorQueueLengths {
             rpc_custody_column_queue: 1000,
             rpc_verify_data_column_queue: 1000,
             sampling_result_queue: 1000,
+            column_reconstruction_queue: 64,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
@@ -221,7 +223,6 @@ pub struct WorkQueues<E: EthSpec> {
     pub aggregate_queue: LifoQueue<Work<E>>,
     pub aggregate_debounce: TimeLatch,
     pub attestation_queue: LifoQueue<Work<E>>,
-    pub attestation_to_convert_queue: LifoQueue<Work<E>>,
     pub attestation_debounce: TimeLatch,
     pub unknown_block_aggregate_queue: LifoQueue<Work<E>>,
     pub unknown_block_attestation_queue: LifoQueue<Work<E>>,
@@ -237,6 +238,7 @@ pub struct WorkQueues<E: EthSpec> {
     pub rpc_custody_column_queue: FifoQueue<Work<E>>,
     pub rpc_verify_data_column_queue: FifoQueue<Work<E>>,
     pub sampling_result_queue: FifoQueue<Work<E>>,
+    pub column_reconstruction_queue: FifoQueue<Work<E>>,
     pub chain_segment_queue: FifoQueue<Work<E>>,
     pub backfill_chain_segment: FifoQueue<Work<E>>,
     pub gossip_block_queue: FifoQueue<Work<E>>,
@@ -266,7 +268,6 @@ impl<E: EthSpec> WorkQueues<E> {
         let aggregate_queue = LifoQueue::new(queue_lengths.aggregate_queue);
         let aggregate_debounce = TimeLatch::default();
         let attestation_queue = LifoQueue::new(queue_lengths.attestation_queue);
-        let attestation_to_convert_queue = LifoQueue::new(queue_lengths.attestation_queue);
         let attestation_debounce = TimeLatch::default();
         let unknown_block_aggregate_queue =
             LifoQueue::new(queue_lengths.unknown_block_aggregate_queue);
@@ -300,6 +301,7 @@ impl<E: EthSpec> WorkQueues<E> {
         let rpc_verify_data_column_queue =
             FifoQueue::new(queue_lengths.rpc_verify_data_column_queue);
         let sampling_result_queue = FifoQueue::new(queue_lengths.sampling_result_queue);
+        let column_reconstruction_queue = FifoQueue::new(queue_lengths.column_reconstruction_queue);
         let chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
@@ -337,7 +339,6 @@ impl<E: EthSpec> WorkQueues<E> {
             aggregate_queue,
             aggregate_debounce,
             attestation_queue,
-            attestation_to_convert_queue,
             attestation_debounce,
             unknown_block_aggregate_queue,
             unknown_block_attestation_queue,
@@ -354,6 +355,7 @@ impl<E: EthSpec> WorkQueues<E> {
             rpc_verify_data_column_queue,
             sampling_result_queue,
             chain_segment_queue,
+            column_reconstruction_queue,
             backfill_chain_segment,
             gossip_block_queue,
             gossip_blob_queue,

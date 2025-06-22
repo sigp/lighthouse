@@ -406,7 +406,6 @@ pub struct ValidatorMonitor<E: EthSpec> {
 
 impl<E: EthSpec> ValidatorMonitor<E> {
     #[instrument(parent = None,
-        level = "info",
         name = "validator_monitor",
         skip_all
     )]

@@ -30,8 +30,6 @@ type E = MainnetEthSpec;
 const VALIDATOR_COUNT: usize = 24;
 const CHAIN_SEGMENT_LENGTH: usize = 64 * 5;
 const BLOCK_INDICES: &[usize] = &[0, 1, 32, 64, 68 + 1, 129, CHAIN_SEGMENT_LENGTH - 1];
-// Default custody group count for tests
-const CGC: usize = 8;
 
 /// A cached set of keys.
 static KEYPAIRS: LazyLock<Vec<Keypair>> =
@@ -144,10 +142,9 @@ fn build_rpc_block(
             RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
-            RpcBlock::new_with_custody_columns(None, block, columns.clone(), columns.len(), spec)
-                .unwrap()
+            RpcBlock::new_with_custody_columns(None, block, columns.clone(), spec).unwrap()
         }
-        None => RpcBlock::new_without_blobs(None, block, 0),
+        None => RpcBlock::new_without_blobs(None, block),
     }
 }
 
@@ -370,7 +367,6 @@ async fn chain_segment_non_linear_parent_roots() {
     blocks[3] = RpcBlock::new_without_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        harness.sampling_column_count,
     );
 
     assert!(
@@ -408,7 +404,6 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = RpcBlock::new_without_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        harness.sampling_column_count,
     );
 
     assert!(
@@ -436,7 +431,6 @@ async fn chain_segment_non_linear_slots() {
     blocks[3] = RpcBlock::new_without_blobs(
         None,
         Arc::new(SignedBeaconBlock::from_block(block, signature)),
-        harness.sampling_column_count,
     );
 
     assert!(
@@ -578,11 +572,7 @@ async fn invalid_signature_gossip_block() {
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         let signed_block = SignedBeaconBlock::from_block(block, junk_signature());
-        let rpc_block = RpcBlock::new_without_blobs(
-            None,
-            Arc::new(signed_block),
-            harness.sampling_column_count,
-        );
+        let rpc_block = RpcBlock::new_without_blobs(None, Arc::new(signed_block));
         let process_res = harness
             .chain
             .process_block(
@@ -1002,7 +992,6 @@ async fn block_gossip_verification() {
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
-    let cgc = harness.chain.spec.custody_requirement as usize;
 
     harness
         .chain
@@ -1016,7 +1005,7 @@ async fn block_gossip_verification() {
     {
         let gossip_verified = harness
             .chain
-            .verify_block_for_gossip(snapshot.beacon_block.clone(), get_cgc(&blobs_opt))
+            .verify_block_for_gossip(snapshot.beacon_block.clone())
             .await
             .expect("should obtain gossip verified block");
 
@@ -1058,7 +1047,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_block_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::FutureSlot {
                 present_slot,
                 block_slot,
@@ -1092,7 +1081,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_finalized_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::WouldRevertFinalizedSlot {
                 block_slot,
                 finalized_slot,
@@ -1122,10 +1111,10 @@ async fn block_gossip_verification() {
             unwrap_err(
                 harness
                     .chain
-                    .verify_block_for_gossip(
-                        Arc::new(SignedBeaconBlock::from_block(block, junk_signature())),
-                        cgc
-                    )
+                    .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
+                        block,
+                        junk_signature()
+                    )),)
                     .await
             ),
             BlockError::InvalidSignature(InvalidSignature::ProposerSignature)
@@ -1150,7 +1139,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::ParentUnknown {parent_root: p}
             if p == parent_root
         ),
@@ -1176,7 +1165,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature)), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::NotFinalizedDescendant { block_parent_root }
             if block_parent_root == parent_root
         ),
@@ -1213,7 +1202,7 @@ async fn block_gossip_verification() {
     );
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
             BlockError::IncorrectBlockProposer {
                 block,
                 local_shuffling,
@@ -1225,7 +1214,7 @@ async fn block_gossip_verification() {
     // Check to ensure that we registered this is a valid block from this proposer.
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone()), cgc).await),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
             BlockError::DuplicateImportStatusUnknown(_),
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
@@ -1233,11 +1222,7 @@ async fn block_gossip_verification() {
 
     let block = chain_segment[block_index].beacon_block.clone();
     assert!(
-        harness
-            .chain
-            .verify_block_for_gossip(block, cgc)
-            .await
-            .is_ok(),
+        harness.chain.verify_block_for_gossip(block).await.is_ok(),
         "the valid block should be processed"
     );
 
@@ -1255,7 +1240,7 @@ async fn block_gossip_verification() {
         matches!(
             harness
                 .chain
-                .verify_block_for_gossip(block.clone(), cgc)
+                .verify_block_for_gossip(block.clone())
                 .await
                 .expect_err("should error when processing known block"),
             BlockError::DuplicateImportStatusUnknown(_)
@@ -1331,17 +1316,8 @@ async fn verify_block_for_gossip_slashing_detection() {
     let state = harness.get_current_state();
     let ((block1, blobs1), _) = harness.make_block(state.clone(), Slot::new(1)).await;
     let ((block2, _blobs2), _) = harness.make_block(state, Slot::new(1)).await;
-    let cgc = if block1.fork_name_unchecked().fulu_enabled() {
-        harness.get_sampling_column_count()
-    } else {
-        0
-    };
 
-    let verified_block = harness
-        .chain
-        .verify_block_for_gossip(block1, cgc)
-        .await
-        .unwrap();
+    let verified_block = harness.chain.verify_block_for_gossip(block1).await.unwrap();
 
     if let Some((kzg_proofs, blobs)) = blobs1 {
         harness
@@ -1364,7 +1340,7 @@ async fn verify_block_for_gossip_slashing_detection() {
         )
         .await
         .unwrap();
-    unwrap_err(harness.chain.verify_block_for_gossip(block2, CGC).await);
+    unwrap_err(harness.chain.verify_block_for_gossip(block2).await);
 
     // Slasher should have been handed the two conflicting blocks and crafted a slashing.
     slasher.process_queued(Epoch::new(0)).unwrap();
@@ -1388,11 +1364,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
         .attestations()
         .map(|att| att.clone_as_attestation())
         .collect::<Vec<_>>();
-    let verified_block = harness
-        .chain
-        .verify_block_for_gossip(block, CGC)
-        .await
-        .unwrap();
+    let verified_block = harness.chain.verify_block_for_gossip(block).await.unwrap();
     harness
         .chain
         .process_block(
@@ -1539,7 +1511,7 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(base_block.clone()), CGC)
+            .verify_block_for_gossip(Arc::new(base_block.clone()))
             .await
             .expect_err("should error when processing base block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1549,7 +1521,7 @@ async fn add_base_block_to_altair_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let base_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(base_block.clone()), 0);
+    let base_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(base_block.clone()));
     assert!(matches!(
         harness
             .chain
@@ -1573,7 +1545,7 @@ async fn add_base_block_to_altair_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![RpcBlock::new_without_blobs(None, Arc::new(base_block), 0)],
+                vec![RpcBlock::new_without_blobs(None, Arc::new(base_block))],
                 NotifyExecutionLayer::Yes,
             )
             .await,
@@ -1676,7 +1648,7 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(Arc::new(altair_block.clone()), CGC)
+            .verify_block_for_gossip(Arc::new(altair_block.clone()))
             .await
             .expect_err("should error when processing altair block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1686,7 +1658,7 @@ async fn add_altair_block_to_base_chain() {
     ));
 
     // Ensure that it would be impossible to import via `BeaconChain::process_block`.
-    let altair_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(altair_block.clone()), 0);
+    let altair_rpc_block = RpcBlock::new_without_blobs(None, Arc::new(altair_block.clone()));
     assert!(matches!(
         harness
             .chain
@@ -1710,7 +1682,7 @@ async fn add_altair_block_to_base_chain() {
         harness
             .chain
             .process_chain_segment(
-                vec![RpcBlock::new_without_blobs(None, Arc::new(altair_block), 0)],
+                vec![RpcBlock::new_without_blobs(None, Arc::new(altair_block))],
                 NotifyExecutionLayer::Yes
             )
             .await,
@@ -1771,11 +1743,7 @@ async fn import_duplicate_block_unrealized_justification() {
     // Create two verified variants of the block, representing the same block being processed in
     // parallel.
     let notify_execution_layer = NotifyExecutionLayer::Yes;
-    let rpc_block = RpcBlock::new_without_blobs(
-        Some(block_root),
-        block.clone(),
-        harness.sampling_column_count,
-    );
+    let rpc_block = RpcBlock::new_without_blobs(Some(block_root), block.clone());
     let verified_block1 = rpc_block
         .clone()
         .into_execution_pending_block(block_root, chain, notify_execution_layer)
@@ -1844,16 +1812,5 @@ async fn import_execution_pending_block<T: BeaconChainTypes>(
         ExecutedBlock::AvailabilityPending(_) => {
             Err("AvailabilityPending not expected in this test. Block not imported.".to_string())
         }
-    }
-}
-
-fn get_cgc<E: EthSpec>(blobs_opt: &Option<DataSidecars<E>>) -> usize {
-    if let Some(data_sidecars) = blobs_opt.as_ref() {
-        match data_sidecars {
-            DataSidecars::Blobs(_) => 0,
-            DataSidecars::DataColumns(d) => d.len(),
-        }
-    } else {
-        0
     }
 }

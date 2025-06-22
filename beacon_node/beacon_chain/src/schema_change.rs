@@ -1,5 +1,6 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v23;
+mod migration_schema_v24;
 
 use crate::beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
@@ -38,6 +39,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         (SchemaVersion(23), SchemaVersion(22)) => {
             let ops = migration_schema_v23::downgrade_from_v23::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(23), SchemaVersion(24)) => {
+            let ops = migration_schema_v24::upgrade_to_v24::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(24), SchemaVersion(23)) => {
+            let ops = migration_schema_v24::downgrade_from_v24::<T>(db.clone())?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.

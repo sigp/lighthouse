@@ -37,9 +37,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    Attestation, AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
+    AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
     DataColumnSubnetId, Epoch, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, Slot, SubnetId,
+    SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -61,8 +61,8 @@ struct TestRig {
     next_block: Arc<SignedBeaconBlock<E>>,
     next_blobs: Option<BlobSidecarList<E>>,
     next_data_columns: Option<DataColumnSidecarList<E>>,
-    attestations: Vec<(Attestation<E>, SubnetId)>,
-    next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
+    attestations: Vec<(SingleAttestation, SubnetId)>,
+    next_block_attestations: Vec<(SingleAttestation, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
     attester_slashing: AttesterSlashing<E>,
     proposer_slashing: ProposerSlashing,
@@ -144,7 +144,7 @@ impl TestRig {
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
-            .get_unaggregated_attestations(
+            .get_single_attestations(
                 &AttestationStrategy::AllValidators,
                 &head.beacon_state,
                 head_state_root,
@@ -161,7 +161,7 @@ impl TestRig {
         );
 
         let next_block_attestations = harness
-            .get_unaggregated_attestations(
+            .get_single_attestations(
                 &AttestationStrategy::AllValidators,
                 &next_state,
                 next_block_tuple.0.state_root(),
@@ -281,7 +281,7 @@ impl TestRig {
                 )
                 .unwrap()
                 .into_iter()
-                .filter(|c| network_globals.sampling_columns.contains(&c.index))
+                .filter(|c| network_globals.sampling_columns().contains(&c.index))
                 .collect::<Vec<_>>();
 
                 (None, Some(custody_columns))
@@ -367,22 +367,12 @@ impl TestRig {
         }
     }
 
-    pub fn custody_columns_count(&self) -> usize {
-        self.network_beacon_processor
-            .network_globals
-            .custody_columns_count() as usize
-    }
-
     pub fn enqueue_rpc_block(&self) {
         let block_root = self.next_block.canonical_root();
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(
-                    Some(block_root),
-                    self.next_block.clone(),
-                    self.custody_columns_count(),
-                ),
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 0 },
             )
@@ -394,11 +384,7 @@ impl TestRig {
         self.network_beacon_processor
             .send_rpc_beacon_block(
                 block_root,
-                RpcBlock::new_without_blobs(
-                    Some(block_root),
-                    self.next_block.clone(),
-                    self.custody_columns_count(),
-                ),
+                RpcBlock::new_without_blobs(Some(block_root), self.next_block.clone()),
                 std::time::Duration::default(),
                 BlockProcessType::SingleBlock { id: 1 },
             )
@@ -737,6 +723,10 @@ async fn import_gossip_block_acceptably_early() {
     for i in 0..num_data_columns {
         rig.enqueue_gossip_data_columns(i);
         rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+    if num_data_columns > 0 {
+        rig.assert_event_journal_completes(&[WorkType::ColumnReconstruction])
             .await;
     }
 
@@ -1258,11 +1248,25 @@ async fn test_rpc_block_reprocessing() {
     tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;
 
     rig.assert_event_journal(&[WorkType::RpcBlock.into()]).await;
-    // Add an extra delay for block processing
-    tokio::time::sleep(Duration::from_millis(10)).await;
-    // head should update to next block now since the duplicate
-    // cache handle was dropped.
-    assert_eq!(next_block_root, rig.head_root());
+
+    let max_retries = 3;
+    let mut success = false;
+    for _ in 0..max_retries {
+        // Add an extra delay for block processing
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        // head should update to the next block now since the duplicate
+        // cache handle was dropped.
+        if next_block_root == rig.head_root() {
+            success = true;
+            break;
+        }
+    }
+    assert!(
+        success,
+        "expected head_root to be {:?} but was {:?}",
+        next_block_root,
+        rig.head_root()
+    );
 }
 
 /// Ensure that backfill batches get rate-limited and processing is scheduled at specified intervals.

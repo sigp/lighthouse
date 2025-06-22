@@ -11,7 +11,7 @@ use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
 use state_processing::per_epoch_processing::single_pass::{
-    process_epoch_single_pass, SinglePassConfig,
+    process_epoch_single_pass, process_proposer_lookahead, SinglePassConfig,
 };
 use state_processing::per_epoch_processing::{
     altair, base,
@@ -77,6 +77,8 @@ pub struct SyncCommitteeUpdates;
 pub struct InactivityUpdates;
 #[derive(Debug)]
 pub struct ParticipationFlagUpdates;
+#[derive(Debug)]
+pub struct ProposerLookahead;
 
 type_name!(
     JustificationAndFinalization,
@@ -97,6 +99,7 @@ type_name!(ParticipationRecordUpdates, "participation_record_updates");
 type_name!(SyncCommitteeUpdates, "sync_committee_updates");
 type_name!(InactivityUpdates, "inactivity_updates");
 type_name!(ParticipationFlagUpdates, "participation_flag_updates");
+type_name!(ProposerLookahead, "proposer_lookahead");
 
 impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
@@ -280,6 +283,16 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
     }
 }
 
+impl<E: EthSpec> EpochTransition<E> for ProposerLookahead {
+    fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
+        if state.fork_name_unchecked().fulu_enabled() {
+            process_proposer_lookahead(state, spec)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let spec = &testing_spec::<E>(fork_name);
@@ -338,6 +351,11 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
         {
             return false;
         }
+
+        if !fork_name.fulu_enabled() && T::name() == "proposer_lookahead" {
+            return false;
+        }
+
         true
     }
 

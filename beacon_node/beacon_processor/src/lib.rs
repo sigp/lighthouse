@@ -41,7 +41,7 @@
 use crate::scheduler::InboundEvents;
 use crate::work_queue::BeaconProcessorQueueLengths;
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedGossipBlock, ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
 };
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::crit;
@@ -62,9 +62,7 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{error, trace, warn};
-use types::{
-    Attestation, EthSpec, Hash256, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
-};
+use types::{EthSpec, Hash256, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId};
 use work_queue::WorkQueues;
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
@@ -286,6 +284,12 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                 drop_during_sync: false,
                 work: Work::ChainSegmentBackfill(process_fn),
             },
+            ReadyWork::ColumnReconstruction(QueuedColumnReconstruction { process_fn, .. }) => {
+                Self {
+                    drop_during_sync: true,
+                    work: Work::ColumnReconstruction(process_fn),
+                }
+            }
         }
     }
 }
@@ -337,32 +341,23 @@ pub enum BlockingOrAsync {
     Blocking(BlockingFn),
     Async(AsyncFn),
 }
-pub type GossipAttestationBatch<E> = Vec<GossipAttestationPackage<Attestation<E>>>;
+pub type GossipAttestationBatch = Vec<GossipAttestationPackage<SingleAttestation>>;
 
 /// Indicates the type of work to be performed and therefore its priority and
 /// queuing specifics.
 pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: Box<GossipAttestationPackage<Attestation<E>>>,
-        process_individual: Box<dyn FnOnce(GossipAttestationPackage<Attestation<E>>) + Send + Sync>,
-        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
-    },
-    // Attestation requiring conversion before processing.
-    //
-    // For now this is a `SingleAttestation`, but eventually we will switch this around so that
-    // legacy `Attestation`s are converted and the main processing pipeline operates on
-    // `SingleAttestation`s.
-    GossipAttestationToConvert {
         attestation: Box<GossipAttestationPackage<SingleAttestation>>,
         process_individual:
             Box<dyn FnOnce(GossipAttestationPackage<SingleAttestation>) + Send + Sync>,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
     },
     UnknownBlockAttestation {
         process_fn: BlockingFn,
     },
     GossipAttestationBatch {
-        attestations: GossipAttestationBatch<E>,
-        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
+        attestations: GossipAttestationBatch,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
     },
     GossipAggregate {
         aggregate: Box<GossipAggregatePackage<E>>,
@@ -407,6 +402,7 @@ pub enum Work<E: EthSpec> {
     RpcCustodyColumn(AsyncFn),
     RpcVerifyDataColumn(AsyncFn),
     SamplingResult(AsyncFn),
+    ColumnReconstruction(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
@@ -439,7 +435,6 @@ impl<E: EthSpec> fmt::Debug for Work<E> {
 #[strum(serialize_all = "snake_case")]
 pub enum WorkType {
     GossipAttestation,
-    GossipAttestationToConvert,
     UnknownBlockAttestation,
     GossipAttestationBatch,
     GossipAggregate,
@@ -463,6 +458,7 @@ pub enum WorkType {
     RpcCustodyColumn,
     RpcVerifyDataColumn,
     SamplingResult,
+    ColumnReconstruction,
     IgnoredRpcBlock,
     ChainSegment,
     ChainSegmentBackfill,
@@ -492,7 +488,6 @@ impl<E: EthSpec> Work<E> {
     fn to_type(&self) -> WorkType {
         match self {
             Work::GossipAttestation { .. } => WorkType::GossipAttestation,
-            Work::GossipAttestationToConvert { .. } => WorkType::GossipAttestationToConvert,
             Work::GossipAttestationBatch { .. } => WorkType::GossipAttestationBatch,
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
@@ -515,6 +510,7 @@ impl<E: EthSpec> Work<E> {
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
             Work::RpcVerifyDataColumn { .. } => WorkType::RpcVerifyDataColumn,
             Work::SamplingResult { .. } => WorkType::SamplingResult,
+            Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
             Work::ChainSegmentBackfill(_) => WorkType::ChainSegmentBackfill,
@@ -677,6 +673,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Some(item)
                         } else if let Some(item) = work_queues.gossip_data_column_queue.pop() {
                             Some(item)
+                        } else if let Some(item) = work_queues.column_reconstruction_queue.pop() {
+                            Some(item)
                         // Check the priority 0 API requests after blocks and blobs, but before attestations.
                         } else if let Some(item) = work_queues.api_request_p0_queue.pop() {
                             Some(item)
@@ -790,9 +788,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     None
                                 }
                             }
-                        // Convert any gossip attestations that need to be converted.
-                        } else if let Some(item) = work_queues.attestation_to_convert_queue.pop() {
-                            Some(item)
                         // Check sync committee messages after attestations as their rewards are lesser
                         // and they don't influence fork choice.
                         } else if let Some(item) = work_queues.sync_contribution_queue.pop() {
@@ -943,9 +938,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipAttestation { .. } => {
                                 work_queues.attestation_queue.push(work)
                             }
-                            Work::GossipAttestationToConvert { .. } => {
-                                work_queues.attestation_to_convert_queue.push(work)
-                            }
+
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
@@ -1009,6 +1002,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             Work::ChainSegment { .. } => {
                                 work_queues.chain_segment_queue.push(work, work_id)
+                            }
+                            Work::ColumnReconstruction(_) => {
+                                work_queues.column_reconstruction_queue.push(work, work_id)
                             }
                             Work::ChainSegmentBackfill { .. } => {
                                 work_queues.backfill_chain_segment.push(work, work_id)
@@ -1078,9 +1074,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 if let Some(modified_queue_id) = modified_queue_id {
                     let queue_len = match modified_queue_id {
                         WorkType::GossipAttestation => work_queues.attestation_queue.len(),
-                        WorkType::GossipAttestationToConvert => {
-                            work_queues.attestation_to_convert_queue.len()
-                        }
                         WorkType::UnknownBlockAttestation => {
                             work_queues.unknown_block_attestation_queue.len()
                         }
@@ -1130,6 +1123,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             work_queues.rpc_verify_data_column_queue.len()
                         }
                         WorkType::SamplingResult => work_queues.sampling_result_queue.len(),
+                        WorkType::ColumnReconstruction => {
+                            work_queues.column_reconstruction_queue.len()
+                        }
                         WorkType::ChainSegment => work_queues.chain_segment_queue.len(),
                         WorkType::ChainSegmentBackfill => work_queues.backfill_chain_segment.len(),
                         WorkType::Status => work_queues.status_queue.len(),
@@ -1237,12 +1233,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
             } => task_spawner.spawn_blocking(move || {
                 process_individual(*attestation);
             }),
-            Work::GossipAttestationToConvert {
-                attestation,
-                process_individual,
-            } => task_spawner.spawn_blocking(move || {
-                process_individual(*attestation);
-            }),
             Work::GossipAttestationBatch {
                 attestations,
                 process_batch,
@@ -1280,7 +1270,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
             | Work::RpcVerifyDataColumn(process_fn)
-            | Work::SamplingResult(process_fn) => task_spawner.spawn_async(process_fn),
+            | Work::SamplingResult(process_fn)
+            | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)

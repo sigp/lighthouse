@@ -1,7 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use types::{EthSpec, FixedBytesExtended, Hash256};
 
-use lighthouse_network::rpc::StatusMessage;
+use lighthouse_network::rpc::{methods::StatusMessageV2, StatusMessage};
 /// Trait to produce a `StatusMessage` representing the state of the given `beacon_chain`.
 ///
 /// NOTE: The purpose of this is simply to obtain a `StatusMessage` from the `BeaconChain` without
@@ -29,11 +29,14 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
         finalized_checkpoint.root = Hash256::zero();
     }
 
-    StatusMessage {
+    let earliest_available_slot = beacon_chain.store.get_anchor_info().oldest_block_slot;
+
+    StatusMessage::V2(StatusMessageV2 {
         fork_digest,
         finalized_root: finalized_checkpoint.root,
         finalized_epoch: finalized_checkpoint.epoch,
         head_root: cached_head.head_block_root(),
         head_slot: cached_head.head_slot(),
-    }
+        earliest_available_slot,
+    })
 }
