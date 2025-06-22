@@ -330,9 +330,8 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
         )
         .inspect_err(|e| {
             error!(
-                log,
-                "Unable to broadcast latest light client optimistic update";
-                "error" => ?e,
+                error = ?e,
+                "Unable to broadcast latest light client optimistic update"
             );
         });
     };
@@ -347,9 +346,8 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
         )
         .inspect_err(|e| {
             error!(
-                log,
-                "Unable to broadcast latest light client finality update";
-                "error" => ?e,
+                error = ?e,
+                "Unable to broadcast latest light client finality update"
             );
         });
     };
