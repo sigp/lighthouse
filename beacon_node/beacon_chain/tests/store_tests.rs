@@ -2853,7 +2853,7 @@ async fn test_import_historical_data_columns_batch_invalid_signature() {
 
         for data_column in data_columns.unwrap() {
             let mut data_column = (*data_column).clone();
-            data_column.signed_block_header.signature = Signature::infinity().unwrap().into();
+            data_column.signed_block_header.signature = Signature::infinity().unwrap();
             data_column_sidecar.push(Arc::new(data_column));
         }
         data_columns_list.push(data_column_sidecar);

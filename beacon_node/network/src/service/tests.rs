@@ -11,6 +11,7 @@ use lighthouse_network::{Enr, GossipTopic};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 use types::{Epoch, EthSpec, ForkName, MinimalEthSpec, SubnetId};
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -128,6 +129,7 @@ fn test_removing_topic_weight_on_old_topics() {
         config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
         config.upnp_enabled = false;
         let config = Arc::new(config);
+        let (sync_service_send, sync_service_recv) = mpsc::unbounded_channel();
 
         let beacon_processor_channels =
             BeaconProcessorChannels::new(&BeaconProcessorConfig::default());
@@ -135,6 +137,8 @@ fn test_removing_topic_weight_on_old_topics() {
             beacon_chain.clone(),
             config,
             executor.clone(),
+            sync_service_send,
+            sync_service_recv,
             None,
             beacon_processor_channels.beacon_processor_tx,
             beacon_processor_channels.work_reprocessing_tx,
