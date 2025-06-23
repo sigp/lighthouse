@@ -942,6 +942,7 @@ dependencies = [
  "eth2",
  "futures",
  "itertools 0.10.5",
+ "sensitive_url",
  "serde",
  "slot_clock",
  "strum",

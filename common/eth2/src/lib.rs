@@ -50,6 +50,22 @@ pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
 pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
 pub const JSON_CONTENT_TYPE_HEADER: &str = "application/json";
 
+/// Specific optimized timeout constants for HTTP requests involved in different validator duties.
+/// This can help ensure that proper endpoint fallback occurs.
+const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT: u32 = 24;
+const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
+const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
+const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
+const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_DEFAULT_TIMEOUT_QUOTIENT: u32 = 4;
+
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
@@ -162,6 +178,26 @@ impl Timeouts {
             get_deposit_snapshot: timeout,
             get_validator_block: timeout,
             default: timeout,
+        }
+    }
+
+    pub fn use_optimized_timeouts(base_timeout: Duration) -> Self {
+        Timeouts {
+            attestation: base_timeout / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
+            attester_duties: base_timeout / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+            attestation_subscriptions: base_timeout
+                / HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT,
+            liveness: base_timeout / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
+            proposal: base_timeout / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
+            proposer_duties: base_timeout / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+            sync_committee_contribution: base_timeout
+                / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
+            sync_duties: base_timeout / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+            get_beacon_blocks_ssz: base_timeout / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+            get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
+            get_deposit_snapshot: base_timeout / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
+            get_validator_block: base_timeout / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
+            default: base_timeout / HTTP_DEFAULT_TIMEOUT_QUOTIENT,
         }
     }
 }
