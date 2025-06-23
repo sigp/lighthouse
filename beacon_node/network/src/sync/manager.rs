@@ -398,10 +398,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // ensure the beacon chain still exists
         let status = self.chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         let sync_type = remote_sync_type(&local, &remote, &self.chain);
@@ -450,10 +451,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         let status = self.chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         let head_slot = head_slot.unwrap_or_else(|| {
@@ -471,6 +473,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // Set finalized to same as local to trigger Head sync
             finalized_epoch: local.finalized_epoch,
             finalized_root: local.finalized_root,
+            earliest_available_slot: local.earliest_available_slot,
         };
 
         for peer_id in peers {
@@ -929,12 +932,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         match self.should_search_for_block(Some(slot), &peer_id) {
             Ok(_) => {
-                self.block_lookups.search_child_and_parent(
+                if self.block_lookups.search_child_and_parent(
                     block_root,
                     block_component,
                     peer_id,
                     &mut self.network,
-                );
+                ) {
+                    // Lookup created. No need to log here it's logged in `new_current_lookup`
+                } else {
+                    debug!(
+                        ?block_root,
+                        ?parent_root,
+                        "No lookup created for child and parent"
+                    );
+                }
             }
             Err(reason) => {
                 debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
@@ -945,8 +956,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256) {
         match self.should_search_for_block(None, &peer_id) {
             Ok(_) => {
-                self.block_lookups
-                    .search_unknown_block(block_root, &[peer_id], &mut self.network);
+                if self.block_lookups.search_unknown_block(
+                    block_root,
+                    &[peer_id],
+                    &mut self.network,
+                ) {
+                    // Lookup created. No need to log here it's logged in `new_current_lookup`
+                } else {
+                    debug!(?block_root, "No lookup created for unknown block");
+                }
             }
             Err(reason) => {
                 debug!(%block_root, reason, "Ignoring unknown block request");

@@ -173,6 +173,7 @@ impl ApiTester {
             allow_keystore_export: true,
             store_passwords_in_secrets_dir: false,
             http_token_path: tempdir().unwrap().path().join(PK_FILENAME),
+            bn_long_timeouts: false,
         }
     }
 

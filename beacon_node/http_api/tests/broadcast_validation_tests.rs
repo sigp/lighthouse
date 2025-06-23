@@ -39,9 +39,6 @@ type E = MainnetEthSpec;
  *
  */
 
-// Default custody group count for tests
-const CGC: usize = 8;
-
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=gossip`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn gossip_invalid() {
@@ -320,7 +317,7 @@ pub async fn consensus_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string());
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x253405be9aa159bce7b276b8e1d3849c743e673118dfafe8c7d07c203ae0d80d }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective, but nonetheless equivocates, is accepted when using `broadcast_validation=consensus`.
@@ -367,9 +364,9 @@ pub async fn consensus_partial_pass_only_consensus() {
     );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain, CGC);
+    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain, CGC);
+    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     /* submit `block_b` which should induce equivocation */
@@ -607,7 +604,7 @@ pub async fn equivocation_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string());
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x253405be9aa159bce7b276b8e1d3849c743e673118dfafe8c7d07c203ae0d80d }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective but
@@ -657,10 +654,10 @@ pub async fn equivocation_consensus_late_equivocation() {
     );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain, CGC);
+    let gossip_block_b = block_b.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_b.is_ok());
 
-    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain, CGC);
+    let gossip_block_a = block_a.into_gossip_verified_block(&tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
@@ -1005,7 +1002,7 @@ pub async fn blinded_consensus_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string());
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x253405be9aa159bce7b276b8e1d3849c743e673118dfafe8c7d07c203ae0d80d }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
@@ -1215,7 +1212,7 @@ pub async fn blinded_equivocation_gossip() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xfc675d642ff7a06458eb33c7d7b62a5813e34d1b2bb1aee3e395100b579da026 }".to_string());
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x253405be9aa159bce7b276b8e1d3849c743e673118dfafe8c7d07c203ae0d80d }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and
@@ -1294,9 +1291,9 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         ProvenancedBlock::Builder(b, _, _) => b,
     };
 
-    let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain, CGC);
+    let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
     assert!(gossip_block_b.is_ok());
-    let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain, CGC);
+    let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
@@ -1398,7 +1395,7 @@ pub async fn block_seen_on_gossip_without_blobs() {
     // Simulate the block being seen on gossip.
     block
         .clone()
-        .into_gossip_verified_block(&tester.harness.chain, CGC)
+        .into_gossip_verified_block(&tester.harness.chain)
         .unwrap();
 
     // It should not yet be added to fork choice because blobs have not been seen.
@@ -1467,7 +1464,7 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
     // Simulate the block being seen on gossip.
     block
         .clone()
-        .into_gossip_verified_block(&tester.harness.chain, CGC)
+        .into_gossip_verified_block(&tester.harness.chain)
         .unwrap();
 
     // Simulate some of the blobs being seen on gossip.
@@ -1786,6 +1783,5 @@ fn get_custody_columns(tester: &InteractiveTester<E>) -> HashSet<ColumnIndex> {
         .network_globals
         .as_ref()
         .unwrap()
-        .sampling_columns
-        .clone()
+        .sampling_columns()
 }

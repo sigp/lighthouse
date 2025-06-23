@@ -1,7 +1,6 @@
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, PayloadVerificationOutcome};
 use derivative::Derivative;
 use state_processing::ConsensusContext;
@@ -31,7 +30,6 @@ use types::{
 pub struct RpcBlock<E: EthSpec> {
     block_root: Hash256,
     block: RpcBlockInner<E>,
-    custody_columns_count: usize,
 }
 
 impl<E: EthSpec> Debug for RpcBlock<E> {
@@ -43,10 +41,6 @@ impl<E: EthSpec> Debug for RpcBlock<E> {
 impl<E: EthSpec> RpcBlock<E> {
     pub fn block_root(&self) -> Hash256 {
         self.block_root
-    }
-
-    pub fn custody_columns_count(&self) -> usize {
-        self.custody_columns_count
     }
 
     pub fn as_block(&self) -> &SignedBeaconBlock<E> {
@@ -103,14 +97,12 @@ impl<E: EthSpec> RpcBlock<E> {
     pub fn new_without_blobs(
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
-        custody_columns_count: usize,
     ) -> Self {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
 
         Self {
             block_root,
             block: RpcBlockInner::Block(block),
-            custody_columns_count,
         }
     }
 
@@ -152,8 +144,6 @@ impl<E: EthSpec> RpcBlock<E> {
         Ok(Self {
             block_root,
             block: inner,
-            // Block is before PeerDAS
-            custody_columns_count: 0,
         })
     }
 
@@ -161,7 +151,6 @@ impl<E: EthSpec> RpcBlock<E> {
         block_root: Option<Hash256>,
         block: Arc<SignedBeaconBlock<E>>,
         custody_columns: Vec<CustodyDataColumn<E>>,
-        custody_columns_count: usize,
         spec: &ChainSpec,
     ) -> Result<Self, AvailabilityCheckError> {
         let block_root = block_root.unwrap_or_else(|| get_block_root(&block));
@@ -182,7 +171,6 @@ impl<E: EthSpec> RpcBlock<E> {
         Ok(Self {
             block_root,
             block: inner,
-            custody_columns_count,
         })
     }
 
@@ -250,12 +238,10 @@ impl<E: EthSpec> ExecutedBlock<E> {
             MaybeAvailableBlock::AvailabilityPending {
                 block_root: _,
                 block: pending_block,
-                custody_columns_count,
             } => Self::AvailabilityPending(AvailabilityPendingExecutedBlock::new(
                 pending_block,
                 import_data,
                 payload_verification_outcome,
-                custody_columns_count,
             )),
         }
     }
@@ -321,7 +307,6 @@ pub struct AvailabilityPendingExecutedBlock<E: EthSpec> {
     pub block: Arc<SignedBeaconBlock<E>>,
     pub import_data: BlockImportData<E>,
     pub payload_verification_outcome: PayloadVerificationOutcome,
-    pub custody_columns_count: usize,
 }
 
 impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
@@ -329,13 +314,11 @@ impl<E: EthSpec> AvailabilityPendingExecutedBlock<E> {
         block: Arc<SignedBeaconBlock<E>>,
         import_data: BlockImportData<E>,
         payload_verification_outcome: PayloadVerificationOutcome,
-        custody_columns_count: usize,
     ) -> Self {
         Self {
             block,
             import_data,
             payload_verification_outcome,
-            custody_columns_count,
         }
     }
 
@@ -357,7 +340,6 @@ pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub consensus_context: ConsensusContext<E>,
 }
 
@@ -371,10 +353,6 @@ impl<E: EthSpec> BlockImportData<E> {
             block_root,
             state,
             parent_block,
-            parent_eth1_finalization_data: Eth1FinalizationData {
-                eth1_data: <_>::default(),
-                eth1_deposit_index: 0,
-            },
             consensus_context: ConsensusContext::new(Slot::new(0)),
         }
     }

@@ -53,7 +53,6 @@ use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     validate_execution_payload_for_gossip, validate_merge_block, AllowOptimisticImport,
     NotifyExecutionLayer, PayloadNotifier,
@@ -90,7 +89,7 @@ use std::fmt::Debug;
 use std::fs;
 use std::io::Write;
 use std::sync::Arc;
-use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
+use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
 use tracing::{debug, error};
@@ -685,7 +684,6 @@ pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block_root: Hash256,
     parent: Option<PreProcessingSnapshot<T::EthSpec>>,
     consensus_context: ConsensusContext<T::EthSpec>,
-    custody_columns_count: usize,
 }
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that all signatures (except the deposit
@@ -721,7 +719,6 @@ pub trait IntoGossipVerifiedBlock<T: BeaconChainTypes>: Sized {
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-        custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError>;
     fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>>;
 }
@@ -730,7 +727,6 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for GossipVerifiedBlock<T> 
     fn into_gossip_verified_block(
         self,
         _chain: &BeaconChain<T>,
-        _custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         Ok(self)
     }
@@ -743,9 +739,8 @@ impl<T: BeaconChainTypes> IntoGossipVerifiedBlock<T> for Arc<SignedBeaconBlock<T
     fn into_gossip_verified_block(
         self,
         chain: &BeaconChain<T>,
-        custody_columns_count: usize,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
-        GossipVerifiedBlock::new(self, chain, custody_columns_count)
+        GossipVerifiedBlock::new(self, chain)
     }
 
     fn inner_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
@@ -821,7 +816,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
-        custody_columns_count: usize,
     ) -> Result<Self, BlockError> {
         // If the block is valid for gossip we don't supply it to the slasher here because
         // we assume it will be transformed into a fully verified block. We *do* need to supply
@@ -831,14 +825,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // The `SignedBeaconBlock` and `SignedBeaconBlockHeader` have the same canonical root,
         // but it's way quicker to calculate root of the header since the hash of the tree rooted
         // at `BeaconBlockBody` is already computed in the header.
-        Self::new_without_slasher_checks(block, &header, chain, custody_columns_count).map_err(
-            |e| {
-                process_block_slash_info::<_, BlockError>(
-                    chain,
-                    BlockSlashInfo::from_early_error_block(header, e),
-                )
-            },
-        )
+        Self::new_without_slasher_checks(block, &header, chain).map_err(|e| {
+            process_block_slash_info::<_, BlockError>(
+                chain,
+                BlockSlashInfo::from_early_error_block(header, e),
+            )
+        })
     }
 
     /// As for new, but doesn't pass the block to the slasher.
@@ -846,7 +838,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_header: &SignedBeaconBlockHeader,
         chain: &BeaconChain<T>,
-        custody_columns_count: usize,
     ) -> Result<Self, BlockError> {
         // Ensure the block is the correct structure for the fork at `block.slot()`.
         block
@@ -962,7 +953,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 &chain.spec,
             )?;
 
-            let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+            let epoch = state.current_epoch();
+            let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
             let proposer_index = *proposers
                 .get(block.slot().as_usize() % T::EthSpec::slots_per_epoch() as usize)
                 .ok_or_else(|| BeaconChainError::NoProposerForSlot(block.slot()))?;
@@ -1053,7 +1045,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             block_root,
             parent,
             consensus_context,
-            custody_columns_count,
         })
     }
 
@@ -1201,7 +1192,6 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 block: MaybeAvailableBlock::AvailabilityPending {
                     block_root: from.block_root,
                     block,
-                    custody_columns_count: from.custody_columns_count,
                 },
                 block_root: from.block_root,
                 parent: Some(parent),
@@ -1451,11 +1441,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .into());
         }
 
-        let parent_eth1_finalization_data = Eth1FinalizationData {
-            eth1_data: state.eth1_data().clone(),
-            eth1_deposit_index: state.eth1_deposit_index(),
-        };
-
         // Transition the parent state to the block slot.
         //
         // It is important to note that we're using a "pre-state" here, one that has potentially
@@ -1476,28 +1461,19 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // processing, but we get early access to it.
                 let state_root = state.update_tree_hash_cache()?;
 
-                // Store the state immediately.
-                let txn_lock = chain.store.hot_db.begin_rw_transaction();
+                // Store the state immediately. States are ONLY deleted on finalization pruning, so
+                // we won't have race conditions where we should have written a state and didn't.
                 let state_already_exists =
                     chain.store.load_hot_state_summary(&state_root)?.is_some();
 
-                let state_batch = if state_already_exists {
+                if state_already_exists {
                     // If the state exists, we do not need to re-write it.
-                    vec![]
                 } else {
-                    vec![if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
-                        StoreOp::PutState(state_root, &state)
-                    } else {
-                        StoreOp::PutStateSummary(
-                            state_root,
-                            HotStateSummary::new(&state_root, &state)?,
-                        )
-                    }]
+                    // Recycle store codepath to create a state summary and store the state / diff
+                    let mut ops = vec![];
+                    chain.store.store_hot_state(&state_root, &state, &mut ops)?;
+                    chain.store.hot_db.do_atomically(ops)?;
                 };
-                chain
-                    .store
-                    .do_atomically_with_block_and_blobs_cache(state_batch)?;
-                drop(txn_lock);
 
                 state_root
             };
@@ -1664,7 +1640,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 block_root,
                 state,
                 parent_block: parent.beacon_block,
-                parent_eth1_finalization_data,
                 consensus_context,
             },
             payload_verification_handle,

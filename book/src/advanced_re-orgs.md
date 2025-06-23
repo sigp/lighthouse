@@ -2,6 +2,9 @@
 
 Since v3.4.0 Lighthouse will opportunistically re-org late blocks when proposing.
 
+When Lighthouse is about to propose a new block, it quickly checks whether the block from the previous slot landed so late that hardly anyone attested to it.
+If that late block looks weak enough, Lighthouse may decide to “re-org” it away: instead of building on it, Lighthouse builds its new block on the grand-parent block, turning the late block into an orphan.
+
 This feature is intended to disincentivise late blocks and improve network health. Proposing a
 re-orging block is also more profitable for the proposer because it increases the number of
 attestations and transactions that can be included.

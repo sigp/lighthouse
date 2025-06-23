@@ -82,7 +82,6 @@ where
     T: BeaconChainTypes,
 {
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -411,10 +410,11 @@ where
 
         let status = self.beacon_chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         // update the state of the collection

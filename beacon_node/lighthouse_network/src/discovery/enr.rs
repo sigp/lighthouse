@@ -259,11 +259,14 @@ pub fn build_enr<E: EthSpec>(
 
     // only set `cgc` if PeerDAS fork epoch has been scheduled
     if spec.is_peer_das_scheduled() {
-        let custody_group_count = if config.subscribe_all_data_column_subnets {
-            spec.number_of_custody_groups
-        } else {
-            spec.custody_requirement
-        };
+        let custody_group_count =
+            if let Some(false_cgc) = config.advertise_false_custody_group_count {
+                false_cgc
+            } else if config.subscribe_all_data_column_subnets {
+                spec.number_of_custody_groups
+            } else {
+                spec.custody_requirement
+            };
         builder.add_value(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY, &custody_group_count);
     }
 

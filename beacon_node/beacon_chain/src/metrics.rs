@@ -607,12 +607,6 @@ pub static PERSIST_OP_POOL: LazyLock<Result<Histogram>> = LazyLock::new(|| {
         "Time taken to persist the operations pool",
     )
 });
-pub static PERSIST_ETH1_CACHE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_persist_eth1_cache",
-        "Time taken to persist the eth1 caches",
-    )
-});
 pub static PERSIST_FORK_CHOICE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_persist_fork_choice",

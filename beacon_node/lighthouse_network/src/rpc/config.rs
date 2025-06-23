@@ -1,10 +1,10 @@
+use super::{rate_limiter::Quota, Protocol};
+use std::num::NonZeroU64;
 use std::{
     fmt::{Debug, Display},
     str::FromStr,
     time::Duration,
 };
-
-use super::{rate_limiter::Quota, Protocol};
 
 use serde::{Deserialize, Serialize};
 
@@ -100,24 +100,30 @@ pub struct RateLimiterConfig {
 }
 
 impl RateLimiterConfig {
-    pub const DEFAULT_PING_QUOTA: Quota = Quota::n_every(2, 10);
-    pub const DEFAULT_META_DATA_QUOTA: Quota = Quota::n_every(2, 5);
-    pub const DEFAULT_STATUS_QUOTA: Quota = Quota::n_every(5, 15);
+    pub const DEFAULT_PING_QUOTA: Quota = Quota::n_every(NonZeroU64::new(2).unwrap(), 10);
+    pub const DEFAULT_META_DATA_QUOTA: Quota = Quota::n_every(NonZeroU64::new(2).unwrap(), 5);
+    pub const DEFAULT_STATUS_QUOTA: Quota = Quota::n_every(NonZeroU64::new(5).unwrap(), 15);
     pub const DEFAULT_GOODBYE_QUOTA: Quota = Quota::one_every(10);
     // The number is chosen to balance between upload bandwidth required to serve
     // blocks and a decent syncing rate for honest nodes. Malicious nodes would need to
     // spread out their requests over the time window to max out bandwidth on the server.
-    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota = Quota::n_every(128, 10);
-    pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota = Quota::n_every(128, 10);
+    pub const DEFAULT_BLOCKS_BY_RANGE_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
+    pub const DEFAULT_BLOCKS_BY_ROOT_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(128).unwrap(), 10);
     // `DEFAULT_BLOCKS_BY_RANGE_QUOTA` * (target + 1) to account for high usage
-    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota = Quota::n_every(896, 10);
-    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota = Quota::n_every(896, 10);
+    pub const DEFAULT_BLOBS_BY_RANGE_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(896).unwrap(), 10);
+    pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(896).unwrap(), 10);
     // 320 blocks worth of columns for regular node, or 40 blocks for supernode.
     // Range sync load balances when requesting blocks, and each batch is 32 blocks.
-    pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota = Quota::n_every(5120, 10);
+    pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(5120).unwrap(), 10);
     // 512 columns per request from spec. This should be plenty as peers are unlikely to send all
     // sampling requests to a single peer.
-    pub const DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA: Quota = Quota::n_every(512, 10);
+    pub const DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA: Quota =
+        Quota::n_every(NonZeroU64::new(512).unwrap(), 10);
     pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA: Quota = Quota::one_every(10);
@@ -275,7 +281,7 @@ mod tests {
             protocol: Protocol::Goodbye,
             quota: Quota {
                 replenish_all_every: Duration::from_secs(10),
-                max_tokens: 8,
+                max_tokens: NonZeroU64::new(8).unwrap(),
             },
         };
         assert_eq!(quota.to_string().parse(), Ok(quota))

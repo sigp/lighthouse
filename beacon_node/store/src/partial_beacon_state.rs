@@ -147,6 +147,8 @@ where
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
     #[superstruct(only(Electra, Fulu))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
+    #[superstruct(only(Fulu))]
+    pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
 }
 
 impl<E: EthSpec> PartialBeaconState<E> {
@@ -444,7 +446,8 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     earliest_consolidation_epoch,
                     pending_deposits,
                     pending_partial_withdrawals,
-                    pending_consolidations
+                    pending_consolidations,
+                    proposer_lookahead
                 ],
                 [historical_summaries]
             ),
