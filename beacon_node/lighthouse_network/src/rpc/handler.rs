@@ -577,28 +577,15 @@ where
                                     self.inbound_substreams_delay.remove(delay_key);
                                 }
 
-                                // BlocksByRange is the one that typically consumes the most time.
-                                // Its useful to log when the request was completed.
-                                if matches!(info.protocol, Protocol::BlocksByRange) {
-                                    debug!(
-                                        peer_id = %self.peer_id,
-                                        connection_id = %self.connection_id,
-                                        duration = Instant::now()
-                                            .duration_since(info.request_start_time)
-                                            .as_secs(),
-                                        "BlocksByRange Response sent"
-                                    );
-                                }
-                                if matches!(info.protocol, Protocol::BlobsByRange) {
-                                    debug!(
-                                        peer_id = %self.peer_id,
-                                        connection_id = %self.connection_id,
-                                        duration = Instant::now()
-                                            .duration_since(info.request_start_time)
-                                            .as_secs(),
-                                        "BlobsByRange Response sent"
-                                    );
-                                }
+                                debug!(
+                                    peer_id = %self.peer_id,
+                                    connection_id = %self.connection_id,
+                                    duration = Instant::now()
+                                        .duration_since(info.request_start_time)
+                                        .as_secs(),
+                                    response = %info.protocol,
+                                    "Response sent"
+                                );
 
                                 // There is nothing more to process on this substream as it has
                                 // been closed. Move on to the next one.

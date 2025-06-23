@@ -239,18 +239,13 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         response: RpcResponse<E>,
     ) {
         if let Some(response_limiter) = self.response_limiter.as_mut() {
-            if !response_limiter.allows(
-                peer_id,
-                protocol,
-                request_id.connection_id,
-                request_id.substream_id,
-                response.clone(),
-            ) {
+            if !response_limiter.allows(peer_id, protocol, request_id, response.clone()) {
                 // Response is logged and queued internally in the response limiter.
                 return;
             }
         }
 
+        debug!(%peer_id, ?request_id, %response, "Queueing response to to be sent to the connection handler");
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
             handler: NotifyHandler::One(request_id.connection_id),
@@ -565,12 +560,13 @@ where
 
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Some(response_limiter) = self.response_limiter.as_mut() {
-            if let Poll::Ready(responses) = response_limiter.poll_ready(cx) {
-                for response in responses {
+            if let Poll::Ready(queued_responses) = response_limiter.poll_ready(cx) {
+                for ready in queued_responses {
+                    debug!(%ready.peer_id, ?ready.request_id, %ready.response, "Queueing response to to be sent to the connection handler");
                     self.events.push(ToSwarm::NotifyHandler {
-                        peer_id: response.peer_id,
-                        handler: NotifyHandler::One(response.connection_id),
-                        event: RPCSend::Response(response.substream_id, response.response),
+                        peer_id: ready.peer_id,
+                        handler: NotifyHandler::One(ready.request_id.connection_id),
+                        event: RPCSend::Response(ready.request_id.substream_id, ready.response),
                     });
                 }
             }

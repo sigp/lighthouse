@@ -1,10 +1,9 @@
 use crate::rpc::config::InboundRateLimiterConfig;
 use crate::rpc::rate_limiter::{RPCRateLimiter, RateLimitedErr};
 use crate::rpc::self_limiter::timestamp_now;
-use crate::rpc::{Protocol, RpcResponse, SubstreamId};
+use crate::rpc::{Protocol, RpcResponse};
 use crate::PeerId;
 use futures::FutureExt;
-use libp2p::swarm::ConnectionId;
 use logging::crit;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
@@ -15,13 +14,14 @@ use tokio_util::time::DelayQueue;
 use tracing::debug;
 use types::{EthSpec, ForkContext};
 
+use super::InboundRequestId;
+
 /// A response that was rate limited or waiting on rate limited responses for the same peer and
 /// protocol.
 #[derive(Clone)]
 pub(super) struct QueuedResponse<E: EthSpec> {
     pub peer_id: PeerId,
-    pub connection_id: ConnectionId,
-    pub substream_id: SubstreamId,
+    pub request_id: InboundRequestId,
     pub response: RpcResponse<E>,
     pub protocol: Protocol,
     pub queued_at: Duration,
@@ -55,8 +55,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
         &mut self,
         peer_id: PeerId,
         protocol: Protocol,
-        connection_id: ConnectionId,
-        substream_id: SubstreamId,
+        request_id: InboundRequestId,
         response: RpcResponse<E>,
     ) -> bool {
         // First check that there are not already other responses waiting to be sent.
@@ -64,8 +63,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
             debug!(%peer_id, %protocol, "Response rate limiting since there are already other responses waiting to be sent");
             queue.push_back(QueuedResponse {
                 peer_id,
-                connection_id,
-                substream_id,
+                request_id,
                 response,
                 protocol,
                 queued_at: timestamp_now(),
@@ -81,8 +79,7 @@ impl<E: EthSpec> ResponseLimiter<E> {
                 .or_default()
                 .push_back(QueuedResponse {
                     peer_id,
-                    connection_id,
-                    substream_id,
+                    request_id,
                     response,
                     protocol,
                     queued_at: timestamp_now(),
