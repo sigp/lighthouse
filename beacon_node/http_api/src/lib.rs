@@ -48,7 +48,8 @@ use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
     self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
     ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, StateId as CoreStateId,
-    ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody, ValidatorStatus, ValidatorsRequestBody,
+    ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody, ValidatorStatus,
+    ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
