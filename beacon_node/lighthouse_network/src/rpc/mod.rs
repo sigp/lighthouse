@@ -425,6 +425,7 @@ where
                 self.events.push(error_msg);
             }
 
+            debug!(%peer_id, %connection_id, "Removing active inbound requests from the peer.");
             self.active_inbound_requests.retain(
                 |_inbound_request_id, (request_peer_id, _request_type)| *request_peer_id != peer_id,
             );
