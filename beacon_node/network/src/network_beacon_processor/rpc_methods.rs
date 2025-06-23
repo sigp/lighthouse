@@ -945,12 +945,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             match self.chain.get_blobs(&root) {
                 Ok(blob_sidecar_list) => {
                     for blob_sidecar in blob_sidecar_list.iter() {
-                        blobs_sent += 1;
-                        self.send_network_message(NetworkMessage::SendResponse {
-                            peer_id,
-                            inbound_request_id,
-                            response: Response::BlobsByRange(Some(blob_sidecar.clone())),
-                        });
+                        // Due to skip slots, blobs could be out of the range, we ensure they
+                        // are in the range before sending
+                        if blob_sidecar.slot() >= request_start_slot
+                            && blob_sidecar.slot() < request_start_slot + req.count
+                        {
+                            blobs_sent += 1;
+                            self.send_network_message(NetworkMessage::SendResponse {
+                                peer_id,
+                                inbound_request_id,
+                                response: Response::BlobsByRange(Some(blob_sidecar.clone())),
+                            });
+                        }
                     }
                 }
                 Err(e) => {
@@ -1058,14 +1064,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             for index in &req.columns {
                 match self.chain.get_data_column(&root, index) {
                     Ok(Some(data_column_sidecar)) => {
-                        data_columns_sent += 1;
-                        self.send_network_message(NetworkMessage::SendResponse {
-                            peer_id,
-                            inbound_request_id,
-                            response: Response::DataColumnsByRange(Some(
-                                data_column_sidecar.clone(),
-                            )),
-                        });
+                        // Due to skip slots, data columns could be out of the range, we ensure they
+                        // are in the range before sending
+                        if data_column_sidecar.slot() >= request_start_slot
+                            && data_column_sidecar.slot() < request_start_slot + req.count
+                        {
+                            data_columns_sent += 1;
+                            self.send_network_message(NetworkMessage::SendResponse {
+                                peer_id,
+                                inbound_request_id,
+                                response: Response::DataColumnsByRange(Some(
+                                    data_column_sidecar.clone(),
+                                )),
+                            });
+                        }
                     }
                     Ok(None) => {} // no-op
                     Err(e) => {
