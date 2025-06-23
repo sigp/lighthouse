@@ -215,6 +215,11 @@ pub enum BatchProcessResult {
         sent_blocks: usize,
         imported_blocks: usize,
     },
+    /// The custody backfill batch was completed successfully.
+    CustodyBackfillSuccess {
+        sent_data_columns: usize,
+        imported_data_columns: usize,
+    },
     /// The batch processing failed. It carries whether the processing imported any block.
     FaultyFailure {
         imported_blocks: usize,

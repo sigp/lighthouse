@@ -1186,7 +1186,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 }
 
 /// Error kind for attempting to restart the sync from beacon chain parameters.
-enum ResetEpochError {
+pub enum ResetEpochError {
     /// The chain has already completed.
     SyncCompleted,
 }

@@ -8,8 +8,8 @@ mod range;
 mod sync_type;
 
 pub use batch::{
-    BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
-    ByRangeRequestType,
+    Attempt, BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+    ByRangeRequestType, WrongState,
 };
 pub use chain::{BatchId, ChainId, EPOCHS_PER_BATCH};
 #[cfg(test)]

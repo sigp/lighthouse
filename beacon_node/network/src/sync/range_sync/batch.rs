@@ -8,7 +8,9 @@ use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use strum::Display;
-use types::{Epoch, EthSpec, Slot};
+use types::{DataColumnSidecarList, Epoch, EthSpec, Slot};
+
+use crate::sync::CustodySyncBatchConfig;
 
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
@@ -452,6 +454,14 @@ pub struct Attempt {
 impl Attempt {
     fn new<B: BatchConfig, E: EthSpec>(peer_id: PeerId, blocks: &[RpcBlock<E>]) -> Self {
         let hash = B::batch_attempt_hash(blocks);
+        Attempt { peer_id, hash }
+    }
+
+    pub fn new_for_custody_backfill_sync<E: EthSpec>(
+        peer_id: PeerId,
+        data_column_sidecar_list: &DataColumnSidecarList<E>,
+    ) -> Self {
+        let hash = CustodySyncBatchConfig::batch_attempt_hash(data_column_sidecar_list);
         Attempt { peer_id, hash }
     }
 }

@@ -535,13 +535,39 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new work event to import `data_columns` as part of custody backfill sync.
+    pub fn send_data_column_sidecar_list(
+        self: &Arc<Self>,
+        process_id: ChainSegmentProcessId,
+        data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let is_custody_backfill: bool = matches!(
+            &process_id,
+            ChainSegmentProcessId::CustodyBackSyncBatchId { .. }
+        );
+        if !is_custody_backfill {
+            // TODO(cgc-backfill) this should error if its not custody backfill
+            todo!()
+        }
+        debug!(data_columns_sidecars = data_column_sidecar_list.len(), id = ?process_id, "Batch data column sidecar list sending for process");
+
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_chain_segment(process_id, blocks, notify_execution_layer)
+                .await;
+        };
+        todo!()
+    }
+
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn send_chain_segment(
         self: &Arc<Self>,
         process_id: ChainSegmentProcessId,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
-        let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
+        let is_backfill: bool =
+            matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
         debug!(blocks = blocks.len(), id = ?process_id, "Batch sending for process");
 
         let processor = self.clone();

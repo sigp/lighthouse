@@ -8,7 +8,9 @@ use crate::sync::{
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
-use beacon_chain::data_column_verification::verify_kzg_for_data_column_list;
+use beacon_chain::data_column_verification::{
+    verify_kzg_for_data_column_list, verify_kzg_for_data_column_list_with_scoring,
+};
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainTypes,
     BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
@@ -25,7 +27,10 @@ use store::KzgCommitment;
 use tracing::{debug, error, info, warn};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlockImportSource, DataColumnSidecar, DataColumnSidecarList, Epoch, Hash256};
+use types::{
+    BlockImportSource, DataColumnSidecar, DataColumnSidecarList, Epoch, Hash256,
+    RuntimeVariableList,
+};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -34,6 +39,8 @@ pub enum ChainSegmentProcessId {
     RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
+    /// Processing ID for a custody backfill syncing batch.
+    CustodyBackSyncBatchId(Epoch),
 }
 
 /// Returned when a chain segment import fails.
@@ -445,6 +452,59 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.chain.process_sampling_completed(block_root).await;
     }
 
+    /// Attempt to import the `data_column_sidecar_list` to the beacon chain.
+    pub async fn process_data_column_sidecar_list(
+        &self,
+        sync_type: ChainSegmentProcessId,
+        downloaded_data_column_sidecar_list: Vec<DataColumnSidecarList<T::EthSpec>>,
+    ) {
+        let result = match sync_type {
+            // this a request from the Backfill sync
+            ChainSegmentProcessId::CustodyBackSyncBatchId(epoch) => {
+                // TODO(cgc-backfill) this number isnt actually correct, we'll need to flatten
+                let sent_data_columns = downloaded_data_column_sidecar_list.len();
+                match self
+                    .process_custody_backfill_data_columns(downloaded_data_column_sidecar_list)
+                {
+                    (imported_data_columns, Ok(_)) => {
+                        // TODO(cgc-backfill) maybe log more granular details for debugging purposes
+                        debug!(
+                            batch_epoch = %epoch,
+                            keep_execution_payload = !self.chain.store.get_config().prune_payloads,
+                            service= "custody_backfill_sync",
+                            "Custody backfill batch processed");
+                        BatchProcessResult::CustodyBackfillSuccess {
+                            sent_data_columns,
+                            imported_data_columns,
+                        }
+                    }
+                    (_, Err(e)) => {
+                        debug!(
+                            batch_epoch = %epoch,
+                            error = %e.message,
+                            service = "custody_backfill_sync",
+                            "Custody backfill batch processing failed"
+                        );
+                        match e.peer_action {
+                            Some(penalty) => BatchProcessResult::FaultyFailure {
+                                imported_blocks: 0,
+                                penalty,
+                            },
+                            None => BatchProcessResult::NonFaultyFailure,
+                        }
+                    }
+                }
+            }
+            // TODO(cgc-backfill)
+            // we should only accept requests from CustodyBackfillSync
+            _ => {
+                todo!()
+            }
+        };
+
+        self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
+    }
+
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
     pub async fn process_chain_segment(
@@ -549,6 +609,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
             }
+            // TODO(cgc-backfill)
+            ChainSegmentProcessId::CustodyBackSyncBatchId(_) => todo!(),
         };
 
         self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
@@ -592,6 +654,61 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     self.chain.recompute_head_at_current_slot().await;
                 }
                 (imported_blocks.len(), r)
+            }
+        }
+    }
+
+    /// Helper function to process custody backfill data columns
+    fn process_custody_backfill_data_columns(
+        &self,
+        downloaded_data_column_sidecar_list: Vec<DataColumnSidecarList<T::EthSpec>>,
+    ) -> (usize, Result<(), ChainSegmentFailed>) {
+        let all_data_columns = downloaded_data_column_sidecar_list
+            .clone()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        let total_data_column_sidecars = all_data_columns.len();
+
+        let all_data_columns = RuntimeVariableList::from_vec(
+            all_data_columns,
+            self.chain.spec.number_of_columns as usize,
+        );
+
+        // TODO(cgc-backfill) clean up, we probably dont need a match
+        // Attributes fault to the specific peer that sent an invalid column
+        match verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.chain.kzg)
+        {
+            Ok(_) => {}
+            Err(_) => {
+                // TODO(cgc-backfill) how should we handle errors here
+                return (
+                    0,
+                    Err(ChainSegmentFailed {
+                        peer_action: Some(PeerAction::LowToleranceError),
+                        message: format!("KZG verification failed"),
+                    }),
+                );
+            }
+        }
+
+        match self
+            .chain
+            .import_historical_data_column_batch(downloaded_data_column_sidecar_list)
+        {
+            Ok(imported_data_columns) => (imported_data_columns, Ok(())),
+            Err(e) => {
+                // TODO(cgc-backfill) which errors should be low tolerance vs high tolerance
+                let peer_action = match &e {
+                    beacon_chain::historical_blocks::HistoricalDataColumnError::MismatchedBlockRoot { data_column_block_root, data_column_index, expected_block_root } => todo!(),
+                    beacon_chain::historical_blocks::HistoricalDataColumnError::InvalidSignature { data_column_block_root } => todo!(),
+                    beacon_chain::historical_blocks::HistoricalDataColumnError::NoBlockFound { data_column_block_root } => todo!(),
+                    beacon_chain::historical_blocks::HistoricalDataColumnError::IndexOutOfBounds => todo!(),
+                    beacon_chain::historical_blocks::HistoricalDataColumnError::StoreError(error) => todo!(),
+                };
+
+                todo!()
             }
         }
     }
