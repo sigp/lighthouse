@@ -82,7 +82,6 @@ where
     T: BeaconChainTypes,
 {
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all

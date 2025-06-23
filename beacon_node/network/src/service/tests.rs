@@ -59,8 +59,6 @@ fn test_dht_persistence() {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx: _beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx: _work_reprocessing_rx,
         } = <_>::default();
 
         let _network_service = NetworkService::start(
@@ -69,7 +67,6 @@ fn test_dht_persistence() {
             executor,
             None,
             beacon_processor_tx,
-            work_reprocessing_tx,
         )
         .await
         .unwrap();
@@ -141,7 +138,6 @@ fn test_removing_topic_weight_on_old_topics() {
             sync_service_recv,
             None,
             beacon_processor_channels.beacon_processor_tx,
-            beacon_processor_channels.work_reprocessing_tx,
         )
         .await
         .unwrap()

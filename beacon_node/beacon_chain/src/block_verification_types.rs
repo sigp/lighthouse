@@ -1,7 +1,6 @@
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, PayloadVerificationOutcome};
 use derivative::Derivative;
 use state_processing::ConsensusContext;
@@ -341,7 +340,6 @@ pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub consensus_context: ConsensusContext<E>,
 }
 
@@ -355,10 +353,6 @@ impl<E: EthSpec> BlockImportData<E> {
             block_root,
             state,
             parent_block,
-            parent_eth1_finalization_data: Eth1FinalizationData {
-                eth1_data: <_>::default(),
-                eth1_deposit_index: 0,
-            },
             consensus_context: ConsensusContext::new(Slot::new(0)),
         }
     }
