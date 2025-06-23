@@ -27,8 +27,6 @@ use crate::data_availability_checker::{
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
-use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
-use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
 use crate::fetch_blobs::EngineGetBlobsOutput;
@@ -143,7 +141,6 @@ type HashBlockTuple<E> = (Hash256, RpcBlock<E>);
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::ZERO;
 pub const OP_POOL_DB_KEY: Hash256 = Hash256::ZERO;
-pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::ZERO;
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::ZERO;
 
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.
@@ -312,7 +309,6 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type HotStore: store::ItemStore<Self::EthSpec>;
     type ColdStore: store::ItemStore<Self::EthSpec>;
     type SlotClock: slot_clock::SlotClock;
-    type Eth1Chain: Eth1ChainBackend<Self::EthSpec>;
     type EthSpec: types::EthSpec;
 }
 
@@ -436,8 +432,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Maintains a record of which validators we've seen BLS to execution changes for.
     pub observed_bls_to_execution_changes:
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
-    /// Provides information from the Ethereum 1 (PoW) chain.
-    pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Interfaces with the execution client.
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
@@ -460,8 +454,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub shuffling_cache: RwLock<ShufflingCache>,
-    /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
-    pub eth1_finalization_cache: RwLock<Eth1FinalizationCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Arc<Mutex<BeaconProposerCache>>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -656,18 +648,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &OP_POOL_DB_KEY,
             &PersistedOperationPool::from_operation_pool(&self.op_pool),
         )?;
-
-        Ok(())
-    }
-
-    /// Persists `self.eth1_chain` and its caches to disk.
-    pub fn persist_eth1_cache(&self) -> Result<(), Error> {
-        let _timer = metrics::start_timer(&metrics::PERSIST_ETH1_CACHE);
-
-        if let Some(eth1_chain) = self.eth1_chain.as_ref() {
-            self.store
-                .put_item(&ETH1_CACHE_DB_KEY, &eth1_chain.as_ssz_container())?;
-        }
 
         Ok(())
     }
@@ -2394,13 +2374,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
-        if self.eth1_chain.is_some() {
-            let (attestation, attesting_indices) =
-                verified_attestation.into_attestation_and_indices();
-            self.op_pool
-                .insert_attestation(attestation, attesting_indices)
-                .map_err(Error::from)?;
-        }
+        let (attestation, attesting_indices) = verified_attestation.into_attestation_and_indices();
+        self.op_pool
+            .insert_attestation(attestation, attesting_indices)
+            .map_err(Error::from)?;
 
         Ok(())
     }
@@ -2416,11 +2393,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
-        if self.eth1_chain.is_some() {
-            self.op_pool
-                .insert_sync_contribution(contribution.contribution())
-                .map_err(Error::from)?;
-        }
+        self.op_pool
+            .insert_sync_contribution(contribution.contribution())
+            .map_err(Error::from)?;
 
         Ok(())
     }
@@ -2556,9 +2531,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Accept a pre-verified exit and queue it for inclusion in an appropriate block.
     pub fn import_voluntary_exit(&self, exit: SigVerifiedOp<SignedVoluntaryExit, T::EthSpec>) {
-        if self.eth1_chain.is_some() {
-            self.op_pool.insert_voluntary_exit(exit)
-        }
+        self.op_pool.insert_voluntary_exit(exit)
     }
 
     /// Verify a proposer slashing before allowing it to propagate on the gossip network.
@@ -2588,9 +2561,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        if self.eth1_chain.is_some() {
-            self.op_pool.insert_proposer_slashing(proposer_slashing)
-        }
+        self.op_pool.insert_proposer_slashing(proposer_slashing)
     }
 
     /// Verify an attester slashing before allowing it to propagate on the gossip network.
@@ -2629,9 +2600,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Add to the op pool (if we have the ability to propose blocks).
-        if self.eth1_chain.is_some() {
-            self.op_pool.insert_attester_slashing(attester_slashing)
-        }
+        self.op_pool.insert_attester_slashing(attester_slashing)
     }
 
     /// Verify a signed BLS to execution change before allowing it to propagate on the gossip network.
@@ -2703,12 +2672,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        if self.eth1_chain.is_some() {
-            self.op_pool
-                .insert_bls_to_execution_change(bls_to_execution_change, received_pre_capella)
-        } else {
-            false
-        }
+        self.op_pool
+            .insert_bls_to_execution_change(bls_to_execution_change, received_pre_capella)
     }
 
     /// Attempt to obtain sync committee duties from the head.
@@ -3792,7 +3757,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block_root,
             state,
             parent_block,
-            parent_eth1_finalization_data,
             consensus_context,
         } = import_data;
 
@@ -3818,7 +3782,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         state,
                         payload_verification_outcome.payload_verification_status,
                         parent_block,
-                        parent_eth1_finalization_data,
                         consensus_context,
                     )
                 },
@@ -3855,7 +3818,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: BeaconState<T::EthSpec>,
         payload_verification_status: PayloadVerificationStatus,
         parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
-        parent_eth1_finalization_data: Eth1FinalizationData,
         mut consensus_context: ConsensusContext<T::EthSpec>,
     ) -> Result<Hash256, BlockError> {
         // ----------------------------- BLOCK NOT YET ATTESTABLE ----------------------------------
@@ -4063,12 +4025,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // about it.
         let block_time_imported = timestamp_now();
 
-        let current_eth1_finalization_data = Eth1FinalizationData {
-            eth1_data: state.eth1_data().clone(),
-            eth1_deposit_index: state.eth1_deposit_index(),
-        };
-        let current_finalized_checkpoint = state.finalized_checkpoint();
-
         // compute state proofs for light client updates before inserting the state into the
         // snapshot cache.
         if self.config.enable_light_client_server {
@@ -4086,17 +4042,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::stop_timer(db_write_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
-
-        // Update the deposit contract cache.
-        self.import_block_update_deposit_contract_finalization(
-            block,
-            block_root,
-            current_epoch,
-            current_finalized_checkpoint,
-            current_eth1_finalization_data,
-            parent_eth1_finalization_data,
-            parent_block.slot(),
-        );
 
         // Inform the unknown block cache, in case it was waiting on this block.
         self.pre_finalization_block_cache
@@ -4492,65 +4437,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
         Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn import_block_update_deposit_contract_finalization(
-        &self,
-        block: BeaconBlockRef<T::EthSpec>,
-        block_root: Hash256,
-        current_epoch: Epoch,
-        current_finalized_checkpoint: Checkpoint,
-        current_eth1_finalization_data: Eth1FinalizationData,
-        parent_eth1_finalization_data: Eth1FinalizationData,
-        parent_block_slot: Slot,
-    ) {
-        // Do not write to eth1 finalization cache for blocks older than 5 epochs.
-        if block.epoch() + 5 < current_epoch {
-            return;
-        }
-
-        let parent_block_epoch = parent_block_slot.epoch(T::EthSpec::slots_per_epoch());
-        if parent_block_epoch < current_epoch {
-            // we've crossed epoch boundary, store Eth1FinalizationData
-            let (checkpoint, eth1_finalization_data) =
-                if block.slot() % T::EthSpec::slots_per_epoch() == 0 {
-                    // current block is the checkpoint
-                    (
-                        Checkpoint {
-                            epoch: current_epoch,
-                            root: block_root,
-                        },
-                        current_eth1_finalization_data,
-                    )
-                } else {
-                    // parent block is the checkpoint
-                    (
-                        Checkpoint {
-                            epoch: current_epoch,
-                            root: block.parent_root(),
-                        },
-                        parent_eth1_finalization_data,
-                    )
-                };
-
-            let finalized_eth1_data = {
-                let mut cache = self.eth1_finalization_cache.write();
-                cache.insert(checkpoint, eth1_finalization_data);
-                cache.finalize(&current_finalized_checkpoint)
-            };
-            if let Some(finalized_eth1_data) = finalized_eth1_data {
-                if let Some(eth1_chain) = self.eth1_chain.as_ref() {
-                    let finalized_deposit_count = finalized_eth1_data.deposit_count;
-                    eth1_chain.finalize_eth1_data(finalized_eth1_data);
-                    debug!(
-                        epoch = %current_finalized_checkpoint.epoch,
-                        deposit_count = %finalized_deposit_count,
-                        "called eth1_chain.finalize_eth1_data()"
-                    );
-                }
-            }
-        }
     }
 
     /// If configured, wait for the fork choice run at the start of the slot to complete.
@@ -5290,11 +5176,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<PartialBeaconBlock<T::EthSpec>, BlockProductionError> {
-        let eth1_chain = self
-            .eth1_chain
-            .as_ref()
-            .ok_or(BlockProductionError::NoEth1ChainConnection)?;
-
         // It is invalid to try to produce a block using a state from a future slot.
         if state.slot() > produce_at_slot {
             return Err(BlockProductionError::StateSlotTooHigh {
@@ -5359,9 +5240,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
 
-        let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
+        let eth1_data = state.eth1_data().clone();
 
-        let deposits = eth1_chain.deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?;
+        let deposits = vec![];
 
         let bls_to_execution_changes = self
             .op_pool
@@ -7252,7 +7133,6 @@ impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
         let drop = || -> Result<(), Error> {
             self.persist_fork_choice()?;
             self.persist_op_pool()?;
-            self.persist_eth1_cache()?;
             self.persist_custody_context()
         };
 

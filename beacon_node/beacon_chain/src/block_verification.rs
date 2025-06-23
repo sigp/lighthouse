@@ -53,7 +53,6 @@ use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     validate_execution_payload_for_gossip, validate_merge_block, AllowOptimisticImport,
     NotifyExecutionLayer, PayloadNotifier,
@@ -1442,11 +1441,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .into());
         }
 
-        let parent_eth1_finalization_data = Eth1FinalizationData {
-            eth1_data: state.eth1_data().clone(),
-            eth1_deposit_index: state.eth1_deposit_index(),
-        };
-
         // Transition the parent state to the block slot.
         //
         // It is important to note that we're using a "pre-state" here, one that has potentially
@@ -1646,7 +1640,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 block_root,
                 state,
                 parent_block: parent.beacon_block,
-                parent_eth1_finalization_data,
                 consensus_context,
             },
             payload_verification_handle,

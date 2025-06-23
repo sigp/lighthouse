@@ -5955,40 +5955,6 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_get_lighthouse_eth1_syncing(self) -> Self {
-        self.client.get_lighthouse_eth1_syncing().await.unwrap();
-
-        self
-    }
-
-    pub async fn test_get_lighthouse_eth1_block_cache(self) -> Self {
-        let blocks = self.client.get_lighthouse_eth1_block_cache().await.unwrap();
-
-        assert!(blocks.data.is_empty());
-
-        self
-    }
-
-    pub async fn test_get_lighthouse_eth1_deposit_cache(self) -> Self {
-        let deposits = self
-            .client
-            .get_lighthouse_eth1_deposit_cache()
-            .await
-            .unwrap();
-
-        assert!(deposits.data.is_empty());
-
-        self
-    }
-
-    pub async fn test_get_lighthouse_staking(self) -> Self {
-        let result = self.client.get_lighthouse_staking().await.unwrap();
-
-        assert_eq!(result, self.chain.eth1_chain.is_some());
-
-        self
-    }
-
     pub async fn test_post_lighthouse_database_reconstruct(self) -> Self {
         let response = self
             .client
@@ -7699,14 +7665,6 @@ async fn lighthouse_endpoints() {
         .test_get_lighthouse_validator_inclusion()
         .await
         .test_get_lighthouse_validator_inclusion_global()
-        .await
-        .test_get_lighthouse_eth1_syncing()
-        .await
-        .test_get_lighthouse_eth1_block_cache()
-        .await
-        .test_get_lighthouse_eth1_deposit_cache()
-        .await
-        .test_get_lighthouse_staking()
         .await
         .test_post_lighthouse_database_reconstruct()
         .await

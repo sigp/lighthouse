@@ -86,7 +86,6 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     slot_clock: SystemTimeSlotClock,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
-    beacon_nodes: Arc<BeaconNodeFallback<SystemTimeSlotClock>>,
     genesis_time: u64,
 }
 
@@ -516,7 +515,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             slot_clock,
             http_api_listen_addr: None,
             genesis_time,
-            beacon_nodes,
         })
     }
 
@@ -562,7 +560,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         };
 
         // Wait until genesis has occurred.
-        wait_for_genesis(&self.beacon_nodes, self.genesis_time).await?;
+        wait_for_genesis(self.genesis_time).await?;
 
         duties_service::start_update_service(self.duties_service.clone(), block_service_tx);
 
@@ -703,10 +701,7 @@ async fn init_from_beacon_node<E: EthSpec>(
     Ok((genesis.genesis_time, genesis.genesis_validators_root))
 }
 
-async fn wait_for_genesis(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
-    genesis_time: u64,
-) -> Result<(), String> {
+async fn wait_for_genesis(genesis_time: u64) -> Result<(), String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| format!("Unable to read system time: {:?}", e))?;
@@ -726,7 +721,7 @@ async fn wait_for_genesis(
         // Start polling the node for pre-genesis information, cancelling the polling as soon as the
         // timer runs out.
         tokio::select! {
-            result = poll_whilst_waiting_for_genesis(beacon_nodes, genesis_time) => result?,
+            result = poll_whilst_waiting_for_genesis(genesis_time) => result?,
             () = sleep(genesis_time - now) => ()
         };
 
@@ -746,46 +741,20 @@ async fn wait_for_genesis(
 
 /// Request the version from the node, looping back and trying again on failure. Exit once the node
 /// has been contacted.
-async fn poll_whilst_waiting_for_genesis(
-    beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock>,
-    genesis_time: Duration,
-) -> Result<(), String> {
+async fn poll_whilst_waiting_for_genesis(genesis_time: Duration) -> Result<(), String> {
     loop {
-        match beacon_nodes
-            .first_success(|beacon_node| async move { beacon_node.get_lighthouse_staking().await })
-            .await
-        {
-            Ok(is_staking) => {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|e| format!("Unable to read system time: {:?}", e))?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| format!("Unable to read system time: {:?}", e))?;
 
-                if !is_staking {
-                    error!(
-                        msg = "this will caused missed duties",
-                        info = "see the --staking CLI flag on the beacon node",
-                        "Staking is disabled for beacon node"
-                    );
-                }
-
-                if now < genesis_time {
-                    info!(
-                        bn_staking_enabled = is_staking,
-                        seconds_to_wait = (genesis_time - now).as_secs(),
-                        "Waiting for genesis"
-                    );
-                } else {
-                    break Ok(());
-                }
-            }
-            Err(e) => {
-                error!(
-                    error = %e,
-                    "Error polling beacon node"
-                );
-            }
+        if now < genesis_time {
+            info!(
+                seconds_to_wait = (genesis_time - now).as_secs(),
+                "Waiting for genesis"
+            );
+        } else {
+            break Ok(());
         }
-
         sleep(WAITING_FOR_GENESIS_POLL_TIME).await;
     }
 }

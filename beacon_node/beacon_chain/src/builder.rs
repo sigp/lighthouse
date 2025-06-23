@@ -1,10 +1,8 @@
 use crate::beacon_chain::{
-    CanonicalHead, LightClientProducerEvent, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY,
+    CanonicalHead, LightClientProducerEvent, BEACON_CHAIN_DB_KEY, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::data_availability_checker::DataAvailabilityChecker;
-use crate::eth1_chain::{CachingEth1Backend, SszEth1};
-use crate::eth1_finalization_cache::Eth1FinalizationCache;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
@@ -20,10 +18,8 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::ChainConfig;
 use crate::CustodyContext;
 use crate::{
-    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, Eth1Chain,
-    Eth1ChainBackend, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
-use eth1::Config as Eth1Config;
 use execution_layer::ExecutionLayer;
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use futures::channel::mpsc::Sender;
@@ -50,23 +46,21 @@ use types::{
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
-pub struct Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>(
-    PhantomData<(TSlotClock, TEth1Backend, E, THotStore, TColdStore)>,
+pub struct Witness<TSlotClock, E, THotStore, TColdStore>(
+    PhantomData<(TSlotClock, E, THotStore, TColdStore)>,
 );
 
-impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore> BeaconChainTypes
-    for Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
+impl<TSlotClock, E, THotStore, TColdStore> BeaconChainTypes
+    for Witness<TSlotClock, E, THotStore, TColdStore>
 where
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
 {
     type HotStore = THotStore;
     type ColdStore = TColdStore;
     type SlotClock = TSlotClock;
-    type Eth1Chain = TEth1Backend;
     type EthSpec = E;
 }
 
@@ -90,7 +84,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
         ForkChoice<BeaconForkChoiceStore<T::EthSpec, T::HotStore, T::ColdStore>, T::EthSpec>,
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
-    eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
@@ -111,13 +104,12 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     rng: Option<Box<dyn RngCore + Send>>,
 }
 
-impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>
+impl<TSlotClock, E, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
 {
     /// Returns a new builder.
@@ -133,7 +125,6 @@ where
             genesis_state_root: None,
             fork_choice: None,
             op_pool: None,
-            eth1_chain: None,
             execution_layer: None,
             event_handler: None,
             slot_clock: None,
@@ -226,18 +217,6 @@ where
         self
     }
 
-    /// Attempt to load an existing eth1 cache from the builder's `Store`.
-    pub fn get_persisted_eth1_backend(&self) -> Result<Option<SszEth1>, String> {
-        let store = self
-            .store
-            .clone()
-            .ok_or("get_persisted_eth1_backend requires a store.")?;
-
-        store
-            .get_item::<SszEth1>(&ETH1_CACHE_DB_KEY)
-            .map_err(|e| format!("DB error whilst reading eth1 cache: {:?}", e))
-    }
-
     /// Returns true if `self.store` contains a persisted beacon chain.
     pub fn store_contains_beacon_chain(&self) -> Result<bool, String> {
         let store = self
@@ -270,16 +249,15 @@ where
                     .to_string()
             })?;
 
-        let fork_choice =
-            BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
-                store.clone(),
-                ResetPayloadStatuses::always_reset_conditionally(
-                    self.chain_config.always_reset_payload_statuses,
-                ),
-                &self.spec,
-            )
-            .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
-            .ok_or("Fork choice not found in store")?;
+        let fork_choice = BeaconChain::<Witness<TSlotClock, _, _, _>>::load_fork_choice(
+            store.clone(),
+            ResetPayloadStatuses::always_reset_conditionally(
+                self.chain_config.always_reset_payload_statuses,
+            ),
+            &self.spec,
+        )
+        .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
+        .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
             .get_blinded_block(&chain.genesis_block_root)
@@ -653,12 +631,6 @@ where
         Ok(self.empty_op_pool())
     }
 
-    /// Sets the `BeaconChain` eth1 backend.
-    pub fn eth1_backend(mut self, backend: Option<TEth1Backend>) -> Self {
-        self.eth1_chain = backend.map(Eth1Chain::new);
-        self
-    }
-
     /// Sets the `BeaconChain` execution layer.
     pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer<E>>) -> Self {
         self.execution_layer = execution_layer;
@@ -749,8 +721,7 @@ where
     #[allow(clippy::type_complexity)] // I think there's nothing to be gained here from a type alias.
     pub fn build(
         mut self,
-    ) -> Result<BeaconChain<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>, String>
-    {
+    ) -> Result<BeaconChain<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
         let slot_clock = self
             .slot_clock
             .ok_or("Cannot build without a slot_clock.")?;
@@ -906,12 +877,12 @@ where
         // This *must* be stored before constructing the `BeaconChain`, so that its `Drop` instance
         // doesn't write a `PersistedBeaconChain` without the rest of the batch.
         self.pending_io_batch.push(BeaconChain::<
-            Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
+            Witness<TSlotClock,  E, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
             genesis_block_root
         ));
         self.pending_io_batch.push(BeaconChain::<
-            Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
+            Witness<TSlotClock,  E, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
             &fork_choice
         ));
@@ -1003,7 +974,6 @@ where
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
-            eth1_chain: self.eth1_chain,
             execution_layer: self.execution_layer.clone(),
             genesis_validators_root,
             genesis_time,
@@ -1017,7 +987,6 @@ where
                 shuffling_cache_size,
                 head_shuffling_ids,
             )),
-            eth1_finalization_cache: RwLock::new(Eth1FinalizationCache::default()),
             beacon_proposer_cache,
             block_times_cache: <_>::default(),
             pre_finalization_block_cache: <_>::default(),
@@ -1122,35 +1091,11 @@ where
     }
 }
 
-impl<TSlotClock, E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>>
+impl<E, THotStore, TColdStore>
+    BeaconChainBuilder<Witness<TestingSlotClock, E, THotStore, TColdStore>>
 where
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,
-    TSlotClock: SlotClock + 'static,
-    E: EthSpec + 'static,
-{
-    /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
-    pub fn no_eth1_backend(self) -> Self {
-        self.eth1_backend(None)
-    }
-
-    /// Sets the `BeaconChain` eth1 back-end to produce predictably junk data when producing blocks.
-    pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
-        let backend = CachingEth1Backend::new(Eth1Config::default(), self.spec.clone())?;
-
-        self.eth1_chain = Some(Eth1Chain::new_dummy(backend));
-
-        Ok(self)
-    }
-}
-
-impl<TEth1Backend, E, THotStore, TColdStore>
-    BeaconChainBuilder<Witness<TestingSlotClock, TEth1Backend, E, THotStore, TColdStore>>
-where
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
 {
     /// Sets the `BeaconChain` slot clock to `TestingSlotClock`.
@@ -1298,8 +1243,6 @@ mod test {
             .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
-            .dummy_eth1_backend()
-            .expect("should build the dummy eth1 backend")
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)

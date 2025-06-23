@@ -3,16 +3,6 @@
 version = 4
 
 [[package]]
-name = "Inflector"
-version = "0.11.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe438c63458706e03479442743baae6c88256498e6431708f6dfc520a26515d3"
-dependencies = [
- "lazy_static",
- "regex",
-]
-
-[[package]]
 name = "account_manager"
 version = "0.3.5"
 dependencies = [
@@ -861,7 +851,6 @@ dependencies = [
  "bls",
  "criterion",
  "derivative",
- "eth1",
  "eth2",
  "eth2_network_config",
  "ethereum_hashing",
@@ -1324,20 +1313,6 @@ dependencies = [
 
 [[package]]
 name = "cargo_metadata"
-version = "0.15.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eee4243f1f26fc7a42710e7439c149e2b10b05472f88090acce52632f231a73a"
-dependencies = [
- "camino",
- "cargo-platform",
- "semver 1.0.26",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "cargo_metadata"
 version = "0.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd5eb614ed4c27c5d706420e4320fbe3216ab31fa1c33cd8246ac36dae4479ba"
@@ -1550,7 +1525,6 @@ dependencies = [
  "directory",
  "dirs",
  "environment",
- "eth1",
  "eth2",
  "eth2_config",
  "ethereum_ssz",
@@ -2499,12 +2473,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6add3b8cff394282be81f3fc1a0605db594ed69890078ca6e2cab1c408bcf04"
 
 [[package]]
-name = "dunce"
-version = "1.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
-
-[[package]]
 name = "ecdsa"
 version = "0.14.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2791,48 +2759,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "eth1"
-version = "0.2.0"
-dependencies = [
- "environment",
- "eth1_test_rig",
- "eth2",
- "ethereum_ssz",
- "ethereum_ssz_derive",
- "execution_layer",
- "futures",
- "logging",
- "merkle_proof",
- "metrics",
- "parking_lot 0.12.3",
- "sensitive_url",
- "serde",
- "serde_yaml",
- "state_processing",
- "superstruct",
- "task_executor",
- "tokio",
- "tracing",
- "tree_hash",
- "types",
-]
-
-[[package]]
-name = "eth1_test_rig"
-version = "0.2.0"
-dependencies = [
- "deposit_contract",
- "ethers-contract",
- "ethers-core",
- "ethers-providers",
- "hex",
- "serde_json",
- "tokio",
- "types",
- "unused_port",
-]
-
-[[package]]
 name = "eth2"
 version = "0.1.0"
 dependencies = [
@@ -3114,8 +3040,6 @@ version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9c3c3e119a89f0a9a1e539e7faecea815f74ddcf7c90d0b00d1f524db2fdc9c"
 dependencies = [
- "ethers-contract-abigen",
- "ethers-contract-derive",
  "ethers-core",
  "ethers-providers",
  "futures-util",
@@ -3128,46 +3052,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ethers-contract-abigen"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d4e5ad46aede34901f71afdb7bb555710ed9613d88d644245c657dc371aa228"
-dependencies = [
- "Inflector",
- "cfg-if",
- "dunce",
- "ethers-core",
- "eyre",
- "getrandom 0.2.16",
- "hex",
- "proc-macro2",
- "quote",
- "regex",
- "reqwest",
- "serde",
- "serde_json",
- "syn 1.0.109",
- "toml",
- "url",
- "walkdir",
-]
-
-[[package]]
-name = "ethers-contract-derive"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f192e8e4cf2b038318aae01e94e7644e0659a76219e94bcd3203df744341d61f"
-dependencies = [
- "ethers-contract-abigen",
- "ethers-core",
- "hex",
- "proc-macro2",
- "quote",
- "serde_json",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "ethers-core"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3175,7 +3059,6 @@ checksum = "ade3e9c97727343984e1ceada4fdab11142d2ee3472d2c67027d56b1251d4f15"
 dependencies = [
  "arrayvec",
  "bytes",
- "cargo_metadata 0.15.4",
  "chrono",
  "convert_case 0.6.0",
  "elliptic-curve 0.12.3",
@@ -3183,7 +3066,6 @@ dependencies = [
  "generic-array 0.14.7",
  "hex",
  "k256 0.11.6",
- "once_cell",
  "open-fastrlp",
  "proc-macro2",
  "rand 0.8.5",
@@ -3407,16 +3289,6 @@ dependencies = [
  "types",
  "warp",
  "zeroize",
-]
-
-[[package]]
-name = "eyre"
-version = "0.6.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
-dependencies = [
- "indenter",
- "once_cell",
 ]
 
 [[package]]
@@ -3833,19 +3705,12 @@ dependencies = [
 name = "genesis"
 version = "0.2.0"
 dependencies = [
- "environment",
- "eth1",
- "eth1_test_rig",
  "ethereum_hashing",
  "ethereum_ssz",
- "futures",
  "int_to_bytes",
- "logging",
  "merkle_proof",
  "rayon",
- "sensitive_url",
  "state_processing",
- "tokio",
  "tracing",
  "tree_hash",
  "types",
@@ -4325,7 +4190,6 @@ dependencies = [
  "bytes",
  "directory",
  "either",
- "eth1",
  "eth2",
  "ethereum_serde_utils",
  "ethereum_ssz",
@@ -4807,12 +4671,6 @@ dependencies = [
  "quote",
  "syn 2.0.101",
 ]
-
-[[package]]
-name = "indenter"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce23b50ad8242c51a442f3ff322d56b02f08852c77e4c0b4d3fd684abc89c683"
 
 [[package]]
 name = "indexmap"
@@ -5636,7 +5494,6 @@ dependencies = [
  "database_manager",
  "directory",
  "environment",
- "eth1",
  "eth2",
  "eth2_network_config",
  "ethereum_hashing",
@@ -9467,15 +9324,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml"
-version = "0.5.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "toml_datetime"
 version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10897,7 +10745,7 @@ dependencies = [
 name = "workspace_members"
 version = "0.1.0"
 dependencies = [
- "cargo_metadata 0.19.2",
+ "cargo_metadata",
  "quote",
 ]
 

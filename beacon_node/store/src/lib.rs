@@ -316,6 +316,7 @@ pub enum DBColumn {
     BeaconChain,
     #[strum(serialize = "opo")]
     OpPool,
+    /// DEPRECATED.
     #[strum(serialize = "etc")]
     Eth1Cache,
     #[strum(serialize = "frk")]

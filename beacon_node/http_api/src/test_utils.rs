@@ -188,8 +188,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     }));
     *network_globals.sync_state.write() = SyncState::Synced;
 
-    let eth1_service = eth1::Service::new(eth1::Config::default(), chain.spec.clone()).unwrap();
-
     let beacon_processor_config = BeaconProcessorConfig {
         // The number of workers must be greater than one. Tests which use the
         // builder workflow sometimes require an internal HTTP request in order
@@ -236,7 +234,6 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         network_senders: Some(network_senders),
         network_globals: Some(network_globals),
         beacon_processor_send: Some(beacon_processor_send),
-        eth1_service: Some(eth1_service),
         sse_logging_components: None,
     });
 

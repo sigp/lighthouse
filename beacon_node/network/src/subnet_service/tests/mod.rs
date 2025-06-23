@@ -1,7 +1,6 @@
 use super::*;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
-    eth1_chain::CachingEth1Backend,
     test_utils::get_kzg,
     BeaconChain,
 };
@@ -27,7 +26,6 @@ const TEST_LOG_LEVEL: Option<&str> = None;
 
 type TestBeaconChainType = Witness<
     SystemTimeSlotClock,
-    CachingEth1Backend<MainnetEthSpec>,
     MainnetEthSpec,
     MemoryStore<MainnetEthSpec>,
     MemoryStore<MainnetEthSpec>,
@@ -70,8 +68,6 @@ impl TestBeaconChain {
                     .expect("should generate interop state"),
                 )
                 .expect("should build state using recent genesis")
-                .dummy_eth1_backend()
-                .expect("should build dummy backend")
                 .slot_clock(SystemTimeSlotClock::new(
                     Slot::new(0),
                     Duration::from_secs(recent_genesis_time()),

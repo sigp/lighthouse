@@ -130,7 +130,6 @@ pub struct Context<T: BeaconChainTypes> {
     pub network_senders: Option<NetworkSenders<T::EthSpec>>,
     pub network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     pub beacon_processor_send: Option<BeaconProcessorSend<T::EthSpec>>,
-    pub eth1_service: Option<eth1::Service>,
     pub sse_logging_components: Option<SSELoggingComponents>,
 }
 
@@ -214,7 +213,6 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
                 .or_else(|| starts_with("v1/beacon/blob_sidecars"))
                 .or_else(|| starts_with("v1/beacon/blocks/head/root"))
                 .or_else(|| starts_with("v1/beacon/blinded_blocks"))
-                .or_else(|| starts_with("v1/beacon/deposit_snapshot"))
                 .or_else(|| starts_with("v1/beacon/headers"))
                 .or_else(|| starts_with("v1/beacon/light_client"))
                 .or_else(|| starts_with("v1/beacon/pool/attestations"))
@@ -443,19 +441,6 @@ pub fn serve<T: BeaconChainTypes>(
                 None => Err(warp_utils::reject::custom_not_found(
                     "The networking stack has not yet started (validator_subscription_tx)."
                         .to_string(),
-                )),
-            }
-        });
-
-    // Create a `warp` filter that provides access to the Eth1 service.
-    let inner_ctx = ctx.clone();
-    let eth1_service_filter = warp::any()
-        .map(move || inner_ctx.eth1_service.clone())
-        .and_then(|eth1_service| async move {
-            match eth1_service {
-                Some(eth1_service) => Ok(eth1_service),
-                None => Err(warp_utils::reject::custom_not_found(
-                    "The Eth1 service is not started. Use --eth1 on the CLI.".to_string(),
                 )),
             }
         });
@@ -2391,56 +2376,6 @@ pub fn serve<T: BeaconChainTypes>(
                             "some BLS to execution changes failed to verify".into(),
                             failures,
                         ))
-                    }
-                })
-            },
-        );
-
-    // GET beacon/deposit_snapshot
-    let get_beacon_deposit_snapshot = eth_v1
-        .and(warp::path("beacon"))
-        .and(warp::path("deposit_snapshot"))
-        .and(warp::path::end())
-        .and(warp::header::optional::<api_types::Accept>("accept"))
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter.clone())
-        .then(
-            |accept_header: Option<api_types::Accept>,
-             task_spawner: TaskSpawner<T::EthSpec>,
-             eth1_service: eth1::Service| {
-                task_spawner.blocking_response_task(Priority::P1, move || match accept_header {
-                    Some(api_types::Accept::Ssz) => eth1_service
-                        .get_deposit_snapshot()
-                        .map(|snapshot| {
-                            Response::builder()
-                                .status(200)
-                                .body(snapshot.as_ssz_bytes().into())
-                                .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                                .map_err(|e| {
-                                    warp_utils::reject::custom_server_error(format!(
-                                        "failed to create response: {}",
-                                        e
-                                    ))
-                                })
-                        })
-                        .unwrap_or_else(|| {
-                            Response::builder()
-                                .status(503)
-                                .body(Vec::new().into())
-                                .map(|res: Response<Body>| add_ssz_content_type_header(res))
-                                .map_err(|e| {
-                                    warp_utils::reject::custom_server_error(format!(
-                                        "failed to create response: {}",
-                                        e
-                                    ))
-                                })
-                        }),
-                    _ => {
-                        let snapshot = eth1_service.get_deposit_snapshot();
-                        Ok(
-                            warp::reply::json(&api_types::GenericResponse::from(snapshot))
-                                .into_response(),
-                        )
                     }
                 })
             },
@@ -4536,105 +4471,17 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/eth1/syncing
-    let get_lighthouse_eth1_syncing = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("syncing"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let current_slot_opt = chain.slot().ok();
-
-                    chain
-                        .eth1_chain
-                        .as_ref()
-                        .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(
-                                "Eth1 sync is disabled. See the --eth1 CLI flag.".to_string(),
-                            )
-                        })
-                        .and_then(|eth1| {
-                            eth1.sync_status(chain.genesis_time, current_slot_opt, &chain.spec)
-                                .ok_or_else(|| {
-                                    warp_utils::reject::custom_server_error(
-                                        "Unable to determine Eth1 sync status".to_string(),
-                                    )
-                                })
-                        })
-                        .map(api_types::GenericResponse::from)
-                })
-            },
-        );
-
-    // GET lighthouse/eth1/block_cache
-    let get_lighthouse_eth1_block_cache = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("block_cache"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, eth1_service: eth1::Service| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    Ok(api_types::GenericResponse::from(
-                        eth1_service
-                            .blocks()
-                            .read()
-                            .iter()
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                    ))
-                })
-            },
-        );
-
-    // GET lighthouse/eth1/deposit_cache
-    let get_lighthouse_eth1_deposit_cache = warp::path("lighthouse")
-        .and(warp::path("eth1"))
-        .and(warp::path("deposit_cache"))
-        .and(warp::path::end())
-        .and(task_spawner_filter.clone())
-        .and(eth1_service_filter)
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, eth1_service: eth1::Service| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    Ok(api_types::GenericResponse::from(
-                        eth1_service
-                            .deposits()
-                            .read()
-                            .cache
-                            .iter()
-                            .cloned()
-                            .collect::<Vec<_>>(),
-                    ))
-                })
-            },
-        );
-
     // GET lighthouse/staking
     let get_lighthouse_staking = warp::path("lighthouse")
         .and(warp::path("staking"))
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
-        .and(chain_filter.clone())
-        .then(
-            |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    if chain.eth1_chain.is_some() {
-                        Ok(())
-                    } else {
-                        Err(warp_utils::reject::custom_not_found(
-                            "staking is not enabled, \
-                        see the --staking CLI flag"
-                                .to_string(),
-                        ))
-                    }
-                })
-            },
-        );
+        .then(|task_spawner: TaskSpawner<T::EthSpec>| {
+            // This API is fairly useless since we abolished the distinction between staking and
+            // non-staking nodes. We keep it for backwards-compatibility with LH v7.0.0, and in case
+            // we want to reintroduce the distinction in future.
+            task_spawner.blocking_json_task(Priority::P1, move || Ok(()))
+        });
 
     let database_path = warp::path("lighthouse").and(warp::path("database"));
 
@@ -4936,7 +4783,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_pool_proposer_slashings)
                 .uor(get_beacon_pool_voluntary_exits)
                 .uor(get_beacon_pool_bls_to_execution_changes)
-                .uor(get_beacon_deposit_snapshot)
                 .uor(get_beacon_rewards_blocks)
                 .uor(get_config_fork_schedule)
                 .uor(get_config_spec)
@@ -4968,9 +4814,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_proto_array)
                 .uor(get_lighthouse_validator_inclusion_global)
                 .uor(get_lighthouse_validator_inclusion)
-                .uor(get_lighthouse_eth1_syncing)
-                .uor(get_lighthouse_eth1_block_cache)
-                .uor(get_lighthouse_eth1_deposit_cache)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
                 .uor(get_lighthouse_block_rewards)

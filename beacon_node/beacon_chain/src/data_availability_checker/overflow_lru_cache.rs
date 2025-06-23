@@ -699,7 +699,6 @@ mod test {
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         data_availability_checker::STATE_LRU_CAPACITY,
-        eth1_finalization_cache::Eth1FinalizationData,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
@@ -809,11 +808,6 @@ mod test {
             .expect("should get block")
             .expect("should have block");
 
-        let parent_eth1_finalization_data = Eth1FinalizationData {
-            eth1_data: parent_block.message().body().eth1_data().clone(),
-            eth1_deposit_index: 0,
-        };
-
         let (signed_beacon_block_hash, (block, maybe_blobs), state) = harness
             .add_block_at_slot(target_slot, parent_state)
             .await
@@ -860,7 +854,6 @@ mod test {
             block_root,
             state,
             parent_block,
-            parent_eth1_finalization_data,
             consensus_context,
         };
 
@@ -1158,7 +1151,6 @@ mod test {
 mod pending_components_tests {
     use super::*;
     use crate::block_verification_types::BlockImportData;
-    use crate::eth1_finalization_cache::Eth1FinalizationData;
     use crate::test_utils::{generate_rand_block_and_blobs, test_spec, NumBlobs};
     use crate::PayloadVerificationOutcome;
     use fork_choice::PayloadVerificationStatus;
@@ -1246,10 +1238,6 @@ mod pending_components_tests {
                 block_root: Default::default(),
                 state: BeaconState::new(0, Default::default(), &ChainSpec::minimal()),
                 parent_block: dummy_parent,
-                parent_eth1_finalization_data: Eth1FinalizationData {
-                    eth1_data: Default::default(),
-                    eth1_deposit_index: 0,
-                },
                 consensus_context: ConsensusContext::new(Slot::new(0)),
             },
             payload_verification_outcome: PayloadVerificationOutcome {
