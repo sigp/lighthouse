@@ -734,7 +734,7 @@ impl ClientVersionV1 {
         lighthouse_commit_prefix: CommitPrefix,
         validator_graffiti: Option<Graffiti>,
     ) -> Graffiti {
-        let base_graffiti = format!(
+        let append_graffiti_full = format!(
             "{}{}LH{}",
             self.code,
             self.commit
@@ -749,12 +749,44 @@ impl ClientVersionV1 {
                 .to_lowercase(),
         );
 
-        let graffiti_string = match validator_graffiti {
-            Some(graffiti) => {
-                let graffiti_str = graffiti.as_utf8_lossy();
-                format!("{} {}", base_graffiti, graffiti_str)
+        // Implement the special case here:
+        // https://hackmd.io/@wmoBhF17RAOH2NZ5bNXJVg/BJX2c9gja#SPECIAL-CASE-the-flexible-standard
+        let append_graffiti_one_byte = format!(
+            "{}{}LH{}",
+            self.code,
+            self.commit
+                .0
+                .get(..2)
+                .map_or_else(|| self.commit.0.as_str(), |s| s)
+                .to_lowercase(),
+            lighthouse_commit_prefix
+                .0
+                .get(..2)
+                .unwrap_or("00")
+                .to_lowercase(),
+        );
+
+        let append_graffiti_no_commit = format!("{}LH", self.code);
+        let append_graffiti_only_el = format!("{}", self.code);
+
+        let graffiti_string = if let Some(graffiti) = validator_graffiti {
+            let graffiti_length = graffiti.as_utf8_lossy().len();
+            let graffiti_str = graffiti.as_utf8_lossy();
+
+            if graffiti_length < 20 {
+                format!("{} {}", append_graffiti_full, graffiti_str)
+            } else if (20..24).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_one_byte, graffiti_str)
+            } else if (24..28).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_no_commit, graffiti_str)
+            } else if (28..30).contains(&graffiti_length) {
+                format!("{} {}", append_graffiti_only_el, graffiti_str)
+            } else {
+                return graffiti;
             }
-            None => base_graffiti,
+        } else {
+            // if no validator_graffiti (user doesn't specify), use the full client version info graffiti
+            append_graffiti_full
         };
 
         let mut graffiti_bytes = [0u8; GRAFFITI_BYTES_LEN];
