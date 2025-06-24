@@ -2213,6 +2213,7 @@ impl BeaconNodeHttpClient {
             path.query_pairs_mut()
                 .append_pair("graffiti_policy", "AppendClientVersions");
         }
+        // TODO, will be removed later
         info!(url = %path, "Complete query url");
 
         Ok(path)

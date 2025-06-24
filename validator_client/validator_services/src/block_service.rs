@@ -452,6 +452,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         };
 
         info!(slot = slot.as_u64(), "Requesting unsigned block");
+        // TODO, will be removed later
         info!(?self.graffiti_policy, "Graffiti policy is");
         // Request block from first responsive beacon node.
         //
