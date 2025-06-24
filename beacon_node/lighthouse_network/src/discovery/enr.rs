@@ -22,6 +22,8 @@ use super::enr_ext::{EnrExt, QUIC6_ENR_KEY, QUIC_ENR_KEY};
 
 /// The ENR field specifying the fork id.
 pub const ETH2_ENR_KEY: &str = "eth2";
+/// The ENR field specifying the next fork digest.
+pub const NEXT_FORK_DIGEST_ENR_KEY: &str = "nfd";
 /// The ENR field specifying the attestation subnet bitfield.
 pub const ATTESTATION_BITFIELD_ENR_KEY: &str = "attnets";
 /// The ENR field specifying the sync committee subnet bitfield.

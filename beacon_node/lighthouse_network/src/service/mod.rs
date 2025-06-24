@@ -1353,8 +1353,9 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip_all
     )]
-    pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId) {
-        self.discovery_mut().update_eth2_enr(enr_fork_id.clone());
+    pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId, nfd: Option<[u8; 4]>) {
+        self.discovery_mut()
+            .update_eth2_enr(enr_fork_id.clone(), nfd);
 
         // update the local reference
         self.enr_fork_id = enr_fork_id;
