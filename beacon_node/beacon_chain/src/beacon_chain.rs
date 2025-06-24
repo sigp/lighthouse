@@ -7169,11 +7169,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         roots.reverse();
         roots
     }
-
-    // Add a public method to BeaconChain so we can access graffiti_calculator from another crate
-    pub fn calculate_graffiti(&self) -> &GraffitiCalculator<T> {
-        &self.graffiti_calculator
-    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
