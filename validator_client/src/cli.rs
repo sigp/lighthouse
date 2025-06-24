@@ -157,7 +157,7 @@ pub struct ValidatorClient {
         display_order = 0,
         help_heading = FLAG_HEADER
     )]
-    pub graffiti_client: bool,
+    pub graffiti_append: bool,
 
     #[clap(
         long,

@@ -234,7 +234,7 @@ impl Config {
             }
         }
 
-        config.graffiti_policy = if validator_client_config.graffiti_client {
+        config.graffiti_policy = if validator_client_config.graffiti_append {
             Some(GraffitiPolicy::AppendClientVersions)
         } else {
             Some(GraffitiPolicy::PreserveUserGraffiti)

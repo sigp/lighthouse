@@ -214,6 +214,9 @@ Flags:
           automatically enabled for <= 64 validators. Enabling this metric for
           higher validator counts will lead to higher volume of prometheus
           metrics being collected.
+      --graffiti-append
+          When used, client version info will be automatically appended to user
+          custom graffiti.
   -h, --help
           Prints help information
       --http
