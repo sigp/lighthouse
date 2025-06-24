@@ -89,7 +89,7 @@ pub struct Config {
     mesh_outbound_min: usize,
     opportunistic_graft_ticks: u64,
     opportunistic_graft_peers: usize,
-    gossip_retransimission: u32,
+    gossip_retransmission: u32,
     max_messages_per_rpc: Option<usize>,
     max_ihave_length: usize,
     max_ihave_messages: usize,
@@ -266,9 +266,9 @@ impl Config {
         self.unsubscribe_backoff
     }
 
-    /// Number of heartbeat slots considered as slack for backoffs. This gurantees that we wait
+    /// Number of heartbeat slots considered as slack for backoffs. This guarantees that we wait
     /// at least backoff_slack heartbeats after a backoff is over before we try to graft. This
-    /// solves problems occuring through high latencies. In particular if
+    /// solves problems occurring through high latencies. In particular if
     /// `backoff_slack * heartbeat_interval` is longer than any latencies between processing
     /// prunes on our side and processing prunes on the receiving side this guarantees that we
     /// get not punished for too early grafting. The default is 1.
@@ -308,8 +308,8 @@ impl Config {
     /// Controls how many times we will allow a peer to request the same message id through IWANT
     /// gossip before we start ignoring them. This is designed to prevent peers from spamming us
     /// with requests and wasting our resources. The default is 3.
-    pub fn gossip_retransimission(&self) -> u32 {
-        self.gossip_retransimission
+    pub fn gossip_retransmission(&self) -> u32 {
+        self.gossip_retransmission
     }
 
     /// The maximum number of new peers to graft to during opportunistic grafting. The default is 2.
@@ -388,7 +388,10 @@ impl Default for Config {
         // use ConfigBuilder to also validate defaults
         ConfigBuilder::default()
             .build()
-            .expect("Default config parameters should be valid parameters")
+            .unwrap_or_else(|e| {
+                // This is a critical error that should never happen under normal conditions
+                panic!("Default config parameters are invalid: {}", e)
+            })
     }
 }
 
@@ -420,16 +423,21 @@ impl Default for ConfigBuilder {
                 message_id_fn: Arc::new(|message| {
                     // default message id is: source + sequence number
                     // NOTE: If either the peer_id or source is not provided, we set to 0;
-                    let mut source_string = if let Some(peer_id) = message.source.as_ref() {
-                        peer_id.to_base58()
-                    } else {
-                        PeerId::from_bytes(&[0, 1, 0])
-                            .expect("Valid peer id")
-                            .to_base58()
-                    };
-                    source_string
-                        .push_str(&message.sequence_number.unwrap_or_default().to_string());
-                    MessageId::from(source_string)
+                    let source_string = message.source.as_ref()
+                        .map_or_else(
+                            || {
+                                // Create a safe fallback peer id
+                                match PeerId::from_bytes(&[0, 1, 0]) {
+                                    Ok(peer_id) => peer_id.to_base58(),
+                                    Err(_) => "default_peer_id".to_string()
+                                }
+                            },
+                            |peer_id| peer_id.to_base58()
+                        );
+                    
+                    let mut result = source_string;
+                    result.push_str(&message.sequence_number.unwrap_or_default().to_string());
+                    MessageId::from(result)
                 }),
                 allow_self_origin: false,
                 do_px: false,
@@ -442,7 +450,7 @@ impl Default for ConfigBuilder {
                 mesh_outbound_min: 2,
                 opportunistic_graft_ticks: 60,
                 opportunistic_graft_peers: 2,
-                gossip_retransimission: 3,
+                gossip_retransmission: 3,
                 max_messages_per_rpc: None,
                 max_ihave_length: 5000,
                 max_ihave_messages: 10,
@@ -695,9 +703,9 @@ impl ConfigBuilder {
         self
     }
 
-    /// Number of heartbeat slots considered as slack for backoffs. This gurantees that we wait
+    /// Number of heartbeat slots considered as slack for backoffs. This guarantees that we wait
     /// at least backoff_slack heartbeats after a backoff is over before we try to graft. This
-    /// solves problems occuring through high latencies. In particular if
+    /// solves problems occurring through high latencies. In particular if
     /// `backoff_slack * heartbeat_interval` is longer than any latencies between processing
     /// prunes on our side and processing prunes on the receiving side this guarantees that we
     /// get not punished for too early grafting. The default is 1.
@@ -742,8 +750,8 @@ impl ConfigBuilder {
     /// Controls how many times we will allow a peer to request the same message id through IWANT
     /// gossip before we start ignoring them. This is designed to prevent peers from spamming us
     /// with requests and wasting our resources.
-    pub fn gossip_retransimission(&mut self, gossip_retransimission: u32) -> &mut Self {
-        self.config.gossip_retransimission = gossip_retransimission;
+    pub fn gossip_retransmission(&mut self, gossip_retransmission: u32) -> &mut Self {
+        self.config.gossip_retransmission = gossip_retransmission;
         self
     }
 

@@ -226,9 +226,19 @@ mod tests {
     fn gen_testm(x: u64, topic: TopicHash) -> (MessageId, RawMessage) {
         let default_id = |message: &RawMessage| {
             // default message id is: source + sequence number
-            let mut source_string = message.source.as_ref().unwrap().to_base58();
-            source_string.push_str(&message.sequence_number.unwrap().to_string());
-            MessageId::from(source_string)
+            let source_string = message.source.as_ref()
+                .map_or_else(
+                    || PeerId::from_bytes(&[0, 1, 0])
+                        .expect("Valid peer id")
+                        .to_base58(),
+                    |peer_id| peer_id.to_base58()
+                );
+            
+            let seq_string = message.sequence_number.unwrap_or_default().to_string();
+            
+            let mut combined = source_string;
+            combined.push_str(&seq_string);
+            MessageId::from(combined)
         };
         let u8x: u8 = x as u8;
         let source = Some(PeerId::random());
