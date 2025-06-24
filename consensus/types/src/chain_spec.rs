@@ -287,8 +287,8 @@ impl ChainSpec {
                 .compute_fork_digest(genesis_validators_root, slot.epoch(E::slots_per_epoch())),
             next_fork_version: self.next_fork_version::<E>(slot),
             next_fork_epoch: self
-                .next_fork_epoch::<E>(slot)
-                .map(|(_, e)| e)
+                .next_digest_epoch(slot.epoch(E::slots_per_epoch()))
+                .map(|e| e)
                 .unwrap_or(self.far_future_epoch),
         }
     }
