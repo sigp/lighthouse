@@ -37,7 +37,6 @@ use std::fmt;
 use std::future::Future;
 use std::path::PathBuf;
 use std::time::Duration;
-use tracing::info;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -2213,8 +2212,6 @@ impl BeaconNodeHttpClient {
             path.query_pairs_mut()
                 .append_pair("graffiti_policy", "AppendClientVersions");
         }
-        // TODO, will be removed later
-        info!(url = %path, "Complete query url");
 
         Ok(path)
     }
