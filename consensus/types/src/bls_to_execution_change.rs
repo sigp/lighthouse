@@ -19,6 +19,7 @@ use tree_hash_derive::TreeHash;
     TreeHash,
     TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct BlsToExecutionChange {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,

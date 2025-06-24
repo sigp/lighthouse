@@ -22,7 +22,7 @@ pub const LOCK_FILE: &str = ".lock";
 ///
 /// - Control over the `.lock` file to prevent concurrent access.
 /// - A `next_validator` function which wraps `Wallet::next_validator`, ensuring that the wallet is
-///     persisted to disk (as JSON) between each consecutive call.
+///   persisted to disk (as JSON) between each consecutive call.
 pub struct LockedWallet {
     wallet_dir: PathBuf,
     wallet: Wallet,

@@ -27,14 +27,14 @@ excluded_paths = [
     "tests/.*/.*/ssz_static/PowBlock/",
     # We no longer implement merge logic.
     "tests/.*/bellatrix/fork_choice/on_merge_block",
-    # light_client
-    "tests/.*/.*/light_client/single_merkle_proof",
+    # Light client sync is not implemented
     "tests/.*/.*/light_client/sync",
-    "tests/.*/electra/light_client/update_ranking",
     # LightClientStore
     "tests/.*/.*/ssz_static/LightClientStore",
     # LightClientSnapshot
     "tests/.*/.*/ssz_static/LightClientSnapshot",
+    # LightClientDataCollection
+    "tests/minimal/.*/light_client/data_collection",
     # One of the EF researchers likes to pack the tarballs on a Mac
     ".*\\.DS_Store.*",
     # More Mac weirdness.
@@ -45,9 +45,13 @@ excluded_paths = [
     "bls12-381-tests/deserialization_G1",
     "bls12-381-tests/deserialization_G2",
     "bls12-381-tests/hash_to_G2",
-    "tests/.*/eip6110",
-    "tests/.*/whisk",
-    "tests/.*/eip7594",
+    "tests/.*/eip7732",
+    "tests/.*/eip7805",
+    # Ignore MatrixEntry SSZ tests for now.
+    "tests/.*/fulu/ssz_static/MatrixEntry/.*",
+    # Ignore full epoch tests for now (just test the sub-transitions).
+    "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
+    "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
 ]
 
 

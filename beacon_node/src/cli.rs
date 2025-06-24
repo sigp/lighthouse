@@ -19,15 +19,6 @@ pub fn cli_app() -> Command {
          * Configuration directory locations.
          */
         .arg(
-            Arg::new("help")
-            .long("help")
-            .short('h')
-            .help("Prints help information")
-            .action(ArgAction::HelpLong)
-            .display_order(0)
-            .help_heading(FLAG_HEADER)
-        )
-        .arg(
             Arg::new("network-dir")
                 .long("network-dir")
                 .value_name("DIR")
@@ -78,6 +69,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            // TODO(das): remove this before PeerDAS release
+            Arg::new("advertise-false-custody-group-count")
+                .long("advertise-false-custody-group-count")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("Advertises a false CGC for testing PeerDAS. Do NOT use in production.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("enable-sampling")
                 .long("enable-sampling")
                 .action(ArgAction::SetTrue)
@@ -85,6 +86,24 @@ pub fn cli_app() -> Command {
                 .help("Enable peer sampling on data columns. Disabled by default.")
                 .hide(true)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("blob-publication-batches")
+                .long("blob-publication-batches")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("Number of batches that the node splits blobs or data columns into during publication. This doesn't apply if the node is the block proposer. Used in PeerDAS only.")
+                .display_order(0)
+                .hide(true)
+        )
+        .arg(
+            Arg::new("blob-publication-batch-interval")
+                .long("blob-publication-batch-interval")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("The delay in milliseconds applied by the node between sending each blob or data column batch. This doesn't apply if the node is the block proposer.")
+                .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("subscribe-all-subnets")
@@ -138,16 +157,16 @@ pub fn cli_app() -> Command {
                 .long("listen-address")
                 .value_name("ADDRESS")
                 .help("The address lighthouse will listen for UDP and TCP connections. To listen \
-                      over IpV4 and IpV6 set this flag twice with the different values.\n\
+                      over IPv4 and IPv6 set this flag twice with the different values.\n\
                       Examples:\n\
                       - --listen-address '0.0.0.0' will listen over IPv4.\n\
                       - --listen-address '::' will listen over IPv6.\n\
                       - --listen-address '0.0.0.0' --listen-address '::' will listen over both \
                       IPv4 and IPv6. The order of the given addresses is not relevant. However, \
-                      multiple IPv4, or multiple IPv6 addresses will not be accepted.")
+                      multiple IPv4, or multiple IPv6 addresses will not be accepted. \
+                      If omitted, Lighthouse will listen on all interfaces, for both IPv4 and IPv6.")
                 .action(ArgAction::Append)
                 .num_args(0..=2)
-                .default_value("0.0.0.0")
                 .display_order(0)
         )
         .arg(
@@ -167,8 +186,7 @@ pub fn cli_app() -> Command {
                 .long("port6")
                 .value_name("PORT")
                 .help("The TCP/UDP ports to listen on over IPv6 when listening over both IPv4 and \
-                      IPv6. Defaults to 9090 when required. The Quic UDP port will be set to this value + 1.")
-                .default_value("9090")
+                      IPv6. Defaults to --port. The Quic UDP port will be set to this value + 1.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -675,8 +693,7 @@ pub fn cli_app() -> Command {
             Arg::new("staking")
                 .long("staking")
                 .help("Standard option for a staking beacon node. This will enable the HTTP server \
-                       on localhost:5052 and import deposit logs from the execution node. This is \
-                       equivalent to `--http` on merge-ready networks, or `--http --eth1` pre-merge")
+                       on localhost:5052 and import deposit logs from the execution node.")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
@@ -686,61 +703,54 @@ pub fn cli_app() -> Command {
          * Eth1 Integration
          */
         .arg(
-            Arg::new("eth1")
-                .long("eth1")
-                .help("If present the node will connect to an eth1 node. This is required for \
-                       block production, you must use this flag if you wish to serve a validator.")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("dummy-eth1")
-                .long("dummy-eth1")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("eth1")
-                .help("If present, uses an eth1 backend that generates static dummy data.\
-                      Identical to the method used at the 2019 Canada interop.")
-                .display_order(0)
-        )
-        .arg(
             Arg::new("eth1-purge-cache")
                 .long("eth1-purge-cache")
                 .value_name("PURGE-CACHE")
-                .help("Purges the eth1 block and deposit caches")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("eth1-blocks-per-log-query")
                 .long("eth1-blocks-per-log-query")
                 .value_name("BLOCKS")
-                .help("Specifies the number of blocks that a deposit log query should span. \
-                    This will reduce the size of responses from the Eth1 endpoint.")
-                .default_value("1000")
+                .help("DEPRECATED")
                 .action(ArgAction::Set)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("eth1-cache-follow-distance")
                 .long("eth1-cache-follow-distance")
                 .value_name("BLOCKS")
-                .help("Specifies the distance between the Eth1 chain head and the last block which \
-                       should be imported into the cache. Setting this value lower can help \
-                       compensate for irregular Proof-of-Work block times, but setting it too low \
-                       can make the node vulnerable to re-orgs.")
+                .help("DEPRECATED")
                 .action(ArgAction::Set)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
-                .help("Specifies how often a freezer DB restore point should be stored. \
-                       Cannot be changed after initialization. \
-                       [default: 8192 (mainnet) or 64 (minimal)]")
+                .help("DEPRECATED. This flag has no effect.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hierarchy-exponents")
+                .long("hierarchy-exponents")
+                .value_name("EXPONENTS")
+                .help("Specifies the frequency for storing full state snapshots and hierarchical \
+                        diffs in the freezer DB. Accepts a comma-separated list of ascending \
+                        exponents. Each exponent defines an interval for storing diffs to the layer \
+                        above. The last exponent defines the interval for full snapshots. \
+                        For example, a config of '4,8,12' would store a full snapshot every \
+                        4096 (2^12) slots, first-level diffs every 256 (2^8) slots, and second-level \
+                        diffs every 16 (2^4) slots. \
+                        Cannot be changed after initialization. \
+                        [default: 5,9,11,13,16,18,21]")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -751,6 +761,15 @@ pub fn cli_app() -> Command {
                 .help("The number of epochs to wait between running the migration of data from the \
                        hot DB to the cold DB. Less frequent runs can be useful for minimizing disk \
                        writes")
+                .default_value("1")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("state-cache-headroom")
+                .long("state-cache-headroom")
+                .value_name("N")
+                .help("Minimum number of states to cull from the state cache when it gets full")
                 .default_value("1")
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -768,7 +787,32 @@ pub fn cli_app() -> Command {
             Arg::new("historic-state-cache-size")
                 .long("historic-state-cache-size")
                 .value_name("SIZE")
-                .help("Specifies how many states from the freezer database should cache in memory")
+                .help("Specifies how many states from the freezer database should be cached in \
+                       memory")
+                .default_value("1")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hdiff-buffer-cache-size")
+                .long("hdiff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("Number of cold hierarchical diff (hdiff) buffers to cache in memory. Each \
+                       buffer is around the size of a BeaconState so you should be cautious about \
+                       setting this value too high. This flag is irrelevant for most nodes, which \
+                       run with state pruning enabled.")
+                .default_value("16")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hot-hdiff-buffer-cache-size")
+                .long("hot-hdiff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("Number of hot hierarchical diff (hdiff) buffers to cache in memory. Each \
+                       buffer is around the size of a BeaconState so you should be cautious about \
+                       setting this value too high. Setting this value higher can reduce the time \
+                       taken to store new states on disk at the cost of higher memory usage.")
                 .default_value("1")
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -778,7 +822,7 @@ pub fn cli_app() -> Command {
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the state cache")
-                .default_value("128")
+                .default_value("32")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -975,7 +1019,7 @@ pub fn cli_app() -> Command {
                        database when they are older than the data availability boundary \
                        relative to the current epoch.")
                 .action(ArgAction::Set)
-                .default_value("1")
+                .default_value("256")
                 .display_order(0)
         )
         .arg(
@@ -988,7 +1032,6 @@ pub fn cli_app() -> Command {
                 .default_value("0")
                 .display_order(0)
         )
-
         /*
          * Misc.
          */
@@ -1428,6 +1471,15 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("builder-disable-ssz")
+                .long("builder-disable-ssz")
+                .value_name("BOOLEAN")
+                .help("Disables sending requests using SSZ over the builder API.")
+                .requires("builder")
+                .action(ArgAction::SetTrue)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("reset-payload-statuses")
                 .long("reset-payload-statuses")
                 .help("When present, Lighthouse will forget the payload statuses of any \
@@ -1440,12 +1492,12 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("disable-deposit-contract-sync")
                 .long("disable-deposit-contract-sync")
-                .help("Explicitly disables syncing of deposit logs from the execution node. \
-                      This overrides any previous option that depends on it. \
-                      Useful if you intend to run a non-validating beacon node.")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
+                .conflicts_with("staking")
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("disable-optimistic-finalized-sync")
@@ -1460,10 +1512,32 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("light-client-server")
                 .long("light-client-server")
-                .help("Act as a full node supporting light clients on the p2p network \
-                       [experimental]")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
+
                 .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-light-client-server")
+                .long("disable-light-client-server")
+                .help("Disables light client support on the p2p network")
+                .action(ArgAction::SetTrue)
+
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("sync-tolerance-epochs")
+                .long("sync-tolerance-epochs")
+                .help("Overrides the default SYNC_TOLERANCE_EPOCHS. This flag is not intended \
+                    for production and MUST only be used in TESTING only. This is primarily used \
+                    for testing range sync, to prevent the node from producing a block before the \
+                    node is synced with the network which may result in the node getting \
+                    disconnected from peers immediately.")
+                .hide(true)
+                .requires("enable_http")
+                .action(ArgAction::Set)
                 .display_order(0)
         )
         .arg(
@@ -1546,6 +1620,48 @@ pub fn cli_app() -> Command {
                 .default_value("64")
                 .action(ArgAction::Set)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("beacon-node-backend")
+                .long("beacon-node-backend")
+                .value_name("DATABASE")
+                .value_parser(store::config::DatabaseBackend::VARIANTS.to_vec())
+                .help("Set the database backend to be used by the beacon node.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("delay-block-publishing")
+                .long("delay-block-publishing")
+                .value_name("SECONDS")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY: Artificially delay block publishing by the specified number of seconds. \
+                        This only works for if `BroadcastValidation::Gossip` is used (default). \
+                        DO NOT USE IN PRODUCTION.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("delay-data-column-publishing")
+                .long("delay-data-column-publishing")
+                .value_name("SECONDS")
+                .action(ArgAction::Set)
+                .help_heading(FLAG_HEADER)
+                .help("TESTING ONLY: Artificially delay data column publishing by the specified number of seconds. \
+                       Limitation: If `delay-block-publishing` is also used, data columns will be delayed for a \
+                       minimum of `delay-block-publishing` seconds.
+                       DO NOT USE IN PRODUCTION.")
+                .hide(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("invalid-block-roots")
+                .long("invalid-block-roots")
+                .value_name("FILE")
+                .help("Path to a comma separated file containing block roots that should be treated as invalid during block verification.")
+                .action(ArgAction::Set)
+                .hide(true)
         )
         .group(ArgGroup::new("enable_http").args(["http", "gui", "staking"]).multiple(true))
 }

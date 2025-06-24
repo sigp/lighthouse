@@ -11,6 +11,9 @@ Options:
       --auto-compact-db <auto-compact-db>
           Enable or disable automatic compaction of the database on
           finalization. [default: true]
+      --beacon-node-backend <DATABASE>
+          Set the database backend to be used by the beacon node. [possible
+          values: leveldb]
       --blob-prune-margin-epochs <EPOCHS>
           The margin for blob pruning in epochs. The oldest blobs are pruned up
           until data_availability_boundary - blob_prune_margin_epochs. [default:
@@ -25,6 +28,8 @@ Options:
           network. Multiaddr is also supported.
       --builder <builder>
           The URL of a service compatible with the MEV-boost API.
+      --builder-disable-ssz
+          Disables sending requests using SSZ over the builder API.
       --builder-fallback-epochs-since-finalization <builder-fallback-epochs-since-finalization>
           If this node is proposing a block and the chain has not finalized
           within this number of epochs, it will NOT query any connected
@@ -73,8 +78,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --discovery-port <PORT>
           The UDP port that discovery will listen on. Defaults to `port`
       --discovery-port6 <PORT>
@@ -113,20 +117,11 @@ Options:
       --epochs-per-blob-prune <EPOCHS>
           The epoch interval with which to prune blobs from Lighthouse's
           database when they are older than the data availability boundary
-          relative to the current epoch. [default: 1]
+          relative to the current epoch. [default: 256]
       --epochs-per-migration <N>
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for
           minimizing disk writes [default: 1]
-      --eth1-blocks-per-log-query <BLOCKS>
-          Specifies the number of blocks that a deposit log query should span.
-          This will reduce the size of responses from the Eth1 endpoint.
-          [default: 1000]
-      --eth1-cache-follow-distance <BLOCKS>
-          Specifies the distance between the Eth1 chain head and the last block
-          which should be imported into the cache. Setting this value lower can
-          help compensate for irregular Proof-of-Work block times, but setting
-          it too low can make the node vulnerable to re-orgs.
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
@@ -162,13 +157,33 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
+      --hdiff-buffer-cache-size <SIZE>
+          Number of cold hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. This flag is irrelevant
+          for most nodes, which run with state pruning enabled. [default: 16]
+      --hierarchy-exponents <EXPONENTS>
+          Specifies the frequency for storing full state snapshots and
+          hierarchical diffs in the freezer DB. Accepts a comma-separated list
+          of ascending exponents. Each exponent defines an interval for storing
+          diffs to the layer above. The last exponent defines the interval for
+          full snapshots. For example, a config of '4,8,12' would store a full
+          snapshot every 4096 (2^12) slots, first-level diffs every 256 (2^8)
+          slots, and second-level diffs every 16 (2^4) slots. Cannot be changed
+          after initialization. [default: 5,9,11,13,16,18,21]
       --historic-state-cache-size <SIZE>
-          Specifies how many states from the freezer database should cache in
-          memory [default: 1]
+          Specifies how many states from the freezer database should be cached
+          in memory [default: 1]
+      --hot-hdiff-buffer-cache-size <SIZE>
+          Number of hot hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. Setting this value higher
+          can reduce the time taken to store new states on disk at the cost of
+          higher memory usage. [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>
@@ -213,7 +228,7 @@ Options:
           peer without an ENR.
       --listen-address [<ADDRESS>...]
           The address lighthouse will listen for UDP and TCP connections. To
-          listen over IpV4 and IpV6 set this flag twice with the different
+          listen over IPv4 and IPv6 set this flag twice with the different
           values.
           Examples:
           - --listen-address '0.0.0.0' will listen over IPv4.
@@ -221,19 +236,16 @@ Options:
           - --listen-address '0.0.0.0' --listen-address '::' will listen over
           both IPv4 and IPv6. The order of the given addresses is not relevant.
           However, multiple IPv4, or multiple IPv6 addresses will not be
-          accepted. [default: 0.0.0.0]
+          accepted. If omitted, Lighthouse will listen on all interfaces, for
+          both IPv4 and IPv6.
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -270,7 +282,7 @@ Options:
           monitoring-endpoint. Default: 60s
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
       --network-dir <DIR>
           Data directory for network keys. Defaults to network/ inside the
           beacon node dir.
@@ -284,8 +296,8 @@ Options:
           [default: 9000]
       --port6 <PORT>
           The TCP/UDP ports to listen on over IPv6 when listening over both IPv4
-          and IPv6. Defaults to 9090 when required. The Quic UDP port will be
-          set to this value + 1. [default: 9090]
+          and IPv6. Defaults to --port. The Quic UDP port will be set to this
+          value + 1.
       --prepare-payload-lookahead <MILLISECONDS>
           The time before the start of a proposal slot at which payload
           attributes should be sent. Low values are useful for execution nodes
@@ -364,11 +376,12 @@ Options:
       --slasher-validator-chunk-size <NUM_VALIDATORS>
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
-          Specifies how often a freezer DB restore point should be stored.
-          Cannot be changed after initialization. [default: 8192 (mainnet) or 64
-          (minimal)]
+          DEPRECATED. This flag has no effect.
+      --state-cache-headroom <N>
+          Minimum number of states to cull from the state cache when it gets
+          full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 128]
+          Specifies the size of the state cache [default: 32]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the
@@ -432,10 +445,6 @@ Flags:
           resource contention which degrades staking performance. Stakers should
           generally choose to avoid this flag since backfill sync is not
           required for staking.
-      --disable-deposit-contract-sync
-          Explicitly disables syncing of deposit logs from the execution node.
-          This overrides any previous option that depends on it. Useful if you
-          intend to run a non-validating beacon node.
       --disable-enr-auto-update
           Discovery automatically updates the nodes local ENR with an external
           IP address and port as seen by other peers on the network. This
@@ -443,6 +452,8 @@ Flags:
           boot.
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
+      --disable-light-client-server
+          Disables light client support on the p2p network
       --disable-log-timestamp
           If present, do not include timestamps in logging output.
       --disable-malloc-tuning
@@ -468,9 +479,6 @@ Flags:
       --disable-upnp
           Disables UPnP support. Setting this will prevent Lighthouse from
           attempting to automatically establish external port mappings.
-      --dummy-eth1
-          If present, uses an eth1 backend that generates static dummy
-          data.Identical to the method used at the 2019 Canada interop.
   -e, --enr-match
           Sets the local ENR IP address and port to match those set for
           lighthouse. Specifically, the IP address will be the value of
@@ -478,12 +486,6 @@ Flags:
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
-      --eth1
-          If present the node will connect to an eth1 node. This is required for
-          block production, you must use this flag if you wish to serve a
-          validator.
-      --eth1-purge-cache
-          Purges the eth1 block and deposit caches
       --genesis-backfill
           Attempts to download blocks all the way back to genesis when
           checkpoint syncing.
@@ -503,10 +505,14 @@ Flags:
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
       --light-client-server
-          Act as a full node supporting light clients on the p2p network
-          [experimental]
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+          DEPRECATED
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.
@@ -549,8 +555,7 @@ Flags:
       --staking
           Standard option for a staking beacon node. This will enable the HTTP
           server on localhost:5052 and import deposit logs from the execution
-          node. This is equivalent to `--http` on merge-ready networks, or
-          `--http --eth1` pre-merge
+          node.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
       --subscribe-all-subnets

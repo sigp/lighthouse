@@ -4,7 +4,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
     ChainConfig,
 };
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, Work, WorkEvent};
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
@@ -114,10 +114,10 @@ async fn state_by_root_pruned_from_fork_choice() {
             .unwrap()
             .unwrap();
 
-        assert!(response.metadata.finalized.unwrap());
-        assert!(!response.metadata.execution_optimistic.unwrap());
+        assert!(response.metadata().finalized.unwrap());
+        assert!(!response.metadata().execution_optimistic.unwrap());
 
-        let mut state = response.data;
+        let mut state = response.into_data();
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
 }
@@ -139,7 +139,7 @@ impl ForkChoiceUpdates {
     fn insert(&mut self, update: ForkChoiceUpdateMetadata) {
         self.updates
             .entry(update.state.head_block_hash)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(update);
     }
 
@@ -161,7 +161,7 @@ impl ForkChoiceUpdates {
                 update
                     .payload_attributes
                     .as_ref()
-                    .map_or(false, |payload_attributes| {
+                    .is_some_and(|payload_attributes| {
                         payload_attributes.timestamp() == proposal_timestamp
                     })
             })
@@ -447,9 +447,14 @@ pub async fn proposer_boost_re_org_test(
     // Send proposer preparation data for all validators.
     let proposer_preparation_data = all_validators
         .iter()
-        .map(|i| ProposerPreparationData {
-            validator_index: *i as u64,
-            fee_recipient: Address::from_low_u64_be(*i as u64),
+        .map(|i| {
+            (
+                ProposerPreparationData {
+                    validator_index: *i as u64,
+                    fee_recipient: Address::from_low_u64_be(*i as u64),
+                },
+                None,
+            )
         })
         .collect::<Vec<_>>();
     harness
@@ -459,7 +464,7 @@ pub async fn proposer_boost_re_org_test(
         .unwrap()
         .update_proposer_preparation(
             head_slot.epoch(E::slots_per_epoch()) + 1,
-            &proposer_preparation_data,
+            proposer_preparation_data.iter().map(|(a, b)| (a, b)),
         )
         .await;
 
@@ -533,7 +538,7 @@ pub async fn proposer_boost_re_org_test(
         slot_a,
         num_parent_votes,
     );
-    harness.process_attestations(block_a_parent_votes);
+    harness.process_attestations(block_a_parent_votes, &state_a);
 
     // Attest to block A during slot B.
     for _ in 0..parent_distance {
@@ -547,7 +552,7 @@ pub async fn proposer_boost_re_org_test(
         slot_b,
         num_empty_votes,
     );
-    harness.process_attestations(block_a_empty_votes);
+    harness.process_attestations(block_a_empty_votes, &state_a);
 
     let remaining_attesters = all_validators
         .iter()
@@ -580,7 +585,7 @@ pub async fn proposer_boost_re_org_test(
         slot_b,
         num_head_votes,
     );
-    harness.process_attestations(block_b_head_votes);
+    harness.process_attestations(block_b_head_votes, &state_b);
 
     let payload_lookahead = harness.chain.config.prepare_payload_lookahead;
     let fork_choice_lookahead = Duration::from_millis(500);
@@ -812,10 +817,10 @@ pub async fn fork_choice_before_proposal() {
         block_root_c,
         slot_c,
     );
-    harness.process_attestations(attestations_c);
+    harness.process_attestations(attestations_c, &state_c);
 
     // Apply the attestations to B, but don't re-run fork choice.
-    harness.process_attestations(attestations_b);
+    harness.process_attestations(attestations_b, &state_b);
 
     // Due to proposer boost, the head should be C during slot C.
     assert_eq!(
@@ -840,7 +845,7 @@ pub async fn fork_choice_before_proposal() {
         .get_validator_blocks::<E>(slot_d, &randao_reveal, None)
         .await
         .unwrap()
-        .data
+        .into_data()
         .deconstruct()
         .0;
 
@@ -885,27 +890,29 @@ async fn queue_attestations_from_http() {
     let pre_state = harness.get_current_state();
     let (block, post_state) = harness.make_block(pre_state, attestation_slot).await;
     let block_root = block.0.canonical_root();
+    let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
 
     // Make attestations to the block and POST them to the beacon node on a background thread.
-    let attestations = harness
-        .make_unaggregated_attestations(
-            &all_validators,
-            &post_state,
-            block.0.state_root(),
-            block_root.into(),
-            attestation_slot,
-        )
-        .into_iter()
-        .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
-        .collect::<Vec<_>>();
+    let attestation_future = {
+        let single_attestations = harness
+            .make_single_attestations(
+                &all_validators,
+                &post_state,
+                block.0.state_root(),
+                block_root.into(),
+                attestation_slot,
+            )
+            .into_iter()
+            .flat_map(|attestations| attestations.into_iter().map(|(att, _subnet)| att))
+            .collect::<Vec<_>>();
 
-    let fork_name = tester.harness.spec.fork_name_at_slot::<E>(attestation_slot);
-    let attestation_future = tokio::spawn(async move {
-        client
-            .post_beacon_pool_attestations_v2(&attestations, fork_name)
-            .await
-            .expect("attestations should be processed successfully")
-    });
+        tokio::spawn(async move {
+            client
+                .post_beacon_pool_attestations_v2::<E>(single_attestations, fork_name)
+                .await
+                .expect("attestations should be processed successfully")
+        })
+    };
 
     // In parallel, apply the block. We need to manually notify the reprocess queue, because the
     // `beacon_chain` does not know about the queue and will not update it for us.
@@ -916,14 +923,16 @@ async fn queue_attestations_from_http() {
         .unwrap();
     tester
         .ctx
-        .beacon_processor_reprocess_send
+        .beacon_processor_send
         .as_ref()
         .unwrap()
-        .send(ReprocessQueueMessage::BlockImported {
-            block_root,
-            parent_root,
+        .try_send(WorkEvent {
+            drop_during_sync: false,
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                block_root,
+                parent_root,
+            }),
         })
-        .await
         .unwrap();
 
     attestation_future.await.unwrap();

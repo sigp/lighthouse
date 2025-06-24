@@ -3,6 +3,7 @@ use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yam
 use ::fork_choice::{PayloadVerificationStatus, ProposerHeadError};
 use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
+use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
@@ -28,6 +29,9 @@ use types::{
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, ExecutionBlockHash, Hash256,
     IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
+
+// When set to true, cache any states fetched from the db.
+pub const CACHE_STATE_IN_TESTS: bool = true;
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
 #[serde(deny_unknown_fields)]
@@ -140,7 +144,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let description = path
             .iter()
-            .last()
+            .next_back()
             .expect("path must be non-empty")
             .to_str()
             .expect("path must be valid OsStr")
@@ -371,7 +375,6 @@ impl<E: EthSpec> Tester<E> {
         }
 
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .logger(logging::test_logger())
             .spec(spec.clone())
             .keypairs(vec![])
             .chain_config(ChainConfig {
@@ -505,8 +508,8 @@ impl<E: EthSpec> Tester<E> {
                         }
                         Err(_) => GossipVerifiedBlob::__assumed_valid(blob_sidecar),
                     };
-                let result = self
-                    .block_on_dangerous(self.harness.chain.process_gossip_blob(blob, || Ok(())))?;
+                let result =
+                    self.block_on_dangerous(self.harness.chain.process_gossip_blob(blob))?;
                 if valid {
                     assert!(result.is_ok());
                 }
@@ -517,13 +520,13 @@ impl<E: EthSpec> Tester<E> {
         let result: Result<Result<Hash256, ()>, _> = self
             .block_on_dangerous(self.harness.chain.process_block(
                 block_root,
-                block.clone(),
+                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
             ))?
             .map(|avail: AvailabilityProcessingStatus| avail.try_into());
-        let success = blob_success && result.as_ref().map_or(false, |inner| inner.is_ok());
+        let success = blob_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
         if success != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -546,10 +549,15 @@ impl<E: EthSpec> Tester<E> {
                 .unwrap()
             {
                 let parent_state_root = parent_block.state_root();
+
                 let mut state = self
                     .harness
                     .chain
-                    .get_state(&parent_state_root, Some(parent_block.slot()))
+                    .get_state(
+                        &parent_state_root,
+                        Some(parent_block.slot()),
+                        CACHE_STATE_IN_TESTS,
+                    )
                     .unwrap()
                     .unwrap();
 
@@ -809,10 +817,13 @@ impl<E: EthSpec> Tester<E> {
             if expected_should_override_fcu.validator_is_connected {
                 el.update_proposer_preparation(
                     next_slot_epoch,
-                    &[ProposerPreparationData {
-                        validator_index: dbg!(proposer_index) as u64,
-                        fee_recipient: Default::default(),
-                    }],
+                    [(
+                        &ProposerPreparationData {
+                            validator_index: dbg!(proposer_index) as u64,
+                            fee_recipient: Default::default(),
+                        },
+                        &None,
+                    )],
                 )
                 .await;
             } else {
@@ -871,7 +882,7 @@ pub struct ManuallyVerifiedAttestation<'a, T: BeaconChainTypes> {
     indexed_attestation: IndexedAttestation<T::EthSpec>,
 }
 
-impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'a, T> {
+impl<T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'_, T> {
     fn attestation(&self) -> AttestationRef<T::EthSpec> {
         self.attestation.to_ref()
     }

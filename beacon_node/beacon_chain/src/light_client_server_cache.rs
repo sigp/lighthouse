@@ -2,12 +2,12 @@ use crate::errors::BeaconChainError;
 use crate::{metrics, BeaconChainTypes, BeaconStore};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
-use slog::{debug, Logger};
 use ssz::Decode;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use store::DBColumn;
 use store::KeyValueStore;
+use tracing::debug;
 use tree_hash::TreeHash;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
@@ -82,9 +82,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         block_slot: Slot,
         block_parent_root: &Hash256,
         sync_aggregate: &SyncAggregate<T::EthSpec>,
-        log: &Logger,
         chain_spec: &ChainSpec,
     ) -> Result<(), BeaconChainError> {
+        metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PROCESSING_REQUESTS);
         let _timer =
             metrics::start_timer(&metrics::LIGHT_CLIENT_SERVER_CACHE_RECOMPUTE_UPDATES_TIMES);
 
@@ -169,9 +169,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                 )?);
             } else {
                 debug!(
-                    log,
-                    "Finalized block not available in store for light_client server";
-                    "finalized_block_root" => format!("{}", cached_parts.finalized_block_root),
+                    finalized_block_root = %cached_parts.finalized_block_root,
+                    "Finalized block not available in store for light_client server"
                 );
             }
         }
@@ -205,6 +204,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             *self.latest_light_client_update.write() = Some(new_light_client_update);
         }
 
+        metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PROCESSING_SUCCESSES);
         Ok(())
     }
 
@@ -280,6 +280,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             let (sync_committee_bytes, light_client_update_bytes) = res?;
             let sync_committee_period = u64::from_ssz_bytes(&sync_committee_bytes)
                 .map_err(store::errors::Error::SszDecodeError)?;
+
+            if sync_committee_period >= start_period + count {
+                break;
+            }
+
             let epoch = sync_committee_period
                 .safe_mul(chain_spec.epochs_per_sync_committee_period.into())?;
 
@@ -290,10 +295,6 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
                     .map_err(store::errors::Error::SszDecodeError)?;
 
             light_client_updates.push(light_client_update);
-
-            if sync_committee_period >= start_period + count {
-                break;
-            }
         }
         Ok(light_client_updates)
     }
@@ -316,8 +317,11 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         metrics::inc_counter(&metrics::LIGHT_CLIENT_SERVER_CACHE_PREV_BLOCK_CACHE_MISS);
 
         // Compute the value, handling potential errors.
+        // This state should already be cached. By electing not to cache it here
+        // we remove any chance of the light client server from affecting the state cache.
+        // We'd like the light client server to be as minimally invasive as possible.
         let mut state = store
-            .get_state(block_state_root, Some(block_slot))?
+            .get_state(block_state_root, Some(block_slot), false)?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", block_state_root))
             })?;
@@ -417,18 +421,13 @@ struct LightClientCachedData<E: EthSpec> {
 
 impl<E: EthSpec> LightClientCachedData<E> {
     fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
-        let (finality_branch, next_sync_committee_branch, current_sync_committee_branch) = (
-            state.compute_finalized_root_proof()?,
-            state.compute_current_sync_committee_proof()?,
-            state.compute_next_sync_committee_proof()?,
-        );
         Ok(Self {
             finalized_checkpoint: state.finalized_checkpoint(),
-            finality_branch,
+            finality_branch: state.compute_finalized_root_proof()?,
             next_sync_committee: state.next_sync_committee()?.clone(),
             current_sync_committee: state.current_sync_committee()?.clone(),
-            next_sync_committee_branch,
-            current_sync_committee_branch,
+            next_sync_committee_branch: state.compute_next_sync_committee_proof()?,
+            current_sync_committee_branch: state.compute_current_sync_committee_proof()?,
             finalized_block_root: state.finalized_checkpoint().root,
         })
     }

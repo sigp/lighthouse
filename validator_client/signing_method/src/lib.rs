@@ -12,7 +12,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::*;
 use url::Url;
-use web3signer::{ForkInfo, SigningRequest, SigningResponse};
+use web3signer::{ForkInfo, MessageType, SigningRequest, SigningResponse};
 
 pub use web3signer::Web3SignerObject;
 
@@ -49,7 +49,7 @@ pub enum SignableMessage<'a, E: EthSpec, Payload: AbstractExecPayload<E> = FullP
     VoluntaryExit(&'a VoluntaryExit),
 }
 
-impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'a, E, Payload> {
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignableMessage<'_, E, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -152,8 +152,13 @@ impl SigningMethod {
             genesis_validators_root,
         });
 
-        self.get_signature_from_root(signable_message, signing_root, executor, fork_info)
-            .await
+        self.get_signature_from_root::<E, Payload>(
+            signable_message,
+            signing_root,
+            executor,
+            fork_info,
+        )
+        .await
     }
 
     pub async fn get_signature_from_root<E: EthSpec, Payload: AbstractExecPayload<E>>(
@@ -227,11 +232,7 @@ impl SigningMethod {
 
                 // Determine the Web3Signer message type.
                 let message_type = object.message_type();
-
-                if matches!(
-                    object,
-                    Web3SignerObject::Deposit { .. } | Web3SignerObject::ValidatorRegistration(_)
-                ) && fork_info.is_some()
+                if matches!(message_type, MessageType::ValidatorRegistration) && fork_info.is_some()
                 {
                     return Err(Error::GenesisForkVersionRequired);
                 }

@@ -1,6 +1,6 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -8,7 +8,7 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(
         derive(
             Default,
@@ -25,7 +25,8 @@ use tree_hash_derive::TreeHash;
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec")
+        arbitrary(bound = "E: EthSpec"),
+        context_deserialize(ForkName),
     ),
     ref_attributes(
         derive(PartialEq, TreeHash, Debug),
@@ -78,12 +79,12 @@ pub struct ExecutionPayloadHeader<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[superstruct(getter(copy))]
     pub transactions_root: Hash256,
-    #[superstruct(only(Capella, Deneb, Electra), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu), partial_getter(copy))]
     pub withdrawals_root: Hash256,
-    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
 }
@@ -108,18 +109,18 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             ForkName::Electra => {
                 ExecutionPayloadHeaderElectra::from_ssz_bytes(bytes).map(Self::Electra)
             }
+            ForkName::Fulu => ExecutionPayloadHeaderFulu::from_ssz_bytes(bytes).map(Self::Fulu),
         }
     }
 
     #[allow(clippy::arithmetic_side_effects)]
     pub fn ssz_max_var_len_for_fork(fork_name: ForkName) -> usize {
-        // Matching here in case variable fields are added in future forks.
-        match fork_name {
-            ForkName::Base | ForkName::Altair => 0,
-            ForkName::Bellatrix | ForkName::Capella | ForkName::Deneb | ForkName::Electra => {
-                // Max size of variable length `extra_data` field
-                E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
-            }
+        // TODO(newfork): Add a new case here if there are new variable fields
+        if fork_name.bellatrix_enabled() {
+            // Max size of variable length `extra_data` field
+            E::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len()
+        } else {
+            0
         }
     }
 
@@ -129,6 +130,7 @@ impl<E: EthSpec> ExecutionPayloadHeader<E> {
             ExecutionPayloadHeader::Capella(_) => ForkName::Capella,
             ExecutionPayloadHeader::Deneb(_) => ForkName::Deneb,
             ExecutionPayloadHeader::Electra(_) => ForkName::Electra,
+            ExecutionPayloadHeader::Fulu(_) => ForkName::Fulu,
         }
     }
 }
@@ -191,6 +193,30 @@ impl<E: EthSpec> ExecutionPayloadHeaderCapella<E> {
 impl<E: EthSpec> ExecutionPayloadHeaderDeneb<E> {
     pub fn upgrade_to_electra(&self) -> ExecutionPayloadHeaderElectra<E> {
         ExecutionPayloadHeaderElectra {
+            parent_hash: self.parent_hash,
+            fee_recipient: self.fee_recipient,
+            state_root: self.state_root,
+            receipts_root: self.receipts_root,
+            logs_bloom: self.logs_bloom.clone(),
+            prev_randao: self.prev_randao,
+            block_number: self.block_number,
+            gas_limit: self.gas_limit,
+            gas_used: self.gas_used,
+            timestamp: self.timestamp,
+            extra_data: self.extra_data.clone(),
+            base_fee_per_gas: self.base_fee_per_gas,
+            block_hash: self.block_hash,
+            transactions_root: self.transactions_root,
+            withdrawals_root: self.withdrawals_root,
+            blob_gas_used: self.blob_gas_used,
+            excess_blob_gas: self.excess_blob_gas,
+        }
+    }
+}
+
+impl<E: EthSpec> ExecutionPayloadHeaderElectra<E> {
+    pub fn upgrade_to_fulu(&self) -> ExecutionPayloadHeaderFulu<E> {
+        ExecutionPayloadHeaderFulu {
             parent_hash: self.parent_hash,
             fee_recipient: self.fee_recipient,
             state_root: self.state_root,
@@ -303,6 +329,30 @@ impl<'a, E: EthSpec> From<&'a ExecutionPayloadElectra<E>> for ExecutionPayloadHe
     }
 }
 
+impl<'a, E: EthSpec> From<&'a ExecutionPayloadFulu<E>> for ExecutionPayloadHeaderFulu<E> {
+    fn from(payload: &'a ExecutionPayloadFulu<E>) -> Self {
+        Self {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom.clone(),
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data.clone(),
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions_root: payload.transactions.tree_hash_root(),
+            withdrawals_root: payload.withdrawals.tree_hash_root(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+        }
+    }
+}
+
 // These impls are required to work around an inelegance in `to_execution_payload_header`.
 // They only clone headers so they should be relatively cheap.
 impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderBellatrix<E> {
@@ -324,6 +374,12 @@ impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderDeneb<E> {
 }
 
 impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderElectra<E> {
+    fn from(payload: &'a Self) -> Self {
+        payload.clone()
+    }
+}
+
+impl<'a, E: EthSpec> From<&'a Self> for ExecutionPayloadHeaderFulu<E> {
     fn from(payload: &'a Self) -> Self {
         payload.clone()
     }
@@ -371,7 +427,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderDe
     }
 }
 
-impl<'a, E: EthSpec> ExecutionPayloadHeaderRefMut<'a, E> {
+impl<E: EthSpec> ExecutionPayloadHeaderRefMut<'_, E> {
     /// Mutate through
     pub fn replace(self, header: ExecutionPayloadHeader<E>) -> Result<(), BeaconStateError> {
         match self {
@@ -385,6 +441,9 @@ impl<'a, E: EthSpec> ExecutionPayloadHeaderRefMut<'a, E> {
                 *mut_ref = header.try_into()?;
             }
             ExecutionPayloadHeaderRefMut::Electra(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Fulu(mut_ref) => {
                 *mut_ref = header.try_into()?;
             }
         }
@@ -404,30 +463,48 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderEl
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for ExecutionPayloadHeader<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
+impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for ExecutionPayloadHeaderFulu<E> {
+    type Error = BeaconStateError;
+    fn try_from(header: ExecutionPayloadHeader<E>) -> Result<Self, Self::Error> {
+        match header {
+            ExecutionPayloadHeader::Fulu(execution_payload_header) => Ok(execution_payload_header),
+            _ => Err(BeaconStateError::IncorrectStateVariant),
+        }
+    }
+}
+
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadHeader<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let convert_err = |e| {
             serde::de::Error::custom(format!(
                 "ExecutionPayloadHeader failed to deserialize: {:?}",
                 e
             ))
         };
-
-        Ok(match fork_name {
-            ForkName::Bellatrix => {
-                Self::Bellatrix(serde_json::from_value(value).map_err(convert_err)?)
-            }
-            ForkName::Capella => Self::Capella(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Deneb => Self::Deneb(serde_json::from_value(value).map_err(convert_err)?),
-            ForkName::Electra => Self::Electra(serde_json::from_value(value).map_err(convert_err)?),
+        Ok(match context {
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",
-                    fork_name
-                )));
+                    context
+                )))
+            }
+            ForkName::Bellatrix => {
+                Self::Bellatrix(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Capella => {
+                Self::Capella(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Deneb => {
+                Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Electra => {
+                Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Fulu => {
+                Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
     }

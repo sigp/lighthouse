@@ -133,7 +133,7 @@ pub struct SlotIter<'a> {
     slots_per_epoch: u64,
 }
 
-impl<'a> Iterator for SlotIter<'a> {
+impl Iterator for SlotIter<'_> {
     type Item = Slot;
 
     fn next(&mut self) -> Option<Slot> {

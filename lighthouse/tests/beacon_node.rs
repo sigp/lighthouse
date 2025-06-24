@@ -1,15 +1,14 @@
-use beacon_node::ClientConfig as Config;
-
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
 };
-use beacon_node::beacon_chain::graffiti_calculator::GraffitiOrigin;
+use beacon_node::{
+    beacon_chain::graffiti_calculator::GraffitiOrigin,
+    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
+};
 use beacon_processor::BeaconProcessorConfig;
-use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
-use lighthouse_version;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -115,11 +114,6 @@ fn staking_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.http_api.enabled);
-            assert!(config.sync_eth1_chain);
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().to_string(),
-                DEFAULT_EXECUTION_ENDPOINT
-            );
         });
 }
 
@@ -128,7 +122,7 @@ fn allow_insecure_genesis_sync_default() {
     CommandLineTest::new()
         .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, false);
+            assert!(!config.allow_insecure_genesis_sync);
         });
 }
 
@@ -146,7 +140,7 @@ fn allow_insecure_genesis_sync_enabled() {
         .flag("allow-insecure-genesis-sync", None)
         .run_with_zero_port_and_no_genesis_sync()
         .with_config(|config| {
-            assert_eq!(config.allow_insecure_genesis_sync, true);
+            assert!(config.allow_insecure_genesis_sync);
         });
 }
 
@@ -359,11 +353,11 @@ fn default_graffiti() {
 
 #[test]
 fn trusted_peers_flag() {
-    let peers = vec![PeerId::random(), PeerId::random()];
+    let peers = [PeerId::random(), PeerId::random()];
     CommandLineTest::new()
         .flag(
             "trusted-peers",
-            Some(format!("{},{}", peers[0].to_string(), peers[1].to_string()).as_str()),
+            Some(format!("{},{}", peers[0], peers[1]).as_str()),
         )
         .run_with_zero_port()
         .with_config(|config| {
@@ -383,7 +377,7 @@ fn genesis_backfill_flag() {
     CommandLineTest::new()
         .flag("genesis-backfill", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+        .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
 /// The genesis backfill flag should be enabled if historic states flag is set.
@@ -392,62 +386,36 @@ fn genesis_backfill_with_historic_flag() {
     CommandLineTest::new()
         .flag("reconstruct-historic-states", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.chain.genesis_backfill, true));
+        .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
 // Tests for Eth1 flags.
-#[test]
-fn dummy_eth1_flag() {
-    CommandLineTest::new()
-        .flag("dummy-eth1", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.dummy_eth1_backend));
-}
-#[test]
-fn eth1_flag() {
-    CommandLineTest::new()
-        .flag("eth1", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.sync_eth1_chain));
-}
+// DEPRECATED but should not crash
 #[test]
 fn eth1_blocks_per_log_query_flag() {
     CommandLineTest::new()
         .flag("eth1-blocks-per-log-query", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.eth1.blocks_per_log_query, 500));
+        .run_with_zero_port();
 }
+// DEPRECATED but should not crash
 #[test]
 fn eth1_purge_cache_flag() {
     CommandLineTest::new()
         .flag("eth1-purge-cache", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.eth1.purge_cache));
+        .run_with_zero_port();
 }
-#[test]
-fn eth1_cache_follow_distance_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.eth1.cache_follow_distance, None);
-            assert_eq!(config.eth1.cache_follow_distance(), 3 * 2048 / 4);
-        });
-}
+// DEPRECATED but should not crash
 #[test]
 fn eth1_cache_follow_distance_manual() {
     CommandLineTest::new()
         .flag("eth1-cache-follow-distance", Some("128"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.eth1.cache_follow_distance, Some(128));
-            assert_eq!(config.eth1.cache_follow_distance(), 128);
-        });
+        .run_with_zero_port();
 }
 
 // Tests for Bellatrix flags.
 fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
     use sensitive_url::SensitiveUrl;
-    let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
+    let urls = ["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
     // we don't support redundancy for execution-endpoints
     // only the first provided endpoint is parsed.
 
@@ -479,10 +447,10 @@ fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoint.is_some(), true);
+            assert!(config.execution_endpoint.is_some());
             assert_eq!(
                 config.execution_endpoint.as_ref().unwrap().clone(),
-                SensitiveUrl::parse(&urls[0]).unwrap()
+                SensitiveUrl::parse(urls[0]).unwrap()
             );
             // Only the first secret file should be used.
             assert_eq!(
@@ -594,7 +562,7 @@ fn run_payload_builder_flag_test(flag: &str, builders: &str) {
         let config = config.execution_layer.as_ref().unwrap();
         // Only first provided endpoint is parsed as we don't support
         // redundancy.
-        assert_eq!(config.builder_url, all_builders.get(0).cloned());
+        assert_eq!(config.builder_url, all_builders.first().cloned());
     })
 }
 fn run_payload_builder_flag_test_with_config<F: Fn(&Config)>(
@@ -660,7 +628,7 @@ fn builder_fallback_flags() {
         Some("builder-fallback-disable-checks"),
         None,
         |config| {
-            assert_eq!(config.chain.builder_fallback_disable_checks, true);
+            assert!(config.chain.builder_fallback_disable_checks);
         },
     );
 }
@@ -719,9 +687,41 @@ fn builder_user_agent() {
     );
 }
 
-fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
-    use sensitive_url::SensitiveUrl;
+#[test]
+fn test_builder_disable_ssz_flag() {
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        None,
+        None,
+        |config| {
+            assert!(
+                !config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .disable_builder_ssz_requests,
+            );
+        },
+    );
+    run_payload_builder_flag_test_with_config(
+        "builder",
+        "http://meow.cats",
+        Some("builder-disable-ssz"),
+        None,
+        |config| {
+            assert!(
+                config
+                    .execution_layer
+                    .as_ref()
+                    .unwrap()
+                    .disable_builder_ssz_requests,
+            );
+        },
+    );
+}
 
+fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let execution_endpoint = "http://meow.cats";
     let jwt_file = "jwt-file";
@@ -737,15 +737,6 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
             let el_config = config.execution_layer.as_ref().unwrap();
             assert_eq!(el_config.jwt_id, Some(id.to_string()));
             assert_eq!(el_config.jwt_version, Some(version.to_string()));
-            assert_eq!(
-                config.eth1.endpoint,
-                Eth1Endpoint::Auth {
-                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
-                    jwt_path: dir.path().join(jwt_file),
-                    jwt_id: Some(id.to_string()),
-                    jwt_version: Some(version.to_string()),
-                }
-            );
         });
 }
 #[test]
@@ -814,6 +805,27 @@ fn network_enable_sampling_flag() {
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.enable_sampling));
 }
+#[test]
+fn blob_publication_batches() {
+    CommandLineTest::new()
+        .flag("blob-publication-batches", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.blob_publication_batches, 3));
+}
+
+#[test]
+fn blob_publication_batch_interval() {
+    CommandLineTest::new()
+        .flag("blob-publication-batch-interval", Some("400"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.blob_publication_batch_interval,
+                Duration::from_millis(400)
+            )
+        });
+}
+
 #[test]
 fn network_enable_sampling_flag_default() {
     CommandLineTest::new()
@@ -1218,7 +1230,7 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 15;
+    let number_of_boot_nodes = 17;
 
     CommandLineTest::new()
         .run_with_zero_port()
@@ -1635,19 +1647,19 @@ fn http_enable_beacon_processor() {
     CommandLineTest::new()
         .flag("http", None)
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+        .with_config(|config| assert!(config.http_api.enable_beacon_processor));
 
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-enable-beacon-processor", Some("true"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, true));
+        .with_config(|config| assert!(config.http_api.enable_beacon_processor));
 
     CommandLineTest::new()
         .flag("http", None)
         .flag("http-enable-beacon-processor", Some("false"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.http_api.enable_beacon_processor, false));
+        .with_config(|config| assert!(!config.http_api.enable_beacon_processor));
 }
 #[test]
 fn http_tls_flags() {
@@ -1798,45 +1810,12 @@ fn validator_monitor_metrics_threshold_custom() {
 }
 
 // Tests for Store flags.
+// DEPRECATED but should still be accepted.
 #[test]
 fn slots_per_restore_point_flag() {
     CommandLineTest::new()
         .flag("slots-per-restore-point", Some("64"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
-}
-#[test]
-fn slots_per_restore_point_update_prev_default() {
-    use beacon_node::beacon_chain::store::config::{
-        DEFAULT_SLOTS_PER_RESTORE_POINT, PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
-    };
-
-    CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("2048"))
-        .run_with_zero_port()
-        .with_config_and_dir(|config, dir| {
-            // Check that 2048 is the previous default.
-            assert_eq!(
-                config.store.slots_per_restore_point,
-                PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
-            );
-
-            // Restart the BN with the same datadir and the new default SPRP. It should
-            // allow this.
-            CommandLineTest::new()
-                .flag("datadir", Some(&dir.path().display().to_string()))
-                .flag("zero-ports", None)
-                .run_with_no_datadir()
-                .with_config(|config| {
-                    // The dumped config will have the new default 8192 value, but the fact that
-                    // the BN started and ran (with the same datadir) means that the override
-                    // was successful.
-                    assert_eq!(
-                        config.store.slots_per_restore_point,
-                        DEFAULT_SLOTS_PER_RESTORE_POINT
-                    );
-                });
-        })
+        .run_with_zero_port();
 }
 
 #[test]
@@ -1850,7 +1829,7 @@ fn block_cache_size_flag() {
 fn state_cache_size_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(32)));
 }
 #[test]
 fn state_cache_size_flag() {
@@ -1858,6 +1837,21 @@ fn state_cache_size_flag() {
         .flag("state-cache-size", Some("64"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
+}
+#[test]
+fn state_cache_headroom_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_headroom, new_non_zero_usize(1)));
+}
+#[test]
+fn state_cache_headroom_flag() {
+    CommandLineTest::new()
+        .flag("state-cache-headroom", Some("16"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.state_cache_headroom, new_non_zero_usize(16))
+        });
 }
 #[test]
 fn historic_state_cache_size_flag() {
@@ -1881,6 +1875,48 @@ fn historic_state_cache_size_default() {
                 config.store.historic_state_cache_size,
                 DEFAULT_HISTORIC_STATE_CACHE_SIZE
             );
+        });
+}
+#[test]
+fn hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hdiff-buffer-cache-size", Some("1"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.cold_hdiff_buffer_cache_size.get(), 1);
+        });
+}
+#[test]
+fn hdiff_buffer_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.cold_hdiff_buffer_cache_size,
+                DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn hot_hdiff_buffer_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.hot_hdiff_buffer_cache_size,
+                DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn hot_hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hot-hdiff-buffer-cache-size", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hot_hdiff_buffer_cache_size.get(), 3);
         });
 }
 #[test]
@@ -1928,7 +1964,7 @@ fn prune_blobs_on_startup_false() {
 fn epochs_per_blob_prune_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 1));
+        .with_config(|config| assert_eq!(config.store.epochs_per_blob_prune, 256));
 }
 #[test]
 fn epochs_per_blob_prune_on_startup_five() {
@@ -2211,7 +2247,7 @@ fn slasher_broadcast_flag_false() {
         });
 }
 
-#[cfg(all(feature = "slasher-lmdb"))]
+#[cfg(feature = "slasher-lmdb")]
 #[test]
 fn slasher_backend_override_to_default() {
     // Hard to test this flag because all but one backend is disabled by default and the backend
@@ -2372,20 +2408,20 @@ fn monitoring_endpoint() {
 
 // Tests for Logger flags.
 #[test]
-fn default_log_color_flag() {
+fn default_logfile_color_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.logger_config.log_color);
+            assert!(!config.logger_config.logfile_color);
         });
 }
 #[test]
-fn enabled_log_color_flag() {
+fn enabled_logfile_color_flag() {
     CommandLineTest::new()
-        .flag("log-color", None)
+        .flag("logfile-color", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.log_color);
+            assert!(config.logger_config.logfile_color);
         });
 }
 #[test]
@@ -2419,7 +2455,7 @@ fn logfile_no_restricted_perms_flag() {
         .flag("logfile-no-restricted-perms", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.is_restricted == false);
+            assert!(!config.logger_config.is_restricted);
         });
 }
 #[test]
@@ -2440,26 +2476,8 @@ fn logfile_format_flag() {
             )
         });
 }
-#[test]
-fn sync_eth1_chain_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
-}
 
-#[test]
-fn sync_eth1_chain_execution_endpoints_flag() {
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new_with_no_execution_endpoint()
-        .flag("execution-endpoints", Some("http://localhost:8551/"))
-        .flag(
-            "execution-jwt",
-            dir.path().join("jwt-file").as_os_str().to_str(),
-        )
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, true));
-}
-
+// DEPRECATED but should not crash.
 #[test]
 fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
@@ -2470,8 +2488,22 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
             "execution-jwt",
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.sync_eth1_chain, false));
+        .run_with_zero_port();
+}
+
+#[test]
+#[should_panic]
+fn disable_deposit_contract_sync_conflicts_with_staking() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new_with_no_execution_endpoint()
+        .flag("disable-deposit-contract-sync", None)
+        .flag("staking", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port();
 }
 
 #[test]
@@ -2479,9 +2511,8 @@ fn light_client_server_default() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.enable_light_client_server, false);
-            assert_eq!(config.chain.enable_light_client_server, false);
-            assert_eq!(config.http_api.enable_light_client_server, false);
+            assert!(config.network.enable_light_client_server);
+            assert!(config.chain.enable_light_client_server);
         });
 }
 
@@ -2491,19 +2522,55 @@ fn light_client_server_enabled() {
         .flag("light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.network.enable_light_client_server, true);
-            assert_eq!(config.chain.enable_light_client_server, true);
+            assert!(config.network.enable_light_client_server);
+            assert!(config.chain.enable_light_client_server);
         });
 }
 
 #[test]
-fn light_client_http_server_enabled() {
+fn light_client_server_disabled() {
     CommandLineTest::new()
-        .flag("http", None)
-        .flag("light-client-server", None)
+        .flag("disable-light-client-server", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.http_api.enable_light_client_server, true);
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn light_client_http_server_disabled() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("disable-light-client-server", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.network.enable_light_client_server);
+            assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .flag("sync-tolerance-epochs", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.sync_tolerance_epochs, 0);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.sync_tolerance_epochs,
+                DEFAULT_SYNC_TOLERANCE_EPOCHS
+            );
         });
 }
 
@@ -2567,6 +2634,16 @@ fn invalid_gossip_verified_blocks_path() {
                 config.network.invalid_block_storage,
                 Some(PathBuf::from(path))
             )
+        });
+}
+
+#[test]
+fn advertise_false_custody_group_count() {
+    CommandLineTest::new()
+        .flag("advertise-false-custody-group-count", Some("64"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.advertise_false_custody_group_count, Some(64))
         });
 }
 
@@ -2649,7 +2726,7 @@ fn genesis_state_url_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.genesis_state_url, None);
-            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(180));
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(300));
         });
 }
 
@@ -2666,4 +2743,80 @@ fn genesis_state_url_value() {
             );
             assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(42));
         });
+}
+
+#[test]
+fn beacon_node_backend_override() {
+    CommandLineTest::new()
+        .flag("beacon-node-backend", Some("leveldb"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.backend, BeaconNodeBackend::LevelDb);
+        });
+}
+
+#[test]
+fn block_publishing_delay_for_testing() {
+    CommandLineTest::new()
+        .flag("delay-block-publishing", Some("2.5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.block_publishing_delay,
+                Some(Duration::from_secs_f64(2.5f64))
+            );
+        });
+}
+
+#[test]
+fn data_column_publishing_delay_for_testing() {
+    CommandLineTest::new()
+        .flag("delay-data-column-publishing", Some("3.5"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.data_column_publishing_delay,
+                Some(Duration::from_secs_f64(3.5f64))
+            );
+        });
+}
+
+#[test]
+fn invalid_block_roots_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut file =
+        File::create(dir.path().join("invalid-block-roots")).expect("Unable to create file");
+    file.write_all(b"2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359, 2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358, 0x3db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358")
+        .expect("Unable to write to file");
+    CommandLineTest::new()
+        .flag(
+            "invalid-block-roots",
+            dir.path().join("invalid-block-roots").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.invalid_block_roots.len(), 3))
+}
+
+#[test]
+fn invalid_block_roots_default_holesky() {
+    use beacon_node::beacon_chain::chain_config::INVALID_HOLESKY_BLOCK_ROOT;
+    CommandLineTest::new()
+        .flag("network", Some("holesky"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.invalid_block_roots.len(), 1);
+            assert!(config
+                .chain
+                .invalid_block_roots
+                .contains(&*INVALID_HOLESKY_BLOCK_ROOT));
+        })
+}
+
+#[test]
+fn invalid_block_roots_default_mainnet() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.invalid_block_roots.is_empty());
+        })
 }

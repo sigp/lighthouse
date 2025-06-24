@@ -1,51 +1,32 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
 mod attestation_performance;
-pub mod attestation_rewards;
 mod block_packing_efficiency;
 mod block_rewards;
-mod standard_block_rewards;
-mod sync_committee_rewards;
+pub mod sync_state;
 
 use crate::{
-    types::{
-        DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock, GenericResponse, ValidatorId,
-    },
-    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot,
+    lighthouse::sync_state::SyncState,
+    types::{AdminPeer, Epoch, GenericResponse, ValidatorId},
+    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
-pub use attestation_rewards::StandardAttestationRewards;
 pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
-pub use lighthouse_network::{types::SyncState, PeerInfo};
-pub use standard_block_rewards::StandardBlockReward;
-pub use sync_committee_rewards::SyncCommitteeReward;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
 // selector.
 four_byte_option_impl!(four_byte_option_u64, u64);
 four_byte_option_impl!(four_byte_option_hash256, Hash256);
-
-/// Information returned by `peers` and `connected_peers`.
-// TODO: this should be deserializable..
-#[derive(Debug, Clone, Serialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct Peer<E: EthSpec> {
-    /// The Peer's ID
-    pub peer_id: String,
-    /// The PeerInfo associated with the peer.
-    pub peer_info: PeerInfo<E>,
-}
 
 /// The results of validators voting during an epoch.
 ///
@@ -87,12 +68,6 @@ pub struct ValidatorInclusionData {
     /// attestation's slot (`attestation_data.slot`) matches the block root known to the state.
     pub is_previous_epoch_head_attester: bool,
 }
-
-#[cfg(target_os = "linux")]
-use {
-    psutil::cpu::os::linux::CpuTimesExt, psutil::memory::os::linux::VirtualMemoryExt,
-    psutil::process::Process,
-};
 
 /// Reports on the health of the Lighthouse instance.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -164,69 +139,6 @@ pub struct SystemHealth {
     pub misc_os: String,
 }
 
-impl SystemHealth {
-    #[cfg(not(target_os = "linux"))]
-    pub fn observe() -> Result<Self, String> {
-        Err("Health is only available on Linux".into())
-    }
-
-    #[cfg(target_os = "linux")]
-    pub fn observe() -> Result<Self, String> {
-        let vm = psutil::memory::virtual_memory()
-            .map_err(|e| format!("Unable to get virtual memory: {:?}", e))?;
-        let loadavg =
-            psutil::host::loadavg().map_err(|e| format!("Unable to get loadavg: {:?}", e))?;
-
-        let cpu =
-            psutil::cpu::cpu_times().map_err(|e| format!("Unable to get cpu times: {:?}", e))?;
-
-        let disk_usage = psutil::disk::disk_usage("/")
-            .map_err(|e| format!("Unable to disk usage info: {:?}", e))?;
-
-        let disk = psutil::disk::DiskIoCountersCollector::default()
-            .disk_io_counters()
-            .map_err(|e| format!("Unable to get disk counters: {:?}", e))?;
-
-        let net = psutil::network::NetIoCountersCollector::default()
-            .net_io_counters()
-            .map_err(|e| format!("Unable to get network io counters: {:?}", e))?;
-
-        let boot_time = psutil::host::boot_time()
-            .map_err(|e| format!("Unable to get system boot time: {:?}", e))?
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| format!("Boot time is lower than unix epoch: {}", e))?
-            .as_secs();
-
-        Ok(Self {
-            sys_virt_mem_total: vm.total(),
-            sys_virt_mem_available: vm.available(),
-            sys_virt_mem_used: vm.used(),
-            sys_virt_mem_free: vm.free(),
-            sys_virt_mem_cached: vm.cached(),
-            sys_virt_mem_buffers: vm.buffers(),
-            sys_virt_mem_percent: vm.percent(),
-            sys_loadavg_1: loadavg.one,
-            sys_loadavg_5: loadavg.five,
-            sys_loadavg_15: loadavg.fifteen,
-            cpu_cores: psutil::cpu::cpu_count_physical(),
-            cpu_threads: psutil::cpu::cpu_count(),
-            system_seconds_total: cpu.system().as_secs(),
-            cpu_time_total: cpu.total().as_secs(),
-            user_seconds_total: cpu.user().as_secs(),
-            iowait_seconds_total: cpu.iowait().as_secs(),
-            idle_seconds_total: cpu.idle().as_secs(),
-            disk_node_bytes_total: disk_usage.total(),
-            disk_node_bytes_free: disk_usage.free(),
-            disk_node_reads_total: disk.read_count(),
-            disk_node_writes_total: disk.write_count(),
-            network_node_bytes_total_received: net.bytes_recv(),
-            network_node_bytes_total_transmit: net.bytes_sent(),
-            misc_node_boot_ts_seconds: boot_time,
-            misc_os: std::env::consts::OS.to_string(),
-        })
-    }
-}
-
 /// Process specific health
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProcessHealth {
@@ -244,71 +156,6 @@ pub struct ProcessHealth {
     pub pid_process_seconds_total: u64,
 }
 
-impl ProcessHealth {
-    #[cfg(not(target_os = "linux"))]
-    pub fn observe() -> Result<Self, String> {
-        Err("Health is only available on Linux".into())
-    }
-
-    #[cfg(target_os = "linux")]
-    pub fn observe() -> Result<Self, String> {
-        let process =
-            Process::current().map_err(|e| format!("Unable to get current process: {:?}", e))?;
-
-        let process_mem = process
-            .memory_info()
-            .map_err(|e| format!("Unable to get process memory info: {:?}", e))?;
-
-        let me = procfs::process::Process::myself()
-            .map_err(|e| format!("Unable to get process: {:?}", e))?;
-        let stat = me
-            .stat()
-            .map_err(|e| format!("Unable to get stat: {:?}", e))?;
-
-        let process_times = process
-            .cpu_times()
-            .map_err(|e| format!("Unable to get process cpu times : {:?}", e))?;
-
-        Ok(Self {
-            pid: process.pid(),
-            pid_num_threads: stat.num_threads,
-            pid_mem_resident_set_size: process_mem.rss(),
-            pid_mem_virtual_memory_size: process_mem.vms(),
-            pid_mem_shared_memory_size: process_mem.shared(),
-            pid_process_seconds_total: process_times.busy().as_secs()
-                + process_times.children_system().as_secs()
-                + process_times.children_system().as_secs(),
-        })
-    }
-}
-
-impl Health {
-    #[cfg(not(target_os = "linux"))]
-    pub fn observe() -> Result<Self, String> {
-        Err("Health is only available on Linux".into())
-    }
-
-    #[cfg(target_os = "linux")]
-    pub fn observe() -> Result<Self, String> {
-        Ok(Self {
-            process: ProcessHealth::observe()?,
-            system: SystemHealth::observe()?,
-        })
-    }
-}
-
-/// Indicates how up-to-date the Eth1 caches are.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Eth1SyncStatusData {
-    pub head_block_number: Option<u64>,
-    pub head_block_timestamp: Option<u64>,
-    pub latest_cached_block_number: Option<u64>,
-    pub latest_cached_block_timestamp: Option<u64>,
-    pub voting_target_timestamp: u64,
-    pub eth1_node_sync_status_percentage: f64,
-    pub lighthouse_is_cached_and_ready: bool,
-}
-
 /// A fully parsed eth1 deposit contract log.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct DepositLog {
@@ -319,50 +166,6 @@ pub struct DepositLog {
     pub index: u64,
     /// True if the signature is valid.
     pub signature_is_valid: bool,
-}
-
-/// A block of the eth1 chain.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct Eth1Block {
-    pub hash: Hash256,
-    pub timestamp: u64,
-    pub number: u64,
-    #[ssz(with = "four_byte_option_hash256")]
-    pub deposit_root: Option<Hash256>,
-    #[ssz(with = "four_byte_option_u64")]
-    pub deposit_count: Option<u64>,
-}
-
-impl Eth1Block {
-    pub fn eth1_data(self) -> Option<Eth1Data> {
-        Some(Eth1Data {
-            deposit_root: self.deposit_root?,
-            deposit_count: self.deposit_count?,
-            block_hash: self.hash,
-        })
-    }
-}
-
-impl From<Eth1Block> for FinalizedExecutionBlock {
-    fn from(eth1_block: Eth1Block) -> Self {
-        Self {
-            deposit_count: eth1_block.deposit_count.unwrap_or(0),
-            deposit_root: eth1_block
-                .deposit_root
-                .unwrap_or_else(|| DepositTreeSnapshot::default().deposit_root),
-            block_hash: eth1_block.hash,
-            block_height: eth1_block.number,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DatabaseInfo {
-    pub schema_version: u64,
-    pub config: StoreConfig,
-    pub split: Split,
-    pub anchor: Option<AnchorInfo>,
-    pub blob_info: BlobInfo,
 }
 
 impl BeaconNodeHttpClient {
@@ -445,76 +248,6 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET lighthouse/eth1/syncing`
-    pub async fn get_lighthouse_eth1_syncing(
-        &self,
-    ) -> Result<GenericResponse<Eth1SyncStatusData>, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("eth1")
-            .push("syncing");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/eth1/block_cache`
-    pub async fn get_lighthouse_eth1_block_cache(
-        &self,
-    ) -> Result<GenericResponse<Vec<Eth1Block>>, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("eth1")
-            .push("block_cache");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/eth1/deposit_cache`
-    pub async fn get_lighthouse_eth1_deposit_cache(
-        &self,
-    ) -> Result<GenericResponse<Vec<DepositLog>>, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("eth1")
-            .push("deposit_cache");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/staking`
-    pub async fn get_lighthouse_staking(&self) -> Result<bool, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("staking");
-
-        self.get_opt::<(), _>(path).await.map(|opt| opt.is_some())
-    }
-
-    /// `GET lighthouse/database/info`
-    pub async fn get_lighthouse_database_info(&self) -> Result<DatabaseInfo, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("database")
-            .push("info");
-
-        self.get(path).await
-    }
-
     /// `POST lighthouse/database/reconstruct`
     pub async fn post_lighthouse_database_reconstruct(&self) -> Result<String, Error> {
         let mut path = self.server.full.clone();
@@ -528,9 +261,33 @@ impl BeaconNodeHttpClient {
         self.post_with_response(path, &()).await
     }
 
-    ///
-    /// Analysis endpoints.
-    ///
+    /// `POST lighthouse/add_peer`
+    pub async fn post_lighthouse_add_peer(&self, req: AdminPeer) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("add_peer");
+
+        self.post_with_response(path, &req).await
+    }
+
+    /// `POST lighthouse/remove_peer`
+    pub async fn post_lighthouse_remove_peer(&self, req: AdminPeer) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("remove_peer");
+
+        self.post_with_response(path, &req).await
+    }
+
+    /*
+     Analysis endpoints.
+    */
 
     /// `GET` lighthouse/analysis/block_rewards?start_slot,end_slot
     pub async fn get_lighthouse_analysis_block_rewards(

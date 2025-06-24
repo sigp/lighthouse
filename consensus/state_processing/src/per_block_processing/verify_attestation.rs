@@ -32,21 +32,16 @@ pub fn verify_attestation_for_block_inclusion<'ctxt, E: EthSpec>(
             attestation: data.slot,
         }
     );
-    match state {
-        BeaconState::Base(_)
-        | BeaconState::Altair(_)
-        | BeaconState::Bellatrix(_)
-        | BeaconState::Capella(_) => {
-            verify!(
-                state.slot() <= data.slot.safe_add(E::slots_per_epoch())?,
-                Invalid::IncludedTooLate {
-                    state: state.slot(),
-                    attestation: data.slot,
-                }
-            );
-        }
+    if state.fork_name_unchecked().deneb_enabled() {
         // [Modified in Deneb:EIP7045]
-        BeaconState::Deneb(_) | BeaconState::Electra(_) => {}
+    } else {
+        verify!(
+            state.slot() <= data.slot.safe_add(E::slots_per_epoch())?,
+            Invalid::IncludedTooLate {
+                state: state.slot(),
+                attestation: data.slot,
+            }
+        );
     }
 
     verify_attestation_for_state(state, attestation, ctxt, verify_signatures, spec)
@@ -68,7 +63,7 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
 ) -> Result<IndexedAttestationRef<'ctxt, E>> {
     let data = attestation.data();
 
-    // TODO(electra) choosing a validation based on the attestation's fork
+    // NOTE: choosing a validation based on the attestation's fork
     // rather than the state's fork makes this simple, but technically the spec
     // defines this verification based on the state's fork.
     match attestation {

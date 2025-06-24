@@ -1,14 +1,19 @@
+use crate::ContextDeserialize;
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as DeError;
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
+use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, TreeHashType};
 
 /// Emulates a SSZ `List`.
 ///
 /// An ordered, heap-allocated, variable-length, homogeneous collection of `T`, with no more than
 /// `max_len` values.
+///
+/// To ensure there are no inconsistent states, we do not allow any mutating operation if `max_len` is not set.
 ///
 /// ## Example
 ///
@@ -35,6 +40,7 @@ use std::slice::SliceIndex;
 ///
 /// // Push a value to if it _does_ exceed the maximum.
 /// assert!(long.push(6).is_err());
+///
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
@@ -65,7 +71,7 @@ impl<T> RuntimeVariableList<T> {
         Self { vec, max_len }
     }
 
-    /// Create an empty list.
+    /// Create an empty list with the given `max_len`.
     pub fn empty(max_len: usize) -> Self {
         Self {
             vec: vec![],
@@ -75,6 +81,10 @@ impl<T> RuntimeVariableList<T> {
 
     pub fn as_slice(&self) -> &[T] {
         self.vec.as_slice()
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        self.vec.as_mut_slice()
     }
 
     /// Returns the number of values presently in `self`.
@@ -88,6 +98,8 @@ impl<T> RuntimeVariableList<T> {
     }
 
     /// Returns the type-level maximum length.
+    ///
+    /// Returns `None` if self is uninitialized with a max_len.
     pub fn max_len(&self) -> usize {
         self.max_len
     }
@@ -125,13 +137,13 @@ impl<T: Decode> RuntimeVariableList<T> {
                 )));
             }
 
-            bytes
-                .chunks(<T as Decode>::ssz_fixed_len())
-                .try_fold(Vec::with_capacity(num_items), |mut vec, chunk| {
+            bytes.chunks(<T as Decode>::ssz_fixed_len()).try_fold(
+                Vec::with_capacity(num_items),
+                |mut vec, chunk| {
                     vec.push(<T as Decode>::from_ssz_bytes(chunk)?);
                     Ok(vec)
-                })
-                .map(Into::into)?
+                },
+            )?
         } else {
             ssz::decode_list_of_variable_length_items(bytes, Some(max_len))?
         };
@@ -166,12 +178,6 @@ impl<T> Deref for RuntimeVariableList<T> {
 
     fn deref(&self) -> &[T] {
         &self.vec[..]
-    }
-}
-
-impl<T> DerefMut for RuntimeVariableList<T> {
-    fn deref_mut(&mut self) -> &mut [T] {
-        &mut self.vec[..]
     }
 }
 
@@ -211,6 +217,84 @@ where
 
     fn ssz_bytes_len(&self) -> usize {
         self.vec.ssz_bytes_len()
+    }
+}
+
+impl<'de, C, T> ContextDeserialize<'de, (C, usize)> for RuntimeVariableList<T>
+where
+    T: ContextDeserialize<'de, C>,
+    C: Clone,
+{
+    fn context_deserialize<D>(deserializer: D, context: (C, usize)) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // first parse out a Vec<C> using the Vec<C> impl you already have
+        let vec: Vec<T> = Vec::context_deserialize(deserializer, context.0)?;
+        if vec.len() > context.1 {
+            return Err(DeError::custom(format!(
+                "RuntimeVariableList lengh {} exceeds max_len {}",
+                vec.len(),
+                context.1
+            )));
+        }
+        Ok(RuntimeVariableList::from_vec(vec, context.1))
+    }
+}
+
+impl<T: TreeHash> TreeHash for RuntimeVariableList<T> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        let root = runtime_vec_tree_hash_root::<T>(&self.vec, self.max_len);
+
+        tree_hash::mix_in_length(&root, self.len())
+    }
+}
+
+// We can delete this once the upstream `vec_tree_hash_root` is modified to use a runtime max len.
+pub fn runtime_vec_tree_hash_root<T>(vec: &[T], max_len: usize) -> Hash256
+where
+    T: TreeHash,
+{
+    match T::tree_hash_type() {
+        TreeHashType::Basic => {
+            let mut hasher =
+                MerkleHasher::with_leaves(max_len.div_ceil(T::tree_hash_packing_factor()));
+
+            for item in vec {
+                hasher
+                    .write(&item.tree_hash_packed_encoding())
+                    .expect("ssz_types variable vec should not contain more elements than max");
+            }
+
+            hasher
+                .finish()
+                .expect("ssz_types variable vec should not have a remaining buffer")
+        }
+        TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
+            let mut hasher = MerkleHasher::with_leaves(max_len);
+
+            for item in vec {
+                hasher
+                    .write(item.tree_hash_root().as_slice())
+                    .expect("ssz_types vec should not contain more elements than max");
+            }
+
+            hasher
+                .finish()
+                .expect("ssz_types vec should not have a remaining buffer")
+        }
     }
 }
 

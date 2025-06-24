@@ -2,10 +2,13 @@ use crate::execution_engine::{
     ExecutionEngine, GenericExecutionEngine, ACCOUNT1, ACCOUNT2, KEYSTORE_PASSWORD, PRIVATE_KEYS,
 };
 use crate::transactions::transactions;
+use ethers_middleware::SignerMiddleware;
 use ethers_providers::Middleware;
+use ethers_signers::LocalWallet;
+use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
-    PayloadStatus,
+    PayloadParameters, PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use reqwest::{header::CONTENT_TYPE, Client};
@@ -43,6 +46,7 @@ pub struct TestRig<Engine, E: EthSpec = MainnetEthSpec> {
     ee_b: ExecutionPair<Engine, E>,
     spec: ChainSpec,
     _runtime_shutdown: async_channel::Sender<()>,
+    use_local_signing: bool,
 }
 
 /// Import a private key into the execution engine and unlock it so that we can
@@ -103,8 +107,7 @@ async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password:
 }
 
 impl<Engine: GenericExecutionEngine> TestRig<Engine> {
-    pub fn new(generic_engine: Engine) -> Self {
-        let log = logging::test_logger();
+    pub fn new(generic_engine: Engine, use_local_signing: bool) -> Self {
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
@@ -113,7 +116,12 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         );
         let (runtime_shutdown, exit) = async_channel::bounded(1);
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+        let executor = TaskExecutor::new(
+            Arc::downgrade(&runtime),
+            exit,
+            shutdown_tx,
+            "test".to_string(),
+        );
         let mut spec = TEST_FORK.make_genesis_spec(MainnetEthSpec::default_spec());
         spec.terminal_total_difficulty = Uint256::ZERO;
 
@@ -130,8 +138,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
-            let execution_layer =
-                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
+            let execution_layer = ExecutionLayer::from_config(config, executor.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -149,8 +156,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
                 default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
-            let execution_layer =
-                ExecutionLayer::from_config(config, executor, log.clone()).unwrap();
+            let execution_layer = ExecutionLayer::from_config(config, executor).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -163,6 +169,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             ee_b,
             spec,
             _runtime_shutdown: runtime_shutdown,
+            use_local_signing,
         }
     }
 
@@ -194,15 +201,9 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
     pub async fn perform_tests(&self) {
         self.wait_until_synced().await;
 
-        // Import and unlock all private keys to sign transactions
-        let _ = futures::future::join_all([&self.ee_a, &self.ee_b].iter().map(|ee| {
-            import_and_unlock(
-                ee.execution_engine.http_url(),
-                &PRIVATE_KEYS,
-                KEYSTORE_PASSWORD,
-            )
-        }))
-        .await;
+        // Create a local signer in case we need to sign transactions locally
+        let wallet1: LocalWallet = PRIVATE_KEYS[0].parse().expect("Invalid private key");
+        let signer = SignerMiddleware::new(&self.ee_a.execution_engine.provider, wallet1);
 
         // We hardcode the accounts here since some EEs start with a default unlocked account
         let account1 = ethers_core::types::Address::from_slice(&hex::decode(ACCOUNT1).unwrap());
@@ -233,15 +234,38 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
         // Submit transactions before getting payload
         let txs = transactions::<MainnetEthSpec>(account1, account2);
         let mut pending_txs = Vec::new();
-        for tx in txs.clone().into_iter() {
-            let pending_tx = self
-                .ee_a
-                .execution_engine
-                .provider
-                .send_transaction(tx, None)
-                .await
-                .unwrap();
-            pending_txs.push(pending_tx);
+
+        if self.use_local_signing {
+            // Sign locally with the Signer middleware
+            for (i, tx) in txs.clone().into_iter().enumerate() {
+                // The local signer uses eth_sendRawTransaction, so we need to manually set the nonce
+                let mut tx = tx.clone();
+                tx.set_nonce(i as u64);
+                let pending_tx = signer.send_transaction(tx, None).await.unwrap();
+                pending_txs.push(pending_tx);
+            }
+        } else {
+            // Sign on the EE
+            // Import and unlock all private keys to sign transactions on the EE
+            let _ = futures::future::join_all([&self.ee_a, &self.ee_b].iter().map(|ee| {
+                import_and_unlock(
+                    ee.execution_engine.http_url(),
+                    &PRIVATE_KEYS,
+                    KEYSTORE_PASSWORD,
+                )
+            }))
+            .await;
+
+            for tx in txs.clone().into_iter() {
+                let pending_tx = self
+                    .ee_a
+                    .execution_engine
+                    .provider
+                    .send_transaction(tx, None)
+                    .await
+                    .unwrap();
+                pending_txs.push(pending_tx);
+            }
         }
 
         /*
@@ -251,6 +275,7 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
          */
 
         let parent_hash = terminal_pow_block_hash;
+        let parent_gas_limit = DEFAULT_GAS_LIMIT;
         let timestamp = timestamp_now();
         let prev_randao = Hash256::zero();
         let head_root = Hash256::zero();
@@ -324,15 +349,22 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
         );
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: TEST_FORK,
+        };
+
         let block_proposal_content_type = self
             .ee_a
             .execution_layer
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                TEST_FORK,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,
@@ -476,15 +508,22 @@ impl<Engine: GenericExecutionEngine> TestRig<Engine> {
             Some(vec![]),
             None,
         );
+
+        let payload_parameters = PayloadParameters {
+            parent_hash,
+            parent_gas_limit,
+            proposer_gas_limit: None,
+            payload_attributes: &payload_attributes,
+            forkchoice_update_params: &forkchoice_update_params,
+            current_fork: TEST_FORK,
+        };
+
         let block_proposal_content_type = self
             .ee_a
             .execution_layer
             .get_payload(
-                parent_hash,
-                &payload_attributes,
-                forkchoice_update_params,
+                payload_parameters,
                 builder_params,
-                TEST_FORK,
                 &self.spec,
                 None,
                 BlockProductionVersion::FullV2,

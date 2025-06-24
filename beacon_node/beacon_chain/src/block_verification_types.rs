@@ -1,14 +1,12 @@
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, PayloadVerificationOutcome};
 use derivative::Derivative;
-use ssz_types::VariableList;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
-use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
+use types::blob_sidecar::BlobIdentifier;
 use types::{
     BeaconBlockRef, BeaconState, BlindedPayload, BlobSidecarList, ChainSpec, Epoch, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
@@ -165,7 +163,7 @@ impl<E: EthSpec> RpcBlock<E> {
         let inner = if !custody_columns.is_empty() {
             RpcBlockInner::BlockAndCustodyColumns(
                 block,
-                RuntimeVariableList::new(custody_columns, spec.number_of_columns)?,
+                RuntimeVariableList::new(custody_columns, spec.number_of_columns as usize)?,
             )
         } else {
             RpcBlockInner::Block(block)
@@ -174,23 +172,6 @@ impl<E: EthSpec> RpcBlock<E> {
             block_root,
             block: inner,
         })
-    }
-
-    pub fn new_from_fixed(
-        block_root: Hash256,
-        block: Arc<SignedBeaconBlock<E>>,
-        blobs: FixedBlobSidecarList<E>,
-    ) -> Result<Self, AvailabilityCheckError> {
-        let filtered = blobs
-            .into_iter()
-            .filter_map(|b| b.clone())
-            .collect::<Vec<_>>();
-        let blobs = if filtered.is_empty() {
-            None
-        } else {
-            Some(VariableList::from(filtered))
-        };
-        Self::new(Some(block_root), block, blobs)
     }
 
     #[allow(clippy::type_complexity)]
@@ -282,7 +263,6 @@ impl<E: EthSpec> ExecutedBlock<E> {
 
 /// A block that has completed all pre-deneb block processing checks including verification
 /// by an EL client **and** has all requisite blob data to be imported into fork choice.
-#[derive(PartialEq)]
 pub struct AvailableExecutedBlock<E: EthSpec> {
     pub block: AvailableBlock<E>,
     pub import_data: BlockImportData<E>,
@@ -360,8 +340,6 @@ pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    pub parent_eth1_finalization_data: Eth1FinalizationData,
-    pub confirmed_state_roots: Vec<Hash256>,
     pub consensus_context: ConsensusContext<E>,
 }
 
@@ -375,11 +353,6 @@ impl<E: EthSpec> BlockImportData<E> {
             block_root,
             state,
             parent_block,
-            parent_eth1_finalization_data: Eth1FinalizationData {
-                eth1_data: <_>::default(),
-                eth1_deposit_index: 0,
-            },
-            confirmed_state_roots: vec![],
             consensus_context: ConsensusContext::new(Slot::new(0)),
         }
     }
@@ -458,19 +431,13 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
     fn as_block(&self) -> &SignedBeaconBlock<E> {
         match &self {
             MaybeAvailableBlock::Available(block) => block.as_block(),
-            MaybeAvailableBlock::AvailabilityPending {
-                block_root: _,
-                block,
-            } => block,
+            MaybeAvailableBlock::AvailabilityPending { block, .. } => block,
         }
     }
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>> {
         match &self {
             MaybeAvailableBlock::Available(block) => block.block_cloned(),
-            MaybeAvailableBlock::AvailabilityPending {
-                block_root: _,
-                block,
-            } => block.clone(),
+            MaybeAvailableBlock::AvailabilityPending { block, .. } => block.clone(),
         }
     }
     fn canonical_root(&self) -> Hash256 {

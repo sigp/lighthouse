@@ -1,8 +1,8 @@
 use crate::chunked_vector::{
-    load_variable_list_from_db, load_vector_from_db, BlockRoots, HistoricalRoots,
-    HistoricalSummaries, RandaoMixes, StateRoots,
+    load_variable_list_from_db, load_vector_from_db, BlockRootsChunked, HistoricalRoots,
+    HistoricalSummaries, RandaoMixes, StateRootsChunked,
 };
-use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp};
+use crate::{DBColumn, Error, KeyValueStore, KeyValueStoreOp};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
@@ -10,11 +10,13 @@ use types::historical_summary::HistoricalSummary;
 use types::superstruct;
 use types::*;
 
-/// Lightweight variant of the `BeaconState` that is stored in the database.
+/// DEPRECATED Lightweight variant of the `BeaconState` that is stored in the database.
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
+///
+/// This can be deleted once schema versions prior to V22 are no longer supported.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -66,9 +68,9 @@ where
     pub current_epoch_attestations: List<PendingAttestation<E>, E::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,13 +80,13 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
     // Execution
@@ -108,197 +110,48 @@ where
         partial_getter(rename = "latest_execution_payload_header_electra")
     )]
     pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
+    #[superstruct(
+        only(Fulu),
+        partial_getter(rename = "latest_execution_payload_header_fulu")
+    )]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub next_withdrawal_validator_index: u64,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    #[superstruct(only(Capella, Deneb, Electra))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub historical_summaries: Option<List<HistoricalSummary, E::HistoricalRootsLimit>>,
 
     // Electra
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub deposit_requests_start_index: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub earliest_consolidation_epoch: Epoch,
 
-    #[superstruct(only(Electra))]
-    pub pending_balance_deposits: List<PendingBalanceDeposit, E::PendingBalanceDepositsLimit>,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
+    pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
+    #[superstruct(only(Electra, Fulu))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
-    #[superstruct(only(Electra))]
+    #[superstruct(only(Electra, Fulu))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
-}
-
-/// Implement the conversion function from BeaconState -> PartialBeaconState.
-macro_rules! impl_from_state_forgetful {
-    ($s:ident, $outer:ident, $variant_name:ident, $struct_name:ident, [$($extra_fields:ident),*], [$($extra_fields_opt:ident),*]) => {
-        PartialBeaconState::$variant_name($struct_name {
-            // Versioning
-            genesis_time: $s.genesis_time,
-            genesis_validators_root: $s.genesis_validators_root,
-            slot: $s.slot,
-            fork: $s.fork,
-
-            // History
-            latest_block_header: $s.latest_block_header.clone(),
-            block_roots: None,
-            state_roots: None,
-            historical_roots: None,
-
-            // Eth1
-            eth1_data: $s.eth1_data.clone(),
-            eth1_data_votes: $s.eth1_data_votes.clone(),
-            eth1_deposit_index: $s.eth1_deposit_index,
-
-            // Validator registry
-            validators: $s.validators.clone(),
-            balances: $s.balances.clone(),
-
-            // Shuffling
-            latest_randao_value: *$outer
-                .get_randao_mix($outer.current_epoch())
-                .expect("randao at current epoch is OK"),
-            randao_mixes: None,
-
-            // Slashings
-            slashings: $s.slashings.clone(),
-
-            // Finality
-            justification_bits: $s.justification_bits.clone(),
-            previous_justified_checkpoint: $s.previous_justified_checkpoint,
-            current_justified_checkpoint: $s.current_justified_checkpoint,
-            finalized_checkpoint: $s.finalized_checkpoint,
-
-            // Variant-specific fields
-            $(
-                $extra_fields: $s.$extra_fields.clone()
-            ),*,
-
-            // Variant-specific optional
-            $(
-                $extra_fields_opt: None
-            ),*
-        })
-    }
+    #[superstruct(only(Fulu))]
+    pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
 }
 
 impl<E: EthSpec> PartialBeaconState<E> {
-    /// Convert a `BeaconState` to a `PartialBeaconState`, while dropping the optional fields.
-    pub fn from_state_forgetful(outer: &BeaconState<E>) -> Self {
-        match outer {
-            BeaconState::Base(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Base,
-                PartialBeaconStateBase,
-                [previous_epoch_attestations, current_epoch_attestations],
-                []
-            ),
-            BeaconState::Altair(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Altair,
-                PartialBeaconStateAltair,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores
-                ],
-                []
-            ),
-            BeaconState::Bellatrix(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Bellatrix,
-                PartialBeaconStateBellatrix,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores,
-                    latest_execution_payload_header
-                ],
-                []
-            ),
-            BeaconState::Capella(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Capella,
-                PartialBeaconStateCapella,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores,
-                    latest_execution_payload_header,
-                    next_withdrawal_index,
-                    next_withdrawal_validator_index
-                ],
-                [historical_summaries]
-            ),
-            BeaconState::Deneb(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Deneb,
-                PartialBeaconStateDeneb,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores,
-                    latest_execution_payload_header,
-                    next_withdrawal_index,
-                    next_withdrawal_validator_index
-                ],
-                [historical_summaries]
-            ),
-            BeaconState::Electra(s) => impl_from_state_forgetful!(
-                s,
-                outer,
-                Electra,
-                PartialBeaconStateElectra,
-                [
-                    previous_epoch_participation,
-                    current_epoch_participation,
-                    current_sync_committee,
-                    next_sync_committee,
-                    inactivity_scores,
-                    latest_execution_payload_header,
-                    next_withdrawal_index,
-                    next_withdrawal_validator_index,
-                    deposit_requests_start_index,
-                    deposit_balance_to_consume,
-                    exit_balance_to_consume,
-                    earliest_exit_epoch,
-                    consolidation_balance_to_consume,
-                    earliest_consolidation_epoch,
-                    pending_balance_deposits,
-                    pending_partial_withdrawals,
-                    pending_consolidations
-                ],
-                [historical_summaries]
-            ),
-        }
-    }
-
     /// SSZ decode.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         // Slot is after genesis_time (u64) and genesis_validators_root (Hash256).
@@ -323,8 +176,11 @@ impl<E: EthSpec> PartialBeaconState<E> {
 
     /// Prepare the partial state for storage in the KV database.
     pub fn as_kv_store_op(&self, state_root: Hash256) -> KeyValueStoreOp {
-        let db_key = get_key_for_col(DBColumn::BeaconState.into(), state_root.as_slice());
-        KeyValueStoreOp::PutKeyValue(db_key, self.as_ssz_bytes())
+        KeyValueStoreOp::PutKeyValue(
+            DBColumn::BeaconState,
+            state_root.as_slice().to_vec(),
+            self.as_ssz_bytes(),
+        )
     }
 
     pub fn load_block_roots<S: KeyValueStore<E>>(
@@ -333,7 +189,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self.block_roots().is_none() {
-            *self.block_roots_mut() = Some(load_vector_from_db::<BlockRoots, E, _>(
+            *self.block_roots_mut() = Some(load_vector_from_db::<BlockRootsChunked, E, _>(
                 store,
                 self.slot(),
                 spec,
@@ -348,7 +204,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         if self.state_roots().is_none() {
-            *self.state_roots_mut() = Some(load_vector_from_db::<StateRoots, E, _>(
+            *self.state_roots_mut() = Some(load_vector_from_db::<StateRootsChunked, E, _>(
                 store,
                 self.slot(),
                 spec,
@@ -563,9 +419,35 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     earliest_exit_epoch,
                     consolidation_balance_to_consume,
                     earliest_consolidation_epoch,
-                    pending_balance_deposits,
+                    pending_deposits,
                     pending_partial_withdrawals,
                     pending_consolidations
+                ],
+                [historical_summaries]
+            ),
+            PartialBeaconState::Fulu(inner) => impl_try_into_beacon_state!(
+                inner,
+                Fulu,
+                BeaconStateFulu,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index,
+                    deposit_requests_start_index,
+                    deposit_balance_to_consume,
+                    exit_balance_to_consume,
+                    earliest_exit_epoch,
+                    consolidation_balance_to_consume,
+                    earliest_consolidation_epoch,
+                    pending_deposits,
+                    pending_partial_withdrawals,
+                    pending_consolidations,
+                    proposer_lookahead
                 ],
                 [historical_summaries]
             ),

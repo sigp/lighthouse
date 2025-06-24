@@ -1,9 +1,12 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
-use crate::hot_cold_store::HotColdDBError;
+use crate::hot_cold_store::{HotColdDBError, StateSummaryIteratorError};
+use crate::{hdiff, DBColumn};
+#[cfg(feature = "leveldb")]
+use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
+use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -22,7 +25,10 @@ pub enum Error {
     NoContinuationData,
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
-    SchemaMigrationError(String),
+    MigrationError(String),
+    /// The store's `anchor_info` is still the default uninitialized value when attempting a state
+    /// write
+    AnchorUninitialized,
     /// The store's `anchor_info` was mutated concurrently, the latest modification wasn't applied.
     AnchorInfoConcurrentMutation,
     /// The store's `blob_info` was mutated concurrently, the latest modification wasn't applied.
@@ -38,28 +44,65 @@ pub enum Error {
     /// State reconstruction failed because it didn't reach the upper limit slot.
     ///
     /// This should never happen (it's a logic error).
-    StateReconstructionDidNotComplete,
+    StateReconstructionLogicError,
     StateReconstructionRootMismatch {
         slot: Slot,
         expected: Hash256,
         computed: Hash256,
     },
+    MissingState(Hash256),
+    MissingHotStateSummary(Hash256),
+    MissingHotStateSnapshot(Hash256, Slot),
+    MissingGenesisState,
+    MissingSnapshot(Slot),
+    LoadingHotHdiffBufferError(String, Hash256, Box<Error>),
+    LoadingHotStateError(String, Hash256, Box<Error>),
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
-    SlotClockUnavailableForMigration,
-    InvalidKey,
+    InvalidKey(String),
     InvalidBytes,
-    UnableToDowngrade,
     InconsistentFork(InconsistentFork),
+    #[cfg(feature = "leveldb")]
+    LevelDbError(LevelDBError),
+    #[cfg(feature = "redb")]
+    RedbError(Box<redb::Error>),
     CacheBuildError(EpochCacheError),
     RandaoMixOutOfBounds,
+    MilhouseError(milhouse::Error),
+    Compression(std::io::Error),
     FinalizedStateDecreasingSlot,
     FinalizedStateUnaligned,
     StateForCacheHasPendingUpdates {
         state_root: Hash256,
         slot: Slot,
     },
+    Hdiff(hdiff::Error),
+    ForwardsIterInvalidColumn(DBColumn),
+    ForwardsIterGap(DBColumn, Slot, Slot),
+    StateShouldNotBeRequired(Slot),
+    MissingBlock(Hash256),
+    GenesisStateUnknown,
     ArithError(safe_arith::ArithError),
+    MismatchedDiffBaseState {
+        expected_slot: Slot,
+        stored_slot: Slot,
+    },
+    SnapshotDiffBaseState {
+        slot: Slot,
+    },
+    LoadAnchorInfo(Box<Error>),
+    LoadSplit(Box<Error>),
+    LoadBlobInfo(Box<Error>),
+    LoadDataColumnInfo(Box<Error>),
+    LoadConfig(Box<Error>),
+    LoadHotStateSummary(Hash256, Box<Error>),
+    LoadHotStateSummaryForSplit(Box<Error>),
+    StateSummaryIteratorError {
+        error: StateSummaryIteratorError,
+        from_state_root: Hash256,
+        from_state_slot: Slot,
+        target_slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {
@@ -112,6 +155,18 @@ impl From<StoreConfigError> for Error {
     }
 }
 
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
+    }
+}
+
+impl From<hdiff::Error> for Error {
+    fn from(e: hdiff::Error) -> Self {
+        Self::Hdiff(e)
+    }
+}
+
 impl From<BlockReplayError> for Error {
     fn from(e: BlockReplayError) -> Error {
         Error::BlockReplayError(e)
@@ -121,6 +176,62 @@ impl From<BlockReplayError> for Error {
 impl From<InconsistentFork> for Error {
     fn from(e: InconsistentFork) -> Error {
         Error::InconsistentFork(e)
+    }
+}
+
+#[cfg(feature = "leveldb")]
+impl From<LevelDBError> for Error {
+    fn from(e: LevelDBError) -> Error {
+        Error::LevelDbError(e)
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::Error> for Error {
+    fn from(e: redb::Error) -> Self {
+        Error::RedbError(Box::new(e))
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::TableError> for Error {
+    fn from(e: redb::TableError) -> Self {
+        Error::RedbError(Box::new(e.into()))
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::TransactionError> for Error {
+    fn from(e: redb::TransactionError) -> Self {
+        Error::RedbError(Box::new(e.into()))
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::DatabaseError> for Error {
+    fn from(e: redb::DatabaseError) -> Self {
+        Error::RedbError(Box::new(e.into()))
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::StorageError> for Error {
+    fn from(e: redb::StorageError) -> Self {
+        Error::RedbError(Box::new(e.into()))
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::CommitError> for Error {
+    fn from(e: redb::CommitError) -> Self {
+        Error::RedbError(Box::new(e.into()))
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::CompactionError> for Error {
+    fn from(e: redb::CompactionError) -> Self {
+        Error::RedbError(Box::new(e.into()))
     }
 }
 

@@ -1,8 +1,9 @@
 use super::{AttestationBase, AttestationElectra, AttestationRef};
 use super::{
-    ChainSpec, Domain, EthSpec, Fork, Hash256, PublicKey, SecretKey, SelectionProof, Signature,
-    SignedRoot,
+    ChainSpec, Domain, EthSpec, Fork, ForkName, Hash256, PublicKey, SecretKey, SelectionProof,
+    Signature, SignedRoot,
 };
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::Attestation;
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,7 @@ use tree_hash_derive::TreeHash;
             TestRandom,
             TreeHash,
         ),
+        context_deserialize(ForkName),
         serde(bound = "E: EthSpec"),
         arbitrary(bound = "E: EthSpec"),
     ),
@@ -146,4 +148,4 @@ impl<E: EthSpec> AggregateAndProof<E> {
 }
 
 impl<E: EthSpec> SignedRoot for AggregateAndProof<E> {}
-impl<'a, E: EthSpec> SignedRoot for AggregateAndProofRef<'a, E> {}
+impl<E: EthSpec> SignedRoot for AggregateAndProofRef<'_, E> {}

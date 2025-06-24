@@ -3,7 +3,6 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::eth1_chain::Error as Eth1ChainError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -61,6 +60,7 @@ pub enum BeaconChainError {
     ForkChoiceStoreError(ForkChoiceStoreError),
     MissingBeaconBlock(Hash256),
     MissingBeaconState(Hash256),
+    MissingHotStateSummary(Hash256),
     SlotProcessingError(SlotProcessingError),
     EpochProcessingError(EpochProcessingError),
     StateAdvanceError(StateAdvanceError),
@@ -181,9 +181,9 @@ pub enum BeaconChainError {
         execution_block_hash: Option<ExecutionBlockHash>,
     },
     ForkchoiceUpdate(execution_layer::Error),
-    FinalizedCheckpointMismatch {
-        head_state: Checkpoint,
-        fork_choice: Hash256,
+    InvalidCheckpoint {
+        state_root: Hash256,
+        checkpoint: Checkpoint,
     },
     InvalidSlot(Slot),
     HeadBlockNotFullyVerified {
@@ -226,6 +226,10 @@ pub enum BeaconChainError {
     EmptyRpcCustodyColumns,
     AttestationError(AttestationError),
     AttestationCommitteeIndexNotSet,
+    InsufficientColumnsToReconstructBlobs {
+        columns_found: usize,
+    },
+    FailedToReconstructBlobs(String),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -266,7 +270,6 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
-    Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
     StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
@@ -291,7 +294,7 @@ pub enum BlockProductionError {
     MissingExecutionPayload,
     MissingKzgCommitment(String),
     TokioJoin(JoinError),
-    BeaconChain(BeaconChainError),
+    BeaconChain(Box<BeaconChainError>),
     InvalidPayloadFork,
     InvalidBlockVariant(String),
     KzgError(kzg::Error),
@@ -302,7 +305,6 @@ pub enum BlockProductionError {
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
-easy_from_to!(Eth1ChainError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
 easy_from_to!(EpochCacheError, BlockProductionError);

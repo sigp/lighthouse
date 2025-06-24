@@ -192,7 +192,7 @@ impl<'env> RwTransaction<'env> {
     }
 }
 
-impl<'env> Cursor<'env> {
+impl Cursor<'_> {
     /// Return the first key in the current database while advancing the cursor's position.
     pub fn first_key(&mut self) -> Result<Option<Key>, Error> {
         match self {

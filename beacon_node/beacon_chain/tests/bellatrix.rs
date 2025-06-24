@@ -50,7 +50,6 @@ async fn merge_with_terminal_block_hash_override() {
 
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec.into())
-        .logger(logging::test_logger())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -82,7 +81,7 @@ async fn merge_with_terminal_block_hash_override() {
 
         let block = &harness.chain.head_snapshot().beacon_block;
 
-        let execution_payload = block.message().body().execution_payload().unwrap().clone();
+        let execution_payload = block.message().body().execution_payload().unwrap();
         if i == 0 {
             assert_eq!(execution_payload.block_hash(), genesis_pow_block_hash);
         }
@@ -107,7 +106,6 @@ async fn base_altair_bellatrix_with_terminal_block_after_fork() {
 
     let harness = BeaconChainHarness::builder(E::default())
         .spec(spec.into())
-        .logger(logging::test_logger())
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -133,7 +131,7 @@ async fn base_altair_bellatrix_with_terminal_block_after_fork() {
      * Do the Bellatrix fork, without a terminal PoW block.
      */
 
-    harness.extend_to_slot(bellatrix_fork_slot).await;
+    Box::pin(harness.extend_to_slot(bellatrix_fork_slot)).await;
 
     let bellatrix_head = &harness.chain.head_snapshot().beacon_block;
     assert!(bellatrix_head.as_bellatrix().is_ok());
@@ -207,15 +205,7 @@ async fn base_altair_bellatrix_with_terminal_block_after_fork() {
         harness.extend_slots(1).await;
 
         let block = &harness.chain.head_snapshot().beacon_block;
-        execution_payloads.push(
-            block
-                .message()
-                .body()
-                .execution_payload()
-                .unwrap()
-                .clone()
-                .into(),
-        );
+        execution_payloads.push(block.message().body().execution_payload().unwrap().into());
     }
 
     verify_execution_payload_chain(execution_payloads.as_slice());

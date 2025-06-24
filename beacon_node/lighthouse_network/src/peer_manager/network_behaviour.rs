@@ -7,11 +7,13 @@ use futures::StreamExt;
 use libp2p::core::transport::PortUse;
 use libp2p::core::ConnectedPoint;
 use libp2p::identity::PeerId;
+use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
 use libp2p::swarm::{ConnectionDenied, ConnectionId, NetworkBehaviour, ToSwarm};
-use slog::{debug, error, trace};
+pub use metrics::{set_gauge_vec, NAT_OPEN};
+use tracing::{debug, error, trace};
 use types::EthSpec;
 
 use crate::discovery::enr_ext::EnrExt;
@@ -35,7 +37,10 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         // no events from the dummy handler
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<ToSwarm<Self::ToSwarm, void::Void>> {
+    fn poll(
+        &mut self,
+        cx: &mut Context<'_>,
+    ) -> Poll<ToSwarm<Self::ToSwarm, std::convert::Infallible>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -49,7 +54,10 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                     self.events.push(PeerManagerEvent::Ping(peer_id));
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for inbound peers to ping"; "error" => e.to_string())
+                    error!(
+                        error = e.to_string(),
+                        "Failed to check for inbound peers to ping"
+                    )
                 }
                 Poll::Ready(None) | Poll::Pending => break,
             }
@@ -62,7 +70,10 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                     self.events.push(PeerManagerEvent::Ping(peer_id));
                 }
                 Poll::Ready(Some(Err(e))) => {
-                    error!(self.log, "Failed to check for outbound peers to ping"; "error" => e.to_string())
+                    error!(
+                        error = e.to_string(),
+                        "Failed to check for outbound peers to ping"
+                    )
                 }
                 Poll::Ready(None) | Poll::Pending => break,
             }
@@ -79,7 +90,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                         self.events.push(PeerManagerEvent::Status(peer_id))
                     }
                     Poll::Ready(Some(Err(e))) => {
-                        error!(self.log, "Failed to check for peers to ping"; "error" => e.to_string())
+                        error!(error = e.to_string(), "Failed to check for peers to ping")
                     }
                     Poll::Ready(None) | Poll::Pending => break,
                 }
@@ -104,7 +115,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
             ]
             .concat();
 
-            debug!(self.log, "Dialing peer"; "peer_id"=> %enr.peer_id(), "multiaddrs" => ?multiaddrs);
+            debug!(peer_id = %enr.peer_id(), ?multiaddrs, "Dialing peer");
             return Poll::Ready(ToSwarm::Dial {
                 opts: DialOpts::peer_id(enr.peer_id())
                     .condition(PeerCondition::Disconnected)
@@ -136,12 +147,8 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 error,
                 connection_id: _,
             }) => {
-                debug!(self.log, "Failed to dial peer"; "peer_id"=> ?peer_id, "error" => %ClearDialError(error));
+                debug!(?peer_id, error = %ClearDialError(error),"Failed to dial peer");
                 self.on_dial_failure(peer_id);
-            }
-            FromSwarm::ExternalAddrConfirmed(_) => {
-                // We have an external address confirmed, means we are able to do NAT traversal.
-                metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p"], 1);
             }
             _ => {
                 // NOTE: FromSwarm is a non exhaustive enum so updates should be based on release
@@ -160,8 +167,8 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
     ) -> Result<(), ConnectionDenied> {
         // get the IP address to verify it's not banned.
         let ip = match remote_addr.iter().next() {
-            Some(libp2p::multiaddr::Protocol::Ip6(ip)) => IpAddr::V6(ip),
-            Some(libp2p::multiaddr::Protocol::Ip4(ip)) => IpAddr::V4(ip),
+            Some(Protocol::Ip6(ip)) => IpAddr::V6(ip),
+            Some(Protocol::Ip4(ip)) => IpAddr::V4(ip),
             _ => {
                 return Err(ConnectionDenied::new(format!(
                     "Connection to peer rejected: invalid multiaddr: {remote_addr}"
@@ -185,7 +192,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         _local_addr: &libp2p::Multiaddr,
         remote_addr: &libp2p::Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, ConnectionDenied> {
-        trace!(self.log, "Inbound connection"; "peer_id" => %peer_id, "multiaddr" => %remote_addr);
+        trace!(%peer_id, multiaddr = %remote_addr, "Inbound connection");
         // We already checked if the peer was banned on `handle_pending_inbound_connection`.
         if self.ban_status(&peer_id).is_some() {
             return Err(ConnectionDenied::new(
@@ -200,11 +207,19 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 .peers
                 .read()
                 .peer_info(&peer_id)
-                .map_or(true, |peer| !peer.has_future_duty())
+                .is_none_or(|peer| !peer.has_future_duty())
         {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",
             ));
+        }
+
+        // We have an inbound connection, this is indicative of having our libp2p NAT ports open. We
+        // distinguish between ipv4 and ipv6 here:
+        match remote_addr.iter().next() {
+            Some(Protocol::Ip4(_)) => set_gauge_vec(&NAT_OPEN, &["libp2p_ipv4"], 1),
+            Some(Protocol::Ip6(_)) => set_gauge_vec(&NAT_OPEN, &["libp2p_ipv6"], 1),
+            _ => {}
         }
 
         Ok(ConnectionHandler)
@@ -218,9 +233,9 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         _role_override: libp2p::core::Endpoint,
         _port_use: PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        trace!(self.log, "Outbound connection"; "peer_id" => %peer_id, "multiaddr" => %addr);
+        trace!(%peer_id, multiaddr = %addr,"Outbound connection");
         if let Some(cause) = self.ban_status(&peer_id) {
-            error!(self.log, "Connected a banned peer. Rejecting connection"; "peer_id" => %peer_id);
+            error!(%peer_id, "Connected a banned peer. Rejecting connection");
             return Err(ConnectionDenied::new(cause));
         }
 
@@ -231,7 +246,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
                 .peers
                 .read()
                 .peer_info(&peer_id)
-                .map_or(true, |peer| !peer.has_future_duty())
+                .is_none_or(|peer| !peer.has_future_duty())
         {
             return Err(ConnectionDenied::new(
                 "Connection to peer rejected: too many connections",
@@ -249,9 +264,11 @@ impl<E: EthSpec> PeerManager<E> {
         endpoint: &ConnectedPoint,
         _other_established: usize,
     ) {
-        debug!(self.log, "Connection established"; "peer_id" => %peer_id,
-            "multiaddr" => %endpoint.get_remote_address(),
-            "connection" => ?endpoint.to_endpoint()
+        debug!(
+            multiaddr = %endpoint.get_remote_address(),
+            connection = ?endpoint.to_endpoint(),
+            %peer_id,
+            "Connection established"
         );
 
         // Update the prometheus metrics
@@ -300,7 +317,7 @@ impl<E: EthSpec> PeerManager<E> {
             // Inform the application.
             self.events
                 .push(PeerManagerEvent::PeerDisconnected(peer_id));
-            debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
+            debug!(%peer_id,"Peer disconnected");
         }
 
         // NOTE: It may be the case that a rejected node, due to too many peers is disconnected

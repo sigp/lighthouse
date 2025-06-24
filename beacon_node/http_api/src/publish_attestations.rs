@@ -40,24 +40,22 @@ use beacon_chain::{
     BeaconChainTypes,
 };
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
+use beacon_processor::{Work, WorkEvent};
 use eth2::types::Failure;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{debug, error, warn, Logger};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{
-    mpsc::{Sender, UnboundedSender},
-    oneshot,
-};
-use types::Attestation;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tracing::{debug, error, warn};
+use types::SingleAttestation;
 
 // Error variants are only used in `Debug` and considered `dead_code` by the compiler.
 #[derive(Debug)]
-enum Error {
+pub enum Error {
     Validation(AttestationError),
     Publication,
-    ForkChoice(#[allow(dead_code)] BeaconChainError),
+    ForkChoice(#[allow(dead_code)] Box<BeaconChainError>),
     AggregationPool(#[allow(dead_code)] AttestationError),
     ReprocessDisabled,
     ReprocessFull,
@@ -73,21 +71,19 @@ enum PublishAttestationResult {
 
 fn verify_and_publish_attestation<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    attestation: &Attestation<T::EthSpec>,
+    attestation: &SingleAttestation,
     seen_timestamp: Duration,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    log: &Logger,
 ) -> Result<(), Error> {
-    let attestation = chain
+    let verified_attestation = chain
         .verify_unaggregated_attestation_for_gossip(attestation, None)
         .map_err(Error::Validation)?;
 
-    // Publish.
     network_tx
         .send(NetworkMessage::Publish {
             messages: vec![PubsubMessage::Attestation(Box::new((
-                attestation.subnet_id(),
-                attestation.attestation().clone_as_attestation(),
+                verified_attestation.subnet_id(),
+                attestation.clone(),
             )))],
         })
         .map_err(|_| Error::Publication)?;
@@ -98,30 +94,28 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
         .read()
         .register_api_unaggregated_attestation(
             seen_timestamp,
-            attestation.indexed_attestation(),
+            verified_attestation.indexed_attestation(),
             &chain.slot_clock,
         );
 
-    let fc_result = chain.apply_attestation_to_fork_choice(&attestation);
-    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&attestation);
+    let fc_result = chain.apply_attestation_to_fork_choice(&verified_attestation);
+    let naive_aggregation_result = chain.add_to_naive_aggregation_pool(&verified_attestation);
 
     if let Err(e) = &fc_result {
         warn!(
-            log,
-            "Attestation invalid for fork choice";
-            "err" => ?e,
+            err = ?e,
+            "Attestation invalid for fork choice"
         );
     }
     if let Err(e) = &naive_aggregation_result {
         warn!(
-            log,
-            "Attestation invalid for aggregation";
-            "err" => ?e
+            err = ?e,
+            "Attestation invalid for aggregation"
         );
     }
 
     if let Err(e) = fc_result {
-        Err(Error::ForkChoice(e))
+        Err(Error::ForkChoice(Box::new(e)))
     } else if let Err(e) = naive_aggregation_result {
         Err(Error::AggregationPool(e))
     } else {
@@ -132,22 +126,21 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
 pub async fn publish_attestations<T: BeaconChainTypes>(
     task_spawner: TaskSpawner<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
-    attestations: Vec<Attestation<T::EthSpec>>,
+    attestations: Vec<SingleAttestation>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-    reprocess_send: Option<Sender<ReprocessQueueMessage>>,
-    log: Logger,
+    allow_reprocess: bool,
 ) -> Result<(), warp::Rejection> {
     // Collect metadata about attestations which we'll use to report failures. We need to
     // move the `attestations` vec into the blocking task, so this small overhead is unavoidable.
     let attestation_metadata = attestations
         .iter()
-        .map(|att| (att.data().slot, att.committee_index()))
+        .map(|att| (att.data.slot, Some(att.committee_index)))
         .collect::<Vec<_>>();
 
     // Gossip validate and publish attestations that can be immediately processed.
     let seen_timestamp = timestamp_now();
-    let inner_log = log.clone();
     let mut prelim_results = task_spawner
+        .clone()
         .blocking_task(Priority::P0, move || {
             Ok(attestations
                 .into_iter()
@@ -157,27 +150,24 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                         &attestation,
                         seen_timestamp,
                         &network_tx,
-                        &inner_log,
                     ) {
                         Ok(()) => PublishAttestationResult::Success,
                         Err(Error::Validation(AttestationError::UnknownHeadBlock {
                             beacon_block_root,
                         })) => {
-                            let Some(reprocess_tx) = &reprocess_send else {
+                            if !allow_reprocess {
                                 return PublishAttestationResult::Failure(Error::ReprocessDisabled);
                             };
                             // Re-process.
                             let (tx, rx) = oneshot::channel();
                             let reprocess_chain = chain.clone();
                             let reprocess_network_tx = network_tx.clone();
-                            let reprocess_log = inner_log.clone();
                             let reprocess_fn = move || {
                                 let result = verify_and_publish_attestation(
                                     &reprocess_chain,
                                     &attestation,
                                     seen_timestamp,
                                     &reprocess_network_tx,
-                                    &reprocess_log,
                                 );
                                 // Ignore failure on the oneshot that reports the result. This
                                 // shouldn't happen unless some catastrophe befalls the waiting
@@ -189,7 +179,13 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
                                     beacon_block_root,
                                     process_fn: Box::new(reprocess_fn),
                                 });
-                            if reprocess_tx.try_send(reprocess_msg).is_err() {
+                            if task_spawner
+                                .try_send(WorkEvent {
+                                    drop_during_sync: false,
+                                    work: Work::Reprocess(reprocess_msg),
+                                })
+                                .is_err()
+                            {
                                 PublishAttestationResult::Failure(Error::ReprocessFull)
                             } else {
                                 PublishAttestationResult::Reprocessing(rx)
@@ -230,10 +226,9 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
     for (i, reprocess_result) in reprocess_indices.into_iter().zip(reprocess_results) {
         let Some(result_entry) = prelim_results.get_mut(i) else {
             error!(
-                log,
-                "Unreachable case in attestation publishing";
-                "case" => "prelim out of bounds",
-                "request_index" => i,
+                case = "prelim out of bounds",
+                request_index = i,
+                "Unreachable case in attestation publishing"
             );
             continue;
         };
@@ -261,39 +256,35 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
             Some(PublishAttestationResult::Failure(e)) => {
                 if let Some((slot, committee_index)) = attestation_metadata.get(index) {
                     error!(
-                        log,
-                        "Failure verifying attestation for gossip";
-                        "error" => ?e,
-                        "request_index" => index,
-                        "committee_index" => committee_index,
-                        "attestation_slot" => slot,
+                        error = ?e,
+                        request_index = index,
+                        committee_index,
+                        attestation_slot = %slot,
+                        "Failure verifying attestation for gossip"
                     );
                     failures.push(Failure::new(index, format!("{e:?}")));
                 } else {
                     error!(
-                        log,
-                        "Unreachable case in attestation publishing";
-                        "case" => "out of bounds",
-                        "request_index" => index
+                        case = "out of bounds",
+                        request_index = index,
+                        "Unreachable case in attestation publishing"
                     );
                     failures.push(Failure::new(index, "metadata logic error".into()));
                 }
             }
             Some(PublishAttestationResult::Reprocessing(_)) => {
                 error!(
-                    log,
-                    "Unreachable case in attestation publishing";
-                    "case" => "reprocessing",
-                    "request_index" => index
+                    case = "reprocessing",
+                    request_index = index,
+                    "Unreachable case in attestation publishing"
                 );
                 failures.push(Failure::new(index, "reprocess logic error".into()));
             }
             None => {
                 error!(
-                    log,
-                    "Unreachable case in attestation publishing";
-                    "case" => "result is None",
-                    "request_index" => index
+                    case = "result is None",
+                    request_index = index,
+                    "Unreachable case in attestation publishing"
                 );
                 failures.push(Failure::new(index, "result logic error".into()));
             }
@@ -302,9 +293,8 @@ pub async fn publish_attestations<T: BeaconChainTypes>(
 
     if num_already_known > 0 {
         debug!(
-            log,
-            "Some unagg attestations already known";
-            "count" => num_already_known
+            count = num_already_known,
+            "Some unagg attestations already known"
         );
     }
 

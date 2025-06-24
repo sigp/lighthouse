@@ -14,19 +14,21 @@ use std::time::Duration;
 use super::*;
 
 use crate::sync::block_lookups::common::ResponseType;
+use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
     data_availability_checker::Availability,
     test_utils::{
-        build_log, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-        BeaconChainHarness, EphemeralHarnessType, LoggerType, NumBlobs,
+        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
+        BeaconChainHarness, EphemeralHarnessType, NumBlobs,
     },
     validator_monitor::timestamp_now,
     AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
     PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
+use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
     rpc::{RPCError, RequestType, RpcErrorResponse},
     service::api_types::{
@@ -36,53 +38,33 @@ use lighthouse_network::{
     types::SyncState,
     NetworkConfig, NetworkGlobals, PeerId,
 };
-use slog::info;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
+use tracing::info;
 use types::{
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
-    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ForkName,
+    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
     Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
 };
 
 const D: Duration = Duration::new(0, 0);
 const PARENT_FAIL_TOLERANCE: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS;
 const SAMPLING_REQUIRED_SUCCESSES: usize = 2;
-
 type DCByRootIds = Vec<DCByRootId>;
 type DCByRootId = (SyncRequestId, Vec<ColumnIndex>);
 
-struct TestRigConfig {
-    peer_das_enabled: bool,
-}
-
 impl TestRig {
-    fn test_setup_with_config(config: Option<TestRigConfig>) -> Self {
-        let logger_type = if cfg!(feature = "test_logger") {
-            LoggerType::Test
-        } else if cfg!(feature = "ci_logger") {
-            LoggerType::CI
-        } else {
-            LoggerType::Null
-        };
-        let log = build_log(slog::Level::Trace, logger_type);
-
+    pub fn test_setup() -> Self {
         // Use `fork_from_env` logic to set correct fork epochs
-        let mut spec = test_spec::<E>();
-
-        if let Some(config) = config {
-            if config.peer_das_enabled {
-                spec.eip7594_fork_epoch = Some(Epoch::new(0));
-            }
-        }
+        let spec = test_spec::<E>();
 
         // Initialise a new beacon chain
         let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E)
             .spec(Arc::new(spec))
-            .logger(log.clone())
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
+            .mock_execution_layer()
             .testing_slot_clock(TestingSlotClock::new(
                 Slot::new(0),
                 Duration::from_secs(0),
@@ -91,6 +73,11 @@ impl TestRig {
             .build();
 
         let chain = harness.chain.clone();
+        let fork_context = Arc::new(ForkContext::new::<E>(
+            Slot::new(0),
+            chain.genesis_validators_root,
+            &chain.spec,
+        ));
 
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let (sync_tx, sync_rx) = mpsc::unbounded_channel::<SyncMessage<E>>();
@@ -99,7 +86,6 @@ impl TestRig {
         let network_config = Arc::new(NetworkConfig::default());
         let globals = Arc::new(NetworkGlobals::new_test_globals(
             Vec::new(),
-            &log,
             network_config,
             chain.spec.clone(),
         ));
@@ -108,7 +94,6 @@ impl TestRig {
             sync_tx,
             chain.clone(),
             harness.runtime.task_executor.clone(),
-            log.clone(),
         );
 
         let fork_name = chain.spec.fork_name_at_slot::<E>(chain.slot().unwrap());
@@ -118,7 +103,13 @@ impl TestRig {
             .network_globals
             .set_sync_state(SyncState::Synced);
 
-        let rng = XorShiftRng::from_seed([42; 16]);
+        let spec = chain.spec.clone();
+
+        // deterministic seed
+        let rng = ChaCha20Rng::from_seed([0u8; 32]);
+
+        init_tracing();
+
         TestRig {
             beacon_processor_rx,
             beacon_processor_rx_queue: vec![],
@@ -136,44 +127,42 @@ impl TestRig {
                 SamplingConfig::Custom {
                     required_successes: vec![SAMPLING_REQUIRED_SUCCESSES],
                 },
-                log.clone(),
+                fork_context,
             ),
             harness,
             fork_name,
-            log,
+            spec,
         }
     }
 
-    fn test_setup() -> Self {
-        Self::test_setup_with_config(None)
-    }
-
-    fn test_setup_after_deneb() -> Option<Self> {
+    fn test_setup_after_deneb_before_fulu() -> Option<Self> {
         let r = Self::test_setup();
-        if r.after_deneb() {
+        if r.after_deneb() && !r.fork_name.fulu_enabled() {
             Some(r)
         } else {
             None
         }
     }
 
-    fn test_setup_after_peerdas() -> Option<Self> {
-        let r = Self::test_setup_with_config(Some(TestRigConfig {
-            peer_das_enabled: true,
-        }));
-        if r.after_deneb() {
+    pub fn test_setup_after_fulu() -> Option<Self> {
+        let r = Self::test_setup();
+        if r.fork_name.fulu_enabled() {
             Some(r)
         } else {
             None
         }
     }
 
-    fn log(&self, msg: &str) {
-        info!(self.log, "TEST_RIG"; "msg" => msg);
+    pub fn log(&self, msg: &str) {
+        info!(msg, "TEST_RIG");
     }
 
-    fn after_deneb(&self) -> bool {
-        matches!(self.fork_name, ForkName::Deneb | ForkName::Electra)
+    pub fn after_deneb(&self) -> bool {
+        self.fork_name.deneb_enabled()
+    }
+
+    pub fn after_fulu(&self) -> bool {
+        self.fork_name.fulu_enabled()
     }
 
     fn trigger_unknown_parent_block(&mut self, peer_id: PeerId, block: Arc<SignedBeaconBlock<E>>) {
@@ -212,7 +201,7 @@ impl TestRig {
     ) -> (SignedBeaconBlock<E>, Vec<BlobSidecar<E>>) {
         let fork_name = self.fork_name;
         let rng = &mut self.rng;
-        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng)
+        generate_rand_block_and_blobs::<E>(fork_name, num_blobs, rng, &self.spec)
     }
 
     fn rand_block_and_data_columns(
@@ -238,7 +227,7 @@ impl TestRig {
         (parent, block, parent_root, block_root)
     }
 
-    fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
+    pub fn send_sync_message(&mut self, sync_message: SyncMessage<E>) {
         self.sync_manager.handle_message(sync_message);
     }
 
@@ -369,21 +358,30 @@ impl TestRig {
         self.expect_empty_network();
     }
 
-    fn new_connected_peer(&mut self) -> PeerId {
+    pub fn new_connected_peer(&mut self) -> PeerId {
+        let key = self.determinstic_key();
+        let peer_id = self
+            .network_globals
+            .peers
+            .write()
+            .__add_connected_peer_testing_only(false, &self.harness.spec, key);
+        self.log(&format!("Added new peer for testing {peer_id:?}"));
+        peer_id
+    }
+
+    pub fn new_connected_supernode_peer(&mut self) -> PeerId {
+        let key = self.determinstic_key();
         self.network_globals
             .peers
             .write()
-            .__add_connected_peer_testing_only(false, &self.harness.spec)
+            .__add_connected_peer_testing_only(true, &self.harness.spec, key)
     }
 
-    fn new_connected_supernode_peer(&mut self) -> PeerId {
-        self.network_globals
-            .peers
-            .write()
-            .__add_connected_peer_testing_only(true, &self.harness.spec)
+    fn determinstic_key(&mut self) -> CombinedKey {
+        k256::ecdsa::SigningKey::random(&mut self.rng).into()
     }
 
-    fn new_connected_peers_for_peerdas(&mut self) {
+    pub fn new_connected_peers_for_peerdas(&mut self) {
         // Enough sampling peers with few columns
         for _ in 0..100 {
             self.new_connected_peer();
@@ -468,7 +466,7 @@ impl TestRig {
     ) {
         self.log("parent_lookup_block_response");
         self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::SingleBlock { id },
+            sync_request_id: SyncRequestId::SingleBlock { id },
             peer_id,
             beacon_block,
             seen_timestamp: D,
@@ -483,7 +481,7 @@ impl TestRig {
     ) {
         self.log("single_lookup_block_response");
         self.send_sync_message(SyncMessage::RpcBlock {
-            request_id: SyncRequestId::SingleBlock { id },
+            sync_request_id: SyncRequestId::SingleBlock { id },
             peer_id,
             beacon_block,
             seen_timestamp: D,
@@ -501,7 +499,7 @@ impl TestRig {
             blob_sidecar.as_ref().map(|b| b.index)
         ));
         self.send_sync_message(SyncMessage::RpcBlob {
-            request_id: SyncRequestId::SingleBlob { id },
+            sync_request_id: SyncRequestId::SingleBlob { id },
             peer_id,
             blob_sidecar,
             seen_timestamp: D,
@@ -515,7 +513,7 @@ impl TestRig {
         blob_sidecar: Option<Arc<BlobSidecar<E>>>,
     ) {
         self.send_sync_message(SyncMessage::RpcBlob {
-            request_id: SyncRequestId::SingleBlob { id },
+            sync_request_id: SyncRequestId::SingleBlob { id },
             peer_id,
             blob_sidecar,
             seen_timestamp: D,
@@ -591,7 +589,7 @@ impl TestRig {
     fn parent_lookup_failed(&mut self, id: SingleLookupReqId, peer_id: PeerId, error: RPCError) {
         self.send_sync_message(SyncMessage::RpcError {
             peer_id,
-            request_id: SyncRequestId::SingleBlock { id },
+            sync_request_id: SyncRequestId::SingleBlock { id },
             error,
         })
     }
@@ -610,7 +608,7 @@ impl TestRig {
     fn single_lookup_failed(&mut self, id: SingleLookupReqId, peer_id: PeerId, error: RPCError) {
         self.send_sync_message(SyncMessage::RpcError {
             peer_id,
-            request_id: SyncRequestId::SingleBlock { id },
+            sync_request_id: SyncRequestId::SingleBlock { id },
             error,
         })
     }
@@ -622,11 +620,11 @@ impl TestRig {
         }
     }
 
-    fn return_empty_sampling_request(&mut self, (request_id, _): DCByRootId) {
+    fn return_empty_sampling_request(&mut self, (sync_request_id, _): DCByRootId) {
         let peer_id = PeerId::random();
         // Send stream termination
         self.send_sync_message(SyncMessage::RpcDataColumn {
-            request_id,
+            sync_request_id,
             peer_id,
             data_column: None,
             seen_timestamp: timestamp_now(),
@@ -639,10 +637,10 @@ impl TestRig {
         peer_id: PeerId,
         error: RPCError,
     ) {
-        for (request_id, _) in sampling_ids {
+        for (sync_request_id, _) in sampling_ids {
             self.send_sync_message(SyncMessage::RpcError {
                 peer_id,
-                request_id,
+                sync_request_id,
                 error: error.clone(),
             })
         }
@@ -707,7 +705,6 @@ impl TestRig {
         self.complete_data_columns_by_root_request(id, data_columns);
 
         // Expect work event
-        // TODO(das): worth it to append sender id to the work event for stricter assertion?
         self.expect_rpc_sample_verify_work_event();
 
         // Respond with valid result
@@ -749,7 +746,6 @@ impl TestRig {
         }
 
         // Expect work event
-        // TODO(das): worth it to append sender id to the work event for stricter assertion?
         self.expect_rpc_custody_column_work_event();
 
         // Respond with valid result
@@ -770,14 +766,14 @@ impl TestRig {
 
     fn complete_data_columns_by_root_request(
         &mut self,
-        (request_id, _): DCByRootId,
+        (sync_request_id, _): DCByRootId,
         data_columns: &[Arc<DataColumnSidecar<E>>],
     ) {
         let peer_id = PeerId::random();
         for data_column in data_columns {
             // Send chunks
             self.send_sync_message(SyncMessage::RpcDataColumn {
-                request_id,
+                sync_request_id,
                 peer_id,
                 data_column: Some(data_column.clone()),
                 seen_timestamp: timestamp_now(),
@@ -785,7 +781,7 @@ impl TestRig {
         }
         // Send stream termination
         self.send_sync_message(SyncMessage::RpcDataColumn {
-            request_id,
+            sync_request_id,
             peer_id,
             data_column: None,
             seen_timestamp: timestamp_now(),
@@ -795,23 +791,23 @@ impl TestRig {
     /// Return RPCErrors for all active requests of peer
     fn rpc_error_all_active_requests(&mut self, disconnected_peer_id: PeerId) {
         self.drain_network_rx();
-        while let Ok(request_id) = self.pop_received_network_event(|ev| match ev {
+        while let Ok(sync_request_id) = self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
                 peer_id,
-                request_id: AppRequestId::Sync(id),
+                app_request_id: AppRequestId::Sync(id),
                 ..
             } if *peer_id == disconnected_peer_id => Some(*id),
             _ => None,
         }) {
             self.send_sync_message(SyncMessage::RpcError {
                 peer_id: disconnected_peer_id,
-                request_id,
+                sync_request_id,
                 error: RPCError::Disconnected,
             });
         }
     }
 
-    fn peer_disconnected(&mut self, peer_id: PeerId) {
+    pub fn peer_disconnected(&mut self, peer_id: PeerId) {
         self.send_sync_message(SyncMessage::Disconnect(peer_id));
     }
 
@@ -827,7 +823,7 @@ impl TestRig {
         }
     }
 
-    fn pop_received_network_event<T, F: Fn(&NetworkMessage<E>) -> Option<T>>(
+    pub fn pop_received_network_event<T, F: Fn(&NetworkMessage<E>) -> Option<T>>(
         &mut self,
         predicate_transform: F,
     ) -> Result<T, String> {
@@ -847,7 +843,7 @@ impl TestRig {
         }
     }
 
-    fn pop_received_processor_event<T, F: Fn(&WorkEvent<E>) -> Option<T>>(
+    pub fn pop_received_processor_event<T, F: Fn(&WorkEvent<E>) -> Option<T>>(
         &mut self,
         predicate_transform: F,
     ) -> Result<T, String> {
@@ -871,6 +867,16 @@ impl TestRig {
         }
     }
 
+    pub fn expect_empty_processor(&mut self) {
+        self.drain_processor_rx();
+        if !self.beacon_processor_rx_queue.is_empty() {
+            panic!(
+                "Expected processor to be empty, but has events: {:?}",
+                self.beacon_processor_rx_queue
+            );
+        }
+    }
+
     fn find_block_lookup_request(
         &mut self,
         for_block: Hash256,
@@ -879,7 +885,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlocksByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
@@ -899,7 +905,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlobsByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
                 .to_vec()
@@ -924,7 +930,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlocksByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             } if request.block_roots().to_vec().contains(&for_block) => Some(*id),
             _ => None,
         })
@@ -946,7 +952,7 @@ impl TestRig {
             NetworkMessage::SendRequest {
                 peer_id: _,
                 request: RequestType::BlobsByRoot(request),
-                request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             } if request
                 .blob_ids
                 .to_vec()
@@ -974,19 +980,15 @@ impl TestRig {
                     NetworkMessage::SendRequest {
                         peer_id: _,
                         request: RequestType::DataColumnsByRoot(request),
-                        request_id: AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
-                    } if request
-                        .data_column_ids
-                        .to_vec()
-                        .iter()
-                        .any(|r| r.block_root == block_root) =>
-                    {
-                        let indices = request
+                        app_request_id:
+                            AppRequestId::Sync(id @ SyncRequestId::DataColumnsByRoot { .. }),
+                    } => {
+                        let matching = request
                             .data_column_ids
-                            .to_vec()
                             .iter()
-                            .map(|cid| cid.index)
-                            .collect::<Vec<_>>();
+                            .find(|id| id.block_root == block_root)?;
+
+                        let indices = matching.columns.iter().copied().collect();
                         Some((*id, indices))
                     }
                     _ => None,
@@ -1104,7 +1106,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_empty_network(&mut self) {
+    pub fn expect_empty_network(&mut self) {
         self.drain_network_rx();
         if !self.network_rx_queue.is_empty() {
             let n = self.network_rx_queue.len();
@@ -1224,7 +1226,12 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
-            .put_gossip_blob(GossipVerifiedBlob::__assumed_valid(blob.into()))
+            .put_gossip_verified_blobs(
+                blob.block_root(),
+                std::iter::once(GossipVerifiedBlob::<_, Observe>::__assumed_valid(
+                    blob.into(),
+                )),
+            )
             .unwrap()
         {
             Availability::Available(_) => panic!("blob removed from da_checker, available"),
@@ -1292,7 +1299,7 @@ impl TestRig {
                 .sync_manager
                 .get_sampling_request_status(block_root, index)
                 .unwrap_or_else(|| panic!("No request state for {index}"));
-            if !matches!(status, crate::sync::peer_sampling::Status::NoPeers { .. }) {
+            if !matches!(status, crate::sync::peer_sampling::Status::NoPeers) {
                 panic!("expected {block_root} {index} request to be no peers: {status:?}");
             }
         }
@@ -1317,8 +1324,10 @@ impl TestRig {
 
 #[test]
 fn stable_rng() {
+    let spec = types::MainnetEthSpec::default_spec();
     let mut rng = XorShiftRng::from_seed([42; 16]);
-    let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
+    let (block, _) =
+        generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng, &spec);
     assert_eq!(
         block.canonical_root(),
         Hash256::from_slice(
@@ -1661,7 +1670,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         rig.assert_not_failed_chain(block_root);
         // send the right parent but fail processing
         rig.parent_lookup_block_response(id, peer_id, Some(parent.clone().into()));
-        rig.parent_block_processed(block_root, BlockError::InvalidSignature.into());
+        rig.parent_block_processed(block_root, BlockError::BlockSlotLimitReached.into());
         rig.parent_lookup_block_response(id, peer_id, None);
         rig.expect_penalty(peer_id, "lookup_block_processing_failure");
     }
@@ -1710,6 +1719,63 @@ fn test_parent_lookup_too_deep_grow_ancestor() {
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     rig.expect_no_penalty_for(peer_id);
     rig.assert_failed_chain(chain_hash);
+}
+
+// Regression test for https://github.com/sigp/lighthouse/pull/7118
+#[test]
+fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
+    // GIVEN: A parent chain longer than PARENT_DEPTH_TOLERANCE.
+    let mut rig = TestRig::test_setup();
+    let mut blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE + 1);
+    let peer_id = rig.new_connected_peer();
+
+    // The child of the trigger block to be used to extend the chain.
+    let trigger_block_child = blocks.pop().unwrap();
+    // The trigger block that starts the lookup.
+    let trigger_block = blocks.pop().unwrap();
+    let tip_root = trigger_block.canonical_root();
+
+    // Trigger the initial unknown parent block for the tip.
+    rig.trigger_unknown_parent_block(peer_id, trigger_block.clone());
+
+    // Simulate the lookup chain building up via `ParentUnknown` errors.
+    for block in blocks.into_iter().rev() {
+        let id = rig.expect_block_parent_request(block.canonical_root());
+        rig.parent_lookup_block_response(id, peer_id, Some(block.clone()));
+        rig.parent_lookup_block_response(id, peer_id, None);
+        rig.expect_block_process(ResponseType::Block);
+        rig.parent_block_processed(
+            tip_root,
+            BlockProcessingResult::Err(BlockError::ParentUnknown {
+                parent_root: block.parent_root(),
+            }),
+        );
+    }
+
+    // At this point, the chain should have been deemed too deep and pruned.
+    // The tip root should have been inserted into failed chains.
+    rig.assert_failed_chain(tip_root);
+    rig.expect_no_penalty_for(peer_id);
+
+    // WHEN: Trigger the extending block that points to the tip.
+    let trigger_block_child_root = trigger_block_child.canonical_root();
+    rig.trigger_unknown_block_from_attestation(trigger_block_child_root, peer_id);
+    let id = rig.expect_block_lookup_request(trigger_block_child_root);
+    rig.single_lookup_block_response(id, peer_id, Some(trigger_block_child.clone()));
+    rig.single_lookup_block_response(id, peer_id, None);
+    rig.expect_block_process(ResponseType::Block);
+    rig.single_block_component_processed(
+        id.lookup_id,
+        BlockProcessingResult::Err(BlockError::ParentUnknown {
+            parent_root: tip_root,
+        }),
+    );
+
+    // THEN: The extending block should not create a lookup because the tip was inserted into failed chains.
+    rig.expect_no_active_lookups();
+    // AND: The peer should be penalized for extending a failed chain.
+    rig.expect_single_penalty(peer_id, "failed_chain");
+    rig.expect_empty_network();
 }
 
 #[test]
@@ -1922,7 +1988,7 @@ fn test_same_chain_race_condition() {
 
 #[test]
 fn block_in_da_checker_skips_download() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -1940,7 +2006,7 @@ fn block_in_da_checker_skips_download() {
 
 #[test]
 fn block_in_processing_cache_becomes_invalid() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -1966,7 +2032,7 @@ fn block_in_processing_cache_becomes_invalid() {
 
 #[test]
 fn block_in_processing_cache_becomes_valid_imported() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -1991,7 +2057,7 @@ fn block_in_processing_cache_becomes_valid_imported() {
 #[ignore]
 #[test]
 fn blobs_in_da_checker_skip_download() {
-    let Some(mut r) = TestRig::test_setup_after_deneb() else {
+    let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
         return;
     };
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
@@ -2010,7 +2076,7 @@ fn blobs_in_da_checker_skip_download() {
 
 #[test]
 fn sampling_happy_path() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
@@ -2027,7 +2093,7 @@ fn sampling_happy_path() {
 
 #[test]
 fn sampling_with_retries() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     r.new_connected_peers_for_peerdas();
@@ -2049,7 +2115,7 @@ fn sampling_with_retries() {
 
 #[test]
 fn sampling_avoid_retrying_same_peer() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let peer_id_1 = r.new_connected_supernode_peer();
@@ -2070,7 +2136,7 @@ fn sampling_avoid_retrying_same_peer() {
 
 #[test]
 fn sampling_batch_requests() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let _supernode = r.new_connected_supernode_peer();
@@ -2096,7 +2162,7 @@ fn sampling_batch_requests() {
 
 #[test]
 fn sampling_batch_requests_not_enough_responses_returned() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let _supernode = r.new_connected_supernode_peer();
@@ -2141,7 +2207,7 @@ fn sampling_batch_requests_not_enough_responses_returned() {
 
 #[test]
 fn custody_lookup_happy_path() {
-    let Some(mut r) = TestRig::test_setup_after_peerdas() else {
+    let Some(mut r) = TestRig::test_setup_after_fulu() else {
         return;
     };
     let spec = E::default_spec();
@@ -2154,7 +2220,7 @@ fn custody_lookup_happy_path() {
     let id = r.expect_block_lookup_request(block.canonical_root());
     r.complete_valid_block_request(id, block.into(), true);
     // for each slot we download `samples_per_slot` columns
-    let sample_column_count = spec.samples_per_slot * spec.data_columns_per_subnet() as u64;
+    let sample_column_count = spec.samples_per_slot * spec.data_columns_per_group();
     let custody_ids =
         r.expect_only_data_columns_by_root_requests(block_root, sample_column_count as usize);
     r.complete_valid_custody_request(custody_ids, data_columns, false);
@@ -2173,10 +2239,11 @@ fn custody_lookup_happy_path() {
 mod deneb_only {
     use super::*;
     use beacon_chain::{
-        block_verification_types::RpcBlock, data_availability_checker::AvailabilityCheckError,
+        block_verification_types::{AsBlock, RpcBlock},
+        data_availability_checker::AvailabilityCheckError,
     };
-    use ssz_types::VariableList;
     use std::collections::VecDeque;
+    use types::RuntimeVariableList;
 
     struct DenebTester {
         rig: TestRig,
@@ -2214,7 +2281,7 @@ mod deneb_only {
 
     impl DenebTester {
         fn new(request_trigger: RequestTrigger) -> Option<Self> {
-            let Some(mut rig) = TestRig::test_setup_after_deneb() else {
+            let Some(mut rig) = TestRig::test_setup_after_deneb_before_fulu() else {
                 return None;
             };
             let (block, blobs) = rig.rand_block_and_blobs(NumBlobs::Random);
@@ -2299,11 +2366,6 @@ mod deneb_only {
                 slot,
                 block_root,
             })
-        }
-
-        fn log(self, msg: &str) -> Self {
-            self.rig.log(msg);
-            self
         }
 
         fn trigger_unknown_block_from_attestation(mut self) -> Self {
@@ -2534,12 +2596,15 @@ mod deneb_only {
         fn parent_block_unknown_parent(mut self) -> Self {
             self.rig.log("parent_block_unknown_parent");
             let block = self.unknown_parent_block.take().unwrap();
+            let max_len = self.rig.spec.max_blobs_per_block(block.epoch()) as usize;
             // Now this block is the one we expect requests from
             self.block = block.clone();
             let block = RpcBlock::new(
                 Some(block.canonical_root()),
                 block,
-                self.unknown_parent_blobs.take().map(VariableList::from),
+                self.unknown_parent_blobs
+                    .take()
+                    .map(|vec| RuntimeVariableList::from_vec(vec, max_len)),
             )
             .unwrap();
             self.rig.parent_block_processed(
@@ -2555,7 +2620,7 @@ mod deneb_only {
         fn invalid_parent_processed(mut self) -> Self {
             self.rig.parent_block_processed(
                 self.block_root,
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                BlockProcessingResult::Err(BlockError::BlockSlotLimitReached),
             );
             assert_eq!(self.rig.active_parent_lookups_count(), 1);
             self
@@ -2564,7 +2629,7 @@ mod deneb_only {
         fn invalid_block_processed(mut self) -> Self {
             self.rig.single_block_component_processed(
                 self.block_req_id.expect("block request id").lookup_id,
-                BlockProcessingResult::Err(BlockError::ProposalSignatureInvalid),
+                BlockProcessingResult::Err(BlockError::BlockSlotLimitReached),
             );
             self.rig.assert_single_lookups_count(1);
             self
@@ -2604,6 +2669,11 @@ mod deneb_only {
                 // TODO: Should send blobs for processing
                 .expect_block_process()
                 .block_imported()
+        }
+
+        fn log(self, msg: &str) -> Self {
+            self.rig.log(msg);
+            self
         }
 
         fn parent_block_then_empty_parent_blobs(self) -> Self {
@@ -2936,7 +3006,7 @@ mod deneb_only {
     #[ignore]
     #[test]
     fn no_peer_penalty_when_rpc_response_already_known_from_gossip() {
-        let Some(mut r) = TestRig::test_setup_after_deneb() else {
+        let Some(mut r) = TestRig::test_setup_after_deneb_before_fulu() else {
             return;
         };
         let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(2));

@@ -8,6 +8,7 @@ pub static NAT_OPEN: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
         &["protocol"],
     )
 });
+
 pub static ADDRESS_UPDATE_COUNT: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "libp2p_address_update_total",
@@ -92,11 +93,11 @@ pub static PEERS_PER_CLIENT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     )
 });
 
-pub static PEERS_PER_CUSTODY_SUBNET_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
+pub static PEERS_PER_CUSTODY_GROUP_COUNT: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(
-        "peers_per_custody_subnet_count",
-        "The current count of peers by custody subnet count",
-        &["custody_subnet_count"],
+        "peers_per_custody_group_count",
+        "The current count of peers by custody group count",
+        &["custody_group_count"],
     )
 });
 
@@ -205,6 +206,20 @@ pub static REPORT_PEER_MSGS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| 
     )
 });
 
+pub static OUTBOUND_REQUEST_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "outbound_request_idling_seconds",
+        "The time our own request remained idle in the self-limiter",
+    )
+});
+
+pub static RESPONSE_IDLING: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "response_idling_seconds",
+        "The time our response remained idle in the response limiter",
+    )
+});
+
 pub fn scrape_discovery_metrics() {
     let metrics =
         discv5::metrics::Metrics::from(discv5::Discv5::<discv5::DefaultProtocolId>::raw_metrics());
@@ -212,4 +227,6 @@ pub fn scrape_discovery_metrics() {
     set_gauge(&DISCOVERY_SESSIONS, metrics.active_sessions as i64);
     set_gauge_vec(&DISCOVERY_BYTES, &["inbound"], metrics.bytes_recv as i64);
     set_gauge_vec(&DISCOVERY_BYTES, &["outbound"], metrics.bytes_sent as i64);
+    set_gauge_vec(&NAT_OPEN, &["discv5_ipv4"], metrics.ipv4_contactable as i64);
+    set_gauge_vec(&NAT_OPEN, &["discv5_ipv6"], metrics.ipv6_contactable as i64);
 }
