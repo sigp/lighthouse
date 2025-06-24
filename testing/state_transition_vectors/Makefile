@@ -5,4 +5,4 @@ test:
 	cargo test --release --features "$(TEST_FEATURES)"
 
 clean:
-	rm -r vectors/
+	rm -rf vectors/
