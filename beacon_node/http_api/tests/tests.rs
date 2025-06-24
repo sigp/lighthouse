@@ -3329,7 +3329,7 @@ impl ApiTester {
 
             let (response, metadata) = self
                 .client
-                .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None, None)
+                .get_validator_blocks_v3_ssz::<E>(slot, &randao_reveal, None, None, None)
                 .await
                 .unwrap();
 
@@ -4256,7 +4256,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4283,7 +4283,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(0))
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(0), None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4311,7 +4311,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(u64::MAX))
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, Some(u64::MAX), None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4465,7 +4465,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4545,7 +4545,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4639,7 +4639,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4729,7 +4729,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4819,7 +4819,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4907,7 +4907,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -4967,7 +4967,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5037,7 +5037,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5150,7 +5150,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5171,7 +5171,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5304,7 +5304,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5335,7 +5335,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(next_slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5416,7 +5416,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5489,7 +5489,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5557,7 +5557,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5625,7 +5625,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5691,7 +5691,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
@@ -5764,7 +5764,7 @@ impl ApiTester {
 
         let (payload_type, metadata) = self
             .client
-            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None)
+            .get_validator_blocks_v3::<E>(slot, &randao_reveal, None, None, None)
             .await
             .unwrap();
         Self::check_block_v3_metadata(&metadata, &payload_type);
