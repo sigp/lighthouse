@@ -264,6 +264,8 @@ pub enum DBColumn {
     BeaconBlob,
     #[strum(serialize = "bdc")]
     BeaconDataColumn,
+    #[strum(serialize = "bdi")]
+    BeaconDataColumnCustodyInfo,
     /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     ///
     /// DEPRECATED.
@@ -424,6 +426,7 @@ impl DBColumn {
             | Self::CustodyContext
             | Self::OptimisticTransitionBlock => 32,
             Self::BeaconBlockRoots
+            | Self::BeaconDataColumnCustodyInfo
             | Self::BeaconBlockRootsChunked
             | Self::BeaconStateRoots
             | Self::BeaconStateRootsChunked

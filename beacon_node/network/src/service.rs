@@ -111,6 +111,7 @@ pub enum NetworkMessage<E: EthSpec> {
     CustodyCountChanged {
         new_custody_group_count: u64,
         sampling_count: u64,
+        slot: Slot,
     },
 }
 
@@ -743,6 +744,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::CustodyCountChanged {
                 new_custody_group_count,
                 sampling_count,
+                slot,
             } => {
                 // subscribe to `sampling_count` subnets
                 self.libp2p
@@ -753,6 +755,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     .advertise_false_custody_group_count
                     .is_none()
                 {
+                    // Update data column custody info with the slot at which cgc was changed.
+                    self.beacon_chain.store.put_data_column_custody_info(slot).unwrap_or_else(|e| {
+                        tracing::error!(error = ?e, "Failed to update data column custody info")
+                    });
                     self.libp2p.update_enr_cgc(new_custody_group_count);
                 }
             }

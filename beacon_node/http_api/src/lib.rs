@@ -3790,6 +3790,7 @@ pub fn serve<T: BeaconChainTypes>(
                             network_tx.send(NetworkMessage::CustodyCountChanged {
                                 new_custody_group_count: cgc_change.new_custody_group_count,
                                 sampling_count: cgc_change.sampling_count,
+                                slot: cgc_change.slot,
                             }).unwrap_or_else(|e| {
                                 debug!(error = %e, "Could not send message to the network service. \
                                 Likely shutdown")

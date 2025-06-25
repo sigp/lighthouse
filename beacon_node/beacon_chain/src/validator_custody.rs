@@ -210,6 +210,7 @@ impl CustodyContext {
                 return Some(CustodyCountChanged {
                     new_custody_group_count: updated_cgc,
                     sampling_count: self.sampling_size(Some(effective_epoch), spec),
+                    slot: current_slot,
                 });
             }
         }
@@ -258,6 +259,7 @@ impl CustodyContext {
 pub struct CustodyCountChanged {
     pub new_custody_group_count: u64,
     pub sampling_count: u64,
+    pub slot: Slot,
 }
 
 /// The custody information that gets persisted across runs.

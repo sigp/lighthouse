@@ -6,10 +6,10 @@ use crate::historic_state_cache::HistoricStateCache;
 use crate::iter::{BlockRootsIterator, ParentRootBlockIterator, RootsIterator};
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    AnchorInfo, BlobInfo, CompactionTimestamp, DataColumnInfo, SchemaVersion, ANCHOR_INFO_KEY,
-    ANCHOR_UNINITIALIZED, BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY,
-    CURRENT_SCHEMA_VERSION, DATA_COLUMN_INFO_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
-    STATE_UPPER_LIMIT_NO_RETAIN,
+    AnchorInfo, BlobInfo, CompactionTimestamp, DataColumnCustodyInfo, DataColumnInfo,
+    SchemaVersion, ANCHOR_INFO_KEY, ANCHOR_UNINITIALIZED, BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY,
+    CONFIG_KEY, CURRENT_SCHEMA_VERSION, DATA_COLUMN_CUSTODY_INFO_KEY, DATA_COLUMN_INFO_KEY,
+    SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN,
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
@@ -91,6 +91,7 @@ struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
     blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
     data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
+    data_column_custody_info_cache: Option<DataColumnCustodyInfo>,
 }
 
 impl<E: EthSpec> BlockCache<E> {
@@ -99,6 +100,7 @@ impl<E: EthSpec> BlockCache<E> {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
             data_column_cache: LruCache::new(size),
+            data_column_custody_info_cache: None,
         }
     }
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
@@ -111,6 +113,12 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get_or_insert_mut(block_root, Default::default)
             .insert(data_column.index, data_column);
+    }
+    pub fn put_data_column_custody_info(
+        &mut self,
+        data_column_custody_info: Option<DataColumnCustodyInfo>,
+    ) {
+        self.data_column_custody_info_cache = data_column_custody_info;
     }
     pub fn get_block<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a SignedBeaconBlock<E>> {
         self.block_cache.get(block_root)
@@ -128,6 +136,9 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get(block_root)
             .and_then(|map| map.get(column_index).cloned())
+    }
+    pub fn get_data_column_custody_info(&mut self) -> Option<DataColumnCustodyInfo> {
+        self.data_column_custody_info_cache.clone()
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
         let _ = self.block_cache.pop(block_root);
@@ -920,6 +931,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             key.as_slice().to_vec(),
             blobs.as_ssz_bytes(),
         ));
+    }
+
+    pub fn put_data_column_custody_info(
+        &self,
+        earliest_data_column_slot: Slot,
+    ) -> Result<(), Error> {
+        let data_column_custody_info = DataColumnCustodyInfo {
+            earliest_data_column_slot,
+        };
+
+        self.blobs_db.put_bytes(
+            DBColumn::BeaconDataColumnCustodyInfo,
+            DATA_COLUMN_CUSTODY_INFO_KEY.as_slice(),
+            &data_column_custody_info.as_ssz_bytes(),
+        )?;
+
+        self.block_cache
+            .lock()
+            .put_data_column_custody_info(Some(data_column_custody_info));
+
+        Ok(())
     }
 
     pub fn put_data_columns(
@@ -2389,6 +2421,36 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })
     }
 
+    /// Fetch custody info from the cache.
+    /// A `None` value indicates that we have fulfilled our custody
+    /// requirements up to the DA window.
+    pub fn get_data_column_custody_info(
+        &self,
+        query_store: bool,
+    ) -> Result<Option<DataColumnCustodyInfo>, Error> {
+        // We only query on startup, when the cache isn't initialized
+        if query_store {
+            let bytes_opt = self.blobs_db.get_bytes(
+                DBColumn::BeaconDataColumnCustodyInfo,
+                DATA_COLUMN_CUSTODY_INFO_KEY.as_slice(),
+            )?;
+
+            let Some(bytes) = bytes_opt else {
+                return Ok(None);
+            };
+
+            let data_column_custody_info = Some(DataColumnCustodyInfo::from_ssz_bytes(&bytes)?);
+            // Update the cache
+            self.block_cache
+                .lock()
+                .put_data_column_custody_info(data_column_custody_info.clone());
+
+            Ok(data_column_custody_info)
+        } else {
+            Ok(self.block_cache.lock().get_data_column_custody_info())
+        }
+    }
+
     /// Fetch all columns for a given block from the store.
     pub fn get_data_columns(
         &self,
@@ -3538,7 +3600,7 @@ pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStor
             .get_cold_state_root(target_slot)
             .map_err(Box::new)
             .map_err(StateSummaryIteratorError::LoadStateRootError)?
-            .ok_or_else(|| StateSummaryIteratorError::MissingStateRoot {
+            .ok_or(StateSummaryIteratorError::MissingStateRoot {
                 target_slot,
                 state_upper_limit,
             });
