@@ -35,7 +35,7 @@ PROFILE ?= release
 FORKS=phase0 altair bellatrix capella deneb electra fulu
 
 # List of all recent hard forks. This list is used to set env variables for http_api tests
-RECENT_FORKS=deneb electra fulu
+RECENT_FORKS=electra fulu
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
