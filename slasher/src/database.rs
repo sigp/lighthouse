@@ -331,7 +331,7 @@ impl<E: EthSpec> SlasherDB<E> {
         Ok(db)
     }
 
-    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
         self.env.begin_rw_txn()
     }
 

@@ -56,7 +56,7 @@ impl From<BeaconStateError> for Error {
 pub fn get_pubkey_from_state<E>(
     state: &BeaconState<E>,
     validator_index: usize,
-) -> Option<Cow<PublicKey>>
+) -> Option<Cow<'_, PublicKey>>
 where
     E: EthSpec,
 {

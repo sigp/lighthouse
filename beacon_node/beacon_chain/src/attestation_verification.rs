@@ -353,7 +353,7 @@ impl<T: BeaconChainTypes> Clone for IndexedUnaggregatedAttestation<'_, T> {
 /// A helper trait implemented on wrapper types that can be progressed to a state where they can be
 /// verified for application to fork choice.
 pub trait VerifiedAttestation<T: BeaconChainTypes>: Sized {
-    fn attestation(&self) -> AttestationRef<T::EthSpec>;
+    fn attestation(&self) -> AttestationRef<'_, T::EthSpec>;
 
     fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec>;
 
@@ -366,7 +366,7 @@ pub trait VerifiedAttestation<T: BeaconChainTypes>: Sized {
 }
 
 impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestation<'_, T> {
-    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+    fn attestation(&self) -> AttestationRef<'_, T::EthSpec> {
         self.attestation()
     }
 
@@ -376,7 +376,7 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregatedAttestati
 }
 
 impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregatedAttestation<'_, T> {
-    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+    fn attestation(&self) -> AttestationRef<'_, T::EthSpec> {
         self.attestation.to_ref()
     }
 
