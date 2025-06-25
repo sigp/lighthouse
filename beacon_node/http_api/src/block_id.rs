@@ -1,14 +1,16 @@
+use crate::version::inconsistent_fork_rejection;
 use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
 use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlobIndicesQuery;
 use eth2::types::BlockId as CoreBlockId;
+use eth2::types::DataColumnIndicesQuery;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, EthSpec, FixedBytesExtended, Hash256, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, Slot,
+    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
 
@@ -18,6 +20,13 @@ use warp::Rejection;
 pub struct BlockId(pub CoreBlockId);
 
 type Finalized = bool;
+
+type DataColumnsResponse<T> = (
+    DataColumnSidecarList<<T as BeaconChainTypes>::EthSpec>,
+    ForkName,
+    ExecutionOptimistic,
+    Finalized,
+);
 
 impl BlockId {
     pub fn from_slot(slot: Slot) -> Self {
@@ -258,6 +267,47 @@ impl BlockId {
                     })
             }
         }
+    }
+
+    pub fn get_data_columns<T: BeaconChainTypes>(
+        &self,
+        query: DataColumnIndicesQuery,
+        chain: &BeaconChain<T>,
+    ) -> Result<DataColumnsResponse<T>, Rejection> {
+        let (root, execution_optimistic, finalized) = self.root(chain)?;
+        let block = BlockId::blinded_block_by_root(&root, chain)?.ok_or_else(|| {
+            warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
+        })?;
+
+        if !chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            return Err(warp_utils::reject::custom_bad_request(
+                "block is pre-Fulu and has no data columns".to_string(),
+            ));
+        }
+
+        let data_column_sidecars = if let Some(indices) = query.indices {
+            indices
+                .iter()
+                .filter_map(|index| chain.get_data_column(&root, index).transpose())
+                .collect::<Result<DataColumnSidecarList<T::EthSpec>, _>>()
+                .map_err(warp_utils::reject::unhandled_error)?
+        } else {
+            chain
+                .get_data_columns(&root)
+                .map_err(warp_utils::reject::unhandled_error)?
+                .unwrap_or_default()
+        };
+
+        let fork_name = block
+            .fork_name(&chain.spec)
+            .map_err(inconsistent_fork_rejection)?;
+
+        Ok((
+            data_column_sidecars,
+            fork_name,
+            execution_optimistic,
+            finalized,
+        ))
     }
 
     #[allow(clippy::type_complexity)]

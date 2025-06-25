@@ -380,7 +380,7 @@ pub enum GetPayloadResponseType<E: EthSpec> {
 }
 
 impl<E: EthSpec> GetPayloadResponse<E> {
-    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<E> {
+    pub fn execution_payload_ref(&self) -> ExecutionPayloadRef<'_, E> {
         self.to_ref().into()
     }
 }

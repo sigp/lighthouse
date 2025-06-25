@@ -9,6 +9,7 @@ use beacon_chain::{
     BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
 use operation_pool::PersistedOperationPool;
+use state_processing::EpochProcessingError;
 use state_processing::{per_slot_processing, per_slot_processing::Error as SlotProcessingError};
 use std::sync::LazyLock;
 use types::{
@@ -67,11 +68,23 @@ fn massive_skips() {
     };
 
     assert!(state.slot() > 1, "the state should skip at least one slot");
-    assert_eq!(
-        error,
-        SlotProcessingError::BeaconStateError(BeaconStateError::InsufficientValidators),
-        "should return error indicating that validators have been slashed out"
-    )
+
+    if state.fork_name_unchecked().fulu_enabled() {
+        // post-fulu this is done in per_epoch_processing
+        assert_eq!(
+            error,
+            SlotProcessingError::EpochProcessingError(EpochProcessingError::BeaconStateError(
+                BeaconStateError::InsufficientValidators
+            )),
+            "should return error indicating that validators have been slashed out"
+        )
+    } else {
+        assert_eq!(
+            error,
+            SlotProcessingError::BeaconStateError(BeaconStateError::InsufficientValidators),
+            "should return error indicating that validators have been slashed out"
+        )
+    }
 }
 
 #[tokio::test]
@@ -567,7 +580,7 @@ async fn attestations_with_increasing_slots() {
         let head = harness.chain.head_snapshot();
         let head_state_root = head.beacon_state_root();
 
-        attestations.extend(harness.get_unaggregated_attestations(
+        attestations.extend(harness.get_single_attestations(
             &AttestationStrategy::AllValidators,
             &head.beacon_state,
             head_state_root,
@@ -584,7 +597,7 @@ async fn attestations_with_increasing_slots() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data().slot;
+        let expected_attestation_slot = attestation.data.slot;
         let expected_earliest_permissible_slot =
             current_slot - MinimalEthSpec::slots_per_epoch() - 1;
 

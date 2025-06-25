@@ -75,22 +75,22 @@ fn test_tcp_status_rpc() {
         .await;
 
         // Dummy STATUS RPC message
-        let rpc_request = RequestType::Status(StatusMessage {
+        let rpc_request = RequestType::Status(StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::zero(),
             head_slot: Slot::new(1),
-        });
+        }));
 
         // Dummy STATUS RPC message
-        let rpc_response = Response::Status(StatusMessage {
+        let rpc_response = Response::Status(StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::zero(),
             head_slot: Slot::new(1),
-        });
+        }));
 
         // build the sender future
         let sender_future = async {
@@ -1199,22 +1199,22 @@ fn test_delayed_rpc_response() {
         .await;
 
         // Dummy STATUS RPC message
-        let rpc_request = RequestType::Status(StatusMessage {
+        let rpc_request = RequestType::Status(StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::from_low_u64_be(0),
             head_slot: Slot::new(1),
-        });
+        }));
 
         // Dummy STATUS RPC message
-        let rpc_response = Response::Status(StatusMessage {
+        let rpc_response = Response::Status(StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::from_low_u64_be(0),
             head_slot: Slot::new(1),
-        });
+        }));
 
         // build the sender future
         let sender_future = async {
@@ -1246,10 +1246,12 @@ fn test_delayed_rpc_response() {
                                 // The second and subsequent responses are delayed due to the response rate-limiter on the receiver side.
                                 // Adding a slight margin to the elapsed time check to account for potential timing issues caused by system
                                 // scheduling or execution delays during testing.
+                                // https://github.com/sigp/lighthouse/issues/7466
+                                let margin = 500;
                                 assert!(
                                     request_sent_at.elapsed()
                                         > (Duration::from_secs(QUOTA_SEC)
-                                            - Duration::from_millis(100))
+                                            - Duration::from_millis(margin))
                                 );
                                 if request_id == 5 {
                                     // End the test
@@ -1327,22 +1329,22 @@ fn test_active_requests() {
         .await;
 
         // Dummy STATUS RPC request.
-        let rpc_request = RequestType::Status(StatusMessage {
+        let rpc_request = RequestType::Status(StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::from_low_u64_be(0),
             head_slot: Slot::new(1),
-        });
+        }));
 
         // Dummy STATUS RPC response.
-        let rpc_response = Response::Status(StatusMessage {
+        let rpc_response = Response::Status(StatusMessage::V1(StatusMessageV1 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::zero(),
             head_slot: Slot::new(1),
-        });
+        }));
 
         // Number of requests.
         const REQUESTS: u8 = 10;

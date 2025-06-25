@@ -1864,7 +1864,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     pub async fn get_blobs_v2(
         &self,
         query: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV2<E>>>, Error> {
+    ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
         let capabilities = self.get_engine_capabilities(None).await?;
 
         if capabilities.get_blobs_v2 {

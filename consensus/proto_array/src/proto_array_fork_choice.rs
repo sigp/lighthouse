@@ -856,7 +856,7 @@ impl ProtoArrayForkChoice {
     }
 
     /// See `ProtoArray::iter_nodes`
-    pub fn iter_nodes(&self, block_root: &Hash256) -> Iter {
+    pub fn iter_nodes(&self, block_root: &Hash256) -> Iter<'_> {
         self.proto_array.iter_nodes(block_root)
     }
 

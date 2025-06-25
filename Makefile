@@ -218,6 +218,9 @@ run-state-transition-tests:
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
 
+# Downloads and runs the nightly EF test vectors.
+test-ef-nightly: make-ef-tests-nightly run-ef-tests
+
 # Downloads and runs the EF test vectors with nextest.
 nextest-ef: make-ef-tests nextest-run-ef-tests
 
@@ -277,6 +280,10 @@ lint-full:
 # downloads which extracts into several GB of test vectors.
 make-ef-tests:
 	make -C $(EF_TESTS)
+
+# Download/extract the nightly EF test vectors.
+make-ef-tests-nightly:
+	CONSENSUS_SPECS_TEST_VERSION=nightly make -C $(EF_TESTS)
 
 # Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:

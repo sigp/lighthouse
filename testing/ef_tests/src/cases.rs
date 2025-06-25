@@ -22,6 +22,7 @@ mod genesis_validity;
 mod get_custody_groups;
 mod kzg_blob_to_kzg_commitment;
 mod kzg_compute_blob_kzg_proof;
+mod kzg_compute_cells;
 mod kzg_compute_cells_and_kzg_proofs;
 mod kzg_compute_kzg_proof;
 mod kzg_recover_cells_and_kzg_proofs;
@@ -49,7 +50,7 @@ pub use bls_eth_fast_aggregate_verify::*;
 pub use bls_fast_aggregate_verify::*;
 pub use bls_sign_msg::*;
 pub use bls_verify_msg::*;
-pub use common::SszStaticType;
+pub use common::{DataColumnsByRootIdentifierWrapper, SszStaticType};
 pub use compute_columns_for_custody_groups::*;
 pub use epoch_processing::*;
 pub use fork::ForkTest;
@@ -58,6 +59,7 @@ pub use genesis_validity::*;
 pub use get_custody_groups::*;
 pub use kzg_blob_to_kzg_commitment::*;
 pub use kzg_compute_blob_kzg_proof::*;
+pub use kzg_compute_cells::*;
 pub use kzg_compute_cells_and_kzg_proofs::*;
 pub use kzg_compute_kzg_proof::*;
 pub use kzg_recover_cells_and_kzg_proofs::*;
@@ -91,29 +93,29 @@ pub use transition::TransitionTest;
 ///    to return `true` for the feature in order for the feature test vector to be tested.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FeatureName {
-    // TODO(fulu): to be removed once we start using Fulu types for test vectors.
-    // Existing SSZ types for PeerDAS (Fulu) are the same as Electra, so the test vectors get
-    // loaded as Electra types (default serde behaviour for untagged enums).
-    Fulu,
+    // Placeholder for future feature-gated forks
+    // Add new feature-gated forks here before they are incorporated into a main fork
+    #[doc(hidden)]
+    __Placeholder,
 }
 
 impl FeatureName {
     pub fn list_all() -> Vec<FeatureName> {
-        vec![FeatureName::Fulu]
+        vec![]
     }
 
     /// `ForkName` to use when running the feature tests.
     pub fn fork_name(&self) -> ForkName {
         match self {
-            FeatureName::Fulu => ForkName::Electra,
+            FeatureName::__Placeholder => unreachable!("Placeholder variant should never be used"),
         }
     }
 }
 
 impl Display for FeatureName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            FeatureName::Fulu => f.write_str("fulu"),
+            FeatureName::__Placeholder => unreachable!("Placeholder variant should never be used"),
         }
     }
 }

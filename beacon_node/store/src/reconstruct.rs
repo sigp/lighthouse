@@ -1,6 +1,5 @@
 //! Implementation of historic state reconstruction (given complete block history).
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
-use crate::metadata::ANCHOR_FOR_ARCHIVE_NODE;
 use crate::metrics;
 use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
@@ -145,10 +144,8 @@ where
                             });
                         }
 
-                        self.compare_and_set_anchor_info_with_write(
-                            old_anchor,
-                            ANCHOR_FOR_ARCHIVE_NODE,
-                        )?;
+                        let new_anchor = old_anchor.as_archive_anchor();
+                        self.compare_and_set_anchor_info_with_write(old_anchor, new_anchor)?;
 
                         return Ok(());
                     } else {
