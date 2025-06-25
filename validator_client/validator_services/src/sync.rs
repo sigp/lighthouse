@@ -512,8 +512,12 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
         "Calculating sync selection proofs"
     );
 
+    // Start at the next slot, as aggregation proofs for the duty at the current slot are no longer
+    // required since we do the actual aggregation in the slot before the duty slot.
+    let start_slot = current_slot.as_u64() + 1;
+
     // Generate selection proofs for each validator at each slot, one slot at a time.
-    for slot in (current_slot.as_u64()..=pre_compute_slot.as_u64()).map(Slot::new) {
+    for slot in (start_slot..=pre_compute_slot.as_u64()).map(Slot::new) {
         let mut validator_proofs = vec![];
         for (validator_start_slot, duty) in pre_compute_duties {
             // Proofs are already known at this slot for this validator.
