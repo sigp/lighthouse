@@ -8,7 +8,6 @@ use beacon_node::{
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
 };
 use beacon_processor::BeaconProcessorConfig;
-use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -115,11 +114,6 @@ fn staking_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.http_api.enabled);
-            assert!(config.sync_eth1_chain);
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().to_string(),
-                DEFAULT_EXECUTION_ENDPOINT
-            );
         });
 }
 
@@ -398,51 +392,24 @@ fn genesis_backfill_with_historic_flag() {
 // Tests for Eth1 flags.
 // DEPRECATED but should not crash
 #[test]
-fn dummy_eth1_flag() {
+fn eth1_blocks_per_log_query_flag() {
     CommandLineTest::new()
-        .flag("dummy-eth1", None)
+        .flag("eth1-blocks-per-log-query", Some("500"))
         .run_with_zero_port();
 }
 // DEPRECATED but should not crash
 #[test]
-fn eth1_flag() {
-    CommandLineTest::new()
-        .flag("eth1", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.sync_eth1_chain));
-}
-#[test]
-fn eth1_blocks_per_log_query_flag() {
-    CommandLineTest::new()
-        .flag("eth1-blocks-per-log-query", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.eth1.blocks_per_log_query, 500));
-}
-#[test]
 fn eth1_purge_cache_flag() {
     CommandLineTest::new()
         .flag("eth1-purge-cache", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.eth1.purge_cache));
+        .run_with_zero_port();
 }
-#[test]
-fn eth1_cache_follow_distance_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.eth1.cache_follow_distance, None);
-            assert_eq!(config.eth1.cache_follow_distance(), 3 * 2048 / 4);
-        });
-}
+// DEPRECATED but should not crash
 #[test]
 fn eth1_cache_follow_distance_manual() {
     CommandLineTest::new()
         .flag("eth1-cache-follow-distance", Some("128"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.eth1.cache_follow_distance, Some(128));
-            assert_eq!(config.eth1.cache_follow_distance(), 128);
-        });
+        .run_with_zero_port();
 }
 
 // Tests for Bellatrix flags.
@@ -755,8 +722,6 @@ fn test_builder_disable_ssz_flag() {
 }
 
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
-    use sensitive_url::SensitiveUrl;
-
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let execution_endpoint = "http://meow.cats";
     let jwt_file = "jwt-file";
@@ -772,15 +737,6 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
             let el_config = config.execution_layer.as_ref().unwrap();
             assert_eq!(el_config.jwt_id, Some(id.to_string()));
             assert_eq!(el_config.jwt_version, Some(version.to_string()));
-            assert_eq!(
-                config.eth1.endpoint,
-                Eth1Endpoint::Auth {
-                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
-                    jwt_path: dir.path().join(jwt_file),
-                    jwt_id: Some(id.to_string()),
-                    jwt_version: Some(version.to_string()),
-                }
-            );
         });
 }
 #[test]
@@ -2520,26 +2476,8 @@ fn logfile_format_flag() {
             )
         });
 }
-#[test]
-fn sync_eth1_chain_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.sync_eth1_chain));
-}
 
-#[test]
-fn sync_eth1_chain_execution_endpoints_flag() {
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new_with_no_execution_endpoint()
-        .flag("execution-endpoints", Some("http://localhost:8551/"))
-        .flag(
-            "execution-jwt",
-            dir.path().join("jwt-file").as_os_str().to_str(),
-        )
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.sync_eth1_chain));
-}
-
+// DEPRECATED but should not crash.
 #[test]
 fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
@@ -2550,8 +2488,7 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
             "execution-jwt",
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.sync_eth1_chain));
+        .run_with_zero_port();
 }
 
 #[test]

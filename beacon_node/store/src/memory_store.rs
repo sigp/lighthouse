@@ -80,7 +80,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(())
     }
 
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K> {
         // We use this awkward pattern because we can't lock the `self.db` field *and* maintain a
         // reference to the lock guard across calls to `.next()`. This would be require a
         // struct with a field (the iterator) which references another field (the lock guard).
@@ -101,7 +101,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         }))
     }
 
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K> {
         Box::new(self.iter_column(column).map(|res| res.map(|(k, _)| k)))
     }
 
@@ -109,7 +109,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(())
     }
 
-    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<'_, K> {
         // We use this awkward pattern because we can't lock the `self.db` field *and* maintain a
         // reference to the lock guard across calls to `.next()`. This would be require a
         // struct with a field (the iterator) which references another field (the lock guard).

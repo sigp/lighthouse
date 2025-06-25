@@ -5,7 +5,7 @@ use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
-    beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
+    beacon_chain::{BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
     single_attestation::single_attestation_to_attestation,
     sync_committee_verification::Error as SyncCommitteeError,
@@ -14,7 +14,6 @@ pub use crate::{
 };
 use crate::{
     builder::{BeaconChainBuilder, Witness},
-    eth1_chain::CachingEth1Backend,
     BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
     StateSkipConfig,
 };
@@ -116,7 +115,7 @@ pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
 }
 
 pub type BaseHarnessType<E, THotStore, TColdStore> =
-    Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
+    Witness<TestingSlotClock, E, THotStore, TColdStore>;
 
 pub type DiskHarnessType<E> = BaseHarnessType<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
@@ -575,8 +574,6 @@ where
             )
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .import_all_data_columns(self.import_all_data_columns)

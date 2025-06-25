@@ -1,7 +1,6 @@
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::{get_block_root, PayloadVerificationOutcome};
 use derivative::Derivative;
 use state_processing::ConsensusContext;
@@ -341,7 +340,6 @@ pub struct BlockImportData<E: EthSpec> {
     pub block_root: Hash256,
     pub state: BeaconState<E>,
     pub parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    pub parent_eth1_finalization_data: Eth1FinalizationData,
     pub consensus_context: ConsensusContext<E>,
 }
 
@@ -355,10 +353,6 @@ impl<E: EthSpec> BlockImportData<E> {
             block_root,
             state,
             parent_block,
-            parent_eth1_finalization_data: Eth1FinalizationData {
-                eth1_data: <_>::default(),
-                eth1_deposit_index: 0,
-            },
             consensus_context: ConsensusContext::new(Slot::new(0)),
         }
     }
@@ -371,7 +365,7 @@ pub trait AsBlock<E: EthSpec> {
     fn parent_root(&self) -> Hash256;
     fn state_root(&self) -> Hash256;
     fn signed_block_header(&self) -> SignedBeaconBlockHeader;
-    fn message(&self) -> BeaconBlockRef<E>;
+    fn message(&self) -> BeaconBlockRef<'_, E>;
     fn as_block(&self) -> &SignedBeaconBlock<E>;
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>>;
     fn canonical_root(&self) -> Hash256;
@@ -398,7 +392,7 @@ impl<E: EthSpec> AsBlock<E> for Arc<SignedBeaconBlock<E>> {
         SignedBeaconBlock::signed_block_header(self)
     }
 
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         SignedBeaconBlock::message(self)
     }
 
@@ -431,7 +425,7 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.as_block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
@@ -472,7 +466,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
         self.block().signed_block_header()
     }
 
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.block().message()
     }
 
@@ -505,7 +499,7 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.as_block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {

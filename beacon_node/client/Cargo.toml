@@ -10,7 +10,6 @@ beacon_processor = { workspace = true }
 directory = { workspace = true }
 dirs = { workspace = true }
 environment = { workspace = true }
-eth1 = { workspace = true }
 eth2 = { workspace = true }
 eth2_config = { workspace = true }
 ethereum_ssz = { workspace = true }

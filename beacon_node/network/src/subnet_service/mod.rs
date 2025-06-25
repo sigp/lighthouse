@@ -228,7 +228,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /// This returns a result simply for the ergonomics of using ?. The result can be
     /// safely dropped.
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
@@ -368,7 +367,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
     /// verification, re-propagates and returns false.
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
@@ -398,7 +396,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /// Adds an event to the event queue and notifies that this service is ready to be polled
     /// again.
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
@@ -415,7 +412,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /// If there is sufficient time, queues a peer discovery request for all the required subnets.
     // NOTE: Sending early subscriptions results in early searching for peers on subnets.
     #[instrument(parent = None,
-        level = "info",
         name = "subnet_service",
         skip_all
     )]
@@ -467,7 +463,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     // Subscribes to the subnet if it should be done immediately, or schedules it if required.
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
@@ -525,7 +520,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     /// Adds a subscription event to the sync subnet.
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
@@ -580,7 +574,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     /// already subscribed, extends the timeout if necessary. If this is a new subscription, we send
     /// out the appropriate events.
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
@@ -641,7 +634,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
     // Unsubscribes from a subnet that was removed.
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
@@ -664,7 +656,6 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
     type Item = SubnetServiceMessage;
 
     #[instrument(parent = None,
-        level = "info",
         fields(service = "subnet_service"),
         name = "subnet_service",
         skip_all
