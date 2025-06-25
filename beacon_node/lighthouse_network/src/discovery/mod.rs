@@ -1230,7 +1230,9 @@ mod tests {
         config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
-        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec).unwrap();
+        let nfd = [0; 4]; // placeholder
+        let enr: Enr =
+            build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec, nfd).unwrap();
         let globals = NetworkGlobals::new(
             enr,
             MetaData::V2(MetaDataV2 {

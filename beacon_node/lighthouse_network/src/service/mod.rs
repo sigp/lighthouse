@@ -199,6 +199,7 @@ impl<E: EthSpec> Network<E> {
             &config,
             &ctx.enr_fork_id,
             &ctx.chain_spec,
+            ctx.fork_context.next_fork_digest(),
         )?;
 
         // Construct the metadata

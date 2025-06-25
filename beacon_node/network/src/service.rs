@@ -36,8 +36,8 @@ use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
 use types::{
-    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
-    Unsigned, ValidatorSubscription,
+    EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
+    ValidatorSubscription,
 };
 
 mod tests;
@@ -452,7 +452,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(_) = &mut self.next_fork_subscriptions => {
                         if let Some((epoch, _)) = self.beacon_chain.duration_to_next_digest() {
                             let fork_name = self.beacon_chain.spec.fork_name_at_epoch(epoch);
-                            let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
                             let fork_digest = self.beacon_chain.spec.compute_fork_digest(self.beacon_chain.genesis_validators_root, epoch);
                             info!("Subscribing to new fork topics");
                             self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
@@ -821,16 +820,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let current_epoch = self.beacon_chain.epoch().expect("dont fail!!");
         let new_fork_digest = new_enr_fork_id.fork_digest;
 
-        let nfd = match self.beacon_chain.spec.fulu_fork_epoch {
-            Some(fulu_epoch) if fulu_epoch != self.beacon_chain.spec.far_future_epoch => {
-                Some(self.beacon_chain.spec.compute_fork_digest(
-                    self.beacon_chain.genesis_validators_root,
-                    new_enr_fork_id.next_fork_epoch,
-                ))
-            }
-            _ => None,
-        };
-
         let fork_context = &self.fork_context;
         if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
             if fork_context.current_fork() == *new_fork_name {
@@ -848,6 +837,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
 
             fork_context.update_digest_epoch(current_epoch);
+            let nfd = if self.beacon_chain.spec.is_peer_das_scheduled() {
+                Some(fork_context.next_fork_digest())
+            } else {
+                None
+            };
 
             self.libp2p.update_fork_version(new_enr_fork_id, nfd);
             // Reinitialize the next_fork_update

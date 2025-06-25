@@ -152,12 +152,13 @@ pub fn build_or_load_enr<E: EthSpec>(
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
     spec: &ChainSpec,
+    nfd: [u8; 4],
 ) -> Result<Enr, String> {
     // Build the local ENR.
     // Note: Discovery should update the ENR record's IP to the external IP as seen by the
     // majority of our peers, if the CLI doesn't expressly forbid it.
     let enr_key = CombinedKey::from_libp2p(local_key)?;
-    let mut local_enr = build_enr::<E>(&enr_key, config, enr_fork_id, spec)?;
+    let mut local_enr = build_enr::<E>(&enr_key, config, enr_fork_id, spec, nfd)?;
 
     use_or_load_enr(&enr_key, &mut local_enr, config)?;
     Ok(local_enr)
@@ -169,6 +170,7 @@ pub fn build_enr<E: EthSpec>(
     config: &NetworkConfig,
     enr_fork_id: &EnrForkId,
     spec: &ChainSpec,
+    nfd: [u8; 4],
 ) -> Result<Enr, String> {
     let mut builder = discv5::enr::Enr::builder();
     let (maybe_ipv4_address, maybe_ipv6_address) = &config.enr_address;
@@ -272,6 +274,11 @@ pub fn build_enr<E: EthSpec>(
         builder.add_value(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY, &custody_group_count);
     }
 
+    // only set `nfd` if peer das is scheduled
+    if spec.is_peer_das_scheduled() {
+        builder.add_value(NEXT_FORK_DIGEST_ENR_KEY, &nfd);
+    }
+
     builder
         .build(enr_key)
         .map_err(|e| format!("Could not build Local ENR: {:?}", e))
@@ -353,7 +360,8 @@ mod test {
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key = CombinedKey::from_secp256k1(&keypair);
         let enr_fork_id = EnrForkId::default();
-        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec).unwrap();
+        let nfd = [0; 4]; // placeholder
+        let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec, nfd).unwrap();
         (enr, enr_key)
     }
 

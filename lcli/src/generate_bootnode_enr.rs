@@ -38,7 +38,8 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
         next_fork_version: genesis_fork_version,
         next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
     };
-    let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec)
+    // FIXME: need the next fork digest
+    let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec, [0; 4])
         .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("Unable to create output-dir: {:?}", e))?;

@@ -71,6 +71,16 @@ impl ForkContext {
         *self.digest_epoch.read()
     }
 
+    pub fn next_fork_digest(&self) -> [u8; 4] {
+        self.spec
+            .next_digest_epoch(self.spec.far_future_epoch)
+            .map(|epoch| {
+                self.spec
+                    .compute_fork_digest(self.genesis_validators_root, epoch)
+            })
+            .unwrap_or_default()
+    }
+
     /// Updates the `digest_epoch` field to a new digest epoch.
     pub fn update_digest_epoch(&self, epoch: Epoch) {
         *self.digest_epoch.write() = epoch;

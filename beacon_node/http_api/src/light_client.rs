@@ -4,7 +4,7 @@ use crate::version::{
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{
-    self as api_types, ChainSpec, LightClientUpdate, LightClientUpdateResponseChunk,
+    self as api_types, LightClientUpdate, LightClientUpdateResponseChunk,
     LightClientUpdateResponseChunkInner, LightClientUpdatesQuery,
 };
 use ssz::Encode;
