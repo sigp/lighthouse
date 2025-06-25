@@ -377,6 +377,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn check_graffiti_with_el_version_support_append_graffiti() {
+        let spec = Arc::new(test_spec::<MinimalEthSpec>());
+        let harness = get_harness(VALIDATOR_COUNT, spec, None);
+
+        let graffiti_str = "testing";
+        let mut graffiti_bytes = [0; GRAFFITI_BYTES_LEN];
+        graffiti_bytes[..graffiti_str.len()].copy_from_slice(graffiti_str.as_bytes());
+
+        let policy = GraffitiPolicy::AppendClientVersions;
+        let found_graffiti_bytes = harness
+            .chain
+            .graffiti_calculator
+            .get_graffiti(GraffitiSettings::Specified {
+                graffiti: Graffiti::from(graffiti_bytes),
+                policy,
+            })
+            .await
+            .0;
+
+        let mock_commit = DEFAULT_CLIENT_VERSION.commit.clone();
+        let client_version_info = format!(
+            "{}{}{}{}",
+            DEFAULT_CLIENT_VERSION.code,
+            mock_commit
+                .strip_prefix("0x")
+                .unwrap_or("&mock_commit")
+                .get(0..4)
+                .expect("should get first 2 bytes in hex"),
+            "LH",
+            lighthouse_version::COMMIT_PREFIX
+                .get(0..4)
+                .expect("should get first 2 bytes in hex")
+        );
+
+        // There is a space between the client version info and user graffiti
+        // as defined in calculate_graffiti fn in execution_api.rs
+        let expected_graffiti_string = format!("{} {}", client_version_info, graffiti_str);
+
+        let expected_graffiti_prefix_bytes = expected_graffiti_string.as_bytes();
+        let expected_graffiti_prefix_len =
+            std::cmp::min(expected_graffiti_prefix_bytes.len(), GRAFFITI_BYTES_LEN);
+
+        let found_graffiti_string =
+            std::str::from_utf8(&found_graffiti_bytes[..expected_graffiti_prefix_len])
+                .expect("bytes should convert nicely to ascii");
+
+        info!(expected_graffiti_string, found_graffiti_string, "results");
+        println!("expected graffiti string: '{}'", expected_graffiti_string);
+        println!("found graffiti string: '{}'", found_graffiti_string);
+
+        assert_eq!(expected_graffiti_string, found_graffiti_string);
+    }
+
+    #[tokio::test]
     async fn check_graffiti_with_validator_specified_value() {
         let spec = Arc::new(test_spec::<MinimalEthSpec>());
         let harness = get_harness(VALIDATOR_COUNT, spec, None);
