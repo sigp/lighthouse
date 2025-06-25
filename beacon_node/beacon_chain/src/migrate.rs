@@ -1,5 +1,5 @@
 use crate::errors::BeaconChainError;
-use crate::summaries_dag::{DAGStateSummaryV22, Error as SummariesDagError, StateSummariesDAG};
+use crate::summaries_dag::{DAGStateSummary, Error as SummariesDagError, StateSummariesDAG};
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::mem;
@@ -7,7 +7,7 @@ use std::sync::{mpsc, Arc};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::{migrate_database, HotColdDBError};
-use store::{Error, ItemStore, StoreOp};
+use store::{Error, ItemStore, Split, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use tracing::{debug, error, info, warn};
 use types::{BeaconState, BeaconStateHash, Checkpoint, Epoch, EthSpec, Hash256, Slot};
@@ -343,18 +343,23 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             }
         };
 
-        match migrate_database(
+        let split_prior_to_migration = match migrate_database(
             db.clone(),
             finalized_state_root.into(),
             finalized_block_root,
             &finalized_state,
         ) {
-            Ok(()) => {}
+            Ok(split_change) => {
+                // Migration run, return the split before the migration
+                split_change.previous
+            }
             Err(Error::HotColdDBError(HotColdDBError::FreezeSlotUnaligned(slot))) => {
                 debug!(
                     slot = slot.as_u64(),
                     "Database migration postponed, unaligned finalized block"
                 );
+                // Migration did not run, return the current split info
+                db.get_split_info()
             }
             Err(e) => {
                 warn!(error = ?e, "Database migration failed");
@@ -367,6 +372,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             finalized_state_root.into(),
             &finalized_state,
             notif.finalized_checkpoint,
+            split_prior_to_migration,
         ) {
             Ok(PruningOutcome::Successful {
                 old_finalized_checkpoint_epoch,
@@ -503,6 +509,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         new_finalized_state_root: Hash256,
         new_finalized_state: &BeaconState<E>,
         new_finalized_checkpoint: Checkpoint,
+        split_prior_to_migration: Split,
     ) -> Result<PruningOutcome, BeaconChainError> {
         let new_finalized_slot = new_finalized_checkpoint
             .epoch
@@ -519,6 +526,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
 
         debug!(
+            split_prior_to_migration = ?split_prior_to_migration,
             new_finalized_checkpoint = ?new_finalized_checkpoint,
             new_finalized_state_root = %new_finalized_state_root,
             "Starting database pruning"
@@ -528,33 +536,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             let state_summaries = store
                 .load_hot_state_summaries()?
                 .into_iter()
-                .map(|(state_root, summary)| {
-                    let block_root = summary.latest_block_root;
-                    // This error should never happen unless we break a DB invariant
-                    let block = store
-                        .get_blinded_block(&block_root)?
-                        .ok_or(PruningError::MissingBlindedBlock(block_root))?;
-                    Ok((
-                        state_root,
-                        DAGStateSummaryV22 {
-                            slot: summary.slot,
-                            latest_block_root: summary.latest_block_root,
-                            block_slot: block.slot(),
-                            block_parent_root: block.parent_root(),
-                        },
-                    ))
-                })
-                .collect::<Result<Vec<(Hash256, DAGStateSummaryV22)>, BeaconChainError>>()?;
-
-            // De-duplicate block roots to reduce block reads below
-            let summary_block_roots = HashSet::<Hash256>::from_iter(
-                state_summaries
-                    .iter()
-                    .map(|(_, summary)| summary.latest_block_root),
-            );
+                .map(|(state_root, summary)| (state_root, summary.into()))
+                .collect::<Vec<(Hash256, DAGStateSummary)>>();
 
             // Sanity check, there is at least one summary with the new finalized block root
-            if !summary_block_roots.contains(&new_finalized_checkpoint.root) {
+            if !state_summaries
+                .iter()
+                .any(|(_, s)| s.latest_block_root == new_finalized_checkpoint.root)
+            {
                 return Err(BeaconChainError::PruningError(
                     PruningError::MissingSummaryForFinalizedCheckpoint(
                         new_finalized_checkpoint.root,
@@ -562,16 +551,31 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 ));
             }
 
-            StateSummariesDAG::new_from_v22(state_summaries)
+            StateSummariesDAG::new(state_summaries)
                 .map_err(|e| PruningError::SummariesDagError("new StateSumariesDAG", e))?
         };
 
         // To debug faulty trees log if we unexpectedly have more than one root. These trees may not
         // result in an error, as they may not be queried in the codepaths below.
         let state_summaries_dag_roots = state_summaries_dag.tree_roots();
-        if state_summaries_dag_roots.len() > 1 {
+        let state_summaries_dag_roots_post_split = state_summaries_dag_roots
+            .iter()
+            .filter(|(_, s)| s.slot >= split_prior_to_migration.slot)
+            .collect::<Vec<_>>();
+
+        // Because of the additional HDiffs kept for the grid prior to finalization the tree_roots
+        // function will consider them roots. Those are expected. We just want to assert that the
+        // relevant tree of states (post-split) is well-formed.
+        //
+        // This warning could also fire if we have imported a block that doesn't descend from the
+        // new finalized state, and has had its ancestor state summaries pruned by a previous
+        // run. See: https://github.com/sigp/lighthouse/issues/7270.
+        if state_summaries_dag_roots_post_split.len() > 1 {
             warn!(
-                state_summaries_dag_roots = ?state_summaries_dag_roots,
+                location = "pruning",
+                new_finalized_state_root = ?new_finalized_state_root,
+                split_prior_to_migration_slot = %split_prior_to_migration.slot,
+                state_summaries_dag_roots_post_split = ?state_summaries_dag_roots_post_split,
                 error = "summaries dag found more than one root",
                 "Notify the devs your hot DB has some inconsistency. Pruning will fix it but devs want to know about it",
             );
@@ -626,10 +630,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             .blocks_of_states(newly_finalized_state_roots.iter())
             .map_err(|e| PruningError::SummariesDagError("blocks of newly finalized", e))?;
 
+        // Compute the set of finalized state roots that we must keep to make the dynamic HDiff system
+        // work.
+        let required_finalized_diff_state_slots = store
+            .hierarchy
+            .closest_layer_points(new_finalized_slot, store.hot_hdiff_start_slot()?);
+
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
         let mut blocks_to_prune: HashSet<Hash256> = HashSet::new();
         let mut states_to_prune: HashSet<(Slot, Hash256)> = HashSet::new();
+        let mut kept_summaries_for_hdiff = vec![];
 
         // Consider the following block tree where we finalize block `[0]` at the checkpoint `(f)`.
         // There's a block `[3]` that descendends from the finalized block but NOT from the
@@ -650,6 +661,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     // This state is a viable descendant of the finalized checkpoint, so does not
                     // conflict with finality and can be built on or become a head
                     false
+                } else if required_finalized_diff_state_slots.contains(&summary.slot) {
+                    // Keep this state and diff as it's necessary for the finalized portion of the
+                    // HDiff links. `required_finalized_diff_state_slots` tracks the set of slots on
+                    // each diff layer, and by checking `newly_finalized_state_roots` which only
+                    // keep those on the finalized canonical chain. Checking the state root ensures
+                    // we avoid lingering forks.
+
+                    // In the diagram below, `o` are diffs by slot that we must keep. In the prior
+                    // finalized section there's only one chain so we preserve them unconditionally.
+                    // For the newly finalized chain, we check which of these is canonical and only
+                    // keep those. Slots below `min_finalized_state_slot` we don't have canonical
+                    // information so we assume they are part of the finalized pruned chain.
+                    //
+                    //                  /-----o----
+                    // o-------o------/-------o----
+                    if summary.slot < newly_finalized_states_min_slot
+                        || newly_finalized_state_roots.contains(&state_root)
+                    {
+                        // Track kept summaries to debug hdiff inconsistencies with "Extra pruning information"
+                        kept_summaries_for_hdiff.push((state_root, summary.slot));
+                        false
+                    } else {
+                        true
+                    }
                 } else {
                     // Everything else, prune
                     true
@@ -703,27 +738,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         debug!(
             new_finalized_checkpoint = ?new_finalized_checkpoint,
+            new_finalized_state_root = ?new_finalized_state_root,
+            split_prior_to_migration = ?split_prior_to_migration,
             newly_finalized_blocks = newly_finalized_blocks.len(),
             newly_finalized_state_roots = newly_finalized_state_roots.len(),
             newly_finalized_states_min_slot = %newly_finalized_states_min_slot,
+            required_finalized_diff_state_slots = ?required_finalized_diff_state_slots,
+            kept_summaries_for_hdiff = ?kept_summaries_for_hdiff,
             state_summaries_count = state_summaries_dag.summaries_count(),
             state_summaries_dag_roots = ?state_summaries_dag_roots,
-            finalized_and_descendant_state_roots_of_finalized_checkpoint = finalized_and_descendant_state_roots_of_finalized_checkpoint.len(),
             finalized_and_descendant_state_roots_of_finalized_checkpoint = finalized_and_descendant_state_roots_of_finalized_checkpoint.len(),
             blocks_to_prune = blocks_to_prune.len(),
             states_to_prune = states_to_prune.len(),
             "Extra pruning information"
         );
         // Don't log the full `states_to_prune` in the log statement above as it can result in a
-        // single log line of +1Kb and break logging setups.
+        // single log line of +1Kb and break logging setups. Log `new_finalized_state_root` as a
+        // prunning ID to trace these individual logs to the above "Extra pruning information"
         for block_root in &blocks_to_prune {
-            debug!(
-                block_root = ?block_root,
-                "Pruning block"
-            );
+            debug!(?new_finalized_state_root, ?block_root, "Pruning block");
         }
         for (slot, state_root) in &states_to_prune {
             debug!(
+                ?new_finalized_state_root,
                 ?state_root,
                 %slot,
                 "Pruning hot state"
@@ -756,7 +793,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
         store.do_atomically_with_block_and_blobs_cache(batch)?;
 
-        debug!("Database pruning complete");
+        debug!(?new_finalized_state_root, "Database pruning complete");
 
         Ok(PruningOutcome::Successful {
             // Approximation of the previous finalized checkpoint. Only used in the compaction to

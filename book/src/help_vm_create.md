@@ -5,7 +5,7 @@ Creates new validators from BIP-39 mnemonic. A JSON file will be created which
 contains all the validator keystores and other validator data. This file can
 then be imported to a validator client using the "import-validators" command.
 Another, optional JSON file is created which contains a list of validator
-deposits in the same format as the "ethereum/staking-deposit-cli" tool.
+deposits in the same format as the "ethstaker-deposit-cli" tool.
 
 Usage: lighthouse validator_manager create [OPTIONS] --output-path <DIRECTORY>
 

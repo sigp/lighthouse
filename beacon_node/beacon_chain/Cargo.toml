@@ -1,3 +1,4 @@
+ 
 [package]
 name = "beacon_chain"
 version = "0.2.0"
@@ -18,7 +19,6 @@ alloy-primitives = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 derivative = { workspace = true }
-eth1 = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }
@@ -69,6 +69,8 @@ types = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 maplit = { workspace = true }
+mockall = { workspace = true }
+mockall_double = { workspace = true }
 serde_json = { workspace = true }
 
 [[bench]]

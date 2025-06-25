@@ -13,7 +13,6 @@ use leveldb::{
     iterator::{Iterable, LevelDBIterator},
     options::{Options, ReadOptions},
 };
-use parking_lot::{Mutex, MutexGuard};
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -23,8 +22,6 @@ use super::interface::WriteOptions;
 
 pub struct LevelDB<E: EthSpec> {
     db: Database<BytesKey>,
-    /// A mutex to synchronise sensitive read-write transactions.
-    transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
 
@@ -43,16 +40,14 @@ impl<E: EthSpec> LevelDB<E> {
         options.create_if_missing = true;
 
         let db = Database::open(path, options)?;
-        let transaction_mutex = Mutex::new(());
 
         Ok(Self {
             db,
-            transaction_mutex,
             _phantom: PhantomData,
         })
     }
 
-    pub fn read_options(&self) -> ReadOptions<BytesKey> {
+    pub fn read_options(&self) -> ReadOptions<'_, BytesKey> {
         ReadOptions::new()
     }
 
@@ -177,10 +172,6 @@ impl<E: EthSpec> LevelDB<E> {
         Ok(())
     }
 
-    pub fn begin_rw_transaction(&self) -> MutexGuard<()> {
-        self.transaction_mutex.lock()
-    }
-
     /// Compact all values in the states and states flag columns.
     pub fn compact(&self) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::DISK_DB_COMPACT_TIMES);
@@ -216,7 +207,7 @@ impl<E: EthSpec> LevelDB<E> {
         Ok(())
     }
 
-    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column, from));
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
@@ -240,7 +231,11 @@ impl<E: EthSpec> LevelDB<E> {
         )
     }
 
-    pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+    ) -> ColumnKeyIter<'_, K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column, from));
 
         let iter = self.db.keys_iter(self.read_options());
@@ -262,11 +257,11 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     /// Iterate through all keys and values in a particular column.
-    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K> {
         self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
-    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<'_, K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
