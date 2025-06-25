@@ -47,7 +47,7 @@ impl<E: EthSpec> LevelDB<E> {
         })
     }
 
-    pub fn read_options(&self) -> ReadOptions<BytesKey> {
+    pub fn read_options(&self) -> ReadOptions<'_, BytesKey> {
         ReadOptions::new()
     }
 
@@ -207,7 +207,7 @@ impl<E: EthSpec> LevelDB<E> {
         Ok(())
     }
 
-    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column, from));
         let iter = self.db.iter(self.read_options());
         iter.seek(&start_key);
@@ -231,7 +231,11 @@ impl<E: EthSpec> LevelDB<E> {
         )
     }
 
-    pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+    ) -> ColumnKeyIter<'_, K> {
         let start_key = BytesKey::from_vec(get_key_for_col(column, from));
 
         let iter = self.db.keys_iter(self.read_options());
@@ -253,11 +257,11 @@ impl<E: EthSpec> LevelDB<E> {
     }
 
     /// Iterate through all keys and values in a particular column.
-    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K> {
         self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
-    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<'_, K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 

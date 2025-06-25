@@ -92,17 +92,17 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     }
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+    fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<'_, K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
     /// Iterate through all keys and values in a column from a given starting point that fulfill the given predicate.
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K>;
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K>;
 
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K>;
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K>;
 
     /// Iterate through all keys in a particular column.
-    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K>;
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<'_, K>;
 
     fn delete_batch(&self, column: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error>;
 
