@@ -50,6 +50,22 @@ pub const CONTENT_TYPE_HEADER: &str = "Content-Type";
 pub const SSZ_CONTENT_TYPE_HEADER: &str = "application/octet-stream";
 pub const JSON_CONTENT_TYPE_HEADER: &str = "application/json";
 
+/// Specific optimized timeout constants for HTTP requests involved in different validator duties.
+/// This can help ensure that proper endpoint fallback occurs.
+const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT: u32 = 24;
+const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
+const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
+const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
+const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_DEFAULT_TIMEOUT_QUOTIENT: u32 = 4;
+
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
@@ -162,6 +178,26 @@ impl Timeouts {
             get_deposit_snapshot: timeout,
             get_validator_block: timeout,
             default: timeout,
+        }
+    }
+
+    pub fn use_optimized_timeouts(base_timeout: Duration) -> Self {
+        Timeouts {
+            attestation: base_timeout / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
+            attester_duties: base_timeout / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+            attestation_subscriptions: base_timeout
+                / HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT,
+            liveness: base_timeout / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
+            proposal: base_timeout / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
+            proposer_duties: base_timeout / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+            sync_committee_contribution: base_timeout
+                / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
+            sync_duties: base_timeout / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+            get_beacon_blocks_ssz: base_timeout / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
+            get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
+            get_deposit_snapshot: base_timeout / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
+            get_validator_block: base_timeout / HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT,
+            default: base_timeout / HTTP_DEFAULT_TIMEOUT_QUOTIENT,
         }
     }
 }
@@ -661,6 +697,29 @@ impl BeaconNodeHttpClient {
             .push("validator_balances");
 
         let request = ValidatorBalancesRequestBody { ids };
+
+        self.post_with_opt_response(path, &request).await
+    }
+
+    /// `POST beacon/states/{state_id}/validator_identities`
+    ///
+    ///  Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_states_validator_identities(
+        &self,
+        state_id: StateId,
+        ids: Vec<ValidatorId>,
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorIdentityData>>>, Error>
+    {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("states")
+            .push(&state_id.to_string())
+            .push("validator_identities");
+
+        let request = ValidatorIdentitiesRequestBody { ids };
 
         self.post_with_opt_response(path, &request).await
     }
@@ -1680,18 +1739,6 @@ impl BeaconNodeHttpClient {
         self.post(path, &address_changes).await?;
 
         Ok(())
-    }
-
-    /// `GET beacon/deposit_snapshot`
-    pub async fn get_deposit_snapshot(&self) -> Result<Option<types::DepositTreeSnapshot>, Error> {
-        let mut path = self.eth_path(V1)?;
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("beacon")
-            .push("deposit_snapshot");
-        self.get_opt_with_timeout::<GenericResponse<_>, _>(path, self.timeouts.get_deposit_snapshot)
-            .await
-            .map(|opt| opt.map(|r| r.data))
     }
 
     /// `POST beacon/rewards/sync_committee`

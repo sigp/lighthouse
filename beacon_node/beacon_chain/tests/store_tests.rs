@@ -2379,8 +2379,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
-        .dummy_eth1_backend()
-        .expect("should build dummy backend")
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
         .chain_config(ChainConfig::default())
@@ -2804,10 +2802,6 @@ async fn finalizes_after_resuming_from_db() {
         .chain
         .persist_op_pool()
         .expect("should persist the op pool");
-    harness
-        .chain
-        .persist_eth1_cache()
-        .expect("should persist the eth1 cache");
 
     let original_chain = harness.chain;
 
