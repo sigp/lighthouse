@@ -73,7 +73,7 @@ impl ForkContext {
 
     pub fn next_fork_digest(&self) -> [u8; 4] {
         self.spec
-            .next_digest_epoch(self.spec.far_future_epoch)
+            .next_digest_epoch(self.digest_epoch())
             .map(|epoch| {
                 self.spec
                     .compute_fork_digest(self.genesis_validators_root, epoch)

@@ -570,8 +570,21 @@ impl<E: EthSpec> Discovery<E> {
         Ok(())
     }
 
+    pub fn update_enr_nfd(&mut self, nfd: [u8; 4]) -> Result<(), String> {
+        self.discv5
+            .enr_insert::<Bytes>(NEXT_FORK_DIGEST_ENR_KEY, &nfd.as_ssz_bytes().into())
+            .map_err(|e| format!("{:?}", e))?;
+        info!(
+            next_fork_digest = ?nfd,
+            "Updating the ENR nfd"
+        );
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        Ok(())
+    }
+
     /// Updates the `eth2` field of our local ENR.
-    pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId, nfd: Option<[u8; 4]>) {
+    pub fn update_eth2_enr(&mut self, enr_fork_id: EnrForkId) {
         // to avoid having a reference to the spec constant, for the logging we assume
         // FAR_FUTURE_EPOCH is u64::MAX
         let next_fork_epoch_log = if enr_fork_id.next_fork_epoch == u64::MAX {
@@ -582,7 +595,6 @@ impl<E: EthSpec> Discovery<E> {
 
         info!(
             fork_digest = ?enr_fork_id.fork_digest,
-            next_fork_digest = ?nfd,
             next_fork_version = ?enr_fork_id.next_fork_version,
             next_fork_epoch = next_fork_epoch_log,
             "Updating the ENR fork version"
@@ -597,18 +609,6 @@ impl<E: EthSpec> Discovery<E> {
                     "Could not update eth2 ENR field"
                 )
             });
-
-        if let Some(nfd) = nfd {
-            let _ = self
-                .discv5
-                .enr_insert::<Bytes>(NEXT_FORK_DIGEST_ENR_KEY, &nfd.as_ssz_bytes().into())
-                .map_err(|e| {
-                    warn!(
-                        error = ?e,
-                        "Could not update nfd ENR field"
-                    );
-                });
-        }
 
         // replace the global version with discovery version
         *self.network_globals.local_enr.write() = self.discv5.local_enr();

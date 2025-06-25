@@ -837,13 +837,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             }
 
             fork_context.update_digest_epoch(current_epoch);
-            let nfd = if self.beacon_chain.spec.is_peer_das_scheduled() {
-                Some(fork_context.next_fork_digest())
-            } else {
-                None
-            };
+            if self.beacon_chain.spec.is_peer_das_scheduled() {
+                self.libp2p.update_nfd(fork_context.next_fork_digest());
+            }
 
-            self.libp2p.update_fork_version(new_enr_fork_id, nfd);
+            self.libp2p.update_fork_version(new_enr_fork_id);
             // Reinitialize the next_fork_update
             self.next_fork_update = Box::pin(next_digest_delay(&self.beacon_chain).into());
 

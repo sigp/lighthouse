@@ -1354,12 +1354,23 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip_all
     )]
-    pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId, nfd: Option<[u8; 4]>) {
-        self.discovery_mut()
-            .update_eth2_enr(enr_fork_id.clone(), nfd);
+    pub fn update_fork_version(&mut self, enr_fork_id: EnrForkId) {
+        self.discovery_mut().update_eth2_enr(enr_fork_id.clone());
 
         // update the local reference
         self.enr_fork_id = enr_fork_id;
+    }
+
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    pub fn update_nfd(&mut self, nfd: [u8; 4]) {
+        if let Err(e) = self.discovery_mut().update_enr_nfd(nfd) {
+            warn!(error = %e, "Could not update nfd in ENR");
+        }
     }
 
     /* Private internal functions */
