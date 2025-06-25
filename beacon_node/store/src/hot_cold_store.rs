@@ -3074,18 +3074,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Try to prune blobs, approximating the current epoch from the split slot.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
-        let Some(deneb_fork_epoch) = self.spec.deneb_fork_epoch else {
-            debug!("Deneb fork is disabled");
-            return Ok(());
-        };
         // The current epoch is >= split_epoch + 2. It could be greater if the database is
         // configured to delay updating the split or finalization has ceased. In this instance we
         // choose to also delay the pruning of blobs (we never prune without finalization anyway).
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
-        let min_data_availability_boundary = std::cmp::max(
-            deneb_fork_epoch,
-            min_current_epoch.saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
-        );
+        let Some(min_data_availability_boundary) = self
+            .spec
+            .min_epoch_data_availability_boundary(min_current_epoch)
+        else {
+            debug!("Deneb fork is disabled");
+            return Ok(());
+        };
 
         self.try_prune_blobs(force, min_data_availability_boundary)
     }
