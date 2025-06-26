@@ -3538,7 +3538,7 @@ pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStor
             .get_cold_state_root(target_slot)
             .map_err(Box::new)
             .map_err(StateSummaryIteratorError::LoadStateRootError)?
-            .ok_or_else(|| StateSummaryIteratorError::MissingStateRoot {
+            .ok_or(StateSummaryIteratorError::MissingStateRoot {
                 target_slot,
                 state_upper_limit,
             });

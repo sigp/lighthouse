@@ -1247,6 +1247,38 @@ async fn block_gossip_verification() {
         ),
         "the second proposal by this validator should be rejected"
     );
+
+    /*
+     * This test ensures that:
+     *
+     * We do not accept blocks with blob_kzg_commitments length larger than the max_blobs for that epoch.
+     */
+    let (mut block, signature) = chain_segment[block_index]
+        .beacon_block
+        .as_ref()
+        .clone()
+        .deconstruct();
+
+    let kzg_commitments_len = harness
+        .chain
+        .spec
+        .max_blobs_per_block(block.slot().epoch(E::slots_per_epoch()))
+        as usize;
+
+    if let Ok(kzg_commitments) = block.body_mut().blob_kzg_commitments_mut() {
+        *kzg_commitments = vec![KzgCommitment::empty_for_testing(); kzg_commitments_len + 1].into();
+        assert!(
+            matches!(
+                unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
+                BlockError::InvalidBlobCount {
+                    max_blobs_at_epoch,
+                    block,
+                }
+                if max_blobs_at_epoch == kzg_commitments_len && block == kzg_commitments_len + 1
+            ),
+            "should not import a block with higher blob_kzg_commitment length than the max_blobs at epoch"
+        );
+    }
 }
 
 async fn verify_and_process_gossip_data_sidecars(
