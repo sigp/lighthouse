@@ -4631,8 +4631,20 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P1, move || {
                     not_synced_filter?;
-                    chain.store_migrator.process_reconstruction();
-                    Ok("success")
+                    match chain.store_migrator.process_reconstruction() {
+                        Ok(()) => Ok(serde_json::json!({"status": "success"})),
+                        Err(e) => {
+                            use beacon_chain::store::Error;
+                            if let Error::MissingHistoricBlocks { oldest_block_slot } = e {
+                                let msg = format!(
+                                    "State reconstruction cannot start: not all historic blocks are available (oldest_block_slot: {oldest_block_slot}). Please restart the Beacon Node with --reconstruct-historic-states."
+                                );
+                                Err(warp::reject::custom(warp_utils::reject::custom_bad_request(msg)))
+                            } else {
+                                Err(warp::reject::custom(warp_utils::reject::custom_server_error(format!("State reconstruction failed: {e}"))))
+                            }
+                        }
+                    }
                 })
             },
         );
