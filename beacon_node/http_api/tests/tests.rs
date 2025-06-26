@@ -6673,7 +6673,29 @@ impl ApiTester {
         let graffiti = Some(Graffiti::from([0; GRAFFITI_BYTES_LEN]));
         let builder_boost_factor = None;
 
+        // Default case where GraffitiPolicy is None
         let default_path = self
+            .client
+            .get_validator_blocks_v3_path(
+                slot,
+                &randao_reveal,
+                graffiti.as_ref(),
+                SkipRandaoVerification::Yes,
+                builder_boost_factor,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let query_default_path = default_path.query().unwrap_or("");
+        // When GraffitiPolicy is None, the HTTP API query path should be the same as the default
+        assert!(
+            !query_default_path.contains("graffiti_policy"),
+            "URL should not contain graffiti_policy parameter (same as PreserveUserGraffiti). URL is: {}",
+            query_default_path
+        );
+
+        let preserve_path = self
             .client
             .get_validator_blocks_v3_path(
                 slot,
@@ -6686,11 +6708,11 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let query_default_path = default_path.query().unwrap_or("");
+        let query_preserve_path = preserve_path.query().unwrap_or("");
         // When GraffitiPolicy is PreserveUserGraffiti, the HTTP API query path should be the same as the default
         // i.e., without graffity_policy in the query path
-        assert!(!query_default_path.contains("graffiti_policy"), "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
-                query_default_path);
+        assert!(!query_preserve_path.contains("graffiti_policy"), "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
+                query_preserve_path);
 
         let append_path = self
             .client
