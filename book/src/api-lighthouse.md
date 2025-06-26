@@ -818,3 +818,30 @@ An open port will return:
 {
   "data": true
 }
+
+```
+
+## `/lighthouse/database/reconstruct`
+
+Initiates historic state reconstruction in the database. This is only available if all historic blocks are present (i.e., backfill sync is complete and `oldest_block_slot` is 0).
+
+- **POST** `/lighthouse/database/reconstruct`
+
+If the node was not started with backfill enabled (e.g., without `--genesis-backfill` or `--reconstruct-historic-states`), this endpoint will return an error:
+
+```json
+{
+  "code": 400,
+  "message": "State reconstruction cannot start: not all historic blocks are available (oldest_block_slot: <slot>). Please restart the Beacon Node with --reconstruct-historic-states."
+}
+```
+
+If reconstruction is possible, the endpoint will return:
+
+```json
+{
+  "status": "success"
+}
+```
+
+See [Checkpoint Sync: Reconstructing States](./checkpoint-sync.md#reconstructing-states) for more details.
