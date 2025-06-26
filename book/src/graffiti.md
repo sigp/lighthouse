@@ -32,7 +32,7 @@ Lighthouse will first search for the graffiti corresponding to the public key of
 
 Users can set validator specific graffitis in `validator_definitions.yml` with the `graffiti` key. This option is recommended for static setups where the graffitis won't change on every new block proposal.
 
-You can also update the graffitis in the `validator_definitions.yml` file using the [Lighthouse API](api-vc-endpoints.html#patch-lighthousevalidatorsvoting_pubkey). See example in [Set Graffiti via HTTP](#set-graffiti-via-http).
+You can also update the graffitis in the `validator_definitions.yml` file using the [Lighthouse API](api-vc-endpoints.md#patch-lighthousevalidatorsvoting_pubkey). See example in [Set Graffiti via HTTP](#set-graffiti-via-http).
 
 Below is an example of the validator_definitions.yml with validator specific graffitis:
 
@@ -78,7 +78,7 @@ Use the [Lighthouse API](api-vc-endpoints.md) to set graffiti on a per-validator
 both in memory and in the `validator_definitions.yml` file. The new graffiti will be used in the next block proposal
 without requiring a validator client restart.
 
-Refer to [Lighthouse API](api-vc-endpoints.html#patch-lighthousevalidatorsvoting_pubkey) for API specification.
+Refer to [Lighthouse API](api-vc-endpoints.md#patch-lighthousevalidatorsvoting_pubkey) for API specification.
 
 ### Example Command
 
