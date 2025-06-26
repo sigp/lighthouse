@@ -44,6 +44,9 @@ pub trait Eth2Enr {
     /// The peerdas custody group count associated with the ENR.
     fn custody_group_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str>;
 
+    /// The next fork digest associated with the ENR.
+    fn next_fork_digest(&self) -> Result<[u8; 4], &'static str>;
+
     fn eth2(&self) -> Result<EnrForkId, &'static str>;
 }
 
@@ -81,6 +84,13 @@ impl Eth2Enr for Enr {
         } else {
             Err("Invalid custody group count in ENR")
         }
+    }
+
+    fn next_fork_digest(&self) -> Result<[u8; 4], &'static str> {
+        self
+            .get_decodable::<[u8; 4]>(NEXT_FORK_DIGEST_ENR_KEY)
+            .ok_or("ENR next fork digest non-existent")?
+            .map_err(|_| "Could not decode the ENR next fork digest")
     }
 
     fn eth2(&self) -> Result<EnrForkId, &'static str> {
