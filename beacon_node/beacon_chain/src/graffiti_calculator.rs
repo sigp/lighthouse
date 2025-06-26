@@ -576,7 +576,7 @@ mod tests {
             .0;
 
         // only append EL client code
-        let append_graffiti_string = format!("{}", DEFAULT_CLIENT_VERSION.code);
+        let append_graffiti_string = DEFAULT_CLIENT_VERSION.code.to_string();
 
         let expected_graffiti_string = format!("{} {}", append_graffiti_string, graffiti_str);
 
