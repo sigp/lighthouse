@@ -773,6 +773,8 @@ impl ClientVersionV1 {
             let graffiti_length = graffiti.as_utf8_lossy().len();
             let graffiti_str = graffiti.as_utf8_lossy();
 
+            // 12 characters for append_graffiti_full, plus one character for spacing
+            // that leaves user specified graffiti to be 32-12-1 = 19 characters max, i.e., <20
             if graffiti_length < 20 {
                 format!("{} {}", append_graffiti_full, graffiti_str)
             } else if (20..24).contains(&graffiti_length) {
