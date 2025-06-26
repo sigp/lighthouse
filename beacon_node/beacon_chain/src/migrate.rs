@@ -215,13 +215,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         }
     }
 
-    pub fn process_reconstruction(&self) {
+    pub fn process_reconstruction(&self) -> Result<(), Error> {
         if let Some(Notification::Reconstruction) =
             self.send_background_notification(Notification::Reconstruction)
         {
             // If we are running in foreground mode (as in tests), then this will just run a single
             // batch. We may need to tweak this in future.
-            Self::run_reconstruction(self.db.clone(), None, &self.log);
+            Self::run_reconstruction(self.db.clone(), None, &self.log)
+        } else {
+            Ok(())
         }
     }
 
@@ -237,7 +239,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         db: Arc<HotColdDB<E, Hot, Cold>>,
         opt_tx: Option<mpsc::Sender<Notification>>,
         log: &Logger,
-    ) {
+    ) -> Result<(), Error> {
         match db.reconstruct_historic_states(Some(BLOCKS_PER_RECONSTRUCTION)) {
             Ok(()) => {
                 // Schedule another reconstruction batch if required and we have access to the
@@ -253,6 +255,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                         }
                     }
                 }
+                Ok(())
             }
             Err(e) => {
                 error!(
@@ -260,6 +263,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     "State reconstruction failed";
                     "error" => ?e,
                 );
+                Err(e)
             }
         }
     }
