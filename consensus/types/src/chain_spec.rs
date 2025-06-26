@@ -288,7 +288,6 @@ impl ChainSpec {
             next_fork_version: self.next_fork_version::<E>(slot),
             next_fork_epoch: self
                 .next_digest_epoch(slot.epoch(E::slots_per_epoch()))
-                .map(|e| e)
                 .unwrap_or(self.far_future_epoch),
         }
     }
@@ -577,7 +576,9 @@ impl ChainSpec {
                 // XOR the base digest with the first 4 bytes of the hash
                 let mut masked_digest = [0u8; 4];
                 for (i, (a, b)) in base_digest.iter().zip(hash.iter()).enumerate() {
-                    masked_digest[i] = a ^ b;
+                    if let Some(x) = masked_digest.get_mut(i){
+                        *x = a ^ b;
+                    }
                 }
                 masked_digest
             }

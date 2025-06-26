@@ -30,7 +30,6 @@ impl ForkContext {
 
         let epoch_to_digest: HashMap<_, _> = spec
             .all_digest_epochs()
-            .into_iter()
             .map(|epoch| {
                 let fork_digest = spec.compute_fork_digest(genesis_validators_root, epoch);
                 (epoch, fork_digest)
