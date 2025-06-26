@@ -576,7 +576,7 @@ impl ChainSpec {
                 // XOR the base digest with the first 4 bytes of the hash
                 let mut masked_digest = [0u8; 4];
                 for (i, (a, b)) in base_digest.iter().zip(hash.iter()).enumerate() {
-                    if let Some(x) = masked_digest.get_mut(i){
+                    if let Some(x) = masked_digest.get_mut(i) {
                         *x = a ^ b;
                     }
                 }
