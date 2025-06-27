@@ -323,6 +323,16 @@ pub enum BlockError {
     /// We were unable to process this block due to an internal error. It's unclear if the block is
     /// valid.
     InternalError(String),
+    /// The number of kzg commitments in the block exceed the max allowed blobs per block for
+    /// the block's epoch.
+    ///
+    /// ## Peer scoring
+    ///
+    /// This block is invalid and the peer should be penalised.
+    InvalidBlobCount {
+        max_blobs_at_epoch: usize,
+        block: usize,
+    },
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -854,6 +864,21 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 present_slot: present_slot_with_tolerance,
                 block_slot: block.slot(),
             });
+        }
+
+        // Do not gossip blocks that claim to contain more blobs than the max allowed
+        // at the given block epoch.
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
+            let max_blobs_at_epoch = chain
+                .spec
+                .max_blobs_per_block(block.slot().epoch(T::EthSpec::slots_per_epoch()))
+                as usize;
+            if commitments.len() > max_blobs_at_epoch {
+                return Err(BlockError::InvalidBlobCount {
+                    max_blobs_at_epoch,
+                    block: commitments.len(),
+                });
+            }
         }
 
         let block_root = get_block_header_root(block_header);
