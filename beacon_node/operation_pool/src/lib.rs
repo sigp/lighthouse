@@ -699,7 +699,9 @@ impl<E: EthSpec> OperationPool<E> {
     /// This method may return objects that are invalid for block inclusion.
     pub fn get_all_proposer_slashings(&self) -> Vec<ProposerSlashing> {
         self.proposer_slashings
-            .read().values().map(|slashing| slashing.as_inner().clone())
+            .read()
+            .values()
+            .map(|slashing| slashing.as_inner().clone())
             .collect()
     }
 
@@ -708,7 +710,9 @@ impl<E: EthSpec> OperationPool<E> {
     /// This method may return objects that are invalid for block inclusion.
     pub fn get_all_voluntary_exits(&self) -> Vec<SignedVoluntaryExit> {
         self.voluntary_exits
-            .read().values().map(|exit| exit.as_inner().clone())
+            .read()
+            .values()
+            .map(|exit| exit.as_inner().clone())
             .collect()
     }
 
