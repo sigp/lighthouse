@@ -163,7 +163,13 @@ impl CustodyContext {
             validator_custody_count: AtomicU64::new(ssz_context.validator_custody_at_head),
             current_is_supernode: is_supernode,
             persisted_is_supernode: ssz_context.persisted_is_supernode,
-            validator_registrations: Default::default(),
+            validator_registrations: RwLock::new(ValidatorRegistrations {
+                validators: Default::default(),
+                epoch_validator_custody_requirements: ssz_context
+                    .epoch_validator_custody_requirements
+                    .into_iter()
+                    .collect(),
+            }),
         }
     }
 
@@ -265,6 +271,7 @@ pub struct CustodyCountChanged {
 pub struct CustodyContextSsz {
     validator_custody_at_head: u64,
     persisted_is_supernode: bool,
+    epoch_validator_custody_requirements: Vec<(Epoch, u64)>,
 }
 
 impl From<&CustodyContext> for CustodyContextSsz {
@@ -272,6 +279,13 @@ impl From<&CustodyContext> for CustodyContextSsz {
         CustodyContextSsz {
             validator_custody_at_head: context.validator_custody_count.load(Ordering::Relaxed),
             persisted_is_supernode: context.persisted_is_supernode,
+            epoch_validator_custody_requirements: context
+                .validator_registrations
+                .read()
+                .epoch_validator_custody_requirements
+                .iter()
+                .map(|(epoch, count)| (*epoch, *count))
+                .collect(),
         }
     }
 }
