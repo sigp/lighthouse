@@ -112,8 +112,7 @@ pub fn cli_app() -> Command {
                 .value_name("ETH1_ADDRESS")
                 .help("When provided, the imported validator will use the suggested fee recipient. Omit this flag to use the default value from the VC.")
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
         )
         .arg(
             Arg::new(GAS_LIMIT)
@@ -122,8 +121,7 @@ pub fn cli_app() -> Command {
                 .help("When provided, the imported validator will use this gas limit. It is recommended \
                 to leave this as the default value by not specifying this flag.",)
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_PROPOSALS)
@@ -132,8 +130,7 @@ pub fn cli_app() -> Command {
                 blocks via builder rather than the local EL.",)
                 .value_parser(["true","false"])
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
         )
         .arg(
             Arg::new(BUILDER_BOOST_FACTOR)
@@ -144,8 +141,7 @@ pub fn cli_app() -> Command {
                 when choosing between a builder payload header and payload from \
                 the local execution node.",)
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
         )
         .arg(
             Arg::new(PREFER_BUILDER_PROPOSALS)
@@ -154,8 +150,15 @@ pub fn cli_app() -> Command {
                 constructed by builders, regardless of payload value.",)
                 .value_parser(["true","false"])
                 .action(ArgAction::Set)
-                .display_order(0)
-                .requires(KEYSTORE_FILE_FLAG),
+                .display_order(0),
+        )
+        .arg(
+            Arg::new(ENABLED)
+                .long(ENABLED)
+                .help("When provided, the imported validator will be enabled or disabled. Omit this flag to use the default value from the VC.")
+                .value_parser(["true","false"])
+                .action(ArgAction::Set)
+                .display_order(0),
         )
 }
 
