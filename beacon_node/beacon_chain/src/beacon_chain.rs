@@ -7080,7 +7080,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: Hash256,
         block_data: AvailableBlockData<T::EthSpec>,
-    ) -> Result<Option<StoreOp<T::EthSpec>>, String> {
+    ) -> Result<Option<StoreOp<'_, T::EthSpec>>, String> {
         match block_data {
             AvailableBlockData::NoData => Ok(None),
             AvailableBlockData::Blobs(blobs) => {

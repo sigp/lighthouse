@@ -511,7 +511,7 @@ pub enum AttestationOnDisk<E: EthSpec> {
 }
 
 impl<E: EthSpec> AttestationOnDisk<E> {
-    pub fn to_ref(&self) -> AttestationRefOnDisk<E> {
+    pub fn to_ref(&self) -> AttestationRefOnDisk<'_, E> {
         match self {
             AttestationOnDisk::Base(att) => AttestationRefOnDisk::Base(att),
             AttestationOnDisk::Electra(att) => AttestationRefOnDisk::Electra(att),

@@ -365,7 +365,7 @@ pub trait AsBlock<E: EthSpec> {
     fn parent_root(&self) -> Hash256;
     fn state_root(&self) -> Hash256;
     fn signed_block_header(&self) -> SignedBeaconBlockHeader;
-    fn message(&self) -> BeaconBlockRef<E>;
+    fn message(&self) -> BeaconBlockRef<'_, E>;
     fn as_block(&self) -> &SignedBeaconBlock<E>;
     fn block_cloned(&self) -> Arc<SignedBeaconBlock<E>>;
     fn canonical_root(&self) -> Hash256;
@@ -392,7 +392,7 @@ impl<E: EthSpec> AsBlock<E> for Arc<SignedBeaconBlock<E>> {
         SignedBeaconBlock::signed_block_header(self)
     }
 
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         SignedBeaconBlock::message(self)
     }
 
@@ -425,7 +425,7 @@ impl<E: EthSpec> AsBlock<E> for MaybeAvailableBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.as_block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {
@@ -466,7 +466,7 @@ impl<E: EthSpec> AsBlock<E> for AvailableBlock<E> {
         self.block().signed_block_header()
     }
 
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.block().message()
     }
 
@@ -499,7 +499,7 @@ impl<E: EthSpec> AsBlock<E> for RpcBlock<E> {
     fn signed_block_header(&self) -> SignedBeaconBlockHeader {
         self.as_block().signed_block_header()
     }
-    fn message(&self) -> BeaconBlockRef<E> {
+    fn message(&self) -> BeaconBlockRef<'_, E> {
         self.as_block().message()
     }
     fn as_block(&self) -> &SignedBeaconBlock<E> {

@@ -8,7 +8,7 @@ use rusqlite::{
 macro_rules! impl_to_from_sql {
     ($type:ty) => {
         impl ToSql for $type {
-            fn to_sql(&self) -> Result<ToSqlOutput, Error> {
+            fn to_sql(&self) -> Result<ToSqlOutput<'_>, Error> {
                 let val_i64 = i64::try_from(self.as_u64())
                     .map_err(|e| Error::ToSqlConversionFailure(Box::new(e)))?;
                 Ok(ToSqlOutput::from(val_i64))
