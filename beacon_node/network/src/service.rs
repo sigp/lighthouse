@@ -11,6 +11,7 @@ use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 
+use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
@@ -627,10 +628,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 error,
                 inbound_request_id,
                 reason,
-            } => {
-                self.libp2p
-                    .send_error_response(peer_id, inbound_request_id, error, reason);
-            }
+            } => self.libp2p.send_response(
+                peer_id,
+                inbound_request_id,
+                RpcResponse::Error(error, reason.into()),
+            ),
             NetworkMessage::ValidationResult {
                 propagation_source,
                 message_id,

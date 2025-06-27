@@ -17,7 +17,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, instrument, trace};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -199,8 +199,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     }
 
     /// Sends an RPC response.
-    ///
-    /// The peer must be connected for this to succeed.
+    /// Returns an `Err` if the request does exist in the active inbound requests list.
     #[instrument(parent = None,
         level = "trace",
         fields(service = "libp2p_rpc"),
@@ -212,11 +211,10 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         peer_id: PeerId,
         request_id: InboundRequestId,
         response: RpcResponse<E>,
-    ) {
+    ) -> Result<(), RpcResponse<E>> {
         let Some((_peer_id, request_type)) = self.active_inbound_requests.remove(&request_id)
         else {
-            error!(%peer_id, ?request_id, %response, "Request not found in active_inbound_requests. Response not sent");
-            return;
+            return Err(response);
         };
 
         // Add the request back to active requests if the response is `Success` and requires stream
@@ -229,6 +227,7 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         }
 
         self.send_response_inner(peer_id, request_type.protocol(), request_id, response);
+        Ok(())
     }
 
     fn send_response_inner(
@@ -506,7 +505,8 @@ where
                         RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,
                         })),
-                    );
+                    )
+                    .expect("Request to exist");
                 }
 
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
