@@ -1,9 +1,10 @@
 use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::sync::custody_sync::CustodyBatchProcessResult;
 use crate::sync::BatchProcessResult;
 use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
-    ChainId,
+    ChainId, CustodyBackSyncBatchId,
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
@@ -39,8 +40,6 @@ pub enum ChainSegmentProcessId {
     RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
-    /// Processing ID for a custody backfill syncing batch.
-    CustodyBackSyncBatchId(Epoch),
 }
 
 /// Returned when a chain segment import fails.
@@ -455,54 +454,42 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Attempt to import the `data_column_sidecar_list` to the beacon chain.
     pub async fn process_data_column_sidecar_list(
         &self,
-        sync_type: ChainSegmentProcessId,
-        downloaded_data_column_sidecar_list: Vec<DataColumnSidecarList<T::EthSpec>>,
+        sync_id: CustodyBackSyncBatchId,
+        downloaded_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
     ) {
-        let result = match sync_type {
-            // this a request from the Backfill sync
-            ChainSegmentProcessId::CustodyBackSyncBatchId(epoch) => {
-                // TODO(cgc-backfill) this number isnt actually correct, we'll need to flatten
-                let sent_data_columns = downloaded_data_column_sidecar_list.len();
-                match self
-                    .process_custody_backfill_data_columns(downloaded_data_column_sidecar_list)
-                {
-                    (imported_data_columns, Ok(_)) => {
-                        // TODO(cgc-backfill) maybe log more granular details for debugging purposes
-                        debug!(
-                            batch_epoch = %epoch,
-                            keep_execution_payload = !self.chain.store.get_config().prune_payloads,
-                            service= "custody_backfill_sync",
-                            "Custody backfill batch processed");
-                        BatchProcessResult::CustodyBackfillSuccess {
-                            sent_data_columns,
-                            imported_data_columns,
-                        }
-                    }
-                    (_, Err(e)) => {
-                        debug!(
-                            batch_epoch = %epoch,
-                            error = %e.message,
-                            service = "custody_backfill_sync",
-                            "Custody backfill batch processing failed"
-                        );
-                        match e.peer_action {
-                            Some(penalty) => BatchProcessResult::FaultyFailure {
-                                imported_blocks: 0,
-                                penalty,
-                            },
-                            None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
+        // TODO(cgc-backfill) this number isnt actually correct, we'll need to flatten
+        let sent_data_columns = downloaded_data_column_sidecar_list.len();
+        match self.process_custody_backfill_data_columns(downloaded_data_column_sidecar_list) {
+            (imported_data_columns, Ok(_)) => {
+                // TODO(cgc-backfill) maybe log more granular details for debugging purposes
+                debug!(
+                    batch_epoch = %sync_id,
+                    keep_execution_payload = !self.chain.store.get_config().prune_payloads,
+                    service= "custody_backfill_sync",
+                    "Custody backfill batch processed");
+                CustodyBatchProcessResult::Success {
+                    sent_data_columns,
+                    imported_data_columns,
                 }
             }
-            // TODO(cgc-backfill)
-            // we should only accept requests from CustodyBackfillSync
-            _ => {
-                todo!()
+            (_, Err(e)) => {
+                debug!(
+                    batch_epoch = %sync_id,
+                    error = %e.message,
+                    service = "custody_backfill_sync",
+                    "Custody backfill batch processing failed"
+                );
+                match e.peer_action {
+                    Some(penalty) => CustodyBatchProcessResult::FaultyFailure {
+                        imported_data_columns: 0,
+                        penalty,
+                    },
+                    None => CustodyBatchProcessResult::NonFaultyFailure,
+                }
             }
         };
 
-        self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
+        // self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
@@ -609,8 +596,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
             }
-            // TODO(cgc-backfill)
-            ChainSegmentProcessId::CustodyBackSyncBatchId(_) => todo!(),
         };
 
         self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
@@ -661,18 +646,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Helper function to process custody backfill data columns
     fn process_custody_backfill_data_columns(
         &self,
-        downloaded_data_column_sidecar_list: Vec<DataColumnSidecarList<T::EthSpec>>,
+        downloaded_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let all_data_columns = downloaded_data_column_sidecar_list
-            .clone()
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-
-        let total_data_column_sidecars = all_data_columns.len();
+        let total_data_column_sidecars = downloaded_data_column_sidecar_list.len();
 
         let all_data_columns = RuntimeVariableList::from_vec(
-            all_data_columns,
+            downloaded_data_column_sidecar_list.clone(),
             self.chain.spec.number_of_columns as usize,
         );
 

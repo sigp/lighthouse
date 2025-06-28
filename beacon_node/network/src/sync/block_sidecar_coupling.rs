@@ -22,7 +22,7 @@ enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
     Complete(T),
 }
 
-enum RangeBlockDataRequest<E: EthSpec> {
+pub enum RangeBlockDataRequest<E: EthSpec> {
     NoData,
     Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecar<E>>>>),
     DataColumns {

@@ -1,9 +1,14 @@
+use crate::sync::range_sync::BatchProcessingResult;
+use crate::sync::CustodyBackSyncBatchId;
 use crate::sync::{
     range_sync::{Attempt, WrongState},
     BatchOperationOutcome,
 };
-use lighthouse_network::service::api_types::Id;
+use beacon_chain::BeaconChainTypes;
+use fnv::FnvHashSet;
+use lighthouse_network::service::api_types::{DataColumnsByRangeRequestId, Id};
 use lighthouse_network::PeerId;
+use std::marker::PhantomData;
 use std::{
     collections::HashSet,
     hash::{Hash, Hasher},
@@ -21,6 +26,13 @@ const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 
 #[derive(Debug)]
 pub struct CustodySyncBatchConfig {}
+
+// TODO(cgc-backfill) rename this
+#[derive(Hash, PartialEq, Eq, Clone)]
+pub struct CustodyByRangeParentRequestId {
+    pub id: u32,
+    pub requester: CustodyBackSyncBatchId,
+}
 
 impl CustodySyncBatchConfig {
     fn max_batch_download_attempts() -> u8 {
@@ -109,6 +121,40 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         }
     }
 
+    /// Marks the batch as ready to be processed if the data columns are in the range. The number of
+    /// received data columns is returned, or the wrong batch end on failure
+    #[must_use = "Batch may have failed"]
+    pub fn download_completed(
+        &mut self,
+        data_columns: DataColumnSidecarList<E>,
+        peer: PeerId,
+    ) -> Result<usize /* Received blocks */, WrongState> {
+        match self.state.poison() {
+            CustodyBatchState::Downloading(_) => {
+                let received = data_columns.len();
+                self.state =
+                    CustodyBatchState::AwaitingProcessing(peer, data_columns, Instant::now());
+                Ok(received)
+            }
+            CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
+            other => {
+                self.state = other;
+                Err(WrongState(format!(
+                    "Download completed for batch in wrong state {:?}",
+                    self.state
+                )))
+            }
+        }
+    }
+
+    /// Verifies if incoming data columns belong to this batch.
+    pub fn is_expecting_data_columns(&self, request_id: &Id) -> bool {
+        if let CustodyBatchState::Downloading(expected_id) = &self.state {
+            return expected_id == request_id;
+        }
+        false
+    }
+
     /// Mark the batch as failed and return whether we can attempt a re-download.
     ///
     /// This can happen if a peer disconnects or some error occurred that was not the peers fault.
@@ -159,6 +205,66 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         }
     }
 
+    /// Returns the peer that is currently responsible for progressing the state of the batch.
+    pub fn processing_peer(&self) -> Option<&PeerId> {
+        match &self.state {
+            CustodyBatchState::AwaitingDownload
+            | CustodyBatchState::Failed
+            | CustodyBatchState::Downloading(..) => None,
+            CustodyBatchState::AwaitingProcessing(peer_id, _, _)
+            | CustodyBatchState::Processing(Attempt { peer_id, .. })
+            | CustodyBatchState::AwaitingValidation(Attempt { peer_id, .. }) => Some(peer_id),
+            CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
+        }
+    }
+
+    pub fn attempts(&self) -> &[Attempt] {
+        &self.failed_processing_attempts
+    }
+
+    #[must_use = "Custody batch may have failed"]
+    pub fn processing_completed(
+        &mut self,
+        procesing_result: BatchProcessingResult,
+    ) -> Result<BatchOperationOutcome, WrongState> {
+        match self.state.poison() {
+            CustodyBatchState::Processing(attempt) => {
+                self.state = match procesing_result {
+                    BatchProcessingResult::Success => {
+                        CustodyBatchState::AwaitingValidation(attempt)
+                    }
+                    BatchProcessingResult::FaultyFailure => {
+                        // register the failed attempt
+                        self.failed_processing_attempts.push(attempt);
+
+                        // check if the batch can be downloaded again
+                        if self.failed_processing_attempts.len()
+                            >= CustodySyncBatchConfig::max_batch_processing_attempts() as usize
+                        {
+                            CustodyBatchState::Failed
+                        } else {
+                            CustodyBatchState::AwaitingDownload
+                        }
+                    }
+                    BatchProcessingResult::NonFaultyFailure => {
+                        self.non_faulty_processing_attempts =
+                            self.non_faulty_processing_attempts.saturating_add(1);
+                        CustodyBatchState::AwaitingDownload
+                    }
+                };
+                Ok(self.outcome())
+            }
+            CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
+            other => {
+                self.state = other;
+                Err(WrongState(format!(
+                    "Procesing completed for batch in wrong state: {:?}",
+                    self.state
+                )))
+            }
+        }
+    }
+
     pub fn start_processing(&mut self) -> Result<(DataColumnSidecarList<E>, Duration), WrongState> {
         match self.state.poison() {
             CustodyBatchState::AwaitingProcessing(
@@ -177,6 +283,33 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
                 self.state = other;
                 Err(WrongState(format!(
                     "Starting processing batch in wrong state {:?}",
+                    self.state
+                )))
+            }
+        }
+    }
+
+    #[must_use = "Batch may have failed"]
+    pub fn validation_failed(&mut self) -> Result<BatchOperationOutcome, WrongState> {
+        match self.state.poison() {
+            CustodyBatchState::AwaitingValidation(attempt) => {
+                self.failed_processing_attempts.push(attempt);
+
+                // check if the batch can be downloaded again
+                self.state = if self.failed_processing_attempts.len()
+                    >= CustodySyncBatchConfig::max_batch_processing_attempts() as usize
+                {
+                    CustodyBatchState::Failed
+                } else {
+                    CustodyBatchState::AwaitingDownload
+                };
+                Ok(self.outcome())
+            }
+            CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
+            other => {
+                self.state = other;
+                Err(WrongState(format!(
+                    "Validation failed for batch in wrong state: {:?}",
                     self.state
                 )))
             }

@@ -1,4 +1,5 @@
 use crate::sync::manager::BlockProcessType;
+use crate::sync::CustodyBackSyncBatchId;
 use crate::sync::SamplingId;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
@@ -538,26 +539,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Create a new work event to import `data_columns` as part of custody backfill sync.
     pub fn send_data_column_sidecar_list(
         self: &Arc<Self>,
-        process_id: ChainSegmentProcessId,
+        process_id: CustodyBackSyncBatchId,
         data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(), Error<T::EthSpec>> {
-        let is_custody_backfill: bool = matches!(
-            &process_id,
-            ChainSegmentProcessId::CustodyBackSyncBatchId { .. }
-        );
-        if !is_custody_backfill {
-            // TODO(cgc-backfill) this should error if its not custody backfill
-            todo!()
-        }
+        // TODO(cgc-backill) len is not correct
         debug!(data_columns_sidecars = data_column_sidecar_list.len(), id = ?process_id, "Batch data column sidecar list sending for process");
 
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .process_chain_segment(process_id, blocks, notify_execution_layer)
+                .process_data_column_sidecar_list(process_id, data_column_sidecar_list)
                 .await;
         };
-        todo!()
+
+        let process_fn = Box::pin(process_fn);
+
+        let work = Work::CustodyBackfill(process_fn);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work,
+        })
     }
 
     /// Create a new work event to import `blocks` as a beacon chain segment.

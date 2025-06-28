@@ -121,6 +121,7 @@ pub struct BeaconProcessorQueueLengths {
     column_reconstruction_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
+    custody_backfill_queue: usize,
     gossip_block_queue: usize,
     gossip_blob_queue: usize,
     gossip_data_column_queue: usize,
@@ -189,6 +190,7 @@ impl BeaconProcessorQueueLengths {
             column_reconstruction_queue: 64,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
+            custody_backfill_queue: 64,
             gossip_block_queue: 1024,
             gossip_blob_queue: 1024,
             gossip_data_column_queue: 1024,
@@ -619,6 +621,7 @@ pub enum Work<E: EthSpec> {
     },
     ChainSegment(AsyncFn),
     ChainSegmentBackfill(AsyncFn),
+    CustodyBackfill(AsyncFn),
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
@@ -674,6 +677,7 @@ pub enum WorkType {
     IgnoredRpcBlock,
     ChainSegment,
     ChainSegmentBackfill,
+    CustodyBackfill,
     Status,
     BlocksByRangeRequest,
     BlocksByRootsRequest,
@@ -726,6 +730,7 @@ impl<E: EthSpec> Work<E> {
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
             Work::ChainSegmentBackfill(_) => WorkType::ChainSegmentBackfill,
+            Work::CustodyBackfill(_) => WorkType::CustodyBackfill,
             Work::Status(_) => WorkType::Status,
             Work::BlocksByRangeRequest(_) => WorkType::BlocksByRangeRequest,
             Work::BlocksByRootsRequest(_) => WorkType::BlocksByRootsRequest,
@@ -894,6 +899,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             FifoQueue::new(queue_lengths.unknown_block_sampling_request_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let mut backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
+        let mut custody_backfill_queue = FifoQueue::new(queue_lengths.custody_backfill_queue);
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
         let mut gossip_blob_queue = FifoQueue::new(queue_lengths.gossip_blob_queue);
         let mut gossip_data_column_queue = FifoQueue::new(queue_lengths.gossip_data_column_queue);
@@ -1251,7 +1257,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             // Handle backfill sync chain segments.
                             } else if let Some(item) = backfill_chain_segment.pop() {
                                 Some(item)
-                                // Handle light client requests.
+                            } else if let Some(item) = custody_backfill_queue.pop() {
+                                Some(item)
+                            // Handle light client requests.
                             } else if let Some(item) = lc_gossip_finality_update_queue.pop() {
                                 Some(item)
                             } else if let Some(item) = lc_gossip_optimistic_update_queue.pop() {
@@ -1390,6 +1398,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::ChainSegmentBackfill { .. } => {
                                 backfill_chain_segment.push(work, work_id)
                             }
+                            Work::CustodyBackfill { .. } => {
+                                custody_backfill_queue.push(work, work_id)
+                            }
                             Work::Status { .. } => status_queue.push(work, work_id),
                             Work::BlocksByRangeRequest { .. } => bbrange_queue.push(work, work_id),
                             Work::BlocksByRootsRequest { .. } => bbroots_queue.push(work, work_id),
@@ -1478,6 +1489,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::ColumnReconstruction => column_reconstruction_queue.len(),
                         WorkType::ChainSegment => chain_segment_queue.len(),
                         WorkType::ChainSegmentBackfill => backfill_chain_segment.len(),
+                        WorkType::CustodyBackfill => custody_backfill_queue.len(),
                         WorkType::Status => status_queue.len(),
                         WorkType::BlocksByRangeRequest => blbrange_queue.len(),
                         WorkType::BlocksByRootsRequest => blbroots_queue.len(),
@@ -1631,6 +1643,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 task_spawner.spawn_async(work)
             }
             Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
+            Work::CustodyBackfill(process_fn) => task_spawner.spawn_async(process_fn),
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
                 BlockingOrAsync::Blocking(process_fn) => task_spawner.spawn_blocking(process_fn),
                 BlockingOrAsync::Async(process_fn) => task_spawner.spawn_async(process_fn),

@@ -55,7 +55,7 @@ pub enum Error {
     },
 }
 
-struct ActiveBatchColumnsRequest {
+pub struct ActiveBatchColumnsRequest {
     indices: Vec<ColumnIndex>,
 }
 

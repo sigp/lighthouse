@@ -329,45 +329,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of `data_columns` successfully imported.
     pub fn import_historical_data_column_batch(
         &self,
-        historical_data_column_sidecars: Vec<DataColumnSidecarList<T::EthSpec>>,
+        historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<usize, HistoricalDataColumnError> {
         let mut total_imported = 0;
+        let expected_imported = historical_data_column_sidecar_list.len();
         let mut ops = vec![];
 
-        if historical_data_column_sidecars.is_empty() {
+        if historical_data_column_sidecar_list.is_empty() {
             return Ok(total_imported);
         }
 
-        for data_column_sidecar_list in historical_data_column_sidecars {
-            let block_root = {
-                let Some(data_column) = data_column_sidecar_list.first() else {
-                    return Err(HistoricalDataColumnError::IndexOutOfBounds);
-                };
-
-                let first_block_root = data_column.block_root();
-
-                if let Some(mismatched_sidecar) =
-                    data_column_sidecar_list.iter().find(|data_column_sidecar| {
-                        data_column_sidecar.block_root() != first_block_root
-                    })
-                {
-                    let error = HistoricalDataColumnError::MismatchedBlockRoot {
-                        data_column_block_root: mismatched_sidecar.block_root(),
-                        data_column_index: mismatched_sidecar.index,
-                        expected_block_root: first_block_root,
-                    };
-                    tracing::warn!(
-                        block_root=%mismatched_sidecar.block_root(),
-                        data_column_index=%mismatched_sidecar.index,
-                        num_blob_sidecars=%data_column_sidecar_list.len(),
-                        ?error,
-                        "Aborting data column sidecar import"
-                    );
-
-                    return Err(error);
-                }
-                first_block_root
-            };
+        for data_column_sidecar in historical_data_column_sidecar_list {
+            let block_root = data_column_sidecar.block_root();
 
             let Some(block) = self.store.get_blinded_block(&block_root)? else {
                 let error = HistoricalDataColumnError::NoBlockFound {
@@ -375,44 +348,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 };
                 tracing::warn!(
                     %block_root,
-                    num_blob_sidecars = data_column_sidecar_list.len(),
+                    num_blob_sidecars = expected_imported,
                     ?error,
                     "Aborting data column sidecar import"
                 );
                 return Err(error);
             };
 
-            for data_column in data_column_sidecar_list {
-                if &data_column.signed_block_header.signature != block.signature() {
-                    let error = HistoricalDataColumnError::InvalidSignature {
-                        data_column_block_root: data_column.block_root(),
-                    };
-                    tracing::warn!(
-                        block_root = ?block_root,
-                        column_index = data_column.index,
-                        ?error,
-                        "Aborting data column sidecar import"
-                    );
-                    return Err(error);
-                }
-
-                if self
-                    .store
-                    .get_data_column(&block_root, &data_column.index)?
-                    .is_none()
-                {
-                    tracing::debug!(
-                        block_root = ?block_root,
-                        column_index = data_column.index,
-                        "Skipping data column import as identical data column exists"
-                    );
-                    continue;
-                }
-
-                self.store
-                    .data_column_as_kv_store_ops(&block_root, data_column, &mut ops);
-                total_imported += 1;
+            if &data_column_sidecar.signed_block_header.signature != block.signature() {
+                let error = HistoricalDataColumnError::InvalidSignature {
+                    data_column_block_root: block_root,
+                };
+                tracing::warn!(
+                    block_root = ?block_root,
+                    column_index = data_column_sidecar.index,
+                    ?error,
+                    "Aborting data column sidecar import"
+                );
+                return Err(error);
             }
+
+            if self
+                .store
+                .get_data_column(&block_root, &data_column_sidecar.index)?
+                .is_none()
+            {
+                tracing::debug!(
+                    block_root = ?block_root,
+                    column_index = data_column_sidecar.index,
+                    "Skipping data column import as identical data column exists"
+                );
+                continue;
+            }
+
+            self.store
+                .data_column_as_kv_store_ops(&block_root, data_column_sidecar, &mut ops);
+            total_imported += 1;
         }
 
         self.store.blobs_db.do_atomically(ops)?;

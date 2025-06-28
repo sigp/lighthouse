@@ -366,6 +366,9 @@ impl TestRig {
                 RangeRequestId::BackfillSync { batch_id } => {
                     ChainSegmentProcessId::BackSyncBatchId(batch_id)
                 }
+                RangeRequestId::CustodySync { batch_id } => {
+                    ChainSegmentProcessId::CustodyBackSyncBatchId(batch_id)
+                }
             };
 
             self.find_and_complete_processing_chain_segment(id);

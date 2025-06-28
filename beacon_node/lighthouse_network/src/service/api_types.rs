@@ -29,8 +29,6 @@ pub enum SyncRequestId {
     BlobsByRange(BlobsByRangeRequestId),
     /// Data columns by range request
     DataColumnsByRange(DataColumnsByRangeRequestId),
-    /// Data columns by range request for custody sync
-    CustodySyncDataColumnsByRange(Id),
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -65,6 +63,15 @@ pub struct DataColumnsByRangeRequestId {
     pub parent_request_id: ComponentsByRangeRequestId,
 }
 
+// TODO(cgc-backfill) rename this
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyByRangeRequestId {
+    /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
+    pub id: Id,
+    /// The Id of the overall By Range request for data columns.
+    pub parent_request_id: CustodyByRangeParentRequestId,
+}
+
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
 /// handle retries and tie all their sub requests together.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -81,7 +88,6 @@ pub struct ComponentsByRangeRequestId {
 pub enum RangeRequestId {
     RangeSync { chain_id: Id, batch_id: Epoch },
     BackfillSync { batch_id: Epoch },
-    CustodySync { batch_id: Epoch },
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -250,7 +256,6 @@ impl Display for RangeRequestId {
         match self {
             Self::RangeSync { chain_id, batch_id } => write!(f, "RangeSync/{batch_id}/{chain_id}"),
             Self::BackfillSync { batch_id } => write!(f, "BackfillSync/{batch_id}"),
-            Self::CustodySync { batch_id } => write!(f, "CustodySync/{batch_id}"),
         }
     }
 }

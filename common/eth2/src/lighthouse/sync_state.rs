@@ -15,6 +15,10 @@ pub enum SyncState {
     /// specified by its peers. Once completed, the node enters this sync state and attempts to
     /// download all required historical blocks.
     BackFillSyncing { completed: usize, remaining: usize },
+    /// The node is undertaking a custody backfill sync. This occurs when the custody group count
+    /// for a validator connected to this node changes. The node attempts to download its newly required
+    /// custody columns from the current head state up to the data availability window.
+    CustodyBackFillSyncing { completed: usize, remaining: usize },
     /// The node has completed syncing a finalized chain and is in the process of re-evaluating
     /// which sync state to progress to.
     SyncTransition,
@@ -65,8 +69,8 @@ impl SyncState {
             SyncState::SyncingFinalized { .. } => true,
             SyncState::SyncingHead { .. } => true,
             SyncState::SyncTransition => true,
-            // Backfill doesn't effect any logic, we consider this state, not syncing.
-            SyncState::BackFillSyncing { .. } => false,
+            // Both types of backfill sync do not effect any logic, we consider these states as not syncing.
+            SyncState::BackFillSyncing { .. } | SyncState::CustodyBackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
         }
@@ -78,6 +82,7 @@ impl SyncState {
             SyncState::SyncingHead { .. } => false,
             SyncState::SyncTransition => false,
             SyncState::BackFillSyncing { .. } => false,
+            SyncState::CustodyBackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
         }
@@ -108,6 +113,9 @@ impl std::fmt::Display for SyncState {
             SyncState::Stalled => write!(f, "Stalled"),
             SyncState::SyncTransition => write!(f, "Evaluating known peers"),
             SyncState::BackFillSyncing { .. } => write!(f, "Syncing Historical Blocks"),
+            SyncState::CustodyBackFillSyncing { .. } => {
+                write!(f, "Syncing newly required custody data columns")
+            }
         }
     }
 }
