@@ -8,6 +8,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
 use store::{DBColumn, Error, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem};
+use tracing::{debug, info};
 use types::{Hash256, Slot};
 
 /// Dummy value to use for the canonical head block root, see below.
@@ -16,6 +17,8 @@ pub const DUMMY_CANONICAL_HEAD_BLOCK_ROOT: Hash256 = Hash256::repeat_byte(0xff);
 pub fn upgrade_to_v23<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
+    info!("Upgrading DB schema from v22 to v23");
+
     // 1) Set the head-tracker to empty
     let Some(persisted_beacon_chain_v22) =
         db.get_item::<PersistedBeaconChainV22>(&BEACON_CHAIN_DB_KEY)?
@@ -37,9 +40,28 @@ pub fn upgrade_to_v23<T: BeaconChainTypes>(
         .hot_db
         .iter_column_keys::<Hash256>(DBColumn::BeaconStateTemporary)
     {
+        let state_root = state_root_result?;
+        debug!(
+            ?state_root,
+            "Deleting temporary state on v23 schema migration"
+        );
         ops.push(KeyValueStoreOp::DeleteKey(
             DBColumn::BeaconStateTemporary,
-            state_root_result?.as_slice().to_vec(),
+            state_root.as_slice().to_vec(),
+        ));
+
+        // We also delete the temporary states themselves. Although there are known issue with
+        // temporary states and this could lead to DB corruption, we will only corrupt the DB in
+        // cases where the DB would be corrupted by restarting on v7.0.x. We consider these DBs
+        // "too far gone". Deleting here has the advantage of not generating warnings about
+        // disjoint state DAGs in the v24 upgrade, or the first pruning after migration.
+        ops.push(KeyValueStoreOp::DeleteKey(
+            DBColumn::BeaconState,
+            state_root.as_slice().to_vec(),
+        ));
+        ops.push(KeyValueStoreOp::DeleteKey(
+            DBColumn::BeaconStateSummary,
+            state_root.as_slice().to_vec(),
         ));
     }
 

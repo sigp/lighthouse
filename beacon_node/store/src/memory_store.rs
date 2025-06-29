@@ -2,7 +2,7 @@ use crate::{
     errors::Error as DBError, get_key_for_col, hot_cold_store::BytesKey, ColumnIter, ColumnKeyIter,
     DBColumn, Error, ItemStore, Key, KeyValueStore, KeyValueStoreOp,
 };
-use parking_lot::{Mutex, MutexGuard, RwLock};
+use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashSet};
 use std::marker::PhantomData;
 use types::*;
@@ -12,7 +12,6 @@ type DBMap = BTreeMap<BytesKey, Vec<u8>>;
 /// A thread-safe `BTreeMap` wrapper.
 pub struct MemoryStore<E: EthSpec> {
     db: RwLock<DBMap>,
-    transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
 
@@ -21,7 +20,6 @@ impl<E: EthSpec> MemoryStore<E> {
     pub fn open() -> Self {
         Self {
             db: RwLock::new(BTreeMap::new()),
-            transaction_mutex: Mutex::new(()),
             _phantom: PhantomData,
         }
     }
@@ -82,7 +80,7 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         Ok(())
     }
 
-    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K> {
         // We use this awkward pattern because we can't lock the `self.db` field *and* maintain a
         // reference to the lock guard across calls to `.next()`. This would be require a
         // struct with a field (the iterator) which references another field (the lock guard).
@@ -103,19 +101,15 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         }))
     }
 
-    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K> {
         Box::new(self.iter_column(column).map(|res| res.map(|(k, _)| k)))
-    }
-
-    fn begin_rw_transaction(&self) -> MutexGuard<()> {
-        self.transaction_mutex.lock()
     }
 
     fn compact_column(&self, _column: DBColumn) -> Result<(), Error> {
         Ok(())
     }
 
-    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+    fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<'_, K> {
         // We use this awkward pattern because we can't lock the `self.db` field *and* maintain a
         // reference to the lock guard across calls to `.next()`. This would be require a
         // struct with a field (the iterator) which references another field (the lock guard).

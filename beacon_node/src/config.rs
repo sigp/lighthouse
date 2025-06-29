@@ -8,17 +8,15 @@ use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::TrustedSetup;
 use clap::{parser::ValueSource, ArgMatches, Id};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_required};
+use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
-use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
 use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
-use std::cmp::max;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fs;
@@ -266,31 +264,21 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Eth1
+     * Deprecated Eth1 flags (can be removed in the next minor release after v7.1.0)
      */
-
-    if cli_args.get_flag("dummy-eth1") {
-        warn!("The --dummy-eth1 flag is deprecated");
-    }
-
-    if cli_args.get_flag("eth1") {
-        warn!("The --eth1 flag is deprecated");
-    }
-
-    if let Some(val) = cli_args.get_one::<String>("eth1-blocks-per-log-query") {
-        client_config.eth1.blocks_per_log_query = val
-            .parse()
-            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
+    if cli_args
+        .get_one::<String>("eth1-blocks-per-log-query")
+        .is_some()
+    {
+        warn!("The eth1-blocks-per-log-query flag is deprecated");
     }
 
     if cli_args.get_flag("eth1-purge-cache") {
-        client_config.eth1.purge_cache = true;
+        warn!("The eth1-purge-cache flag is deprecated");
     }
 
-    if let Some(follow_distance) =
-        clap_utils::parse_optional(cli_args, "eth1-cache-follow-distance")?
-    {
-        client_config.eth1.cache_follow_distance = Some(follow_distance);
+    if clap_utils::parse_optional::<u64>(cli_args, "eth1-cache-follow-distance")?.is_some() {
+        warn!("The eth1-purge-cache flag is deprecated");
     }
 
     // `--execution-endpoint` is required now.
@@ -358,13 +346,6 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
     el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
-    client_config.eth1.endpoint = Eth1Endpoint::Auth {
-        endpoint: execution_endpoint,
-        jwt_path: secret_file,
-        jwt_id: el_config.jwt_id.clone(),
-        jwt_version: el_config.jwt_version.clone(),
-    };
-
     // Store the EL config in the client config.
     client_config.execution_layer = Some(el_config);
 
@@ -418,7 +399,13 @@ pub fn get_config<E: EthSpec>(
     if let Some(hdiff_buffer_cache_size) =
         clap_utils::parse_optional(cli_args, "hdiff-buffer-cache-size")?
     {
-        client_config.store.hdiff_buffer_cache_size = hdiff_buffer_cache_size;
+        client_config.store.cold_hdiff_buffer_cache_size = hdiff_buffer_cache_size;
+    }
+
+    if let Some(hdiff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "hot-hdiff-buffer-cache-size")?
+    {
+        client_config.store.hot_hdiff_buffer_cache_size = hdiff_buffer_cache_size;
     }
 
     client_config.store.compact_on_init = cli_args.get_flag("compact-db");
@@ -500,20 +487,9 @@ pub fn get_config<E: EthSpec>(
         .as_ref()
         .ok_or("Context is missing eth2 network config")?;
 
-    client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
-    client_config.eth1.deposit_contract_deploy_block =
-        eth2_network_config.deposit_contract_deploy_block;
-    client_config.eth1.lowest_cached_block_number =
-        client_config.eth1.deposit_contract_deploy_block;
-    client_config.eth1.follow_distance = spec.eth1_follow_distance;
-    client_config.eth1.node_far_behind_seconds =
-        max(5, spec.eth1_follow_distance / 2) * spec.seconds_per_eth1_block;
-    client_config.eth1.chain_id = spec.deposit_chain_id.into();
-    client_config.eth1.set_block_cache_truncation::<E>(spec);
-
     info!(
-        deploy_block = client_config.eth1.deposit_contract_deploy_block,
-        address = &client_config.eth1.deposit_contract_address,
+        deploy_block = eth2_network_config.deposit_contract_deploy_block,
+        address = ?spec.deposit_contract_address,
         "Deposit contract"
     );
 
@@ -809,9 +785,8 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
-    // Note: This overrides any previous flags that enable this option.
     if cli_args.get_flag("disable-deposit-contract-sync") {
-        client_config.sync_eth1_chain = false;
+        warn!("The disable-deposit-contract-sync flag is deprecated");
     }
 
     client_config.chain.prepare_payload_lookahead =
@@ -1195,6 +1170,12 @@ pub fn set_network_config(
 
     if parse_flag(cli_args, "import-all-attestations") {
         config.import_all_attestations = true;
+    }
+
+    if let Some(advertise_false_custody_group_count) =
+        parse_optional(cli_args, "advertise-false-custody-group-count")?
+    {
+        config.advertise_false_custody_group_count = Some(advertise_false_custody_group_count);
     }
 
     if parse_flag(cli_args, "shutdown-after-sync") {

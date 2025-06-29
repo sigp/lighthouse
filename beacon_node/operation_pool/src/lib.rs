@@ -9,7 +9,7 @@ mod reward_cache;
 mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
-pub use attestation::{earliest_attestation_validators, AttMaxCover};
+pub use attestation::{earliest_attestation_validators, AttMaxCover, PROPOSER_REWARD_DENOMINATOR};
 pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
@@ -700,8 +700,8 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn get_all_proposer_slashings(&self) -> Vec<ProposerSlashing> {
         self.proposer_slashings
             .read()
-            .iter()
-            .map(|(_, slashing)| slashing.as_inner().clone())
+            .values()
+            .map(|slashing| slashing.as_inner().clone())
             .collect()
     }
 
@@ -711,8 +711,8 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn get_all_voluntary_exits(&self) -> Vec<SignedVoluntaryExit> {
         self.voluntary_exits
             .read()
-            .iter()
-            .map(|(_, exit)| exit.as_inner().clone())
+            .values()
+            .map(|exit| exit.as_inner().clone())
             .collect()
     }
 
@@ -1402,7 +1402,8 @@ mod release_tests {
                 .retain(|validator_index, _| !seen_indices.contains(validator_index));
 
             // Check that rewards are in decreasing order
-            let rewards = fresh_validators_rewards.values().sum();
+            let rewards =
+                fresh_validators_rewards.values().sum::<u64>() / PROPOSER_REWARD_DENOMINATOR;
             assert!(prev_reward >= rewards);
             prev_reward = rewards;
             seen_indices.extend(fresh_validators_rewards.keys());

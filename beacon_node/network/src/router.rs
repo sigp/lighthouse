@@ -10,9 +10,7 @@ use crate::service::NetworkMessage;
 use crate::status::status_message;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
-};
+use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
@@ -73,6 +71,8 @@ pub enum RouterMessage<E: EthSpec> {
     PubsubMessage(MessageId, PeerId, PubsubMessage<E>, bool),
     /// The peer manager has requested we re-status a peer.
     StatusPeer(PeerId),
+    /// The peer has an updated custody group count from METADATA.
+    PeerUpdatedCustodyGroupCount(PeerId),
 }
 
 impl<T: BeaconChainTypes> Router<T> {
@@ -85,7 +85,6 @@ impl<T: BeaconChainTypes> Router<T> {
         executor: task_executor::TaskExecutor,
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         fork_context: Arc<ForkContext>,
     ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
         trace!("Service starting");
@@ -101,7 +100,6 @@ impl<T: BeaconChainTypes> Router<T> {
             chain: beacon_chain.clone(),
             network_tx: network_send.clone(),
             sync_tx: sync_send.clone(),
-            reprocess_tx: beacon_processor_reprocess_tx,
             network_globals: network_globals.clone(),
             invalid_block_storage,
             executor: executor.clone(),
@@ -154,6 +152,10 @@ impl<T: BeaconChainTypes> Router<T> {
             // A peer has disconnected
             RouterMessage::PeerDisconnected(peer_id) => {
                 self.send_to_sync(SyncMessage::Disconnect(peer_id));
+            }
+            // A peer has updated CGC
+            RouterMessage::PeerUpdatedCustodyGroupCount(peer_id) => {
+                self.send_to_sync(SyncMessage::UpdatedPeerCgc(peer_id));
             }
             RouterMessage::RPCRequestReceived {
                 peer_id,
@@ -340,17 +342,6 @@ impl<T: BeaconChainTypes> Router<T> {
             PubsubMessage::Attestation(subnet_attestation) => self
                 .handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_unaggregated_attestation(
-                        message_id,
-                        peer_id,
-                        subnet_attestation.1,
-                        subnet_attestation.0,
-                        should_process,
-                        timestamp_now(),
-                    ),
-                ),
-            PubsubMessage::SingleAttestation(subnet_attestation) => self
-                .handle_beacon_processor_send_result(
-                    self.network_beacon_processor.send_single_attestation(
                         message_id,
                         peer_id,
                         subnet_attestation.1,

@@ -66,18 +66,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn check_peer_relevance(
         &self,
         remote: &StatusMessage,
-    ) -> Result<Option<String>, BeaconChainError> {
+    ) -> Result<Option<String>, Box<BeaconChainError>> {
         let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
-        let irrelevant_reason = if local.fork_digest != remote.fork_digest {
+        let irrelevant_reason = if local.fork_digest() != remote.fork_digest() {
             // The node is on a different network/fork
             Some(format!(
                 "Incompatible forks Ours:{} Theirs:{}",
-                hex::encode(local.fork_digest),
-                hex::encode(remote.fork_digest)
+                hex::encode(local.fork_digest()),
+                hex::encode(remote.fork_digest())
             ))
-        } else if remote.head_slot
+        } else if *remote.head_slot()
             > self
                 .chain
                 .slot()
@@ -88,11 +88,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             // current slot. This could be because they are using a different genesis time, or that
             // their or our system's clock is incorrect.
             Some("Different system clocks or genesis time".to_string())
-        } else if (remote.finalized_epoch == local.finalized_epoch
-            && remote.finalized_root == local.finalized_root)
-            || remote.finalized_root.is_zero()
-            || local.finalized_root.is_zero()
-            || remote.finalized_epoch > local.finalized_epoch
+        } else if (remote.finalized_epoch() == local.finalized_epoch()
+            && remote.finalized_root() == local.finalized_root())
+            || remote.finalized_root().is_zero()
+            || local.finalized_root().is_zero()
+            || remote.finalized_epoch() > local.finalized_epoch()
         {
             // Fast path. Remote finalized checkpoint is either identical, or genesis, or we are at
             // genesis, or they are ahead. In all cases, we should allow this peer to connect to us
@@ -100,7 +100,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             None
         } else {
             // Remote finalized epoch is less than ours.
-            let remote_finalized_slot = start_slot(remote.finalized_epoch);
+            let remote_finalized_slot = start_slot(*remote.finalized_epoch());
             if remote_finalized_slot < self.chain.store.get_oldest_block_slot() {
                 // Peer's finalized checkpoint is older than anything in our DB. We are unlikely
                 // to be able to help them sync.
@@ -112,7 +112,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 if self
                     .chain
                     .block_root_at_slot(remote_finalized_slot, WhenSlotSkipped::Prev)
-                    .map(|root_opt| root_opt != Some(remote.finalized_root))?
+                    .map(|root_opt| root_opt != Some(*remote.finalized_root()))
+                    .map_err(Box::new)?
                 {
                     Some("Different finalized chain".to_string())
                 } else {
@@ -137,10 +138,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Ok(None) => {
                 let info = SyncInfo {
-                    head_slot: status.head_slot,
-                    head_root: status.head_root,
-                    finalized_epoch: status.finalized_epoch,
-                    finalized_root: status.finalized_root,
+                    head_slot: *status.head_slot(),
+                    head_root: *status.head_root(),
+                    finalized_epoch: *status.finalized_epoch(),
+                    finalized_root: *status.finalized_root(),
+                    earliest_available_slot: status.earliest_available_slot().ok().cloned(),
                 };
                 self.send_sync_message(SyncMessage::AddPeer(peer_id, info));
             }
@@ -360,24 +362,25 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
 
-        for data_column_id in request.data_column_ids.as_slice() {
-            match self.chain.get_data_column_checking_all_caches(
-                data_column_id.block_root,
-                data_column_id.index,
+        for data_column_ids_by_root in request.data_column_ids.as_slice() {
+            match self.chain.get_data_columns_checking_all_caches(
+                data_column_ids_by_root.block_root,
+                data_column_ids_by_root.columns.as_slice(),
             ) {
-                Ok(Some(data_column)) => {
-                    send_data_column_count += 1;
-                    self.send_response(
-                        peer_id,
-                        inbound_request_id,
-                        Response::DataColumnsByRoot(Some(data_column)),
-                    );
+                Ok(data_columns) => {
+                    send_data_column_count += data_columns.len();
+                    for data_column in data_columns {
+                        self.send_response(
+                            peer_id,
+                            inbound_request_id,
+                            Response::DataColumnsByRoot(Some(data_column)),
+                        );
+                    }
                 }
-                Ok(None) => {} // no-op
                 Err(e) => {
                     // TODO(das): lower log level when feature is stabilized
                     error!(
-                        block_root = ?data_column_id.block_root,
+                        block_root = ?data_column_ids_by_root.block_root,
                         %peer_id,
                         error = ?e,
                         "Error getting data column"
@@ -389,7 +392,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         debug!(
             %peer_id,
-            request = ?request.group_by_ordered_block_root(),
+            request = ?request.data_column_ids,
             returned = send_data_column_count,
             "Received DataColumnsByRoot Request"
         );
@@ -942,12 +945,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             match self.chain.get_blobs(&root) {
                 Ok(blob_sidecar_list) => {
                     for blob_sidecar in blob_sidecar_list.iter() {
-                        blobs_sent += 1;
-                        self.send_network_message(NetworkMessage::SendResponse {
-                            peer_id,
-                            inbound_request_id,
-                            response: Response::BlobsByRange(Some(blob_sidecar.clone())),
-                        });
+                        // Due to skip slots, blobs could be out of the range, we ensure they
+                        // are in the range before sending
+                        if blob_sidecar.slot() >= request_start_slot
+                            && blob_sidecar.slot() < request_start_slot + req.count
+                        {
+                            blobs_sent += 1;
+                            self.send_network_message(NetworkMessage::SendResponse {
+                                peer_id,
+                                inbound_request_id,
+                                response: Response::BlobsByRange(Some(blob_sidecar.clone())),
+                            });
+                        }
                     }
                 }
                 Err(e) => {
@@ -1055,14 +1064,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             for index in &req.columns {
                 match self.chain.get_data_column(&root, index) {
                     Ok(Some(data_column_sidecar)) => {
-                        data_columns_sent += 1;
-                        self.send_network_message(NetworkMessage::SendResponse {
-                            peer_id,
-                            inbound_request_id,
-                            response: Response::DataColumnsByRange(Some(
-                                data_column_sidecar.clone(),
-                            )),
-                        });
+                        // Due to skip slots, data columns could be out of the range, we ensure they
+                        // are in the range before sending
+                        if data_column_sidecar.slot() >= request_start_slot
+                            && data_column_sidecar.slot() < request_start_slot + req.count
+                        {
+                            data_columns_sent += 1;
+                            self.send_network_message(NetworkMessage::SendResponse {
+                                peer_id,
+                                inbound_request_id,
+                                response: Response::DataColumnsByRange(Some(
+                                    data_column_sidecar.clone(),
+                                )),
+                            });
+                        }
                     }
                     Ok(None) => {} // no-op
                     Err(e) => {

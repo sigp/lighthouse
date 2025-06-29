@@ -209,7 +209,7 @@ The first thing is to ensure both consensus and execution clients are synced wit
 - the internet is working well
 - you have sufficient peers
 
-You can see more information on the [Ethstaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
+You can see more information on the [EthStaker KB](https://ethstaker.gitbook.io/ethstaker-knowledge-base/help/missed-attestations).
 
 Another cause for missing attestations is the block arriving late, or there are delays during block processing.
 
@@ -275,7 +275,7 @@ network configuration settings. Ensure that the network you wish to connect to
 is correct (the beacon node outputs the network it is connecting to in the
 initial boot-up log lines). On top of this, ensure that you are not using the
 same `datadir` as a previous network, i.e., if you have been running the
-`Holesky` testnet and are now trying to join a new network but using the same
+`Hoodi` testnet and are now trying to join a new network but using the same
 `datadir` (the `datadir` is also printed out in the beacon node's logs on
 boot-up).
 
