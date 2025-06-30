@@ -113,7 +113,14 @@ fn check_db_columns() {
 fn check_metadata_sizes(store: &Store<E>) {
     assert_eq!(Split::default().ssz_bytes_len(), 40);
     assert_eq!(store.get_anchor_info().ssz_bytes_len(), 64);
-    assert_eq!(store.get_blob_info().ssz_bytes_len(), 14);
+    assert_eq!(
+        store.get_blob_info().ssz_bytes_len(),
+        if store.get_chain_spec().deneb_fork_epoch.is_some() {
+            14
+        } else {
+            6
+        }
+    );
     assert_eq!(DataColumnInfo::default().ssz_bytes_len(), 5);
 }
 
