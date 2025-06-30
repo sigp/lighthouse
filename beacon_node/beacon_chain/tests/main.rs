@@ -7,6 +7,7 @@ mod events;
 mod op_verification;
 mod payload_invalidation;
 mod rewards;
+mod schema_stability;
 mod store_tests;
 mod sync_committee_verification;
 mod tests;
