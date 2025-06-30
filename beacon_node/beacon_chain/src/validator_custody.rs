@@ -269,9 +269,9 @@ pub struct CustodyCountChanged {
 /// The custody information that gets persisted across runs.
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct CustodyContextSsz {
-    validator_custody_at_head: u64,
-    persisted_is_supernode: bool,
-    epoch_validator_custody_requirements: Vec<(Epoch, u64)>,
+    pub validator_custody_at_head: u64,
+    pub persisted_is_supernode: bool,
+    pub epoch_validator_custody_requirements: Vec<(Epoch, u64)>,
 }
 
 impl From<&CustodyContext> for CustodyContextSsz {
