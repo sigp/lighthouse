@@ -4,7 +4,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{Hash256, Slot};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(24);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(25);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
