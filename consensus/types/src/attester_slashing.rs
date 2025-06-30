@@ -141,7 +141,7 @@ impl<'a, E: EthSpec> AttesterSlashingRef<'a, E> {
 }
 
 impl<E: EthSpec> AttesterSlashing<E> {
-    pub fn attestation_1(&self) -> IndexedAttestationRef<E> {
+    pub fn attestation_1(&self) -> IndexedAttestationRef<'_, E> {
         match self {
             AttesterSlashing::Base(attester_slashing) => {
                 IndexedAttestationRef::Base(&attester_slashing.attestation_1)
@@ -152,7 +152,7 @@ impl<E: EthSpec> AttesterSlashing<E> {
         }
     }
 
-    pub fn attestation_2(&self) -> IndexedAttestationRef<E> {
+    pub fn attestation_2(&self) -> IndexedAttestationRef<'_, E> {
         match self {
             AttesterSlashing::Base(attester_slashing) => {
                 IndexedAttestationRef::Base(&attester_slashing.attestation_2)

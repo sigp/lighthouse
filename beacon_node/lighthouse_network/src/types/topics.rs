@@ -26,11 +26,11 @@ pub const LIGHT_CLIENT_FINALITY_UPDATE: &str = "light_client_finality_update";
 pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update";
 
 #[derive(Debug)]
-pub struct TopicConfig<'a> {
+pub struct TopicConfig {
     pub enable_light_client_server: bool,
     pub subscribe_all_subnets: bool,
     pub subscribe_all_data_column_subnets: bool,
-    pub sampling_subnets: &'a HashSet<DataColumnSubnetId>,
+    pub sampling_subnets: HashSet<DataColumnSubnetId>,
 }
 
 /// Returns all the topics the node should subscribe at `fork_name`
@@ -85,7 +85,7 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
                 topics.push(GossipKind::DataColumnSidecar(i.into()));
             }
         } else {
-            for subnet in opts.sampling_subnets {
+            for subnet in &opts.sampling_subnets {
                 topics.push(GossipKind::DataColumnSidecar(*subnet));
             }
         }
@@ -126,7 +126,7 @@ pub fn all_topics_at_fork<E: EthSpec>(fork: ForkName, spec: &ChainSpec) -> Vec<G
         enable_light_client_server: true,
         subscribe_all_subnets: true,
         subscribe_all_data_column_subnets: true,
-        sampling_subnets: &sampling_subnets,
+        sampling_subnets,
     };
     core_topics_to_subscribe::<E>(fork, &opts, spec)
 }
@@ -521,7 +521,7 @@ mod tests {
             enable_light_client_server: false,
             subscribe_all_subnets: false,
             subscribe_all_data_column_subnets: false,
-            sampling_subnets,
+            sampling_subnets: sampling_subnets.clone(),
         }
     }
 

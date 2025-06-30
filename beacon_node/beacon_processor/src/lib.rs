@@ -39,7 +39,7 @@
 //! task.
 
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedGossipBlock, ReprocessQueueMessage,
+    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -47,6 +47,7 @@ use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::crit;
 use logging::TimeLatch;
 use parking_lot::Mutex;
+pub use scheduler::work_reprocessing_queue;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use std::cmp;
@@ -63,7 +64,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, trace, warn};
 use types::{
-    Attestation, BeaconState, ChainSpec, EthSpec, Hash256, RelativeEpoch, SignedAggregateAndProof,
+    BeaconState, ChainSpec, EthSpec, Hash256, RelativeEpoch, SignedAggregateAndProof,
     SingleAttestation, Slot, SubnetId,
 };
 use work_reprocessing_queue::{
@@ -73,7 +74,7 @@ use work_reprocessing_queue::{
 use work_reprocessing_queue::{IgnoredRpcBlock, QueuedSamplingRequest};
 
 mod metrics;
-pub mod work_reprocessing_queue;
+pub mod scheduler;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -117,6 +118,7 @@ pub struct BeaconProcessorQueueLengths {
     rpc_custody_column_queue: usize,
     rpc_verify_data_column_queue: usize,
     sampling_result_queue: usize,
+    column_reconstruction_queue: usize,
     chain_segment_queue: usize,
     backfill_chain_segment: usize,
     gossip_block_queue: usize,
@@ -184,6 +186,7 @@ impl BeaconProcessorQueueLengths {
             rpc_verify_data_column_queue: 1000,
             unknown_block_sampling_request_queue: 16384,
             sampling_result_queue: 1000,
+            column_reconstruction_queue: 64,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
@@ -262,22 +265,16 @@ impl Default for BeaconProcessorConfig {
 pub struct BeaconProcessorChannels<E: EthSpec> {
     pub beacon_processor_tx: BeaconProcessorSend<E>,
     pub beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
-    pub work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
-    pub work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
 }
 
 impl<E: EthSpec> BeaconProcessorChannels<E> {
     pub fn new(config: &BeaconProcessorConfig) -> Self {
         let (beacon_processor_tx, beacon_processor_rx) =
             mpsc::channel(config.max_work_event_queue_len);
-        let (work_reprocessing_tx, work_reprocessing_rx) =
-            mpsc::channel(config.max_scheduled_work_queue_len);
 
         Self {
             beacon_processor_tx: BeaconProcessorSend(beacon_processor_tx),
             beacon_processor_rx,
-            work_reprocessing_rx,
-            work_reprocessing_tx,
         }
     }
 }
@@ -498,6 +495,12 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                 drop_during_sync: false,
                 work: Work::ChainSegmentBackfill(process_fn),
             },
+            ReadyWork::ColumnReconstruction(QueuedColumnReconstruction { process_fn, .. }) => {
+                Self {
+                    drop_during_sync: true,
+                    work: Work::ColumnReconstruction(process_fn),
+                }
+            }
         }
     }
 }
@@ -549,32 +552,23 @@ pub enum BlockingOrAsync {
     Blocking(BlockingFn),
     Async(AsyncFn),
 }
-pub type GossipAttestationBatch<E> = Vec<GossipAttestationPackage<Attestation<E>>>;
+pub type GossipAttestationBatch = Vec<GossipAttestationPackage<SingleAttestation>>;
 
 /// Indicates the type of work to be performed and therefore its priority and
 /// queuing specifics.
 pub enum Work<E: EthSpec> {
     GossipAttestation {
-        attestation: Box<GossipAttestationPackage<Attestation<E>>>,
-        process_individual: Box<dyn FnOnce(GossipAttestationPackage<Attestation<E>>) + Send + Sync>,
-        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
-    },
-    // Attestation requiring conversion before processing.
-    //
-    // For now this is a `SingleAttestation`, but eventually we will switch this around so that
-    // legacy `Attestation`s are converted and the main processing pipeline operates on
-    // `SingleAttestation`s.
-    GossipAttestationToConvert {
         attestation: Box<GossipAttestationPackage<SingleAttestation>>,
         process_individual:
             Box<dyn FnOnce(GossipAttestationPackage<SingleAttestation>) + Send + Sync>,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
     },
     UnknownBlockAttestation {
         process_fn: BlockingFn,
     },
     GossipAttestationBatch {
-        attestations: GossipAttestationBatch<E>,
-        process_batch: Box<dyn FnOnce(GossipAttestationBatch<E>) + Send + Sync>,
+        attestations: GossipAttestationBatch,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
     },
     GossipAggregate {
         aggregate: Box<GossipAggregatePackage<E>>,
@@ -619,6 +613,7 @@ pub enum Work<E: EthSpec> {
     RpcCustodyColumn(AsyncFn),
     RpcVerifyDataColumn(AsyncFn),
     SamplingResult(AsyncFn),
+    ColumnReconstruction(AsyncFn),
     IgnoredRpcBlock {
         process_fn: BlockingFn,
     },
@@ -638,6 +633,7 @@ pub enum Work<E: EthSpec> {
     LightClientUpdatesByRangeRequest(BlockingFn),
     ApiRequestP0(BlockingOrAsync),
     ApiRequestP1(BlockingOrAsync),
+    Reprocess(ReprocessQueueMessage),
 }
 
 impl<E: EthSpec> fmt::Debug for Work<E> {
@@ -674,6 +670,7 @@ pub enum WorkType {
     RpcCustodyColumn,
     RpcVerifyDataColumn,
     SamplingResult,
+    ColumnReconstruction,
     IgnoredRpcBlock,
     ChainSegment,
     ChainSegmentBackfill,
@@ -691,6 +688,7 @@ pub enum WorkType {
     LightClientUpdatesByRangeRequest,
     ApiRequestP0,
     ApiRequestP1,
+    Reprocess,
 }
 
 impl<E: EthSpec> Work<E> {
@@ -702,7 +700,6 @@ impl<E: EthSpec> Work<E> {
     fn to_type(&self) -> WorkType {
         match self {
             Work::GossipAttestation { .. } => WorkType::GossipAttestation,
-            Work::GossipAttestationToConvert { .. } => WorkType::GossipAttestationToConvert,
             Work::GossipAttestationBatch { .. } => WorkType::GossipAttestationBatch,
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
@@ -725,6 +722,7 @@ impl<E: EthSpec> Work<E> {
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
             Work::RpcVerifyDataColumn { .. } => WorkType::RpcVerifyDataColumn,
             Work::SamplingResult { .. } => WorkType::SamplingResult,
+            Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
             Work::ChainSegmentBackfill(_) => WorkType::ChainSegmentBackfill,
@@ -749,6 +747,7 @@ impl<E: EthSpec> Work<E> {
             }
             Work::ApiRequestP0 { .. } => WorkType::ApiRequestP0,
             Work::ApiRequestP1 { .. } => WorkType::ApiRequestP1,
+            Work::Reprocess { .. } => WorkType::Reprocess,
         }
     }
 }
@@ -773,7 +772,7 @@ struct InboundEvents<E: EthSpec> {
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<E>>,
     /// Used internally for queuing work ready to be re-processed.
-    reprocess_work_rx: mpsc::Receiver<ReadyWork>,
+    ready_work_rx: mpsc::Receiver<ReadyWork>,
 }
 
 impl<E: EthSpec> Stream for InboundEvents<E> {
@@ -794,7 +793,7 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
 
         // Poll for delayed blocks before polling for new work. It might be the case that a delayed
         // block is required to successfully process some new work.
-        match self.reprocess_work_rx.poll_recv(cx) {
+        match self.ready_work_rx.poll_recv(cx) {
             Poll::Ready(Some(ready_work)) => {
                 return Poll::Ready(Some(InboundEvent::ReprocessingWork(ready_work.into())));
             }
@@ -845,8 +844,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
     pub fn spawn_manager<S: SlotClock + 'static>(
         mut self,
         event_rx: mpsc::Receiver<WorkEvent<E>>,
-        work_reprocessing_tx: mpsc::Sender<ReprocessQueueMessage>,
-        work_reprocessing_rx: mpsc::Receiver<ReprocessQueueMessage>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
         maximum_gossip_clock_disparity: Duration,
@@ -891,6 +888,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             FifoQueue::new(queue_lengths.rpc_verify_data_column_queue);
         // TODO(das): the sampling_request_queue is never read
         let mut sampling_result_queue = FifoQueue::new(queue_lengths.sampling_result_queue);
+        let mut column_reconstruction_queue =
+            FifoQueue::new(queue_lengths.column_reconstruction_queue);
         let mut unknown_block_sampling_request_queue =
             FifoQueue::new(queue_lengths.unknown_block_sampling_request_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
@@ -932,9 +931,13 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // receive them back once they are ready (`ready_work_rx`).
         let (ready_work_tx, ready_work_rx) =
             mpsc::channel::<ReadyWork>(self.config.max_scheduled_work_queue_len);
+
+        let (reprocess_work_tx, reprocess_work_rx) =
+            mpsc::channel::<ReprocessQueueMessage>(self.config.max_scheduled_work_queue_len);
+
         spawn_reprocess_scheduler(
             ready_work_tx,
-            work_reprocessing_rx,
+            reprocess_work_rx,
             &self.executor,
             Arc::new(slot_clock),
             maximum_gossip_clock_disparity,
@@ -948,7 +951,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             let mut inbound_events = InboundEvents {
                 idle_rx,
                 event_rx,
-                reprocess_work_rx: ready_work_rx,
+                ready_work_rx,
             };
 
             let enable_backfill_rate_limiting = self.config.enable_backfill_rate_limiting;
@@ -962,7 +965,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     Some(InboundEvent::WorkEvent(event)) if enable_backfill_rate_limiting => {
                         match QueuedBackfillBatch::try_from(event) {
                             Ok(backfill_batch) => {
-                                match work_reprocessing_tx
+                                match reprocess_work_tx
                                     .try_send(ReprocessQueueMessage::BackfillSync(backfill_batch))
                                 {
                                     Err(e) => {
@@ -1024,8 +1027,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         .unwrap_or(WORKER_FREED);
 
                     // We don't care if this message was successfully sent, we only use the journal
-                    // during testing.
-                    let _ = work_journal_tx.try_send(id);
+                    // during testing. We also ignore reprocess messages to ensure our test cases can pass.
+                    if id != "reprocess" {
+                        let _ = work_journal_tx.try_send(id);
+                    }
                 }
 
                 let can_spawn = self.current_workers < self.config.max_workers;
@@ -1071,6 +1076,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             } else if let Some(item) = gossip_blob_queue.pop() {
                                 Some(item)
                             } else if let Some(item) = gossip_data_column_queue.pop() {
+                                Some(item)
+                            } else if let Some(item) = column_reconstruction_queue.pop() {
                                 Some(item)
                             // Check the priority 0 API requests after blocks and blobs, but before attestations.
                             } else if let Some(item) = api_request_p0_queue.pop() {
@@ -1313,11 +1320,16 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         let work_type = work.to_type();
 
                         match work {
+                            Work::Reprocess(work_event) => {
+                                if let Err(e) = reprocess_work_tx.try_send(work_event) {
+                                    error!(
+                                        error = ?e,
+                                        "Failed to reprocess work event"
+                                    )
+                                }
+                            }
                             _ if can_spawn => self.spawn_worker(work, idle_tx),
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
-                            Work::GossipAttestationToConvert { .. } => {
-                                attestation_to_convert_queue.push(work)
-                            }
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
@@ -1371,6 +1383,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 rpc_verify_data_column_queue.push(work, work_id)
                             }
                             Work::SamplingResult(_) => sampling_result_queue.push(work, work_id),
+                            Work::ColumnReconstruction(_) => {
+                                column_reconstruction_queue.push(work, work_id)
+                            }
                             Work::ChainSegment { .. } => chain_segment_queue.push(work, work_id),
                             Work::ChainSegmentBackfill { .. } => {
                                 backfill_chain_segment.push(work, work_id)
@@ -1460,6 +1475,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::RpcCustodyColumn => rpc_custody_column_queue.len(),
                         WorkType::RpcVerifyDataColumn => rpc_verify_data_column_queue.len(),
                         WorkType::SamplingResult => sampling_result_queue.len(),
+                        WorkType::ColumnReconstruction => column_reconstruction_queue.len(),
                         WorkType::ChainSegment => chain_segment_queue.len(),
                         WorkType::ChainSegmentBackfill => backfill_chain_segment.len(),
                         WorkType::Status => status_queue.len(),
@@ -1482,6 +1498,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::LightClientUpdatesByRangeRequest => lc_update_range_queue.len(),
                         WorkType::ApiRequestP0 => api_request_p0_queue.len(),
                         WorkType::ApiRequestP1 => api_request_p1_queue.len(),
+                        WorkType::Reprocess => 0,
                     };
                     metrics::observe_vec(
                         &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
@@ -1559,12 +1576,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
             } => task_spawner.spawn_blocking(move || {
                 process_individual(*attestation);
             }),
-            Work::GossipAttestationToConvert {
-                attestation,
-                process_individual,
-            } => task_spawner.spawn_blocking(move || {
-                process_individual(*attestation);
-            }),
             Work::GossipAttestationBatch {
                 attestations,
                 process_batch,
@@ -1602,7 +1613,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
             | Work::RpcVerifyDataColumn(process_fn)
-            | Work::SamplingResult(process_fn) => task_spawner.spawn_async(process_fn),
+            | Work::SamplingResult(process_fn)
+            | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)
@@ -1638,6 +1650,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             | Work::LightClientUpdatesByRangeRequest(process_fn) => {
                 task_spawner.spawn_blocking(process_fn)
             }
+            Work::Reprocess(_) => {}
         };
     }
 }

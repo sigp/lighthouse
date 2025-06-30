@@ -80,7 +80,6 @@ malloc_utils = { workspace = true }
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }
 beacon_processor = { workspace = true }
-eth1 = { workspace = true }
 eth2 = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_network = { workspace = true }

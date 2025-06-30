@@ -19,6 +19,7 @@ use itertools::Itertools;
 use logging::crit;
 use logging::TimeLatch;
 use slot_clock::SlotClock;
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
@@ -53,6 +54,9 @@ pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(4);
 
 /// For how long to queue sampling requests for reprocessing.
 pub const QUEUED_SAMPLING_REQUESTS_DELAY: Duration = Duration::from_secs(12);
+
+/// For how long to queue delayed column reconstruction.
+pub const QUEUED_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(150);
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
@@ -109,6 +113,8 @@ pub enum ReprocessQueueMessage {
     UnknownBlockSamplingRequest(QueuedSamplingRequest),
     /// A new backfill batch that needs to be scheduled for processing.
     BackfillSync(QueuedBackfillBatch),
+    /// A delayed column reconstruction that needs checking
+    DelayColumnReconstruction(QueuedColumnReconstruction),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -121,6 +127,7 @@ pub enum ReadyWork {
     LightClientUpdate(QueuedLightClientUpdate),
     SamplingRequest(QueuedSamplingRequest),
     BackfillSync(QueuedBackfillBatch),
+    ColumnReconstruction(QueuedColumnReconstruction),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -176,6 +183,11 @@ pub struct IgnoredRpcBlock {
 /// A backfill batch work that has been queued for processing later.
 pub struct QueuedBackfillBatch(pub AsyncFn);
 
+pub struct QueuedColumnReconstruction {
+    pub block_root: Hash256,
+    pub process_fn: AsyncFn,
+}
+
 impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
     type Error = WorkEvent<E>;
 
@@ -212,6 +224,8 @@ enum InboundEvent {
     ReadyLightClientUpdate(QueuedLightClientUpdateId),
     /// A backfill batch that was queued is ready for processing.
     ReadyBackfillSync(QueuedBackfillBatch),
+    /// A column reconstruction that was queued is ready for processing.
+    ReadyColumnReconstruction(QueuedColumnReconstruction),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
 }
@@ -234,6 +248,8 @@ struct ReprocessQueue<S> {
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
     /// Queue to manage scheduled sampling requests
     sampling_requests_delay_queue: DelayQueue<QueuedSamplingRequestId>,
+    /// Queue to manage scheduled column reconstructions.
+    column_reconstructions_delay_queue: DelayQueue<QueuedColumnReconstruction>,
 
     /* Queued items */
     /// Queued blocks.
@@ -252,6 +268,8 @@ struct ReprocessQueue<S> {
     queued_sampling_requests: FnvHashMap<usize, (QueuedSamplingRequest, DelayKey)>,
     /// Sampling requests per block root.
     awaiting_sampling_requests_per_block_root: HashMap<Hash256, Vec<QueuedSamplingRequestId>>,
+    /// Column reconstruction per block root.
+    queued_column_reconstructions: HashMap<Hash256, DelayKey>,
     /// Queued backfill batches
     queued_backfill_batches: Vec<QueuedBackfillBatch>,
 
@@ -343,6 +361,15 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
             Poll::Ready(None) | Poll::Pending => (),
         }
 
+        match self.column_reconstructions_delay_queue.poll_expired(cx) {
+            Poll::Ready(Some(reconstruction)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyColumnReconstruction(
+                    reconstruction.into_inner(),
+                )));
+            }
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
         if let Some(next_backfill_batch_event) = self.next_backfill_batch_event.as_mut() {
             match next_backfill_batch_event.as_mut().poll(cx) {
                 Poll::Ready(_) => {
@@ -410,6 +437,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             attestations_delay_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
             sampling_requests_delay_queue: <_>::default(),
+            column_reconstructions_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
@@ -419,6 +447,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             awaiting_sampling_requests_per_block_root: <_>::default(),
             queued_backfill_batches: Vec::new(),
+            queued_column_reconstructions: HashMap::new(),
             next_attestation: 0,
             next_lc_update: 0,
             next_sampling_request_update: 0,
@@ -817,6 +846,21 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     self.recompute_next_backfill_batch_event();
                 }
             }
+            InboundEvent::Msg(DelayColumnReconstruction(request)) => {
+                match self.queued_column_reconstructions.entry(request.block_root) {
+                    Entry::Occupied(key) => {
+                        // Push back the reattempted reconstruction
+                        self.column_reconstructions_delay_queue
+                            .reset(key.get(), QUEUED_RECONSTRUCTION_DELAY)
+                    }
+                    Entry::Vacant(vacant) => {
+                        let delay_key = self
+                            .column_reconstructions_delay_queue
+                            .insert(request, QUEUED_RECONSTRUCTION_DELAY);
+                        vacant.insert(delay_key);
+                    }
+                }
+            }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
                 let block_root = ready_block.beacon_block_root;
@@ -938,6 +982,20 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     // The message was not sent and we didn't get the correct
                     // return result. This is a logic error.
                     _ => crit!("Unexpected return from try_send error"),
+                }
+            }
+            InboundEvent::ReadyColumnReconstruction(column_reconstruction) => {
+                self.queued_column_reconstructions
+                    .remove(&column_reconstruction.block_root);
+                if self
+                    .ready_work_tx
+                    .try_send(ReadyWork::ColumnReconstruction(column_reconstruction))
+                    .is_err()
+                {
+                    error!(
+                        hint = "system may be overloaded",
+                        "Ignored scheduled column reconstruction"
+                    );
                 }
             }
         }

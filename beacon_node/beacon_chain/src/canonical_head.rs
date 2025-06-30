@@ -73,11 +73,11 @@ impl<T> CanonicalHeadRwLock<T> {
         Self::from(RwLock::new(item))
     }
 
-    fn read(&self) -> RwLockReadGuard<T> {
+    fn read(&self) -> RwLockReadGuard<'_, T> {
         self.0.read()
     }
 
-    fn write(&self) -> RwLockWriteGuard<T> {
+    fn write(&self) -> RwLockWriteGuard<'_, T> {
         self.0.write()
     }
 }
@@ -369,7 +369,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     ///
     /// This function is **not safe** to be public. See the module-level documentation for more
     /// information about protecting from deadlocks.
-    fn cached_head_read_lock(&self) -> RwLockReadGuard<CachedHead<T::EthSpec>> {
+    fn cached_head_read_lock(&self) -> RwLockReadGuard<'_, CachedHead<T::EthSpec>> {
         self.cached_head.read()
     }
 
@@ -377,18 +377,18 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     ///
     /// This function is **not safe** to be public. See the module-level documentation for more
     /// information about protecting from deadlocks.
-    fn cached_head_write_lock(&self) -> RwLockWriteGuard<CachedHead<T::EthSpec>> {
+    fn cached_head_write_lock(&self) -> RwLockWriteGuard<'_, CachedHead<T::EthSpec>> {
         self.cached_head.write()
     }
 
     /// Access a read-lock for fork choice.
-    pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
+    pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<'_, BeaconForkChoice<T>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_READ_LOCK_AQUIRE_TIMES);
         self.fork_choice.read()
     }
 
     /// Access a write-lock for fork choice.
-    pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
+    pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<'_, BeaconForkChoice<T>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES);
         self.fork_choice.write()
     }

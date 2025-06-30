@@ -6,10 +6,11 @@ use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
 use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend};
+use beacon_processor::BeaconProcessorSend;
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
+
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::Network;
@@ -105,6 +106,12 @@ pub enum NetworkMessage<E: EthSpec> {
     ConnectTrustedPeer(Enr),
     /// Disconnect from a trusted peer and remove it from the `trusted_peers` mapping.
     DisconnectTrustedPeer(Enr),
+    /// Custody group count changed due to a change in validators' weight.
+    /// Subscribe to new subnets and update ENR metadata.
+    CustodyCountChanged {
+        new_custody_group_count: u64,
+        sampling_count: u64,
+    },
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.
@@ -204,7 +211,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> Result<
         (
             NetworkService<T>,
@@ -270,7 +276,15 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         };
 
         // launch libp2p service
-        let (mut libp2p, network_globals) = Network::new(executor.clone(), service_context).await?;
+        let (mut libp2p, network_globals) = Network::new(
+            executor.clone(),
+            service_context,
+            beacon_chain
+                .data_availability_checker
+                .custody_context()
+                .custody_group_count_at_head(&beacon_chain.spec),
+        )
+        .await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {
@@ -300,7 +314,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             invalid_block_storage,
             beacon_processor_send,
-            beacon_processor_reprocess_tx,
             fork_context.clone(),
         )?;
 
@@ -352,7 +365,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        beacon_processor_reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     ) -> Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>), String> {
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
@@ -360,7 +372,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             libp2p_registry,
             beacon_processor_send,
-            beacon_processor_reprocess_tx,
         )
         .await?;
 
@@ -539,23 +550,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         // the attestation, else we just just propagate the Attestation.
                         let should_process = self.subnet_service.should_process_attestation(
                             Subnet::Attestation(subnet_id),
-                            attestation.data(),
-                        );
-                        self.send_to_router(RouterMessage::PubsubMessage(
-                            id,
-                            source,
-                            message,
-                            should_process,
-                        ));
-                    }
-                    PubsubMessage::SingleAttestation(ref subnet_and_attestation) => {
-                        let subnet_id = subnet_and_attestation.0;
-                        let single_attestation = &subnet_and_attestation.1;
-                        // checks if we have an aggregator for the slot. If so, we should process
-                        // the attestation, else we just just propagate the Attestation.
-                        let should_process = self.subnet_service.should_process_attestation(
-                            Subnet::Attestation(subnet_id),
-                            &single_attestation.data,
+                            &attestation.data,
                         );
                         self.send_to_router(RouterMessage::PubsubMessage(
                             id,
@@ -743,6 +738,22 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         topics = ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>(),
                         "Subscribed to topics"
                     );
+                }
+            }
+            NetworkMessage::CustodyCountChanged {
+                new_custody_group_count,
+                sampling_count,
+            } => {
+                // subscribe to `sampling_count` subnets
+                self.libp2p
+                    .subscribe_new_data_column_subnets(sampling_count);
+                if self
+                    .network_globals
+                    .config
+                    .advertise_false_custody_group_count
+                    .is_none()
+                {
+                    self.libp2p.update_enr_cgc(new_custody_group_count);
                 }
             }
         }
