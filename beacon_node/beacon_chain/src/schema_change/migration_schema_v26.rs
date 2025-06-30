@@ -34,24 +34,31 @@ impl StoreItem for PersistedCustodyV1 {
 pub fn upgrade_to_v26<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    let res = db.get_item::<PersistedCustodyV1>(&CUSTODY_DB_KEY);
-    let ops = match res {
-        Ok(Some(PersistedCustodyV1(v1))) => {
-            info!("Migrating `CustodyContext` to v26 schema");
-            let custody_context_v2 = CustodyContextSsz {
-                validator_custody_at_head: v1.validator_custody_at_head,
-                persisted_is_supernode: v1.persisted_is_supernode,
-                epoch_validator_custody_requirements: vec![],
-            };
-            vec![KeyValueStoreOp::PutKeyValue(
-                DBColumn::CustodyContext,
-                CUSTODY_DB_KEY.as_slice().to_vec(),
-                PersistedCustody(custody_context_v2).as_store_bytes(),
-            )]
+    let ops = if db.spec.is_peer_das_scheduled() {
+        match db.get_item::<PersistedCustodyV1>(&CUSTODY_DB_KEY) {
+            Ok(Some(PersistedCustodyV1(v1))) => {
+                info!("Migrating `CustodyContext` to v26 schema");
+                let custody_context_v2 = CustodyContextSsz {
+                    validator_custody_at_head: v1.validator_custody_at_head,
+                    persisted_is_supernode: v1.persisted_is_supernode,
+                    epoch_validator_custody_requirements: vec![],
+                };
+                vec![KeyValueStoreOp::PutKeyValue(
+                    DBColumn::CustodyContext,
+                    CUSTODY_DB_KEY.as_slice().to_vec(),
+                    PersistedCustody(custody_context_v2).as_store_bytes(),
+                )]
+            }
+            _ => {
+                vec![]
+            }
         }
-        _ => {
-            vec![]
-        }
+    } else {
+        // Delete it from db if PeerDAS hasn't been scheduled
+        vec![KeyValueStoreOp::DeleteKey(
+            DBColumn::CustodyContext,
+            CUSTODY_DB_KEY.as_slice().to_vec(),
+        )]
     };
 
     Ok(ops)
@@ -75,6 +82,7 @@ pub fn downgrade_from_v26<T: BeaconChainTypes>(
             )]
         }
         _ => {
+            // no op if it's not on the db, as previous versions gracefully handle data missing from disk.
             vec![]
         }
     };
