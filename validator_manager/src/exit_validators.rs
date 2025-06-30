@@ -24,7 +24,7 @@ pub fn cli_app() -> Command {
     Command::new(CMD)
         .about(
             "Exits one or more validators using the HTTP API. It can \
-        also be used to generate a presign voluntary exit message for a particular future epoch.",
+        also be used to generate a presigned voluntary exit message for a particular future epoch.",
         )
         .arg(
             Arg::new(BEACON_URL_FLAG)
