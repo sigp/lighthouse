@@ -79,7 +79,7 @@ impl ListConfig {
         let validators_to_display_str =
             clap_utils::parse_optional::<String>(matches, VALIDATOR_FLAG)?;
 
-        // Keyword "all" to exit all validators, vector to be created later
+        // Keyword "all" to list all validators, vector to be created later
         let validators_to_display = match validators_to_display_str {
             Some(str) => {
                 if str.trim() == "all" {
