@@ -3,8 +3,9 @@ name: reproducible-build
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 1 */2 * *"
+    - cron: "0 1 */2 * *"  # Every 2 days to catch issues early
   pull_request:
+    types: [opened, synchronize, labeled]
     paths:
       - "Makefile"
       - "Dockerfile.reproducible"
@@ -16,6 +17,11 @@ jobs:
   build-x86_64:
     name: test reproducible builds (x86_64)
     runs-on: ubuntu-latest
+    # Run on schedule, workflow_dispatch, or PRs with the 'test-reproducible' label
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'test-reproducible')
     steps:
       - uses: actions/checkout@v4
 
@@ -102,6 +108,11 @@ jobs:
   build-aarch64:
     name: test reproducible builds (aarch64)
     runs-on: ubuntu-24.04-arm
+    # Run on schedule, workflow_dispatch, or PRs with the 'test-reproducible' label
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      contains(github.event.pull_request.labels.*.name, 'test-reproducible')
     steps:
       - uses: actions/checkout@v4
 
@@ -192,14 +203,29 @@ jobs:
         run: |
           echo "## 🔄 Reproducible Build Test Results"
           echo ""
+
+          # Show trigger reason
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "**Trigger**: Scheduled check (every 2 days)"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "**Trigger**: Manual run"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "**Trigger**: PR with 'test-reproducible' label"
+          fi
+          echo ""
+
           if [[ "${{ needs.build-x86_64.result }}" == "success" ]]; then
             echo "✅ **x86_64**: Reproducible builds PASSED"
+          elif [[ "${{ needs.build-x86_64.result }}" == "skipped" ]]; then
+            echo "⏭️ **x86_64**: Skipped (no label or wrong trigger)"
           else
             echo "❌ **x86_64**: Reproducible builds FAILED"
           fi
 
           if [[ "${{ needs.build-aarch64.result }}" == "success" ]]; then
             echo "✅ **aarch64**: Reproducible builds PASSED"
+          elif [[ "${{ needs.build-aarch64.result }}" == "skipped" ]]; then
+            echo "⏭️ **aarch64**: Skipped (no label or wrong trigger)"
           else
             echo "❌ **aarch64**: Reproducible builds FAILED"
           fi
@@ -209,8 +235,11 @@ jobs:
             && [[ "${{ needs.build-aarch64.result }}" == "success" ]]; then
             echo "🎉 **Overall**: All reproducible builds are working correctly!"
             echo "Docker containers are reproducible."
+          elif [[ "${{ needs.build-x86_64.result }}" == "skipped" ]] \
+            && [[ "${{ needs.build-aarch64.result }}" == "skipped" ]]; then
+            echo "⏭️ **Overall**: Tests were skipped (add 'test-reproducible' label to run on PRs)"
           else
-            echo "⚠️  **Overall**: Some reproducible builds failed"
+            echo "⚠️ **Overall**: Some reproducible builds failed"
             echo "Check the logs above for details"
             exit 1
           fi
