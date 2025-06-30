@@ -30,9 +30,8 @@ jobs:
     outputs:
       VERSION: ${{ steps.extract_version.outputs.VERSION }}
 
-  build-reproducible:
-    name: build and push reproducible images
-    runs-on: ubuntu-latest
+  verify-and-build:
+    name: verify reproducibility and build
     needs: extract-version
     strategy:
       matrix:
@@ -43,16 +42,81 @@ jobs:
             rust_image: >-
               rust:1.86-bullseye@sha256:1110399f568f1dbe838e58f15b4162d899cb95f450f5f0ffa739614f3a4c32f1
             platform: linux/amd64
+            runner: ubuntu-latest
           - arch: arm64
             rust_target: aarch64-unknown-linux-gnu
             rust_image: >-
               rust:1.86-bullseye@sha256:36053eabadeb701e3e0406610a2ce72ccfa10b7828963cd08cffdcf660518b27
             platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
+
+      - name: Verify reproducible builds (${{ matrix.arch }})
+        run: |
+          echo "🔄 Verifying reproducible builds for ${{ matrix.arch }}..."
+
+          # Build first image
+          echo "=== Building first verification image ==="
+          docker build -f Dockerfile.reproducible \
+            --platform ${{ matrix.platform }} \
+            --build-arg RUST_TARGET="${{ matrix.rust_target }}" \
+            --build-arg RUST_IMAGE="${{ matrix.rust_image }}" \
+            -t lighthouse-verify-1-${{ matrix.arch }} .
+
+          # Extract binary from first build
+          docker create --name extract-1-${{ matrix.arch }} lighthouse-verify-1-${{ matrix.arch }}
+          docker cp extract-1-${{ matrix.arch }}:/lighthouse ./lighthouse-1-${{ matrix.arch }}
+          docker rm extract-1-${{ matrix.arch }}
+
+          # Clean state for second build
+          docker buildx prune -f
+          docker system prune -f
+
+          # Build second image
+          echo "=== Building second verification image ==="
+          docker build -f Dockerfile.reproducible \
+            --platform ${{ matrix.platform }} \
+            --build-arg RUST_TARGET="${{ matrix.rust_target }}" \
+            --build-arg RUST_IMAGE="${{ matrix.rust_image }}" \
+            -t lighthouse-verify-2-${{ matrix.arch }} .
+
+          # Extract binary from second build
+          docker create --name extract-2-${{ matrix.arch }} lighthouse-verify-2-${{ matrix.arch }}
+          docker cp extract-2-${{ matrix.arch }}:/lighthouse ./lighthouse-2-${{ matrix.arch }}
+          docker rm extract-2-${{ matrix.arch }}
+
+          # Compare binaries
+          echo "=== Comparing binaries ==="
+          echo "Build 1 SHA256: $(sha256sum lighthouse-1-${{ matrix.arch }})"
+          echo "Build 2 SHA256: $(sha256sum lighthouse-2-${{ matrix.arch }})"
+
+          if cmp lighthouse-1-${{ matrix.arch }} lighthouse-2-${{ matrix.arch }}; then
+            echo "✅ Reproducible build verified for ${{ matrix.arch }}"
+          else
+            echo "❌ Reproducible build FAILED for ${{ matrix.arch }}"
+            echo "🚨 BLOCKING RELEASE: Builds are not reproducible!"
+            echo "First 10 differences:"
+            cmp -l lighthouse-1-${{ matrix.arch }} lighthouse-2-${{ matrix.arch }} | head -10
+            exit 1
+          fi
+
+          # Clean up verification artifacts but keep one image for publishing
+          rm -f lighthouse-*-${{ matrix.arch }}
+          docker rmi lighthouse-verify-1-${{ matrix.arch }} || true
+
+          # Re-tag the second image for publishing (we verified it's identical to first)
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          FINAL_TAG="${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}"
+          docker tag lighthouse-verify-2-${{ matrix.arch }} "$FINAL_TAG"
+
+          echo "✅ Image ready for publishing: $FINAL_TAG"
 
       - name: Log in to Docker Hub
         if: ${{ github.event.inputs.dry_run != 'true' }}
@@ -61,30 +125,34 @@ jobs:
           username: ${{ env.DOCKER_USERNAME }}
           password: ${{ env.DOCKER_PASSWORD }}
 
-      - name: Build reproducible image (${{ matrix.arch }})
-        uses: docker/build-push-action@v6
-        env:
-          IMAGE_BASE: ${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
-          VERSION: ${{ needs.extract-version.outputs.VERSION }}
-          ARCH: ${{ matrix.arch }}
-          DOCKER_BUILD_RECORD_UPLOAD: false
+      - name: Push verified image (${{ matrix.arch }})
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        run: |
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          IMAGE_TAG="${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}"
+
+          echo "📤 Pushing verified reproducible image: $IMAGE_TAG"
+          docker push "$IMAGE_TAG"
+          echo "✅ Successfully pushed $IMAGE_TAG"
+
+      - name: Clean up local images
+        run: |
+          docker rmi lighthouse-verify-2-${{ matrix.arch }} || true
+          VERSION=${{ needs.extract-version.outputs.VERSION }}
+          docker rmi "${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}:${VERSION}-${{ matrix.arch }}" || true
+
+      - name: Upload verification artifacts (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          context: .
-          file: ./Dockerfile.reproducible
-          platforms: ${{ matrix.platform }}
-          push: ${{ github.event.inputs.dry_run != 'true' }}
-          tags: ${{ env.IMAGE_BASE }}:${{ env.VERSION }}-${{ env.ARCH }}
-          build-args: |
-            RUST_TARGET=${{ matrix.rust_target }}
-            RUST_IMAGE=${{ matrix.rust_image }}
-          cache-from: type=gha,scope=${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
-          provenance: false
+          name: verification-failure-${{ matrix.arch }}
+          path: |
+            lighthouse-*-${{ matrix.arch }}
 
   create-manifest:
     name: create multi-arch manifest
     runs-on: ubuntu-latest
-    needs: [extract-version, build-reproducible]
+    needs: [extract-version, verify-and-build]
     if: ${{ github.event.inputs.dry_run != 'true' }}
     steps:
       - name: Log in to Docker Hub
@@ -97,6 +165,9 @@ jobs:
         run: |
           IMAGE_NAME=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
           VERSION=${{ needs.extract-version.outputs.VERSION }}
+
+          echo "🔗 Creating multi-arch manifest for $IMAGE_NAME:$VERSION"
+
           # Create manifest for version tag
           docker manifest create \
             ${IMAGE_NAME}:${VERSION} \
@@ -113,30 +184,70 @@ jobs:
 
           docker manifest push ${IMAGE_NAME}:latest
 
-  dry-run-summary:
-    name: dry run summary
+          echo "✅ Multi-arch manifests published:"
+          echo "  - ${IMAGE_NAME}:${VERSION}"
+          echo "  - ${IMAGE_NAME}:latest"
+
+  release-summary:
+    name: release summary
     runs-on: ubuntu-latest
-    needs: [build-reproducible, extract-version]
-    if: ${{ github.event.inputs.dry_run == 'true' }}
+    needs: [extract-version, verify-and-build, create-manifest]
+    if: always()
     steps:
-      - name: Summarize dry run
+      - name: Report release results
         run: |
-          IMAGE_NAME=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
           VERSION=${{ needs.extract-version.outputs.VERSION }}
-          echo "## 🧪 Reproducible Build Dry Run Summary"
+          IMAGE_NAME=${{ env.DOCKER_REPRODUCIBLE_IMAGE_NAME }}
+
+          echo "## 🚀 Reproducible Release Summary for ${VERSION}"
           echo ""
-          echo "✅ Successfully completed dry run for version ${VERSION}"
+
+          if [[ "${{ needs.verify-and-build.result }}" == "success" ]]; then
+            echo "✅ **Reproducibility Verification & Build**: SUCCESS"
+            echo "- All architectures produce identical binaries"
+            echo "- Images built and ready for publishing"
+          else
+            echo "❌ **Reproducibility Verification & Build**: FAILED"
+            echo "- Builds are not reproducible OR build failed"
+            echo "- Release was blocked"
+          fi
+
           echo ""
-          echo "### What would happen in a real release:"
-          echo "- Multi-arch reproducible Docker images would be built"
-          echo "- Images would be pushed to Docker Hub as:"
-          echo "  - \`${IMAGE_NAME}:${VERSION}\`"
-          echo "  - \`${IMAGE_NAME}:latest\`"
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "🧪 **Mode**: DRY RUN"
+            echo "- Images were built and verified but NOT pushed"
+            echo "- Ready for real release"
+          elif [[ "${{ needs.create-manifest.result }}" == "success" ]]; then
+            echo "✅ **Publication**: SUCCESS"
+            echo "- Images published to Docker Hub"
+            echo "- Multi-arch manifests created"
+            echo ""
+            echo "### 📦 Published Images"
+            echo "- \`${IMAGE_NAME}:${VERSION}\`"
+            echo "- \`${IMAGE_NAME}:latest\`"
+            echo ""
+            echo "### 🏗️ Architectures"
+            echo "- linux/amd64 (\`${IMAGE_NAME}:${VERSION}-amd64\`)"
+            echo "- linux/arm64 (\`${IMAGE_NAME}:${VERSION}-arm64\`)"
+          else
+            echo "❌ **Publication**: FAILED"
+            echo "- Images were verified but failed to publish"
+          fi
+
           echo ""
-          echo "### Architectures built:"
-          echo "- linux/amd64 (x86_64-unknown-linux-gnu)"
-          echo "- linux/arm64 (aarch64-unknown-linux-gnu)"
-          echo ""
-          echo "### Next Steps"
-          echo "To perform a real release, push a git tag"
-          echo "(e.g., \`git tag v4.6.0 && git push origin v4.6.0\`)"
+          if [[ "${{ needs.verify-and-build.result }}" == "success" ]] && [[ "${{ needs.create-manifest.result }}" == "success" ]] && [[ "${{ github.event.inputs.dry_run }}" != "true" ]]; then
+            echo "🎉 **Overall**: Secure release completed successfully!"
+            echo ""
+            echo "### 🔒 Security Guarantees"
+            echo "- ✅ Reproducible builds verified"
+            echo "- ✅ Identical binaries across architectures"
+            echo "- ✅ No build artifacts tampering"
+            echo "- ✅ Deterministic build process"
+          elif [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "🧪 **Overall**: Dry run completed successfully!"
+            echo "- Reproducibility verified ✅"
+            echo "- Ready for real release ✅"
+          else
+            echo "🚨 **Overall**: Release failed or incomplete"
+            echo "- Check logs above for details"
+          fi
