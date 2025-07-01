@@ -75,6 +75,7 @@ Proto
 PRs
 Prysm
 QUIC
+QuickNode
 RasPi
 README
 RESTful
