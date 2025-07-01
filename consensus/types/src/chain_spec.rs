@@ -720,17 +720,24 @@ impl ChainSpec {
     }
 
     /// Returns the number of column sidecars to sample per slot.
-    pub fn sampling_size(&self, custody_group_count: u64) -> Result<u64, String> {
+    pub fn sampling_size_columns(&self, custody_group_count: u64) -> Result<u64, String> {
+        let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
+
         let columns_per_custody_group = self
             .number_of_columns
             .safe_div(self.number_of_custody_groups)
             .map_err(|_| "number_of_custody_groups must be greater than 0")?;
 
-        let custody_column_count = columns_per_custody_group
-            .safe_mul(custody_group_count)
+        let sampling_size_columns = columns_per_custody_group
+            .safe_mul(sampling_size_groups)
             .map_err(|_| "Computing sampling size should not overflow")?;
 
-        Ok(std::cmp::max(custody_column_count, self.samples_per_slot))
+        Ok(sampling_size_columns)
+    }
+
+    /// Returns the number of custody groups to sample per slot.
+    pub fn sampling_size_custody_groups(&self, custody_group_count: u64) -> Result<u64, String> {
+        Ok(std::cmp::max(custody_group_count, self.samples_per_slot))
     }
 
     pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
