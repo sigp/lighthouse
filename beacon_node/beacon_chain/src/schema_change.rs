@@ -2,6 +2,7 @@
 mod migration_schema_v23;
 mod migration_schema_v24;
 mod migration_schema_v25;
+mod migration_schema_v26;
 
 use crate::beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
@@ -56,6 +57,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         (SchemaVersion(25), SchemaVersion(24)) => {
             let ops = migration_schema_v25::downgrade_from_v25()?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(25), SchemaVersion(26)) => {
+            let ops = migration_schema_v26::upgrade_to_v26::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(26), SchemaVersion(25)) => {
+            let ops = migration_schema_v26::downgrade_from_v26::<T>(db.clone())?;
             db.store_schema_version_atomically(to, ops)
         }
         // Anything else is an error.
