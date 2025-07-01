@@ -8,14 +8,14 @@ use store::{DBColumn, Error, HotColdDB, KeyValueStoreOp, StoreItem};
 use tracing::info;
 
 #[derive(Debug, Encode, Decode, Clone)]
-pub(crate) struct CustodyContextSszV1 {
+pub(crate) struct CustodyContextSszV24 {
     pub(crate) validator_custody_at_head: u64,
     pub(crate) persisted_is_supernode: bool,
 }
 
-pub(crate) struct PersistedCustodyV1(CustodyContextSszV1);
+pub(crate) struct PersistedCustodyV24(CustodyContextSszV24);
 
-impl StoreItem for PersistedCustodyV1 {
+impl StoreItem for PersistedCustodyV24 {
     fn db_column() -> DBColumn {
         DBColumn::CustodyContext
     }
@@ -25,8 +25,8 @@ impl StoreItem for PersistedCustodyV1 {
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let custody_context = CustodyContextSszV1::from_ssz_bytes(bytes)?;
-        Ok(PersistedCustodyV1(custody_context))
+        let custody_context = CustodyContextSszV24::from_ssz_bytes(bytes)?;
+        Ok(PersistedCustodyV24(custody_context))
     }
 }
 
@@ -35,12 +35,12 @@ pub fn upgrade_to_v26<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     let ops = if db.spec.is_peer_das_scheduled() {
-        match db.get_item::<PersistedCustodyV1>(&CUSTODY_DB_KEY) {
-            Ok(Some(PersistedCustodyV1(v1))) => {
+        match db.get_item::<PersistedCustodyV24>(&CUSTODY_DB_KEY) {
+            Ok(Some(PersistedCustodyV24(ssz_v24))) => {
                 info!("Migrating `CustodyContext` to v26 schema");
                 let custody_context_v2 = CustodyContextSsz {
-                    validator_custody_at_head: v1.validator_custody_at_head,
-                    persisted_is_supernode: v1.persisted_is_supernode,
+                    validator_custody_at_head: ssz_v24.validator_custody_at_head,
+                    persisted_is_supernode: ssz_v24.persisted_is_supernode,
                     epoch_validator_custody_requirements: vec![],
                 };
                 vec![KeyValueStoreOp::PutKeyValue(
@@ -69,16 +69,16 @@ pub fn downgrade_from_v26<T: BeaconChainTypes>(
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     let res = db.get_item::<PersistedCustody>(&CUSTODY_DB_KEY);
     let ops = match res {
-        Ok(Some(PersistedCustody(v2))) => {
+        Ok(Some(PersistedCustody(ssz_v26))) => {
             info!("Migrating `CustodyContext` back from v26 schema");
-            let custody_context_v1 = CustodyContextSszV1 {
-                validator_custody_at_head: v2.validator_custody_at_head,
-                persisted_is_supernode: v2.persisted_is_supernode,
+            let custody_context_v24 = CustodyContextSszV24 {
+                validator_custody_at_head: ssz_v26.validator_custody_at_head,
+                persisted_is_supernode: ssz_v26.persisted_is_supernode,
             };
             vec![KeyValueStoreOp::PutKeyValue(
                 DBColumn::CustodyContext,
                 CUSTODY_DB_KEY.as_slice().to_vec(),
-                PersistedCustodyV1(custody_context_v1).as_store_bytes(),
+                PersistedCustodyV24(custody_context_v24).as_store_bytes(),
             )]
         }
         _ => {
