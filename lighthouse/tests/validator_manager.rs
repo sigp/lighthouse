@@ -14,6 +14,7 @@ use validator_manager::{
     list_validators::ListConfig,
     move_validators::{MoveConfig, PasswordSource, Validators},
 };
+use zeroize::Zeroizing;
 
 const EXAMPLE_ETH1_ADDRESS: &str = "0x00000000219ab540356cBB839Cbe05303d7705Fa";
 
@@ -270,6 +271,40 @@ pub fn validator_import_using_both_file_flags() {
         .flag("--keystore-file", Some("./keystore.json"))
         .flag("--password", Some("abcd"))
         .assert_failed();
+}
+
+#[test]
+pub fn validator_import_keystore_file_without_password_flag_should_fail() {
+    CommandLineTest::validators_import()
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--keystore-file", Some("./keystore.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_import_keystore_file_with_password_flag_should_pass() {
+    CommandLineTest::validators_import()
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--keystore-file", Some("./keystore.json"))
+        .flag("--password", Some("abcd"))
+        .assert_success(|config| {
+            let expected = ImportConfig {
+                validators_file_path: None,
+                keystore_file_path: Some(PathBuf::from("./keystore.json")),
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                ignore_duplicates: false,
+                password: Some(Zeroizing::new("abcd".into())),
+                fee_recipient: None,
+                builder_boost_factor: None,
+                gas_limit: None,
+                builder_proposals: None,
+                enabled: None,
+                prefer_builder_proposals: None,
+            };
+            assert_eq!(expected, config);
+            println!("{:?}", expected);
+        });
 }
 
 #[test]
