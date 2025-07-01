@@ -7,7 +7,7 @@ use types::{EthSpec, Hash256};
 /// 32-byte key for accessing the `CustodyContext`. All zero because `CustodyContext` has its own column.
 pub const CUSTODY_DB_KEY: Hash256 = Hash256::ZERO;
 
-pub struct PersistedCustody(CustodyContextSsz);
+pub struct PersistedCustody(pub CustodyContextSsz);
 
 pub fn load_custody_context<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store: Arc<HotColdDB<E, Hot, Cold>>,

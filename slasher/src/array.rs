@@ -147,7 +147,7 @@ pub trait TargetArrayChunk: Sized + serde::Serialize + serde::de::DeserializeOwn
 
     fn next_start_epoch(start_epoch: Epoch, config: &Config) -> Epoch;
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database;
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_>;
 
     fn load<E: EthSpec>(
         db: &SlasherDB<E>,
@@ -290,7 +290,7 @@ impl TargetArrayChunk for MinTargetChunk {
         start_epoch / chunk_size * chunk_size - 1
     }
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_> {
         &db.databases.min_targets_db
     }
 }
@@ -389,7 +389,7 @@ impl TargetArrayChunk for MaxTargetChunk {
         (start_epoch / chunk_size + 1) * chunk_size
     }
 
-    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database {
+    fn select_db<E: EthSpec>(db: &SlasherDB<E>) -> &Database<'_> {
         &db.databases.max_targets_db
     }
 }

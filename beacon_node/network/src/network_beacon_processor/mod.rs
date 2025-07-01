@@ -12,8 +12,8 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
 };
 use beacon_processor::{
-    work_reprocessing_queue::ReprocessQueueMessage, BeaconProcessorSend, DuplicateCache,
-    GossipAggregatePackage, GossipAttestationPackage, Work, WorkEvent as BeaconWorkEvent,
+    BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
+    WorkEvent as BeaconWorkEvent,
 };
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
@@ -61,7 +61,6 @@ pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
-    pub reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
     pub network_globals: Arc<NetworkGlobals<T::EthSpec>>,
     pub invalid_block_storage: InvalidBlockStorage,
     pub executor: TaskExecutor,
@@ -75,78 +74,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.beacon_processor_send.try_send(event)
     }
 
-    /// Create a new `Work` event for some `SingleAttestation`.
-    pub fn send_single_attestation(
-        self: &Arc<Self>,
-        message_id: MessageId,
-        peer_id: PeerId,
-        single_attestation: SingleAttestation,
-        subnet_id: SubnetId,
-        should_import: bool,
-        seen_timestamp: Duration,
-    ) -> Result<(), Error<T::EthSpec>> {
-        let processor = self.clone();
-        let process_individual = move |package: GossipAttestationPackage<SingleAttestation>| {
-            let reprocess_tx = processor.reprocess_tx.clone();
-            processor.process_gossip_attestation_to_convert(
-                package.message_id,
-                package.peer_id,
-                package.attestation,
-                package.subnet_id,
-                package.should_import,
-                Some(reprocess_tx),
-                package.seen_timestamp,
-            )
-        };
-
-        self.try_send(BeaconWorkEvent {
-            drop_during_sync: true,
-            work: Work::GossipAttestationToConvert {
-                attestation: Box::new(GossipAttestationPackage {
-                    message_id,
-                    peer_id,
-                    attestation: Box::new(single_attestation),
-                    subnet_id,
-                    should_import,
-                    seen_timestamp,
-                }),
-                process_individual: Box::new(process_individual),
-            },
-        })
-    }
-
     /// Create a new `Work` event for some unaggregated attestation.
     pub fn send_unaggregated_attestation(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        attestation: Attestation<T::EthSpec>,
+        attestation: SingleAttestation,
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
     ) -> Result<(), Error<T::EthSpec>> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
-        let process_individual =
-            move |package: GossipAttestationPackage<Attestation<T::EthSpec>>| {
-                let reprocess_tx = processor.reprocess_tx.clone();
-                processor.process_gossip_attestation(
-                    package.message_id,
-                    package.peer_id,
-                    package.attestation,
-                    package.subnet_id,
-                    package.should_import,
-                    Some(reprocess_tx),
-                    package.seen_timestamp,
-                )
-            };
+        let process_individual = move |package: GossipAttestationPackage<SingleAttestation>| {
+            processor.process_gossip_attestation(
+                package.message_id,
+                package.peer_id,
+                package.attestation,
+                package.subnet_id,
+                package.should_import,
+                true,
+                package.seen_timestamp,
+            )
+        };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch = move |attestations| {
-            let reprocess_tx = processor.reprocess_tx.clone();
-            processor.process_gossip_attestation_batch(attestations, Some(reprocess_tx))
-        };
+        let process_batch =
+            move |attestations| processor.process_gossip_attestation_batch(attestations, true);
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
@@ -176,22 +131,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Define a closure for processing individual attestations.
         let processor = self.clone();
         let process_individual = move |package: GossipAggregatePackage<T::EthSpec>| {
-            let reprocess_tx = processor.reprocess_tx.clone();
             processor.process_gossip_aggregate(
                 package.message_id,
                 package.peer_id,
                 package.aggregate,
-                Some(reprocess_tx),
+                true,
                 package.seen_timestamp,
             )
         };
 
         // Define a closure for processing batches of attestations.
         let processor = self.clone();
-        let process_batch = move |aggregates| {
-            let reprocess_tx = processor.reprocess_tx.clone();
-            processor.process_gossip_aggregate_batch(aggregates, Some(reprocess_tx))
-        };
+        let process_batch =
+            move |aggregates| processor.process_gossip_aggregate_batch(aggregates, true);
 
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
         self.try_send(BeaconWorkEvent {
@@ -221,7 +173,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = async move {
-            let reprocess_tx = processor.reprocess_tx.clone();
             let invalid_block_storage = processor.invalid_block_storage.clone();
             let duplicate_cache = processor.duplicate_cache.clone();
             processor
@@ -230,7 +181,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     peer_client,
                     block,
-                    reprocess_tx,
                     duplicate_cache,
                     invalid_block_storage,
                     seen_timestamp,
@@ -423,12 +373,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
-            let reprocess_tx = processor.reprocess_tx.clone();
             processor.process_gossip_optimistic_update(
                 message_id,
                 peer_id,
                 light_client_optimistic_update,
-                Some(reprocess_tx),
+                true,
                 seen_timestamp,
             )
         };
@@ -1147,16 +1096,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
 #[cfg(test)]
 use {
-    beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend},
-    beacon_processor::BeaconProcessorChannels,
-    slot_clock::ManualSlotClock,
-    store::MemoryStore,
-    tokio::sync::mpsc::UnboundedSender,
+    beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
+    slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
 };
 
 #[cfg(test)]
 pub(crate) type TestBeaconChainType<E> =
-    Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+    Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
 
 #[cfg(test)]
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
@@ -1173,8 +1119,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,
-            work_reprocessing_tx,
-            work_reprocessing_rx: _work_reprocessing_rx,
         } = <_>::default();
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
@@ -1185,7 +1129,6 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
             chain,
             network_tx,
             sync_tx,
-            reprocess_tx: work_reprocessing_tx,
             network_globals,
             invalid_block_storage: InvalidBlockStorage::Disabled,
             executor,

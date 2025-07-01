@@ -118,7 +118,7 @@ impl Epoch {
             .as_u64())
     }
 
-    pub fn slot_iter(&self, slots_per_epoch: u64) -> SlotIter {
+    pub fn slot_iter(&self, slots_per_epoch: u64) -> SlotIter<'_> {
         SlotIter {
             current_iteration: 0,
             epoch: self,

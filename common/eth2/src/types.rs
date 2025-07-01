@@ -349,6 +349,14 @@ pub struct ValidatorBalanceData {
     pub balance: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ValidatorIdentityData {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub index: u64,
+    pub pubkey: PublicKeyBytes,
+    pub activation_epoch: Epoch,
+}
+
 // Implemented according to what is described here:
 //
 // https://hackmd.io/ofFJ5gOmQpu1jjHilHbdQQ
@@ -691,6 +699,12 @@ pub struct ValidatorBalancesQuery {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ValidatorBalancesRequestBody {
+    pub ids: Vec<ValidatorId>,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ValidatorIdentitiesRequestBody {
     pub ids: Vec<ValidatorId>,
 }
 
