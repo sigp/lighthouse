@@ -262,13 +262,13 @@ async fn run(config: ImportConfig) -> Result<(), String> {
             eprintln!("Please note! --gas-limit is provided. This will override existing gas limit defined in validators.json with: {}", override_gas_limit);
         }
         if let Some(override_builder_proposals) = builder_proposals {
-            eprintln!("Please note! --builder-proposals is provided. This will override existing builder proposal settings defined in validators.json with: {}", override_builder_proposals);
+            eprintln!("Please note! --builder-proposals is provided. This will override existing builder proposal setting defined in validators.json with: {}", override_builder_proposals);
         }
         if let Some(override_builder_boost_factor) = builder_boost_factor {
             eprintln!("Please note! --builder-boost-factor is provided. This will override existing builder boost factor defined in validators.json with: {}", override_builder_boost_factor);
         }
         if let Some(override_prefer_builder_proposals) = prefer_builder_proposals {
-            eprintln!("Please note! --prefer-builder-proposals is provided. This will override existing prefer builder proposal settings defined in validators.json with: {}", override_prefer_builder_proposals);
+            eprintln!("Please note! --prefer-builder-proposals is provided. This will override existing prefer builder proposal setting defined in validators.json with: {}", override_prefer_builder_proposals);
         }
         if let Some(override_enabled) = enabled {
             eprintln!("Please note! --enabled flag is provided. This will override existing setting defined in validators.json with: {}", override_enabled);
