@@ -14,6 +14,7 @@
 - [My beacon node logs `WARN Error signalling fork choice waiter`, what should I do?](#bn-fork-choice)
 - [My beacon node logs `ERRO Aggregate attestation queue full`, what should I do?](#bn-queue-full)
 - [My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?](#bn-deposit-cache)
+- [How can I construct only partial state history?](#bn-partial-history)
 
 ## [Validator](#validator-1)
 
@@ -189,6 +190,40 @@ If the node is syncing or downloading historical blocks, the error should disapp
 ### <a name="bn-deposit-cache"></a> My beacon node logs `WARN Failed to finalize deposit cache`, what should I do?
 
 This is a known [bug](https://github.com/sigp/lighthouse/issues/3707) that will fix by itself.
+
+### <a name="bn-partial-history"></a> How can I construct only partial state history?
+
+Lighthouse prunes finalized states by default. Nevertheless, it is quite often that users may be interested in the state history of just a few epochs before finalization. To have access to the pruned states, this typically requires a full reconstruction of states using the flag `--reconstruct-historic-states`, which will usually take one week and is therefore undesirable. Partial state history can be achieved with some "tricks". Steps:
+
+  1. First, delete the current database. You can do so with `--purge-db-force` or manually deleting the database from the data directory `$datadir/beacon`.
+
+  1. If you are interested in the states from the current slot and beyond, perform a checkpoint sync with the flag `--reconstruct-historic-states`, then you can skip the following and jump straight to Step 5 to check the database.
+  
+      If you are interested in the states before the current slot, identify the slot to perform a manual checkpoint sync. With the default configuration, this slot should be divisible by 2 ** 21, as this is where a full state snapshot is stored. With the flag `--reconstruct-historic-states`, the state upper limit will be adjusted to the next full snapshot slot, a slot that satisfies: `slot % 2 ** 21 = 0`. In other words, to have the state history available before the current slot, we have to checkpoint sync 2** 21 slots before the next full snapshot slot.
+
+      Example: Say the current mainnet is at `slot 12000000`. As the next full state snapshot is at `slot 12582812`, the slot that we want is:  `slot 10485760`.
+  
+  1. [Export]((./advanced_checkpoint_sync.md#manual-checkpoint-sync)) the blobs, block and state data for the slot identified in Step 2. This can be done from another beacon node that you have access to, or you could use any available public beacon API, e.g., [QuickNode](https://www.quicknode.com/docs/ethereum).
+
+  1. Perform a [manual checkpoint sync](./advanced_checkpoint_sync.md#manual-checkpoint-sync) together with the flag `--reconstruct-historic-states`.
+  
+  1. Check the database:
+
+  ```bash
+  curl "http://localhost:5052/lighthouse/database/info" | jq '.anchor'
+  ```
+
+  and look for the field `state_upper_limit`. It should show:
+
+  ```json
+  "state_upper_limit": "10485760",
+  ```
+
+Lighthouse will now start to reconstruct the historic states from `slot 10485760`. At this point, if you do not want a full state reconstruction, you may remove the flag `--reconstruct-historic-states`. Lighthouse will continue to store all states above `slot 10485760`. When the process is completed, you will have the state data from `slot 10485760`.
+
+> Note: You may only be interested in very recent historic states. To do so, you may configure the full snapshot to be, for example, every 2 ** 11 slots, see [database configuration](./advanced_database.md#hierarchical-state-diffs) for more details. This can be configured with the flag `--hierarchy-exponents 5,7,11` together with the flag `--reconstruct-historic-states`. This will affect the slot number in Step 2, while other steps remain the same. Note that this comes at the expense of a higher storage requirement.
+
+> With `--hierarchy-exponents 5,7,11`, using the same example as above, the next full state snapshot is at `slot 12001280`. So the slot to checkpoint sync from is: `slot 11999232`.
 
 ## Validator
 
