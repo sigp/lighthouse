@@ -298,9 +298,12 @@ mod test {
         spec.fulu_fork_epoch = Some(Epoch::new(0));
 
         let custody_group_count = spec.number_of_custody_groups / 2;
-        let sampling_size_columns = spec.sampling_size_columns(custody_group_count).unwrap();
-        let expected_sampling_subnet_count =
-            sampling_size_columns / spec.data_column_sidecar_subnet_count;
+        let sampling_size_custody_groups = spec
+            .sampling_size_custody_groups(custody_group_count)
+            .unwrap();
+        let expected_sampling_subnet_count = sampling_size_custody_groups
+            * spec.data_column_sidecar_subnet_count
+            / spec.number_of_custody_groups;
 
         let metadata = get_metadata(custody_group_count);
         let config = Arc::new(NetworkConfig::default());
