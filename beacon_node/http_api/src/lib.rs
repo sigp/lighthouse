@@ -3721,13 +3721,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp_utils::json::json())
         .and(validator_subscription_tx_filter.clone())
-        .and(network_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .then(
             |committee_subscriptions: Vec<api_types::BeaconCommitteeSubscription>,
              validator_subscription_tx: Sender<ValidatorSubscriptionMessage>,
-             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
@@ -3761,42 +3759,6 @@ pub fn serve<T: BeaconChainTypes>(
                         ));
                     }
 
-                    if chain.spec.is_peer_das_scheduled() {
-                        let (finalized_beacon_state, _, _) =
-                            StateId(CoreStateId::Finalized).state(&chain)?;
-                        let validators_and_balances = committee_subscriptions
-                            .iter()
-                            .filter_map(|subscription| {
-                                if let Ok(effective_balance) = finalized_beacon_state
-                                    .get_effective_balance(subscription.validator_index as usize)
-                                {
-                                    Some((subscription.validator_index as usize, effective_balance))
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<Vec<_>>();
-
-                        let current_slot =
-                            chain.slot().map_err(warp_utils::reject::unhandled_error)?;
-                        if let Some(cgc_change) = chain
-                            .data_availability_checker
-                            .custody_context()
-                            .register_validators::<T::EthSpec>(
-                            validators_and_balances,
-                            current_slot,
-                            &chain.spec,
-                        ) {
-                            network_tx.send(NetworkMessage::CustodyCountChanged {
-                                new_custody_group_count: cgc_change.new_custody_group_count,
-                                sampling_count: cgc_change.sampling_count,
-                            }).unwrap_or_else(|e| {
-                                debug!(error = %e, "Could not send message to the network service. \
-                                Likely shutdown")
-                            });
-                        }
-                    }
-
                     Ok(())
                 })
             },
@@ -3808,11 +3770,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("prepare_beacon_proposer"))
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
+        .and(network_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(warp_utils::json::json())
         .then(
             |not_synced_filter: Result<(), Rejection>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              preparation_data: Vec<ProposerPreparationData>| {
@@ -3848,6 +3812,42 @@ pub fn serve<T: BeaconChainTypes>(
                                 e
                             ))
                         })?;
+
+                    if chain.spec.is_peer_das_scheduled() {
+                        let (finalized_beacon_state, _, _) =
+                            StateId(CoreStateId::Finalized).state(&chain)?;
+                        let validators_and_balances = preparation_data
+                            .iter()
+                            .filter_map(|preparation| {
+                                if let Ok(effective_balance) = finalized_beacon_state
+                                    .get_effective_balance(preparation.validator_index as usize)
+                                {
+                                    Some((preparation.validator_index as usize, effective_balance))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>();
+
+                        let current_slot =
+                            chain.slot().map_err(warp_utils::reject::unhandled_error)?;
+                        if let Some(cgc_change) = chain
+                            .data_availability_checker
+                            .custody_context()
+                            .register_validators::<T::EthSpec>(
+                            validators_and_balances,
+                            current_slot,
+                            &chain.spec,
+                        ) {
+                            network_tx.send(NetworkMessage::CustodyCountChanged {
+                                new_custody_group_count: cgc_change.new_custody_group_count,
+                                sampling_count: cgc_change.sampling_count,
+                            }).unwrap_or_else(|e| {
+                                debug!(error = %e, "Could not send message to the network service. \
+                                Likely shutdown")
+                            });
+                        }
+                    }
 
                     Ok::<_, warp::reject::Rejection>(warp::reply::json(&()).into_response())
                 })
