@@ -41,6 +41,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoStaticStr};
 pub use types::*;
+pub use database::async_interface::AsyncKeyValueStore;
 
 const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
 
