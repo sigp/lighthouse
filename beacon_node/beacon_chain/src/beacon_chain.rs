@@ -654,6 +654,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Persists the custody information to disk.
     pub fn persist_custody_context(&self) -> Result<(), Error> {
+        if !self.spec.is_peer_das_scheduled() {
+            return Ok(());
+        }
+
         let custody_context: CustodyContextSsz = self
             .data_availability_checker
             .custody_context()
