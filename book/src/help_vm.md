@@ -28,6 +28,10 @@ Commands:
   delete
           Deletes one or more validators from a validator client using the HTTP
           API.
+  exit
+          Exits one or more validators using the HTTP API. It can also be used
+          to generate a presigned voluntary exit message for a particular future
+          epoch.
   help
           Print this message or the help of the given subcommand(s)
 
