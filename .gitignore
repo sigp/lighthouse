@@ -18,3 +18,6 @@ genesis.ssz
 
 # VSCode
 /.vscode
+
+# Environment variables
+.env
