@@ -196,6 +196,8 @@ pem
 performant
 pid
 pre
+presign
+presigned
 pubkey
 pubkeys
 rc

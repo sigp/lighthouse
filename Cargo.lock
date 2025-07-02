@@ -9933,6 +9933,7 @@ name = "validator_manager"
 version = "0.1.0"
 dependencies = [
  "account_utils",
+ "beacon_chain",
  "clap",
  "clap_utils",
  "derivative",
@@ -9942,9 +9943,11 @@ dependencies = [
  "eth2_wallet",
  "ethereum_serde_utils",
  "hex",
+ "http_api",
  "regex",
  "serde",
  "serde_json",
+ "slot_clock",
  "tempfile",
  "tokio",
  "tree_hash",

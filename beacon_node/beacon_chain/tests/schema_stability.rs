@@ -88,7 +88,7 @@ async fn schema_stability() {
     check_db_columns();
     check_metadata_sizes(&store);
     check_op_pool(&store);
-    check_custody_context(&store);
+    check_custody_context(&store, &harness.spec);
     check_persisted_chain(&store);
 
     // Not covered here:
@@ -134,12 +134,13 @@ fn check_op_pool(store: &Store<E>) {
     assert_eq!(op_pool.as_store_bytes().len(), 28);
 }
 
-fn check_custody_context(store: &Store<E>) {
-    let custody_context = store
-        .get_item::<PersistedCustody>(&Hash256::ZERO)
-        .unwrap()
-        .unwrap();
-    assert_eq!(custody_context.as_store_bytes().len(), 9);
+fn check_custody_context(store: &Store<E>, spec: &ChainSpec) {
+    let custody_context_opt = store.get_item::<PersistedCustody>(&Hash256::ZERO).unwrap();
+    if spec.is_peer_das_scheduled() {
+        assert_eq!(custody_context_opt.unwrap().as_store_bytes().len(), 13);
+    } else {
+        assert!(custody_context_opt.is_none());
+    }
 }
 
 fn check_persisted_chain(store: &Store<E>) {
