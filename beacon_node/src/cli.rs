@@ -1510,6 +1510,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("stateless-validation")
+                .long("stateless-validation")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Enable stateless validation mode where all new payloads are marked as \
+                       optimistically valid without verification from the execution layer. This \
+                       bypasses normal payload validation and should only be used for testing.")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("light-client-server")
                 .long("light-client-server")
                 .help("DEPRECATED")

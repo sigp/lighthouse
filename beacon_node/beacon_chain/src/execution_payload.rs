@@ -24,7 +24,7 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -136,6 +136,15 @@ async fn notify_new_payload<T: BeaconChainTypes>(
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
     let execution_block_hash = block.execution_payload()?.block_hash();
+
+    info!("New payload with hash {:?}", execution_block_hash);
+
+    // Check if stateless validation is enabled
+    if chain.config.stateless_validation {
+        info!("Marking payload as optimistic due to --stateless-validation flag");
+        return Ok(PayloadVerificationStatus::Optimistic);
+    }
+
     let new_payload_response = execution_layer.notify_new_payload(block.try_into()?).await;
 
     match new_payload_response {
@@ -450,6 +459,16 @@ where
         .execution_layer
         .as_ref()
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
+
+    // Check for stateless validation mode
+    if chain.config.stateless_validation {
+        // TODO: We could return an empty payload here until we hook up mev-boost
+        eprintln!(
+            "ERROR: Cannot produce blocks in stateless validation mode - no execution layer attached. \
+            TODO: Use MEV-boost for block production in stateless validation mode."
+        );
+        return Err(BlockProductionError::ExecutionLayerMissing);
+    }
 
     let parent_hash = if !is_merge_transition_complete {
         let is_terminal_block_hash_set = spec.terminal_block_hash != ExecutionBlockHash::zero();

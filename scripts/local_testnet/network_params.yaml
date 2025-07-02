@@ -6,7 +6,15 @@ participants:
     cl_image: lighthouse:local
     cl_extra_params:
       - --target-peers=3
-    count: 4
+      - --stateless-validation
+    count: 2
+  - el_type: geth
+    el_image: ethereum/client-go:latest
+    cl_type: lighthouse
+    cl_image: lighthouse:local
+    cl_extra_params:
+      - --target-peers=3
+    count: 2
 network_params:
   electra_fork_epoch: 0
   seconds_per_slot: 3
