@@ -285,30 +285,6 @@ impl ExecutionPayloadProofStore {
         proofs.retain(|_, proof| proof.timestamp >= cutoff_timestamp);
     }
 
-    // TODO: Methods for gossip subnet integration - to be implemented when gossip is ready
-
-    /// Handle a proof received from gossip subnet
-    /// TODO: Implement when gossip subnet for execution payload proofs is ready
-    #[allow(dead_code)]
-    pub fn handle_gossip_proof(&self, _proof: ExecutionPayloadProof) {
-        // TODO:
-        // 1. Validate the proof structure and signature
-        // 2. Check if we already have this proof
-        // 3. Store the proof if valid and new
-        // 4. Potentially re-validate any pending optimistic blocks that this proof covers
-        todo!("Implement when gossip subnet is ready")
-    }
-
-    /// Subscribe to execution payload proof gossip subnet
-    /// TODO: Implement when gossip subnet infrastructure is ready
-    #[allow(dead_code)]
-    pub fn subscribe_to_proof_gossip(&self) {
-        // TODO:
-        // 1. Subscribe to the execution payload proof gossip subnet
-        // 2. Set up handlers for incoming proof messages
-        // 3. Implement proof forwarding/broadcasting logic
-        todo!("Implement when gossip subnet infrastructure is ready")
-    }
 
     /// Generate a dummy proof for testing purposes
     /// TODO: Replace with actual proof generation from zkVMs or other proof systems
