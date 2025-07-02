@@ -6818,7 +6818,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Update data column custody info with the slot at which cgc was changed.
-    /// Note: This won't update custody info if `advertise_false_custody_group_count` is set.
     pub fn update_data_column_custody_info(&self, slot: Slot) {
         self.store
             .put_data_column_custody_info(slot)
