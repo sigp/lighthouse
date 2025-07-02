@@ -1,5 +1,6 @@
 mod compute_light_client_updates;
 pub mod config;
+mod execution_proof_broadcaster;
 mod metrics;
 mod notifier;
 

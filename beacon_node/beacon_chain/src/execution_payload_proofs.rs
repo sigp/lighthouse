@@ -108,7 +108,6 @@ impl ExecutionPayloadProof {
         Self::new(block_hash, proof_id, 1, proof_data)
     }
 
-
     /// Check if this proof version is supported
     pub fn is_version_supported(&self) -> bool {
         matches!(self.version, 1)
@@ -177,6 +176,11 @@ impl ExecutionPayloadProofStore {
                 }
             })
             .collect()
+    }
+
+    /// Get all stored proofs (for broadcast management)
+    pub fn get_all_proofs(&self) -> HashMap<(ExecutionBlockHash, ProofId), ExecutionPayloadProof> {
+        self.proofs.read().clone()
     }
 
     /// Get a specific proof for the given execution block hash and proof ID
@@ -306,17 +310,6 @@ impl ExecutionPayloadProofStore {
         todo!("Implement when gossip subnet infrastructure is ready")
     }
 
-    /// Broadcast a proof to the gossip subnet
-    /// TODO: Implement when gossip subnet infrastructure is ready
-    #[allow(dead_code)]
-    pub fn broadcast_proof(&self, _proof: &ExecutionPayloadProof) {
-        // TODO:
-        // 1. Validate the proof before broadcasting
-        // 2. Send the proof to connected peers via gossip
-        // 3. Track which peers we've sent the proof to
-        todo!("Implement when gossip subnet infrastructure is ready")
-    }
-
     /// Generate a dummy proof for testing purposes
     /// TODO: Replace with actual proof generation from zkVMs or other proof systems
     pub fn generate_dummy_proof(
@@ -334,7 +327,7 @@ impl ExecutionPayloadProofStore {
                 .as_secs()
         )
         .into_bytes();
-        
+
         ExecutionPayloadProof::new_v1(execution_block_hash, proof_id, dummy_data)
     }
 
@@ -467,31 +460,37 @@ mod tests {
         // Create proofs with manually set timestamps to ensure proper ordering
         let mut proof1 = ExecutionPayloadProof::new_v1(hash1, ProofId::EXECUTION_WITNESS, vec![1]);
         proof1.timestamp = 100; // Oldest
-        
+
         let mut proof2 = ExecutionPayloadProof::new_v1(hash2, ProofId::custom(1), vec![2]);
         proof2.timestamp = 200; // Middle
-        
+
         let mut proof3 = ExecutionPayloadProof::new_v1(hash3, ProofId::custom(2), vec![3]);
         proof3.timestamp = 300; // Newest
 
         // Store first proof
-        store.store_proof(proof1).expect("valid proof should store successfully");
+        store
+            .store_proof(proof1)
+            .expect("valid proof should store successfully");
         assert_eq!(store.len(), 1);
         assert!(store.has_valid_proof(&hash1));
-        
+
         // Store second proof
-        store.store_proof(proof2).expect("valid proof should store successfully");
+        store
+            .store_proof(proof2)
+            .expect("valid proof should store successfully");
         assert_eq!(store.len(), 2);
         assert!(store.has_valid_proof(&hash1));
         assert!(store.has_valid_proof(&hash2));
 
         // Store a third proof, should evict the oldest (hash1)
-        store.store_proof(proof3).expect("valid proof should store successfully");
-        
+        store
+            .store_proof(proof3)
+            .expect("valid proof should store successfully");
+
         assert_eq!(store.len(), 2);
         assert!(!store.has_valid_proof(&hash1)); // Evicted (oldest)
-        assert!(store.has_valid_proof(&hash2));  // Kept (middle)
-        assert!(store.has_valid_proof(&hash3));  // Kept (newest)
+        assert!(store.has_valid_proof(&hash2)); // Kept (middle)
+        assert!(store.has_valid_proof(&hash3)); // Kept (newest)
     }
 
     #[test]
@@ -631,61 +630,62 @@ mod tests {
             assert_eq!(proof_id.subnet_id(), id);
             assert_eq!(proof_id.subnet_topic(), format!("execution_proof_{}", id));
         }
-        
+
         // Test higher subnet IDs still work (for future expansion)
         let high_id = ProofId::custom(100);
         assert_eq!(high_id.subnet_id(), 100);
         assert_eq!(high_id.subnet_topic(), "execution_proof_100");
     }
-    
+
     #[test]
     fn test_generate_dummy_proof_method() {
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(5);
-        
-        let proof = ExecutionPayloadProofStore::generate_dummy_proof(execution_block_hash, proof_id);
-        
+
+        let proof =
+            ExecutionPayloadProofStore::generate_dummy_proof(execution_block_hash, proof_id);
+
         assert_eq!(proof.block_hash, execution_block_hash);
         assert_eq!(proof.proof_id, proof_id);
         assert_eq!(proof.version, 1);
         assert!(!proof.proof_data.is_empty());
         assert!(ExecutionPayloadProofStore::validate_proof(&proof));
-        
+
         // Verify the proof data contains expected information
         let proof_data_str = String::from_utf8_lossy(&proof.proof_data);
         assert!(proof_data_str.contains("dummy_proof_subnet_5"));
         assert!(proof_data_str.contains(&format!("{:?}", execution_block_hash)));
     }
-    
+
     #[test]
     fn test_generate_and_store_dummy_proof_method() {
         let store = ExecutionPayloadProofStore::new(10);
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(3);
-        
+
         // Initially no proofs
         assert!(!store.has_valid_proof(&execution_block_hash));
         assert_eq!(store.len(), 0);
-        
+
         // Generate and store a proof
         let result = store.generate_and_store_dummy_proof(execution_block_hash, proof_id);
         assert!(result.is_ok());
-        
+
         let proof = result.unwrap();
         assert_eq!(proof.block_hash, execution_block_hash);
         assert_eq!(proof.proof_id, proof_id);
-        
+
         // Verify it's stored in the store
         assert!(store.has_valid_proof(&execution_block_hash));
         assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id));
         assert_eq!(store.len(), 1);
         assert_eq!(store.proof_count_for_payload(&execution_block_hash), 1);
-        
+
         // Generate another proof for the same payload with different proof ID
         let proof_id_2 = ProofId::custom(7);
         let result_2 = store.generate_and_store_dummy_proof(execution_block_hash, proof_id_2);
         assert!(result_2.is_ok());
-        
+
         // Should have 2 proofs now
         assert_eq!(store.len(), 2);
         assert_eq!(store.proof_count_for_payload(&execution_block_hash), 2);

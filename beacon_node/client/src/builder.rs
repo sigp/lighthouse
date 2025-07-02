@@ -6,6 +6,7 @@ use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
+use crate::execution_proof_broadcaster::start_execution_proof_broadcaster_service;
 use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -776,6 +777,15 @@ where
                 beacon_chain.task_executor.clone(),
                 beacon_chain.clone(),
             );
+            
+            // Start the execution proof broadcaster service if we have network senders
+            if let Some(network_senders) = &self.network_senders {
+                start_execution_proof_broadcaster_service(
+                    runtime_context.executor.clone(),
+                    beacon_chain.clone(),
+                    network_senders.network_send(),
+                );
+            }
         }
 
         Ok(Client {
