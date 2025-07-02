@@ -47,6 +47,12 @@ where
         let lower_limit_slot = anchor.state_lower_limit;
         let upper_limit_slot = std::cmp::min(split.slot, anchor.state_upper_limit);
 
+        // If the split is at 0 we can't reconstruct historic states.
+        if split.slot == 0 {
+            debug!("No state reconstruction possible");
+            return Ok(());
+        }
+
         // If `num_blocks` is not specified iterate all blocks. Add 1 so that we end on an epoch
         // boundary when `num_blocks` is a multiple of an epoch boundary. We want to be *inclusive*
         // of the state at slot `lower_limit_slot + num_blocks`.
