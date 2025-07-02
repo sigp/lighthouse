@@ -347,19 +347,16 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         &self,
     ) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
         if let Some(latest_finality_update) = self.get_latest_finality_update() {
-            let latest_broadcasted_finality_update =
-                self.latest_broadcasted_finality_update.read().clone();
+            let latest_broadcasted_finality_update = self.get_latest_broadcasted_finality_update();
             match latest_broadcasted_finality_update {
                 Some(latest_broadcasted_finality_update) => {
                     if latest_broadcasted_finality_update != latest_finality_update {
-                        *self.latest_broadcasted_finality_update.write() =
-                            Some(latest_finality_update.clone());
+                        self.set_latest_broadcasted_finality_update(latest_finality_update.clone());
                         return Some(latest_finality_update);
                     }
                 }
                 None => {
-                    *self.latest_broadcasted_finality_update.write() =
-                        Some(latest_finality_update.clone());
+                    self.set_latest_broadcasted_finality_update(latest_finality_update.clone());
                     return Some(latest_finality_update);
                 }
             }
@@ -372,6 +369,32 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         self.latest_finality_update.read().clone()
     }
 
+    pub fn get_latest_broadcasted_optimistic_update(
+        &self,
+    ) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
+        self.latest_broadcasted_optimistic_update.read().clone()
+    }
+
+    pub fn get_latest_broadcasted_finality_update(
+        &self,
+    ) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
+        self.latest_broadcasted_finality_update.read().clone()
+    }
+
+    pub fn set_latest_broadcasted_optimistic_update(
+        &self,
+        optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+    ) {
+        *self.latest_broadcasted_optimistic_update.write() = Some(optimistic_update.clone());
+    }
+
+    pub fn set_latest_broadcasted_finality_update(
+        &self,
+        finality_update: LightClientFinalityUpdate<T::EthSpec>,
+    ) {
+        *self.latest_broadcasted_finality_update.write() = Some(finality_update.clone());
+    }
+
     /// Checks if we've already broadcasted the latest optimistic update.
     /// If we haven't, update the `latest_broadcasted_optimistic_update` cache
     /// and return the latest optimistic update for broadcasting, else return `None`.
@@ -379,18 +402,19 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         &self,
     ) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
         if let Some(latest_optimistic_update) = self.get_latest_optimistic_update() {
-            let latest_broadcasted_optimistic_update = self.latest_optimistic_update.read().clone();
+            let latest_broadcasted_optimistic_update =
+                self.get_latest_broadcasted_optimistic_update();
             match latest_broadcasted_optimistic_update {
                 Some(latest_broadcasted_optimistic_update) => {
                     if latest_broadcasted_optimistic_update != latest_optimistic_update {
-                        *self.latest_broadcasted_optimistic_update.write() =
-                            Some(latest_optimistic_update.clone());
+                        self.set_latest_broadcasted_optimistic_update(
+                            latest_optimistic_update.clone(),
+                        );
                         return Some(latest_optimistic_update);
                     }
                 }
                 None => {
-                    *self.latest_broadcasted_optimistic_update.write() =
-                        Some(latest_optimistic_update.clone());
+                    self.set_latest_broadcasted_optimistic_update(latest_optimistic_update.clone());
                     return Some(latest_optimistic_update);
                 }
             }

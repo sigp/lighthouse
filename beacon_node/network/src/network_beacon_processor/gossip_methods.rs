@@ -1998,6 +1998,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         error = ?e,
                         "Light client error constructing finality update"
                     ),
+                    LightClientFinalityUpdateError::Ignore => {}
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
@@ -2118,6 +2119,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Light client error constructing optimistic update"
                         )
                     }
+                    LightClientOptimisticUpdateError::Ignore => {}
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }

@@ -30,6 +30,8 @@ pub enum Error {
     FailedConstructingUpdate,
     /// Unknown block with parent root.
     UnknownBlockParentRoot(Hash256),
+    /// Silently ignore this light client optimistic update
+    Ignore,
 }
 
 /// Wraps a `LightClientOptimisticUpdate` that has been verified for propagation on the gossip network.
@@ -61,6 +63,22 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             return Err(Error::TooEarly);
         }
 
+        if let Some(latest_broadcasted_optimistic_update) = chain
+            .light_client_server_cache
+            .get_latest_broadcasted_optimistic_update()
+        {
+            // Ignore the incoming optimistic update if we've already broadcasted it
+            if latest_broadcasted_optimistic_update == rcv_optimistic_update {
+                return Err(Error::Ignore);
+            }
+
+            // Ignore the incoming optimistic update if the latest broadcasted slot
+            // is greater than the incoming slot.
+            if latest_broadcasted_optimistic_update.get_slot() > rcv_optimistic_update.get_slot() {
+                return Err(Error::Ignore);
+            }
+        }
+
         let head = chain.canonical_head.cached_head();
         let head_block = &head.snapshot.beacon_block;
         // check if we can process the optimistic update immediately
@@ -76,10 +94,20 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             .get_latest_optimistic_update()
             .ok_or(Error::FailedConstructingUpdate)?;
 
+        // Ignore the incoming optimistic update if the latest constructed slot
+        // is greater than the incoming slot.
+        if latest_optimistic_update.get_slot() > rcv_optimistic_update.get_slot() {
+            return Err(Error::Ignore);
+        }
+
         // verify that the gossiped optimistic update is the same as the locally constructed one.
         if latest_optimistic_update != rcv_optimistic_update {
             return Err(Error::InvalidLightClientOptimisticUpdate);
         }
+
+        chain
+            .light_client_server_cache
+            .set_latest_broadcasted_optimistic_update(rcv_optimistic_update.clone());
 
         let parent_root = rcv_optimistic_update.get_parent_root();
         Ok(Self {

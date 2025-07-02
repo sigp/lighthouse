@@ -27,6 +27,8 @@ pub enum Error {
     SigSlotStartIsNone,
     /// Failed to construct a LightClientFinalityUpdate from state.
     FailedConstructingUpdate,
+    /// Silently ignore this light client finality update
+    Ignore,
 }
 
 /// Wraps a `LightClientFinalityUpdate` that has been verified for propagation on the gossip network.
@@ -57,15 +59,45 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
             return Err(Error::TooEarly);
         }
 
+        if let Some(latest_broadcasted_finality_update) = chain
+            .light_client_server_cache
+            .get_latest_broadcasted_finality_update()
+        {
+            // Ignore the incoming finality update if we've already broadcasted it
+            if latest_broadcasted_finality_update == rcv_finality_update {
+                return Err(Error::Ignore);
+            }
+
+            // Ignore the incoming finality update if the latest broadcasted attested header slot
+            // is greater than the incoming attested header slot.
+            if latest_broadcasted_finality_update.get_attested_header_slot()
+                > rcv_finality_update.get_attested_header_slot()
+            {
+                return Err(Error::Ignore);
+            }
+        }
+
         let latest_finality_update = chain
             .light_client_server_cache
             .get_latest_finality_update()
             .ok_or(Error::FailedConstructingUpdate)?;
 
+        // Ignore the incoming finality update if the latest constructed attested header slot
+        // is greater than the incoming attested header slot.
+        if latest_finality_update.get_attested_header_slot()
+            > rcv_finality_update.get_attested_header_slot()
+        {
+            return Err(Error::Ignore);
+        }
+
         // verify that the gossiped finality update is the same as the locally constructed one.
         if latest_finality_update != rcv_finality_update {
             return Err(Error::InvalidLightClientFinalityUpdate);
         }
+
+        chain
+            .light_client_server_cache
+            .set_latest_broadcasted_finality_update(rcv_finality_update.clone());
 
         Ok(Self {
             light_client_finality_update: rcv_finality_update,
