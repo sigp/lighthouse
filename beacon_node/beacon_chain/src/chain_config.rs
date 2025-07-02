@@ -83,6 +83,8 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// Enable stateless validation mode for new payloads.
     pub stateless_validation: bool,
+    /// Maximum number of execution payload proofs to store.
+    pub max_execution_payload_proofs: usize,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
@@ -145,6 +147,7 @@ impl Default for ChainConfig {
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             stateless_validation: false,
+            max_execution_payload_proofs: 10_000,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,

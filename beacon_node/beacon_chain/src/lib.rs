@@ -26,6 +26,7 @@ pub mod electra_readiness;
 mod errors;
 pub mod events;
 pub mod execution_payload;
+pub mod execution_payload_proofs;
 pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;

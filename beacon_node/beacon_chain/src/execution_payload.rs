@@ -141,8 +141,28 @@ async fn notify_new_payload<T: BeaconChainTypes>(
 
     // Check if stateless validation is enabled
     if chain.config.stateless_validation {
-        info!("Marking payload as optimistic due to --stateless-validation flag");
-        return Ok(PayloadVerificationStatus::Optimistic);
+        // Check if we have any valid proof for this execution payload
+        if chain.execution_payload_proof_store.has_valid_proof(&execution_block_hash) {
+            let proof_count = chain.execution_payload_proof_store.proof_count_for_payload(&execution_block_hash);
+            let proofs = chain.execution_payload_proof_store.get_proofs(&execution_block_hash);
+            let proof_descriptions: Vec<String> = proofs.iter()
+                .map(|p| p.description())
+                .collect();
+            
+            info!(
+                "Found {} valid proof(s) for execution payload {:?} ({}), marking as verified",
+                proof_count,
+                execution_block_hash,
+                proof_descriptions.join(", ")
+            );
+            return Ok(PayloadVerificationStatus::Verified);
+        } else {
+            info!(
+                "No valid proofs found for execution payload {:?}, marking as optimistic (proofs may arrive later via gossip subnets)",
+                execution_block_hash
+            );
+            return Ok(PayloadVerificationStatus::Optimistic);
+        }
     }
 
     let new_payload_response = execution_layer.notify_new_payload(block.try_into()?).await;

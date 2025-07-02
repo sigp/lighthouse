@@ -3,6 +3,7 @@ use crate::beacon_chain::{
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::data_availability_checker::DataAvailabilityChecker;
+use crate::execution_payload_proofs::ExecutionPayloadProofStore;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
@@ -975,6 +976,8 @@ where
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
             execution_layer: self.execution_layer.clone(),
+            // TODO: allow for persisting and loading from disk (when a block has been confirmed)
+            execution_payload_proof_store: Arc::new(ExecutionPayloadProofStore::default()),
             genesis_validators_root,
             genesis_time,
             canonical_head,
