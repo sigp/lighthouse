@@ -246,6 +246,7 @@ pub struct ChainSpec {
      * Networking Fulu
      */
     blob_schedule: BlobSchedule,
+    min_epochs_for_data_column_sidecars_requests: u64,
 
     /*
      * Networking Derived
@@ -740,6 +741,20 @@ impl ChainSpec {
         Ok(std::cmp::max(custody_group_count, self.samples_per_slot))
     }
 
+    /// Returns the min epoch for blob / data column sidecar requests based on the current epoch.
+    /// Switch to use the column sidecar config once the `blob_retention_epoch` has passed Fulu fork epoch.
+    pub fn min_epoch_data_availability_boundary(&self, current_epoch: Epoch) -> Option<Epoch> {
+        let fork_epoch = self.deneb_fork_epoch?;
+        let blob_retention_epoch =
+            current_epoch.saturating_sub(self.min_epochs_for_blob_sidecars_requests);
+        match self.fulu_fork_epoch {
+            Some(fulu_fork_epoch) if blob_retention_epoch > fulu_fork_epoch => Some(
+                current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests),
+            ),
+            _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
+        }
+    }
+
     pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
         (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
     }
@@ -1027,6 +1042,8 @@ impl ChainSpec {
              * Networking Fulu specific
              */
             blob_schedule: BlobSchedule::default(),
+            min_epochs_for_data_column_sidecars_requests:
+                default_min_epochs_for_data_column_sidecars_requests(),
 
             /*
              * Application specific
@@ -1363,6 +1380,8 @@ impl ChainSpec {
              * Networking Fulu specific
              */
             blob_schedule: BlobSchedule::default(),
+            min_epochs_for_data_column_sidecars_requests:
+                default_min_epochs_for_data_column_sidecars_requests(),
 
             /*
              * Application specific
@@ -1661,6 +1680,9 @@ pub struct Config {
     #[serde(default = "default_balance_per_additional_custody_group")]
     #[serde(with = "serde_utils::quoted_u64")]
     balance_per_additional_custody_group: u64,
+    #[serde(default = "default_min_epochs_for_data_column_sidecars_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_data_column_sidecars_requests: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1832,6 +1854,10 @@ const fn default_validator_custody_requirement() -> u64 {
 
 const fn default_balance_per_additional_custody_group() -> u64 {
     32000000000
+}
+
+const fn default_min_epochs_for_data_column_sidecars_requests() -> u64 {
+    4096
 }
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
@@ -2045,6 +2071,8 @@ impl Config {
             blob_schedule: spec.blob_schedule.clone(),
             validator_custody_requirement: spec.validator_custody_requirement,
             balance_per_additional_custody_group: spec.balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests: spec
+                .min_epochs_for_data_column_sidecars_requests,
         }
     }
 
@@ -2126,6 +2154,7 @@ impl Config {
             ref blob_schedule,
             validator_custody_requirement,
             balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2212,6 +2241,7 @@ impl Config {
             blob_schedule: blob_schedule.clone(),
             validator_custody_requirement,
             balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests,
 
             ..chain_spec.clone()
         })
@@ -2350,6 +2380,7 @@ mod tests {
 mod yaml_tests {
     use super::*;
     use paste::paste;
+    use std::sync::Arc;
     use tempfile::NamedTempFile;
 
     #[test]
@@ -2648,5 +2679,66 @@ mod yaml_tests {
         // Should not overflow even with a 10x increase in max
         let _ = spec.max_message_size();
         let _ = spec.max_compressed_len();
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_deneb() {
+        type E = MainnetEthSpec;
+        let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+
+        // `min_epochs_for_data_sidecar_requests` cannot be earlier than Deneb fork epoch.
+        assert_eq!(
+            spec.deneb_fork_epoch,
+            spec.min_epoch_data_availability_boundary(Epoch::new(blob_retention_epochs / 2))
+        );
+
+        let current_epoch = Epoch::new(blob_retention_epochs * 2);
+        let expected_min_blob_epoch = current_epoch - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_min_blob_epoch),
+            spec.min_epoch_data_availability_boundary(current_epoch)
+        );
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_fulu() {
+        type E = MainnetEthSpec;
+        let spec = {
+            let mut spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+            // 4096 * 2 = 8192
+            spec.fulu_fork_epoch = Some(Epoch::new(spec.min_epochs_for_blob_sidecars_requests * 2));
+            // set a different value for testing purpose, 4096 / 2 = 2048
+            spec.min_epochs_for_data_column_sidecars_requests =
+                spec.min_epochs_for_blob_sidecars_requests / 2;
+            Arc::new(spec)
+        };
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+        let data_column_retention_epochs = spec.min_epochs_for_data_column_sidecars_requests;
+
+        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch still uses `min_epochs_for_blob_sidecars_requests`
+        let fulu_fork_epoch = spec.fulu_fork_epoch.unwrap();
+        let expected_blob_retention_epoch = fulu_fork_epoch - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_blob_retention_epoch),
+            spec.min_epoch_data_availability_boundary(fulu_fork_epoch)
+        );
+
+        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch + min_epochs_for_blob_sidecars_request
+        let blob_retention_epoch_after_fulu = fulu_fork_epoch + blob_retention_epochs;
+        let expected_blob_retention_epoch = blob_retention_epoch_after_fulu - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_blob_retention_epoch),
+            spec.min_epoch_data_availability_boundary(blob_retention_epoch_after_fulu)
+        );
+
+        // After the final blob retention epoch, `min_epochs_for_data_sidecar_requests` should be calculated
+        // using `min_epochs_for_data_column_sidecars_request`
+        let current_epoch = blob_retention_epoch_after_fulu + 1;
+        let expected_data_column_retention_epoch = current_epoch - data_column_retention_epochs;
+        assert_eq!(
+            Some(expected_data_column_retention_epoch),
+            spec.min_epoch_data_availability_boundary(current_epoch)
+        );
     }
 }
