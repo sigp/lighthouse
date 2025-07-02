@@ -55,8 +55,8 @@ const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 
 /// Currently used as the default gas limit in execution clients.
 ///
-/// https://ethresear.ch/t/on-increasing-the-block-gas-limit-technical-considerations-path-forward/21225.
-pub const DEFAULT_GAS_LIMIT: u64 = 36_000_000;
+/// https://ethpandaops.io/posts/gaslimit-scaling/.
+pub const DEFAULT_GAS_LIMIT: u64 = 45_000_000;
 
 pub struct LighthouseValidatorStore<T, E> {
     validators: Arc<RwLock<InitializedValidators>>,
