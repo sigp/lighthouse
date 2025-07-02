@@ -112,3 +112,22 @@ impl fmt::Display for ExecutionBlockHash {
         write!(f, "{}", self.0)
     }
 }
+
+impl From<Hash256> for ExecutionBlockHash {
+    fn from(hash: Hash256) -> Self {
+        Self(hash)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_hash256() {
+        let hash = Hash256::random();
+        let ex_hash = ExecutionBlockHash::from(hash);
+
+        assert_eq!(ExecutionBlockHash(hash), ex_hash);
+    }
+}

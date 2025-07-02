@@ -1,4 +1,5 @@
 //! Mapping from types to canonical string identifiers used in testing.
+use crate::DataColumnsByRootIdentifierWrapper;
 use types::historical_summary::HistoricalSummary;
 use types::*;
 
@@ -58,7 +59,11 @@ type_name_generic!(BeaconBlockBodyFulu, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
 type_name_generic!(BeaconState);
 type_name!(BlobIdentifier);
-type_name!(DataColumnIdentifier);
+type_name!(DataColumnsByRootIdentifier);
+type_name_generic!(
+    DataColumnsByRootIdentifierWrapper,
+    "DataColumnsByRootIdentifier"
+);
 type_name_generic!(BlobSidecar);
 type_name_generic!(DataColumnSidecar);
 type_name!(Checkpoint);

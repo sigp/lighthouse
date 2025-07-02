@@ -2,9 +2,7 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
-use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
-};
+use beacon_chain::{builder::Witness, slot_clock::SystemTimeSlotClock};
 use clap::ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
@@ -19,15 +17,8 @@ use tracing::{info, warn};
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
-pub type ProductionClient<E> = Client<
-    Witness<
-        SystemTimeSlotClock,
-        CachingEth1Backend<E>,
-        E,
-        BeaconNodeBackend<E>,
-        BeaconNodeBackend<E>,
-    >,
->;
+pub type ProductionClient<E> =
+    Client<Witness<SystemTimeSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
 
 /// The beacon node `Client` that will be used in production.
 ///
@@ -132,22 +123,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config.clone())
             .await?;
-        let builder = if client_config.sync_eth1_chain {
-            info!(
-                endpoint = ?client_config.eth1.endpoint,
-                method = "json rpc via http",
-                "Block production enabled"
-            );
-            builder
-                .caching_eth1_backend(client_config.eth1.clone())
-                .await?
-        } else {
-            info!(
-                reason = "no eth1 backend configured",
-                "Block production disabled"
-            );
-            builder.no_eth1_backend()?
-        };
+        info!("Block production enabled");
 
         let builder = builder.system_time_slot_clock()?;
 

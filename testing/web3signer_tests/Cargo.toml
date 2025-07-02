@@ -10,6 +10,7 @@ edition = { workspace = true }
 account_utils = { workspace = true }
 async-channel = { workspace = true }
 environment = { workspace = true }
+eth2 = { workspace = true }
 eth2_keystore = { workspace = true }
 eth2_network_config = { workspace = true }
 futures = { workspace = true }

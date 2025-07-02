@@ -15,7 +15,7 @@ except the latter creates files that will be read by the VC next time it starts
 whilst the former makes instant changes to a live VC.
 
 The `account-manager` is ideal for importing keys created with the
-[staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli). On the
+[ethstaker-deposit-cli](https://github.com/eth-educators/ethstaker-deposit-cli). On the
 other hand, the `validator-manager` is ideal for moving existing validators
 between two VCs or for advanced users to create validators at scale with less
 downtime.

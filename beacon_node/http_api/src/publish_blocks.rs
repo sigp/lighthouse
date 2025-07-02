@@ -123,8 +123,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             "Signed block published to network via HTTP API"
         );
 
-        crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone()))
-            .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))?;
+        crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone())).map_err(
+            |_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)),
+        )?;
 
         Ok(())
     };
@@ -137,8 +138,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         spawn_build_data_sidecar_task(chain.clone(), block.clone(), unverified_blobs)?;
 
     // Gossip verify the block and blobs/data columns separately.
-    let gossip_verified_block_result = unverified_block
-        .into_gossip_verified_block(&chain, network_globals.custody_columns_count() as usize);
+    let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
     let block_root = block_root.unwrap_or_else(|| {
         gossip_verified_block_result.as_ref().map_or_else(
             |_| block.canonical_root(),
@@ -223,7 +223,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
-        let sampling_columns_indices = &network_globals.sampling_columns;
+        let sampling_columns_indices = &network_globals.sampling_columns();
         let sampling_columns = gossip_verified_columns
             .into_iter()
             .flatten()
@@ -302,11 +302,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             );
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                RpcBlock::new_without_blobs(
-                    Some(block_root),
-                    block.clone(),
-                    network_globals.custody_columns_count() as usize,
-                ),
+                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
@@ -423,6 +419,14 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                     );
                     Ok(None)
                 }
+                Err(GossipDataColumnError::PriorKnownUnpublished) => {
+                    debug!(
+                        column_index,
+                        %slot,
+                        "Data column for publication already known via the EL"
+                    );
+                    Ok(None)
+                }
                 Err(e) => {
                     error!(
                         column_index,
@@ -506,7 +510,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
 ) -> Result<(), BlockError> {
     let pubsub_message = PubsubMessage::BlobSidecar(Box::new((blob.index(), blob.clone_blob())));
     crate::publish_pubsub_message(sender_clone, pubsub_message)
-        .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))
+        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
 fn publish_column_sidecars<T: BeaconChainTypes>(
@@ -536,7 +540,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         })
         .collect::<Vec<_>>();
     crate::publish_pubsub_messages(sender_clone, pubsub_messages)
-        .map_err(|_| BlockError::BeaconChainError(BeaconChainError::UnableToPublish))
+        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
 }
 
 async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
@@ -593,7 +597,9 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
                 Err(warp_utils::reject::custom_bad_request(msg))
             }
         }
-        Err(BlockError::BeaconChainError(BeaconChainError::UnableToPublish)) => {
+        Err(BlockError::BeaconChainError(e))
+            if matches!(e.as_ref(), BeaconChainError::UnableToPublish) =>
+        {
             Err(warp_utils::reject::custom_server_error(
                 "unable to publish to network channel".to_string(),
             ))
@@ -789,7 +795,7 @@ fn check_slashable<T: BeaconChainTypes>(
             block_clone.message().proposer_index(),
             block_root,
         )
-        .map_err(|e| BlockError::BeaconChainError(e.into()))?
+        .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
     {
         warn!(
             slot = %block_clone.slot(),

@@ -21,9 +21,7 @@ use tracing::{debug, error, instrument, trace};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
-pub(crate) use methods::{
-    MetaData, MetaDataV1, MetaDataV2, MetaDataV3, Ping, RpcResponse, RpcSuccessResponse,
-};
+pub(crate) use methods::{MetaData, MetaDataV2, MetaDataV3, Ping, RpcResponse, RpcSuccessResponse};
 pub use protocol::RequestType;
 
 use self::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};

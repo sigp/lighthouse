@@ -14,12 +14,12 @@ use beacon_chain::{
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
-    single_attestation::single_attestation_to_attestation,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
+use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
@@ -31,7 +31,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
-use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, info, trace, warn};
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
@@ -42,6 +42,7 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 
+use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
@@ -66,7 +67,7 @@ struct VerifiedUnaggregate<T: BeaconChainTypes> {
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
 /// `BeaconChain`.
 impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
-    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+    fn attestation(&self) -> AttestationRef<'_, T::EthSpec> {
         self.attestation.to_ref()
     }
 
@@ -82,8 +83,8 @@ impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
 }
 
 /// An attestation that failed validation by the `BeaconChain`.
-struct RejectedUnaggregate<E: EthSpec> {
-    attestation: Box<Attestation<E>>,
+struct RejectedUnaggregate {
+    attestation: Box<SingleAttestation>,
     error: AttnError,
 }
 
@@ -99,7 +100,7 @@ struct VerifiedAggregate<T: BeaconChainTypes> {
 /// This implementation allows `Self` to be imported to fork choice and other functions on the
 /// `BeaconChain`.
 impl<T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
-    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+    fn attestation(&self) -> AttestationRef<'_, T::EthSpec> {
         self.signed_aggregate.message().aggregate()
     }
 
@@ -124,15 +125,10 @@ struct RejectedAggregate<E: EthSpec> {
 /// Data for an aggregated or unaggregated attestation that failed verification.
 enum FailedAtt<E: EthSpec> {
     Unaggregate {
-        attestation: Box<Attestation<E>>,
+        attestation: Box<SingleAttestation>,
         subnet_id: SubnetId,
         should_import: bool,
         seen_timestamp: Duration,
-    },
-    // This variant is just a dummy variant for now, as SingleAttestation reprocessing is handled
-    // separately.
-    SingleUnaggregate {
-        attestation: Box<SingleAttestation>,
     },
     Aggregate {
         attestation: Box<SignedAggregateAndProof<E>>,
@@ -148,15 +144,13 @@ impl<E: EthSpec> FailedAtt<E> {
     pub fn kind(&self) -> &'static str {
         match self {
             FailedAtt::Unaggregate { .. } => "unaggregated",
-            FailedAtt::SingleUnaggregate { .. } => "unaggregated",
             FailedAtt::Aggregate { .. } => "aggregated",
         }
     }
 
     pub fn attestation_data(&self) -> &AttestationData {
         match self {
-            FailedAtt::Unaggregate { attestation, .. } => attestation.data(),
-            FailedAtt::SingleUnaggregate { attestation, .. } => &attestation.data,
+            FailedAtt::Unaggregate { attestation, .. } => &attestation.data,
             FailedAtt::Aggregate { attestation, .. } => attestation.message().aggregate().data(),
         }
     }
@@ -208,20 +202,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        attestation: Box<Attestation<T::EthSpec>>,
+        attestation: Box<SingleAttestation>,
         subnet_id: SubnetId,
         should_import: bool,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        allow_reprocess: bool,
         seen_timestamp: Duration,
     ) {
         let result = match self
             .chain
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
         {
-            Ok(verified_attestation) => Ok(VerifiedUnaggregate {
-                indexed_attestation: verified_attestation.into_indexed_attestation(),
-                attestation,
-            }),
+            Ok(verified_attestation) => {
+                let attestation =
+                    Box::new(verified_attestation.attestation().clone_as_attestation());
+                Ok(VerifiedUnaggregate {
+                    indexed_attestation: verified_attestation.into_indexed_attestation(),
+                    attestation,
+                })
+            }
             Err(error) => Err(RejectedUnaggregate { attestation, error }),
         };
 
@@ -230,7 +228,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             message_id,
             peer_id,
             subnet_id,
-            reprocess_tx,
+            allow_reprocess,
             should_import,
             seen_timestamp,
         );
@@ -238,8 +236,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub fn process_gossip_attestation_batch(
         self: Arc<Self>,
-        packages: GossipAttestationBatch<T::EthSpec>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        packages: GossipAttestationBatch,
+        allow_reprocess: bool,
     ) {
         let attestations_and_subnets = packages
             .iter()
@@ -275,14 +273,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         #[allow(clippy::needless_collect)] // The clippy suggestion fails the borrow checker.
         let results = results
             .into_iter()
-            .map(|result| result.map(|verified| verified.into_indexed_attestation()))
+            .map(|result| {
+                result.map(|verified| {
+                    let attestation = verified.attestation().clone_as_attestation();
+                    (verified.into_indexed_attestation(), attestation)
+                })
+            })
             .collect::<Vec<_>>();
 
         for (result, package) in results.into_iter().zip(packages.into_iter()) {
             let result = match result {
-                Ok(indexed_attestation) => Ok(VerifiedUnaggregate {
+                Ok((indexed_attestation, attestation)) => Ok(VerifiedUnaggregate {
                     indexed_attestation,
-                    attestation: package.attestation,
+                    attestation: Box::new(attestation),
                 }),
                 Err(error) => Err(RejectedUnaggregate {
                     attestation: package.attestation,
@@ -295,7 +298,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.message_id,
                 package.peer_id,
                 package.subnet_id,
-                reprocess_tx.clone(),
+                allow_reprocess,
                 package.should_import,
                 package.seen_timestamp,
             );
@@ -307,11 +310,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     #[allow(clippy::too_many_arguments)]
     fn process_gossip_attestation_result(
         self: &Arc<Self>,
-        result: Result<VerifiedUnaggregate<T>, RejectedUnaggregate<T::EthSpec>>,
+        result: Result<VerifiedUnaggregate<T>, RejectedUnaggregate>,
         message_id: MessageId,
         peer_id: PeerId,
         subnet_id: SubnetId,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        allow_reprocess: bool,
         should_import: bool,
         seen_timestamp: Duration,
     ) {
@@ -395,149 +398,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         should_import,
                         seen_timestamp,
                     },
-                    reprocess_tx,
+                    allow_reprocess,
                     error,
-                    seen_timestamp,
-                );
-            }
-        }
-    }
-
-    /// Process an unaggregated attestation requiring conversion.
-    ///
-    /// This function performs the conversion, and if successfull queues a new message to be
-    /// processed by `process_gossip_attestation`. If unsuccessful due to block unavailability,
-    /// a retry message will be pushed to the `reprocess_tx` if it is `Some`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn process_gossip_attestation_to_convert(
-        self: Arc<Self>,
-        message_id: MessageId,
-        peer_id: PeerId,
-        single_attestation: Box<SingleAttestation>,
-        subnet_id: SubnetId,
-        should_import: bool,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
-        seen_timestamp: Duration,
-    ) {
-        let conversion_result = self.chain.with_committee_cache(
-            single_attestation.data.target.root,
-            single_attestation
-                .data
-                .slot
-                .epoch(T::EthSpec::slots_per_epoch()),
-            |committee_cache, _| {
-                let slot = single_attestation.data.slot;
-                let committee_index = single_attestation.committee_index;
-                let Some(committee) = committee_cache.get_beacon_committee(slot, committee_index)
-                else {
-                    return Ok(Err(AttnError::NoCommitteeForSlotAndIndex {
-                        slot,
-                        index: committee_index,
-                    }));
-                };
-
-                Ok(single_attestation_to_attestation(
-                    &single_attestation,
-                    committee.committee,
-                ))
-            },
-        );
-
-        match conversion_result {
-            Ok(Ok(attestation)) => {
-                let slot = attestation.data().slot;
-                if let Err(e) = self.send_unaggregated_attestation(
-                    message_id.clone(),
-                    peer_id,
-                    attestation,
-                    subnet_id,
-                    should_import,
-                    seen_timestamp,
-                ) {
-                    error!(
-                        error = %e,
-                        %slot,
-                        "Unable to queue converted SingleAttestation"
-                    );
-                    self.propagate_validation_result(
-                        message_id,
-                        peer_id,
-                        MessageAcceptance::Ignore,
-                    );
-                }
-            }
-            // Outermost error (from `with_committee_cache`) indicating that the block is not known
-            // and that this conversion should be retried.
-            Err(BeaconChainError::MissingBeaconBlock(beacon_block_root)) => {
-                if let Some(sender) = reprocess_tx {
-                    metrics::inc_counter(
-                        &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_REQUEUED_TOTAL,
-                    );
-                    // We don't know the block, get the sync manager to handle the block lookup, and
-                    // send the attestation to be scheduled for re-processing.
-                    self.sync_tx
-                        .send(SyncMessage::UnknownBlockHashFromAttestation(
-                            peer_id,
-                            beacon_block_root,
-                        ))
-                        .unwrap_or_else(|_| {
-                            warn!(msg = "UnknownBlockHash", "Failed to send to sync service")
-                        });
-                    let processor = self.clone();
-                    // Do not allow this attestation to be re-processed beyond this point.
-                    let reprocess_msg =
-                        ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
-                            beacon_block_root,
-                            process_fn: Box::new(move || {
-                                processor.process_gossip_attestation_to_convert(
-                                    message_id,
-                                    peer_id,
-                                    single_attestation,
-                                    subnet_id,
-                                    should_import,
-                                    None,
-                                    seen_timestamp,
-                                )
-                            }),
-                        });
-                    if sender.try_send(reprocess_msg).is_err() {
-                        error!("Failed to send attestation for re-processing")
-                    }
-                } else {
-                    // We shouldn't make any further attempts to process this attestation.
-                    //
-                    // Don't downscore the peer since it's not clear if we requested this head
-                    // block from them or not.
-                    self.propagate_validation_result(
-                        message_id,
-                        peer_id,
-                        MessageAcceptance::Ignore,
-                    );
-                }
-            }
-            Ok(Err(error)) => {
-                // We already handled reprocessing above so do not attempt it in the error handler.
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    message_id,
-                    FailedAtt::SingleUnaggregate {
-                        attestation: single_attestation,
-                    },
-                    None,
-                    error,
-                    seen_timestamp,
-                );
-            }
-            Err(error) => {
-                // We already handled reprocessing above so do not attempt it in the error handler.
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    message_id,
-                    FailedAtt::SingleUnaggregate {
-                        attestation: single_attestation,
-                    },
-                    None,
-                    AttnError::BeaconChainError(error),
                     seen_timestamp,
                 );
             }
@@ -556,7 +418,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        allow_reprocess: bool,
         seen_timestamp: Duration,
     ) {
         let beacon_block_root = aggregate.message().aggregate().data().beacon_block_root;
@@ -580,7 +442,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             beacon_block_root,
             message_id,
             peer_id,
-            reprocess_tx,
+            allow_reprocess,
             seen_timestamp,
         );
     }
@@ -588,7 +450,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     pub fn process_gossip_aggregate_batch(
         self: Arc<Self>,
         packages: Vec<GossipAggregatePackage<T::EthSpec>>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        allow_reprocess: bool,
     ) {
         let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
 
@@ -642,7 +504,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 package.beacon_block_root,
                 package.message_id,
                 package.peer_id,
-                reprocess_tx.clone(),
+                allow_reprocess,
                 package.seen_timestamp,
             );
         }
@@ -654,7 +516,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         beacon_block_root: Hash256,
         message_id: MessageId,
         peer_id: PeerId,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        allow_reprocess: bool,
         seen_timestamp: Duration,
     ) {
         match result {
@@ -733,7 +595,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         attestation: signed_aggregate,
                         seen_timestamp,
                     },
-                    reprocess_tx,
+                    allow_reprocess,
                     error,
                     seen_timestamp,
                 );
@@ -797,6 +659,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
+                    GossipDataColumnError::PriorKnownUnpublished => {
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Gossip data column already processed via the EL. Accepting the column sidecar without re-processing."
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Accept,
+                        );
+                    }
                     GossipDataColumnError::ParentUnknown { parent_root } => {
                         debug!(
                             action = "requesting parent",
@@ -1130,7 +1005,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processing_start_time = Instant::now();
         let block_root = verified_data_column.block_root();
         let data_column_slot = verified_data_column.slot();
-        let data_column_index = verified_data_column.id().index;
+        let data_column_index = verified_data_column.index();
 
         let result = self
             .chain
@@ -1160,8 +1035,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    self.attempt_data_column_reconstruction(block_root, true)
-                        .await;
+                    // Instead of triggering reconstruction immediately, schedule it to be run. If
+                    // another column arrives it either completes availability or pushes
+                    // reconstruction back a bit.
+                    let cloned_self = Arc::clone(self);
+                    let send_result = self.beacon_processor_send.try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
+                            QueuedColumnReconstruction {
+                                block_root,
+                                process_fn: Box::pin(async move {
+                                    cloned_self
+                                        .attempt_data_column_reconstruction(block_root, true)
+                                        .await;
+                                }),
+                            },
+                        )),
+                    });
+                    if let Err(TrySendError::Full(WorkEvent {
+                        work:
+                            Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
+                                reconstruction,
+                            )),
+                        ..
+                    })) = send_result
+                    {
+                        warn!("Unable to send reconstruction to reprocessing");
+                        // Execute it immediately instead.
+                        reconstruction.process_fn.await;
+                    }
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {
@@ -1201,7 +1103,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         duplicate_cache: DuplicateCache,
         invalid_block_storage: InvalidBlockStorage,
         seen_duration: Duration,
@@ -1212,7 +1113,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 peer_id,
                 peer_client,
                 block.clone(),
-                reprocess_tx.clone(),
                 seen_duration,
             )
             .await
@@ -1223,7 +1123,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.process_gossip_verified_block(
                     peer_id,
                     gossip_verified_block,
-                    reprocess_tx,
                     invalid_block_storage,
                     seen_duration,
                 )
@@ -1249,7 +1148,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         peer_client: Client,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
         let block_delay =
@@ -1259,10 +1157,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let verification_result = self
             .chain
             .clone()
-            .verify_block_for_gossip(
-                block.clone(),
-                self.network_globals.custody_columns_count() as usize,
-            )
+            .verify_block_for_gossip(block.clone())
             .await;
 
         if verification_result.is_ok() {
@@ -1409,7 +1304,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             | Err(e @ BlockError::ExecutionPayloadError(_))
             | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::KnownInvalidExecutionPayload(_))
-            | Err(e @ BlockError::GenesisBlock) => {
+            | Err(e @ BlockError::GenesisBlock)
+            | Err(e @ BlockError::InvalidBlobCount { .. }) => {
                 warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(
@@ -1479,24 +1375,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let inner_self = self.clone();
                 let process_fn = Box::pin(async move {
-                    let reprocess_tx = inner_self.reprocess_tx.clone();
                     let invalid_block_storage = inner_self.invalid_block_storage.clone();
                     inner_self
                         .process_gossip_verified_block(
                             peer_id,
                             verified_block,
-                            reprocess_tx,
                             invalid_block_storage,
                             seen_duration,
                         )
                         .await;
                 });
-                if reprocess_tx
-                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedGossipBlock {
-                        beacon_block_slot: block_slot,
-                        beacon_block_root: block_root,
-                        process_fn,
-                    }))
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::EarlyBlock(
+                            QueuedGossipBlock {
+                                beacon_block_slot: block_slot,
+                                beacon_block_root: block_root,
+                                process_fn,
+                            },
+                        )),
+                    })
                     .is_err()
                 {
                     error!(
@@ -1529,7 +1429,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage>,
         invalid_block_storage: InvalidBlockStorage,
         _seen_duration: Duration,
     ) {
@@ -1579,10 +1478,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                if reprocess_tx
-                    .try_send(ReprocessQueueMessage::BlockImported {
-                        block_root: *block_root,
-                        parent_root: block.message().parent_root(),
+                if self
+                    .beacon_processor_send
+                    .try_send(WorkEvent {
+                        drop_during_sync: false,
+                        work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                            block_root: *block_root,
+                            parent_root: block.message().parent_root(),
+                        }),
                     })
                     .is_err()
                 {
@@ -2107,7 +2010,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         light_client_optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        allow_reprocess: bool,
         seen_timestamp: Duration,
     ) {
         match self.chain.verify_optimistic_update_for_gossip(
@@ -2135,7 +2038,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Optimistic update for unknown block"
                         );
 
-                        if let Some(sender) = reprocess_tx {
+                        if allow_reprocess {
                             let processor = self.clone();
                             let msg = ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(
                                 QueuedLightClientUpdate {
@@ -2145,14 +2048,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                             message_id,
                                             peer_id,
                                             light_client_optimistic_update,
-                                            None, // Do not reprocess this message again.
+                                            false, // Do not reprocess this message again.
                                             seen_timestamp,
                                         )
                                     }),
                                 },
                             );
 
-                            if sender.try_send(msg).is_err() {
+                            if self
+                                .beacon_processor_send
+                                .try_send(WorkEvent {
+                                    drop_during_sync: true,
+                                    work: Work::Reprocess(msg),
+                                })
+                                .is_err()
+                            {
                                 error!("Failed to send optimistic update for re-processing")
                             }
                         } else {
@@ -2222,7 +2132,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         peer_id: PeerId,
         message_id: MessageId,
         failed_att: FailedAtt<T::EthSpec>,
-        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage>>,
+        allow_reprocess: bool,
         error: AttnError,
         seen_timestamp: Duration,
     ) {
@@ -2462,7 +2372,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     block = ?beacon_block_root,
                     "Attestation for unknown block"
                 );
-                if let Some(sender) = reprocess_tx {
+                if allow_reprocess {
                     // We don't know the block, get the sync manager to handle the block lookup, and
                     // send the attestation to be scheduled for re-processing.
                     self.sync_tx
@@ -2489,21 +2399,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         message_id,
                                         peer_id,
                                         attestation,
-                                        None, // Do not allow this attestation to be re-processed beyond this point.
+                                        false, // Do not allow this attestation to be re-processed beyond this point.
                                         seen_timestamp,
                                     )
                                 }),
                             })
-                        }
-                        FailedAtt::SingleUnaggregate { .. } => {
-                            // This should never happen, as we handle the unknown head block case
-                            // for `SingleAttestation`s separately and should not be able to hit
-                            // an `UnknownHeadBlock` error.
-                            error!(
-                                block_root = ?beacon_block_root,
-                                "Dropping SingleAttestation instead of requeueing"
-                            );
-                            return;
                         }
                         FailedAtt::Unaggregate {
                             attestation,
@@ -2524,7 +2424,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                         attestation,
                                         subnet_id,
                                         should_import,
-                                        None, // Do not allow this attestation to be re-processed beyond this point.
+                                        false, // Do not allow this attestation to be re-processed beyond this point.
                                         seen_timestamp,
                                     )
                                 }),
@@ -2532,7 +2432,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                     };
 
-                    if sender.try_send(msg).is_err() {
+                    if self
+                        .beacon_processor_send
+                        .try_send(WorkEvent {
+                            drop_during_sync: false,
+                            work: Work::Reprocess(msg),
+                        })
+                        .is_err()
+                    {
                         error!("Failed to send attestation for re-processing")
                     }
                 } else {
@@ -2598,19 +2505,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     peer_id,
                     PeerAction::LowToleranceError,
                     "attn_no_committee",
-                );
-            }
-            AttnError::NotExactlyOneAggregationBitSet(_) => {
-                /*
-                 * The unaggregated attestation doesn't have only one signature.
-                 *
-                 * The peer has published an invalid consensus message.
-                 */
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "attn_too_many_agg_bits",
                 );
             }
             AttnError::NotExactlyOneCommitteeBitSet(_) => {
@@ -2734,41 +2628,77 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "attn_to_finalized_block",
                 );
             }
-            AttnError::BeaconChainError(BeaconChainError::DBError(Error::HotColdDBError(
-                HotColdDBError::FinalizedStateNotInHotDatabase { .. },
-            ))) => {
-                debug!(%peer_id, "Attestation for finalized state");
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
-            e @ AttnError::BeaconChainError(BeaconChainError::MaxCommitteePromises(_)) => {
-                debug!(
-                    target_root = ?failed_att.attestation_data().target.root,
-                    ?beacon_block_root,
-                    slot = ?failed_att.attestation_data().slot,
-                    ?attestation_type,
-                    error = ?e,
-                    %peer_id,
-                    "Dropping attestation"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-            }
             AttnError::BeaconChainError(e) => {
-                /*
-                 * Lighthouse hit an unexpected error whilst processing the attestation. It
-                 * should be impossible to trigger a `BeaconChainError` from the network,
-                 * so we have a bug.
-                 *
-                 * It's not clear if the message is invalid/malicious.
-                 */
-                error!(
-                    ?beacon_block_root,
-                    slot = ?failed_att.attestation_data().slot,
-                    ?attestation_type,
-                    %peer_id,
-                    error = ?e,
-                    "Unable to validate attestation"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                match e.as_ref() {
+                    BeaconChainError::DBError(Error::HotColdDBError(
+                        HotColdDBError::FinalizedStateNotInHotDatabase { .. },
+                    )) => {
+                        debug!(%peer_id, "Attestation for finalized state");
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    BeaconChainError::MaxCommitteePromises(e) => {
+                        debug!(
+                            target_root = ?failed_att.attestation_data().target.root,
+                            ?beacon_block_root,
+                            slot = ?failed_att.attestation_data().slot,
+                            ?attestation_type,
+                            error = ?e,
+                            %peer_id,
+                            "Dropping attestation"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    BeaconChainError::AttestationValidationError(e) => {
+                        // Failures from `get_attesting_indices` end up here.
+                        debug!(
+                            %peer_id,
+                            block_root = ?beacon_block_root,
+                            attestation_slot = %failed_att.attestation_data().slot,
+                            error = ?e,
+                            "Rejecting attestation that failed validation"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::MidToleranceError,
+                            "attn_validation_error",
+                        );
+                    }
+                    _ => {
+                        /*
+                         * Lighthouse hit an unexpected error whilst processing the attestation. It
+                         * should be impossible to trigger a `BeaconChainError` from the network,
+                         * so we have a bug.
+                         *
+                         * It's not clear if the message is invalid/malicious.
+                         */
+                        error!(
+                            ?beacon_block_root,
+                            slot = ?failed_att.attestation_data().slot,
+                            ?attestation_type,
+                            %peer_id,
+                            error = ?e,
+                            "Unable to validate attestation"
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                }
             }
         }
 

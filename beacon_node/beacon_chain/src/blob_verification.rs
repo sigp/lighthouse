@@ -42,7 +42,7 @@ pub enum GossipBlobError {
     ///
     /// We were unable to process this blob due to an internal error. It's
     /// unclear if the blob is valid.
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
 
     /// The `BlobSidecar` was gossiped over an incorrect subnet.
     ///
@@ -147,13 +147,13 @@ impl std::fmt::Display for GossipBlobError {
 
 impl From<BeaconChainError> for GossipBlobError {
     fn from(e: BeaconChainError) -> Self {
-        GossipBlobError::BeaconChainError(e)
+        GossipBlobError::BeaconChainError(e.into())
     }
 }
 
 impl From<BeaconStateError> for GossipBlobError {
     fn from(e: BeaconStateError) -> Self {
-        GossipBlobError::BeaconChainError(BeaconChainError::BeaconStateError(e))
+        GossipBlobError::BeaconChainError(BeaconChainError::BeaconStateError(e).into())
     }
 }
 
@@ -164,6 +164,16 @@ pub struct GossipVerifiedBlob<T: BeaconChainTypes, O: ObservationStrategy = Obse
     block_root: Hash256,
     blob: KzgVerifiedBlob<T::EthSpec>,
     _phantom: PhantomData<O>,
+}
+
+impl<T: BeaconChainTypes, O: ObservationStrategy> Clone for GossipVerifiedBlob<T, O> {
+    fn clone(&self) -> Self {
+        Self {
+            block_root: self.block_root,
+            blob: self.blob.clone(),
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedBlob<T, O> {
@@ -335,21 +345,9 @@ impl<E: EthSpec> KzgVerifiedBlobList<E> {
     }
 
     /// Create a `KzgVerifiedBlobList` from `blobs` that are already KZG verified.
-    ///
-    /// This should be used with caution, as used incorrectly it could result in KZG verification
-    /// being skipped and invalid blobs being deemed valid.
-    pub fn from_verified<I: IntoIterator<Item = Arc<BlobSidecar<E>>>>(
-        blobs: I,
-        seen_timestamp: Duration,
-    ) -> Self {
+    pub fn from_verified<I: IntoIterator<Item = KzgVerifiedBlob<E>>>(blobs: I) -> Self {
         Self {
-            verified_blobs: blobs
-                .into_iter()
-                .map(|blob| KzgVerifiedBlob {
-                    blob,
-                    seen_timestamp,
-                })
-                .collect(),
+            verified_blobs: blobs.into_iter().collect(),
         }
     }
 }
@@ -446,7 +444,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
         .observed_blob_sidecars
         .read()
         .proposer_is_known(&blob_sidecar)
-        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
+        .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipBlobError::RepeatBlob {
             proposer: blob_proposer_index,
@@ -511,7 +509,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
         let (parent_state_root, mut parent_state) = chain
             .store
             .get_advanced_hot_state(block_parent_root, blob_slot, parent_block.state_root)
-            .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
+            .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!(
                     "Missing state for parent block {block_parent_root:?}",
@@ -525,7 +523,8 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
             &chain.spec,
         )?;
 
-        let proposers = state.get_beacon_proposer_indices(&chain.spec)?;
+        let epoch = state.current_epoch();
+        let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
         let proposer_index = *proposers
             .get(blob_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
             .ok_or_else(|| BeaconChainError::NoProposerForSlot(blob_slot))?;
@@ -582,7 +581,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
             blob_sidecar.block_proposer_index(),
             block_root,
         )
-        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?;
+        .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?;
 
     if O::observe() {
         observe_gossip_blob(&kzg_verified_blob.blob, chain)?;
@@ -628,7 +627,7 @@ fn observe_gossip_blob<T: BeaconChainTypes>(
         .observed_blob_sidecars
         .write()
         .observe_sidecar(blob_sidecar)
-        .map_err(|e| GossipBlobError::BeaconChainError(e.into()))?
+        .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipBlobError::RepeatBlob {
             proposer: blob_sidecar.block_proposer_index(),

@@ -1,6 +1,6 @@
 use crate::hdiff::HierarchyConfig;
 use crate::superstruct;
-use crate::{AnchorInfo, DBColumn, Error, Split, StoreItem};
+use crate::{DBColumn, Error, StoreItem};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -24,7 +24,8 @@ pub const DEFAULT_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 pub const DEFAULT_STATE_CACHE_HEADROOM: NonZeroUsize = new_non_zero_usize(1);
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
 pub const DEFAULT_HISTORIC_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(1);
-pub const DEFAULT_HDIFF_BUFFER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
+pub const DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(16);
+pub const DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(1);
 const EST_COMPRESSION_FACTOR: usize = 2;
 pub const DEFAULT_EPOCHS_PER_BLOB_PRUNE: u64 = 1;
 pub const DEFAULT_BLOB_PUNE_MARGIN_EPOCHS: u64 = 0;
@@ -42,8 +43,10 @@ pub struct StoreConfig {
     pub compression_level: i32,
     /// Maximum number of historic states to store in the in-memory historic state cache.
     pub historic_state_cache_size: NonZeroUsize,
-    /// Maximum number of `HDiffBuffer`s to store in memory.
-    pub hdiff_buffer_cache_size: NonZeroUsize,
+    /// Maximum number of cold `HDiffBuffer`s to store in memory.
+    pub cold_hdiff_buffer_cache_size: NonZeroUsize,
+    /// Maximum number of hot `HDiffBuffers` to store in memory.
+    pub hot_hdiff_buffer_cache_size: NonZeroUsize,
     /// Whether to compact the database on initialization.
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
@@ -65,14 +68,12 @@ pub struct StoreConfig {
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
 #[superstruct(
-    variants(V1, V22),
+    variants(V22),
     variant_attributes(derive(Debug, Clone, PartialEq, Eq, Encode, Decode))
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OnDiskStoreConfig {
-    #[superstruct(only(V1))]
-    pub slots_per_restore_point: u64,
-    /// Prefix byte to future-proof versions of the `OnDiskStoreConfig` post V1
+    /// Prefix byte to future-proof versions of the `OnDiskStoreConfig`.
     #[superstruct(only(V22))]
     version_byte: u8,
     #[superstruct(only(V22))]
@@ -90,10 +91,6 @@ impl OnDiskStoreConfigV22 {
 
 #[derive(Debug, Clone)]
 pub enum StoreConfigError {
-    MismatchedSlotsPerRestorePoint {
-        config: u64,
-        on_disk: u64,
-    },
     InvalidCompressionLevel {
         level: i32,
     },
@@ -112,7 +109,8 @@ impl Default for StoreConfig {
             state_cache_size: DEFAULT_STATE_CACHE_SIZE,
             state_cache_headroom: DEFAULT_STATE_CACHE_HEADROOM,
             historic_state_cache_size: DEFAULT_HISTORIC_STATE_CACHE_SIZE,
-            hdiff_buffer_cache_size: DEFAULT_HDIFF_BUFFER_CACHE_SIZE,
+            cold_hdiff_buffer_cache_size: DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE,
+            hot_hdiff_buffer_cache_size: DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE,
             compression_level: DEFAULT_COMPRESSION_LEVEL,
             compact_on_init: false,
             compact_on_prune: true,
@@ -134,21 +132,13 @@ impl StoreConfig {
     pub fn check_compatibility(
         &self,
         on_disk_config: &OnDiskStoreConfig,
-        split: &Split,
-        anchor: &AnchorInfo,
     ) -> Result<(), StoreConfigError> {
-        // Allow changing the hierarchy exponents if no historic states are stored.
-        let no_historic_states_stored = anchor.no_historic_states_stored(split.slot);
-        let hierarchy_config_changed =
-            if let Ok(on_disk_hierarchy_config) = on_disk_config.hierarchy_config() {
-                *on_disk_hierarchy_config != self.hierarchy_config
-            } else {
-                false
-            };
-
-        if hierarchy_config_changed && !no_historic_states_stored {
+        // We previously allowed the hierarchy exponents to change on non-archive nodes, but since
+        // schema v24 and the use of hdiffs in the hot DB, changing will require a resync.
+        let current_config = self.as_disk_config();
+        if current_config != *on_disk_config {
             Err(StoreConfigError::IncompatibleStoreConfig {
-                config: self.as_disk_config(),
+                config: current_config,
                 on_disk: on_disk_config.clone(),
             })
         } else {
@@ -222,32 +212,21 @@ impl StoreItem for OnDiskStoreConfig {
 
     fn as_store_bytes(&self) -> Vec<u8> {
         match self {
-            OnDiskStoreConfig::V1(value) => value.as_ssz_bytes(),
             OnDiskStoreConfig::V22(value) => value.as_ssz_bytes(),
         }
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        // NOTE: V22 config can never be deserialized as a V1 because the minimum length of its
-        // serialization is: 1 prefix byte + 1 offset (OnDiskStoreConfigV1 container) +
-        // 1 offset (HierarchyConfig container) = 9.
-        if let Ok(value) = OnDiskStoreConfigV1::from_ssz_bytes(bytes) {
-            return Ok(Self::V1(value));
+        match bytes.first() {
+            Some(22) => Ok(Self::V22(OnDiskStoreConfigV22::from_ssz_bytes(bytes)?)),
+            version_byte => Err(StoreConfigError::InvalidVersionByte(version_byte.copied()).into()),
         }
-
-        Ok(Self::V22(OnDiskStoreConfigV22::from_ssz_bytes(bytes)?))
     }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{
-        metadata::{ANCHOR_FOR_ARCHIVE_NODE, ANCHOR_UNINITIALIZED, STATE_UPPER_LIMIT_NO_RETAIN},
-        AnchorInfo, Split,
-    };
-    use ssz::DecodeError;
-    use types::{Hash256, Slot};
 
     #[test]
     fn check_compatibility_ok() {
@@ -257,24 +236,7 @@ mod test {
         let on_disk_config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(
             store_config.hierarchy_config.clone(),
         ));
-        let split = Split::default();
-        assert!(store_config
-            .check_compatibility(&on_disk_config, &split, &ANCHOR_UNINITIALIZED)
-            .is_ok());
-    }
-
-    #[test]
-    fn check_compatibility_after_migration() {
-        let store_config = StoreConfig {
-            ..Default::default()
-        };
-        let on_disk_config = OnDiskStoreConfig::V1(OnDiskStoreConfigV1 {
-            slots_per_restore_point: 8192,
-        });
-        let split = Split::default();
-        assert!(store_config
-            .check_compatibility(&on_disk_config, &split, &ANCHOR_UNINITIALIZED)
-            .is_ok());
+        assert!(store_config.check_compatibility(&on_disk_config).is_ok());
     }
 
     #[test]
@@ -283,70 +245,11 @@ mod test {
         let on_disk_config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(HierarchyConfig {
             exponents: vec![5, 8, 11, 13, 16, 18, 21],
         }));
-        let split = Split {
-            slot: Slot::new(32),
-            ..Default::default()
-        };
-        assert!(store_config
-            .check_compatibility(&on_disk_config, &split, &ANCHOR_FOR_ARCHIVE_NODE)
-            .is_err());
+        assert!(store_config.check_compatibility(&on_disk_config).is_err());
     }
 
     #[test]
-    fn check_compatibility_hierarchy_config_update() {
-        let store_config = StoreConfig {
-            ..Default::default()
-        };
-        let on_disk_config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(HierarchyConfig {
-            exponents: vec![5, 8, 11, 13, 16, 18, 21],
-        }));
-        let split = Split::default();
-        let anchor = AnchorInfo {
-            anchor_slot: Slot::new(0),
-            oldest_block_slot: Slot::new(0),
-            oldest_block_parent: Hash256::ZERO,
-            state_upper_limit: STATE_UPPER_LIMIT_NO_RETAIN,
-            state_lower_limit: Slot::new(0),
-        };
-        assert!(store_config
-            .check_compatibility(&on_disk_config, &split, &anchor)
-            .is_ok());
-    }
-
-    #[test]
-    fn serde_on_disk_config_v0_from_v1_default() {
-        let config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(<_>::default()));
-        let config_bytes = config.as_store_bytes();
-        // On a downgrade, the previous version of lighthouse will attempt to deserialize the
-        // prefixed V22 as just the V1 version.
-        assert_eq!(
-            OnDiskStoreConfigV1::from_ssz_bytes(&config_bytes).unwrap_err(),
-            DecodeError::InvalidByteLength {
-                len: 16,
-                expected: 8
-            },
-        );
-    }
-
-    #[test]
-    fn serde_on_disk_config_v0_from_v1_empty() {
-        let config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(HierarchyConfig {
-            exponents: vec![],
-        }));
-        let config_bytes = config.as_store_bytes();
-        // On a downgrade, the previous version of lighthouse will attempt to deserialize the
-        // prefixed V22 as just the V1 version.
-        assert_eq!(
-            OnDiskStoreConfigV1::from_ssz_bytes(&config_bytes).unwrap_err(),
-            DecodeError::InvalidByteLength {
-                len: 9,
-                expected: 8
-            },
-        );
-    }
-
-    #[test]
-    fn serde_on_disk_config_v1_roundtrip() {
+    fn on_disk_config_v22_roundtrip() {
         let config = OnDiskStoreConfig::V22(OnDiskStoreConfigV22::new(<_>::default()));
         let bytes = config.as_store_bytes();
         assert_eq!(bytes[0], 22);
