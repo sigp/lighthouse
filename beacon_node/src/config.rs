@@ -836,6 +836,23 @@ pub fn get_config<E: EthSpec>(
     // Stateless validation.
     client_config.chain.stateless_validation =
         cli_args.get_flag("stateless-validation");
+    
+    // Execution proof subnets (for stateless validation).
+    if let Some(subnets) = cli_args.get_many::<String>("execution-proof-subnets") {
+        let parsed_subnets: Result<Vec<u64>, _> = subnets
+            .flat_map(|s| s.split(','))
+            .map(|s| s.trim().parse::<u64>())
+            .collect();
+        
+        match parsed_subnets {
+            Ok(subnets) => {
+                client_config.chain.execution_proof_subnets = subnets;
+            }
+            Err(e) => {
+                return Err(format!("Failed to parse execution-proof-subnets: {}", e));
+            }
+        }
+    }
 
     if cli_args.get_flag("genesis-backfill") {
         client_config.chain.genesis_backfill = true;

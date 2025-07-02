@@ -4,6 +4,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use types::ExecutionBlockHash;
 
+/// Default maximum number of execution proof subnets for non-stateless nodes
+/// This determines how many subnets non-stateless nodes will subscribe to by default
+/// TODO: ProofId can then just be a u8
+pub const DEFAULT_MAX_EXECUTION_PROOF_SUBNETS: u64 = 8;
+
 /// Identifier for different types of proofs that can be received for execution payloads
 /// Each proof ID will be received on a different gossip subnet
 /// The u64 value can be mapped to subnet numbers for easy routing
@@ -29,6 +34,17 @@ impl ProofId {
     /// Get the numeric ID (useful for subnet mapping)
     pub fn id(&self) -> u64 {
         self.0
+    }
+
+    /// Get the gossip subnet ID for this proof type
+    /// Direct one-to-one mapping: ProofId IS the subnet ID
+    pub fn subnet_id(&self) -> u64 {
+        self.0
+    }
+
+    /// Get the gossip topic name for this proof type
+    pub fn subnet_topic(&self) -> String {
+        format!("execution_proof_{}", self.0)
     }
 
     /// Get a string identifier for this proof type
@@ -424,7 +440,7 @@ mod tests {
             .expect("valid proof should store successfully");
 
         // Wait longer to ensure different timestamps
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
         // Store second proof
         store
@@ -440,7 +456,7 @@ mod tests {
         assert!(store.has_valid_proof(&hash2));
 
         // Wait longer to ensure different timestamps
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        std::thread::sleep(std::time::Duration::from_millis(100));
 
         // Store a third proof, should evict the oldest (hash1)
         store
@@ -569,5 +585,35 @@ mod tests {
         let custom_proof = ExecutionPayloadProof::new_v1(hash, ProofId::custom(42), vec![1, 2, 3]);
         assert_eq!(custom_proof.description(), "Custom proof type 42 v1");
         assert_eq!(custom_proof.identifier(), "custom_v1");
+    }
+
+    #[test]
+    fn test_proof_subnet_mapping() {
+        // Test direct one-to-one mapping
+        assert_eq!(ProofId::EXECUTION_WITNESS.subnet_id(), 0);
+        assert_eq!(ProofId::custom(1).subnet_id(), 1);
+        assert_eq!(ProofId::custom(42).subnet_id(), 42);
+        assert_eq!(ProofId::custom(100).subnet_id(), 100);
+
+        // Test subnet topic generation
+        assert_eq!(
+            ProofId::EXECUTION_WITNESS.subnet_topic(),
+            "execution_proof_0"
+        );
+        assert_eq!(ProofId::custom(1).subnet_topic(), "execution_proof_1");
+        assert_eq!(ProofId::custom(42).subnet_topic(), "execution_proof_42");
+
+        // Test that ProofId and subnet_id are equivalent
+        for id in [0, 1, 2, 3, 4, 5, 6, 7] {
+            let proof_id = ProofId::custom(id);
+            assert_eq!(proof_id.id(), id);
+            assert_eq!(proof_id.subnet_id(), id);
+            assert_eq!(proof_id.subnet_topic(), format!("execution_proof_{}", id));
+        }
+        
+        // Test higher subnet IDs still work (for future expansion)
+        let high_id = ProofId::custom(100);
+        assert_eq!(high_id.subnet_id(), 100);
+        assert_eq!(high_id.subnet_topic(), "execution_proof_100");
     }
 }

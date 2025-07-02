@@ -435,7 +435,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Interfaces with the execution client.
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Storage for execution payload proofs used in stateless validation.
-    pub execution_payload_proof_store: Arc<crate::execution_payload_proofs::ExecutionPayloadProofStore>,
+    pub execution_payload_proof_store:
+        Arc<crate::execution_payload_proofs::ExecutionPayloadProofStore>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
@@ -2656,6 +2657,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn current_slot_is_post_capella(&self) -> Result<bool, Error> {
         let current_fork = self.spec.fork_name_at_slot::<T::EthSpec>(self.slot()?);
         Ok(current_fork.capella_enabled())
+    }
+
+    /// Determine which execution proof subnets this node should subscribe to
+    pub fn execution_proof_subnets(&self) -> Vec<u64> {
+        if self.config.stateless_validation {
+            // Stateless nodes: subscribe only to subnets they care about
+            if self.config.execution_proof_subnets.is_empty() {
+                // Default: subscribe to all subnets if nothing specified
+                (0..self.config.max_execution_proof_subnets).collect()
+            } else {
+                self.config.execution_proof_subnets.clone()
+            }
+        } else {
+            // Non-stateless nodes: subscribe to all configured subnets (they generate proofs)
+            (0..self.config.max_execution_proof_subnets).collect()
+        }
+    }
+
+    /// Get the maximum number of execution proof subnets for this configuration
+    pub fn max_execution_proof_subnets(&self) -> u64 {
+        self.config.max_execution_proof_subnets
+    }
+
+    /// Check if this node should generate execution proofs for the given subnet
+    /// TODO: can we assume subnet_id is always less than max?
+    pub fn should_generate_execution_proof_for_subnet(&self, subnet_id: u64) -> bool {
+        if self.config.stateless_validation {
+            // Stateless nodes don't generate proofs
+            false
+        } else {
+            // Non-stateless nodes generate proofs for all subnets they subscribe to
+            subnet_id < self.config.max_execution_proof_subnets
+        }
     }
 
     /// Import a BLS to execution change to the op pool.
