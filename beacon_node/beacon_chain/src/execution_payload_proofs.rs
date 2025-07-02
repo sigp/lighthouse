@@ -108,23 +108,6 @@ impl ExecutionPayloadProof {
         Self::new(block_hash, proof_id, 1, proof_data)
     }
 
-    /// Validate the proof (placeholder implementation)
-    /// TODO: Implement actual cryptographic proof validation based on version and type
-    pub fn validate(&self) -> bool {
-        // Placeholder validation - in reality this would verify cryptographic proofs
-        // based on both proof_type and version
-        match self.version {
-            1 => {
-                // Version 1 validation: non-empty data
-                !self.proof_data.is_empty()
-            }
-            _ => {
-                // Unknown version - consider invalid
-                // In the future, might want to have version-specific validation
-                false
-            }
-        }
-    }
 
     /// Check if this proof version is supported
     pub fn is_version_supported(&self) -> bool {
@@ -211,7 +194,7 @@ impl ExecutionPayloadProofStore {
     /// TODO: This will be called when proofs are received via gossip subnet
     pub fn store_proof(&self, proof: ExecutionPayloadProof) -> Result<(), String> {
         // Validate the proof before storing
-        if !proof.validate() {
+        if !Self::validate_proof(&proof) {
             return Err(format!(
                 "Invalid proof for block hash {:?}, proof ID {}: validation failed",
                 proof.block_hash,
@@ -333,6 +316,57 @@ impl ExecutionPayloadProofStore {
         // 3. Track which peers we've sent the proof to
         todo!("Implement when gossip subnet infrastructure is ready")
     }
+
+    /// Generate a dummy proof for testing purposes
+    /// TODO: Replace with actual proof generation from zkVMs or other proof systems
+    pub fn generate_dummy_proof(
+        execution_block_hash: ExecutionBlockHash,
+        proof_id: ProofId,
+    ) -> ExecutionPayloadProof {
+        // Create dummy proof data that includes the subnet information
+        let dummy_data = format!(
+            "dummy_proof_subnet_{}_block_{:?}_timestamp_{}",
+            proof_id.subnet_id(),
+            execution_block_hash,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        )
+        .into_bytes();
+        
+        ExecutionPayloadProof::new_v1(execution_block_hash, proof_id, dummy_data)
+    }
+
+    /// Generate and store a dummy proof for the given execution block hash and proof ID
+    /// This is a convenience method that combines proof generation and storage
+    pub fn generate_and_store_dummy_proof(
+        &self,
+        execution_block_hash: ExecutionBlockHash,
+        proof_id: ProofId,
+    ) -> Result<ExecutionPayloadProof, String> {
+        let proof = Self::generate_dummy_proof(execution_block_hash, proof_id);
+        self.store_proof(proof.clone())?;
+        Ok(proof)
+    }
+
+    /// Validate a proof (placeholder implementation)
+    /// TODO: Implement actual cryptographic proof validation based on version and type
+    pub fn validate_proof(proof: &ExecutionPayloadProof) -> bool {
+        // Placeholder validation - in reality this would verify cryptographic proofs
+        // based on both proof_type and version
+        match proof.version {
+            1 => {
+                // Version 1 validation: non-empty data
+                !proof.proof_data.is_empty()
+            }
+            _ => {
+                // Unknown version - consider invalid
+                // In the future, might want to have version-specific validation
+                false
+            }
+        }
+    }
 }
 
 impl Default for ExecutionPayloadProofStore {
@@ -410,13 +444,13 @@ mod tests {
         // Valid proof (non-empty data) should store successfully
         let valid_proof =
             ExecutionPayloadProof::new_v1(hash, ProofId::EXECUTION_WITNESS, vec![1, 2, 3]);
-        assert!(valid_proof.validate());
+        assert!(ExecutionPayloadProofStore::validate_proof(&valid_proof));
         assert!(store.store_proof(valid_proof).is_ok());
         assert!(store.has_valid_proof(&hash));
 
         // Invalid proof (empty data) should fail to store
         let invalid_proof = ExecutionPayloadProof::new_v1(hash, ProofId::custom(1), vec![]);
-        assert!(!invalid_proof.validate());
+        assert!(!ExecutionPayloadProofStore::validate_proof(&invalid_proof));
         assert!(store.store_proof(invalid_proof).is_err());
         // Should still only have the first proof
         assert_eq!(store.proof_count_for_payload(&hash), 1);
@@ -430,47 +464,34 @@ mod tests {
         let hash2 = ExecutionBlockHash::from(Hash256::random());
         let hash3 = ExecutionBlockHash::from(Hash256::random());
 
+        // Create proofs with manually set timestamps to ensure proper ordering
+        let mut proof1 = ExecutionPayloadProof::new_v1(hash1, ProofId::EXECUTION_WITNESS, vec![1]);
+        proof1.timestamp = 100; // Oldest
+        
+        let mut proof2 = ExecutionPayloadProof::new_v1(hash2, ProofId::custom(1), vec![2]);
+        proof2.timestamp = 200; // Middle
+        
+        let mut proof3 = ExecutionPayloadProof::new_v1(hash3, ProofId::custom(2), vec![3]);
+        proof3.timestamp = 300; // Newest
+
         // Store first proof
-        store
-            .store_proof(ExecutionPayloadProof::new_v1(
-                hash1,
-                ProofId::EXECUTION_WITNESS,
-                vec![1],
-            ))
-            .expect("valid proof should store successfully");
-
-        // Wait longer to ensure different timestamps
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
+        store.store_proof(proof1).expect("valid proof should store successfully");
+        assert_eq!(store.len(), 1);
+        assert!(store.has_valid_proof(&hash1));
+        
         // Store second proof
-        store
-            .store_proof(ExecutionPayloadProof::new_v1(
-                hash2,
-                ProofId::custom(1),
-                vec![2],
-            ))
-            .expect("valid proof should store successfully");
-
+        store.store_proof(proof2).expect("valid proof should store successfully");
         assert_eq!(store.len(), 2);
         assert!(store.has_valid_proof(&hash1));
         assert!(store.has_valid_proof(&hash2));
 
-        // Wait longer to ensure different timestamps
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
         // Store a third proof, should evict the oldest (hash1)
-        store
-            .store_proof(ExecutionPayloadProof::new_v1(
-                hash3,
-                ProofId::custom(2),
-                vec![3],
-            ))
-            .expect("valid proof should store successfully");
-
+        store.store_proof(proof3).expect("valid proof should store successfully");
+        
         assert_eq!(store.len(), 2);
-        assert!(!store.has_valid_proof(&hash1)); // Evicted
-        assert!(store.has_valid_proof(&hash2));
-        assert!(store.has_valid_proof(&hash3));
+        assert!(!store.has_valid_proof(&hash1)); // Evicted (oldest)
+        assert!(store.has_valid_proof(&hash2));  // Kept (middle)
+        assert!(store.has_valid_proof(&hash3));  // Kept (newest)
     }
 
     #[test]
@@ -556,7 +577,7 @@ mod tests {
             ExecutionPayloadProof::new_v1(hash, ProofId::EXECUTION_WITNESS, vec![1, 2, 3]);
         assert_eq!(v1_proof.version, 1);
         assert!(v1_proof.is_version_supported());
-        assert!(v1_proof.validate());
+        assert!(ExecutionPayloadProofStore::validate_proof(&v1_proof));
         assert_eq!(v1_proof.description(), "Execution witness proof v1");
         assert_eq!(v1_proof.identifier(), "execution_witness_v1");
 
@@ -564,7 +585,7 @@ mod tests {
         let v1_explicit = ExecutionPayloadProof::new(hash, ProofId::custom(1), 1, vec![4, 5, 6]);
         assert_eq!(v1_explicit.version, 1);
         assert!(v1_explicit.is_version_supported());
-        assert!(v1_explicit.validate());
+        assert!(ExecutionPayloadProofStore::validate_proof(&v1_explicit));
         assert_eq!(v1_explicit.description(), "Custom proof type 1 v1");
         assert_eq!(v1_explicit.identifier(), "custom_v1");
 
@@ -573,13 +594,13 @@ mod tests {
             ExecutionPayloadProof::new(hash, ProofId::EXECUTION_WITNESS, 2, vec![7, 8, 9]);
         assert_eq!(v2_proof.version, 2);
         assert!(!v2_proof.is_version_supported());
-        assert!(!v2_proof.validate()); // Should fail validation for unknown version
+        assert!(!ExecutionPayloadProofStore::validate_proof(&v2_proof)); // Should fail validation for unknown version
         assert_eq!(v2_proof.description(), "Execution witness proof v2");
         assert_eq!(v2_proof.identifier(), "execution_witness_v2");
 
         // Test empty data with version 1 (should be invalid)
         let empty_v1 = ExecutionPayloadProof::new_v1(hash, ProofId::EXECUTION_WITNESS, vec![]);
-        assert!(!empty_v1.validate());
+        assert!(!ExecutionPayloadProofStore::validate_proof(&empty_v1));
 
         // Test custom proof ID
         let custom_proof = ExecutionPayloadProof::new_v1(hash, ProofId::custom(42), vec![1, 2, 3]);
@@ -615,5 +636,60 @@ mod tests {
         let high_id = ProofId::custom(100);
         assert_eq!(high_id.subnet_id(), 100);
         assert_eq!(high_id.subnet_topic(), "execution_proof_100");
+    }
+    
+    #[test]
+    fn test_generate_dummy_proof_method() {
+        let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
+        let proof_id = ProofId::custom(5);
+        
+        let proof = ExecutionPayloadProofStore::generate_dummy_proof(execution_block_hash, proof_id);
+        
+        assert_eq!(proof.block_hash, execution_block_hash);
+        assert_eq!(proof.proof_id, proof_id);
+        assert_eq!(proof.version, 1);
+        assert!(!proof.proof_data.is_empty());
+        assert!(ExecutionPayloadProofStore::validate_proof(&proof));
+        
+        // Verify the proof data contains expected information
+        let proof_data_str = String::from_utf8_lossy(&proof.proof_data);
+        assert!(proof_data_str.contains("dummy_proof_subnet_5"));
+        assert!(proof_data_str.contains(&format!("{:?}", execution_block_hash)));
+    }
+    
+    #[test]
+    fn test_generate_and_store_dummy_proof_method() {
+        let store = ExecutionPayloadProofStore::new(10);
+        let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
+        let proof_id = ProofId::custom(3);
+        
+        // Initially no proofs
+        assert!(!store.has_valid_proof(&execution_block_hash));
+        assert_eq!(store.len(), 0);
+        
+        // Generate and store a proof
+        let result = store.generate_and_store_dummy_proof(execution_block_hash, proof_id);
+        assert!(result.is_ok());
+        
+        let proof = result.unwrap();
+        assert_eq!(proof.block_hash, execution_block_hash);
+        assert_eq!(proof.proof_id, proof_id);
+        
+        // Verify it's stored in the store
+        assert!(store.has_valid_proof(&execution_block_hash));
+        assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id));
+        assert_eq!(store.len(), 1);
+        assert_eq!(store.proof_count_for_payload(&execution_block_hash), 1);
+        
+        // Generate another proof for the same payload with different proof ID
+        let proof_id_2 = ProofId::custom(7);
+        let result_2 = store.generate_and_store_dummy_proof(execution_block_hash, proof_id_2);
+        assert!(result_2.is_ok());
+        
+        // Should have 2 proofs now
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.proof_count_for_payload(&execution_block_hash), 2);
+        assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id));
+        assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id_2));
     }
 }

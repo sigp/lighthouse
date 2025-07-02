@@ -142,13 +142,18 @@ async fn notify_new_payload<T: BeaconChainTypes>(
     // Check if stateless validation is enabled
     if chain.config.stateless_validation {
         // Check if we have any valid proof for this execution payload
-        if chain.execution_payload_proof_store.has_valid_proof(&execution_block_hash) {
-            let proof_count = chain.execution_payload_proof_store.proof_count_for_payload(&execution_block_hash);
-            let proofs = chain.execution_payload_proof_store.get_proofs(&execution_block_hash);
-            let proof_descriptions: Vec<String> = proofs.iter()
-                .map(|p| p.description())
-                .collect();
-            
+        if chain
+            .execution_payload_proof_store
+            .has_valid_proof(&execution_block_hash)
+        {
+            let proof_count = chain
+                .execution_payload_proof_store
+                .proof_count_for_payload(&execution_block_hash);
+            let proofs = chain
+                .execution_payload_proof_store
+                .get_proofs(&execution_block_hash);
+            let proof_descriptions: Vec<String> = proofs.iter().map(|p| p.description()).collect();
+
             info!(
                 "Found {} valid proof(s) for execution payload {:?} ({}), marking as verified",
                 proof_count,
@@ -577,5 +582,177 @@ where
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
+    // Generate and store execution proofs if not in stateless validation mode
+    if !chain.config.stateless_validation {
+        generate_and_store_execution_proofs(&chain, &block_contents).await?;
+    }
+
     Ok(block_contents)
+}
+
+/// Generate and store dummy execution proofs for all subscribed subnets
+/// This simulates receiving proofs that would normally come from zkVMs or other proof generators
+async fn generate_and_store_execution_proofs<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    block_contents: &BlockProposalContentsType<T::EthSpec>,
+) -> Result<(), BlockProductionError> {
+    // Extract the execution block hash from the payload
+    let execution_block_hash = match block_contents {
+        BlockProposalContentsType::Full(contents) => match contents {
+            BlockProposalContents::Payload { payload, .. } => payload.block_hash(),
+            BlockProposalContents::PayloadAndBlobs { payload, .. } => {
+                payload.clone().execution_payload().block_hash()
+            }
+        },
+        BlockProposalContentsType::Blinded(_) => {
+            // For blinded payloads, we don't have the execution payload's block hash yet
+            // TODO: Handle blinded payloads when we implement actual proof generation
+            // TODO: Essentially if mev-boost is used then we can assume that the builder
+            // TODO: will generate the proof.
+            info!("Skipping proof generation for blinded payload");
+            return Ok(());
+        }
+    };
+
+    // Get the subnets this node wants to generate proofs for
+    let proof_subnets = chain.execution_proof_subnets();
+
+    info!(
+        "Generating {} dummy proofs for execution payload {:?} on subnets {:?}",
+        proof_subnets.len(),
+        execution_block_hash,
+        proof_subnets
+    );
+
+    // Generate and store a proof for each subnet
+    for subnet_id in proof_subnets {
+        if chain.should_generate_execution_proof_for_subnet(subnet_id) {
+            let proof_id = crate::execution_payload_proofs::ProofId(subnet_id);
+
+            // Use the proof store method to generate and store the proof
+            match chain
+                .execution_payload_proof_store
+                .generate_and_store_dummy_proof(execution_block_hash, proof_id)
+            {
+                Ok(proof) => {
+                    info!(
+                        "Generated and stored {} for execution payload {:?} on subnet {}",
+                        proof.description(),
+                        execution_block_hash,
+                        subnet_id
+                    );
+
+                    // TODO: Broadcast the proof to the gossip subnet
+                    // This will be implemented in a future phase when gossip integration is ready
+                    debug!(
+                        "Would broadcast proof to subnet {} (gossip integration not yet implemented)",
+                        subnet_id
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to generate and store proof for subnet {}: {}",
+                        subnet_id, e
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution_payload_proofs::ProofId;
+    use types::Hash256;
+
+    #[test]
+    fn test_generate_dummy_proof() {
+        let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
+        let proof_id = ProofId::EXECUTION_WITNESS;
+
+        let proof =
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
+                execution_block_hash,
+                proof_id,
+            );
+
+        assert_eq!(proof.block_hash, execution_block_hash);
+        assert_eq!(proof.proof_id, proof_id);
+        assert_eq!(proof.version, 1);
+        assert!(!proof.proof_data.is_empty());
+        assert!(
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::validate_proof(&proof)
+        );
+
+        // Verify the proof data contains expected information
+        let proof_data_str = String::from_utf8_lossy(&proof.proof_data);
+        assert!(proof_data_str.contains("dummy_proof_subnet_0"));
+        assert!(proof_data_str.contains(&format!("{:?}", execution_block_hash)));
+    }
+
+    #[test]
+    fn test_generate_dummy_proof_different_subnets() {
+        let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
+
+        let proof_0 =
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
+                execution_block_hash,
+                ProofId::EXECUTION_WITNESS,
+            );
+        let proof_1 =
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
+                execution_block_hash,
+                ProofId::custom(1),
+            );
+        let proof_2 =
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
+                execution_block_hash,
+                ProofId::custom(2),
+            );
+
+        // All proofs should be for the same block hash
+        assert_eq!(proof_0.block_hash, execution_block_hash);
+        assert_eq!(proof_1.block_hash, execution_block_hash);
+        assert_eq!(proof_2.block_hash, execution_block_hash);
+
+        // But should have different proof IDs and data
+        assert_eq!(proof_0.proof_id.subnet_id(), 0);
+        assert_eq!(proof_1.proof_id.subnet_id(), 1);
+        assert_eq!(proof_2.proof_id.subnet_id(), 2);
+
+        // Proof data should be different for different subnets
+        assert_ne!(proof_0.proof_data, proof_1.proof_data);
+        assert_ne!(proof_1.proof_data, proof_2.proof_data);
+
+        let data_0 = String::from_utf8_lossy(&proof_0.proof_data);
+        let data_1 = String::from_utf8_lossy(&proof_1.proof_data);
+        let data_2 = String::from_utf8_lossy(&proof_2.proof_data);
+
+        assert!(data_0.contains("subnet_0"));
+        assert!(data_1.contains("subnet_1"));
+        assert!(data_2.contains("subnet_2"));
+    }
+
+    #[test]
+    fn test_generate_and_store_dummy_proof() {
+        let store = crate::execution_payload_proofs::ExecutionPayloadProofStore::new(10);
+        let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
+        let proof_id = ProofId::EXECUTION_WITNESS;
+
+        // Generate and store a proof
+        let result = store.generate_and_store_dummy_proof(execution_block_hash, proof_id);
+        assert!(result.is_ok());
+
+        let proof = result.unwrap();
+        assert_eq!(proof.block_hash, execution_block_hash);
+        assert_eq!(proof.proof_id, proof_id);
+
+        // Verify it's stored in the store
+        assert!(store.has_valid_proof(&execution_block_hash));
+        assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id));
+        assert_eq!(store.proof_count_for_payload(&execution_block_hash), 1);
+    }
 }
