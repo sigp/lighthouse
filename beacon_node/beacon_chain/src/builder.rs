@@ -522,7 +522,7 @@ where
         // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
         // is initialised prior to storing the state, as the anchor is required for working out
         // hdiff storage strategies.
-        let retain_historic_states = dbg!(self.chain_config.reconstruct_historic_states);
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
         self.pending_io_batch.push(
             store
                 .init_anchor_info(

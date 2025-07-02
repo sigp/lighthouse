@@ -2381,7 +2381,9 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
     let chain_config = ChainConfig {
-        reconstruct_historic_states: true,
+        // Set reconstruct_historic_states to true from the start in the genesis case. This makes
+        // some of the later checks more uniform across the genesis/non-genesis cases.
+        reconstruct_historic_states: checkpoint_slot == 0,
         ..ChainConfig::default()
     };
 
