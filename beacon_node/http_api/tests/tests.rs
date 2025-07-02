@@ -6714,6 +6714,9 @@ impl ApiTester {
         assert!(!query_preserve_path.contains("graffiti_policy"), "URL should not contain graffiti_policy parameter when using PreserveUserGraffiti. URL is: {}",
                 query_preserve_path);
 
+        // Assert that the current HTTP API path is the same as PreserveUserGraffiti
+        assert_eq!(query_default_path, query_preserve_path);
+
         let append_path = self
             .client
             .get_validator_blocks_v3_path(
