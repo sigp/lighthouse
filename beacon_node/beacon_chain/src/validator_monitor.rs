@@ -342,7 +342,7 @@ impl MonitoredValidator {
 
         // Prune
         while summaries.len() > HISTORIC_EPOCHS {
-            if let Some(key) = summaries.iter().map(|(epoch, _)| *epoch).min() {
+            if let Some(key) = summaries.keys().copied().min() {
                 summaries.remove(&key);
             }
         }

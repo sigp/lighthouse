@@ -26,6 +26,7 @@ use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
+use types::ChainSpec;
 use validator_services::block_service::BlockService;
 use zeroize::Zeroizing;
 
@@ -61,6 +62,7 @@ pub struct ApiTester {
     pub _server_shutdown: oneshot::Sender<()>,
     pub validator_dir: TempDir,
     pub secrets_dir: TempDir,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl ApiTester {
@@ -69,6 +71,19 @@ impl ApiTester {
     }
 
     pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+        let genesis_validators_root = Hash256::repeat_byte(42);
+        let spec = Arc::new(E::default_spec());
+        Self::new_with_options(http_config, slot_clock, genesis_validators_root, spec).await
+    }
+
+    pub async fn new_with_options(
+        http_config: HttpConfig,
+        slot_clock: TestingSlotClock,
+        genesis_validators_root: Hash256,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join(PK_FILENAME);
@@ -91,20 +106,15 @@ impl ApiTester {
             ..Default::default()
         };
 
-        let spec = Arc::new(E::default_spec());
-
         let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
-
-        let slot_clock =
-            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
 
         let test_runtime = TestRuntime::default();
 
         let validator_store = Arc::new(LighthouseValidatorStore::new(
             initialized_validators,
             slashing_protection,
-            Hash256::repeat_byte(42),
+            genesis_validators_root,
             spec.clone(),
             Some(Arc::new(DoppelgangerService::default())),
             slot_clock.clone(),
@@ -127,7 +137,7 @@ impl ApiTester {
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec,
+            spec: spec.clone(),
             config: http_config,
             sse_logging_components: None,
             slot_clock,
@@ -161,6 +171,7 @@ impl ApiTester {
             _server_shutdown: shutdown_tx,
             validator_dir,
             secrets_dir,
+            spec,
         }
     }
 

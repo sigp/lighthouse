@@ -777,7 +777,7 @@ where
         self.chain
             .data_availability_checker
             .custody_context()
-            .sampling_size(None, &self.chain.spec) as usize
+            .num_of_data_columns_to_sample(None, &self.chain.spec) as usize
     }
 
     pub fn slots_per_epoch(&self) -> u64 {

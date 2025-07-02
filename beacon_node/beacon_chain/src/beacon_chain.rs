@@ -654,6 +654,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Persists the custody information to disk.
     pub fn persist_custody_context(&self) -> Result<(), Error> {
+        if !self.spec.is_peer_das_scheduled() {
+            return Ok(());
+        }
+
         let custody_context: CustodyContextSsz = self
             .data_availability_checker
             .custody_context()
@@ -6811,6 +6815,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.slot_clock
             .duration_to_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
             .map(|duration| (fork_name, duration))
+    }
+
+    /// Update data column custody info with the slot at which cgc was changed.
+    /// Note: This won't update custody info if `advertise_false_custody_group_count` is set.
+    pub fn update_data_column_custody_info(&self, slot: Slot) {
+        self.store
+            .put_data_column_custody_info(slot)
+            .unwrap_or_else(
+                |e| tracing::error!(error = ?e, "Failed to update data column custody info"),
+            );
     }
 
     /// This method serves to get a sense of the current chain health. It is used in block proposal

@@ -377,7 +377,7 @@ where
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
     > {
         if let Some(waker) = &self.waker {
-            if waker.will_wake(cx.waker()) {
+            if !waker.will_wake(cx.waker()) {
                 self.waker = Some(cx.waker().clone());
             }
         } else {
