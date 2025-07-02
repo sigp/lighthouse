@@ -643,9 +643,15 @@ async fn generate_and_store_execution_proofs<T: BeaconChainTypes>(
                     );
 
                     // TODO: Broadcast the proof to the gossip subnet
-                    // This will be implemented in a future phase when gossip integration is ready
+                    // This requires access to the network layer from the beacon chain
+                    // In a full implementation, this would:
+                    // 1. Convert ExecutionPayloadProof to ExecutionProof (gossip type)
+                    // 2. Create PubsubMessage::ExecutionProofMessage
+                    // 3. Send to network service for gossip publishing
+                    // For now, we store the proof locally and it will be available
+                    // when other nodes request it or when we receive the same block hash
                     debug!(
-                        "Would broadcast proof to subnet {} (gossip integration not yet implemented)",
+                        "Generated proof for subnet {} - gossip broadcasting not yet implemented in beacon chain",
                         subnet_id
                     );
                 }

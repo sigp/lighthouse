@@ -11,6 +11,7 @@ use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
+    execution_payload_proofs::{ExecutionPayloadProof, ProofId},
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -35,6 +36,7 @@ use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, info, trace, warn};
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
+    ExecutionProof, ExecutionProofSubnetId,
     AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
     IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
@@ -3157,6 +3159,101 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             write_file(block_path, &block.as_ssz_bytes());
             write_file(error_path, error.to_string().as_bytes());
+        }
+    }
+
+    /// Process a gossip execution proof message.
+    pub async fn process_gossip_execution_proof(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        _peer_client: Client,
+        subnet_id: ExecutionProofSubnetId,
+        execution_proof: Arc<ExecutionProof>,
+        _seen_duration: Duration,
+    ) {
+        let block_hash = execution_proof.block_hash;
+        let proof_description = execution_proof.description();
+        let subnet_id_u64 = *subnet_id;
+
+        debug!(
+            %block_hash,
+            subnet_id = %subnet_id_u64,
+            description = %proof_description,
+            "Processing gossip execution proof"
+        );
+
+        // Basic structural validation
+        if !execution_proof.is_structurally_valid() {
+            warn!(
+                %block_hash,
+                subnet_id = %subnet_id_u64,
+                "Rejecting structurally invalid execution proof"
+            );
+            self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            self.gossip_penalize_peer(
+                peer_id,
+                PeerAction::LowToleranceError,
+                "invalid_execution_proof_structure",
+            );
+            return;
+        }
+
+        // Validate subnet ID matches proof ID
+        if subnet_id_u64 != *execution_proof.subnet_id {
+            warn!(
+                %block_hash,
+                expected_subnet = %subnet_id_u64,
+                proof_subnet = %execution_proof.subnet_id,
+                "Rejecting execution proof with mismatched subnet ID"
+            );
+            self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            self.gossip_penalize_peer(
+                peer_id,
+                PeerAction::LowToleranceError,
+                "execution_proof_subnet_mismatch",
+            );
+            return;
+        }
+
+        // Convert ExecutionProof to ExecutionPayloadProof for storage
+        let execution_payload_proof = ExecutionPayloadProof::new(
+            execution_proof.block_hash,
+            ProofId(subnet_id_u64),
+            execution_proof.version,
+            execution_proof.proof_data.clone(),
+        );
+
+        // Store the proof in the execution payload proof store
+        match self.chain.execution_payload_proof_store.store_proof(execution_payload_proof) {
+            Ok(()) => {
+                info!(
+                    %block_hash,
+                    subnet_id = %subnet_id_u64,
+                    description = %proof_description,
+                    "Successfully stored execution proof from gossip"
+                );
+                
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // Log metrics for tracking proof reception
+                // TODO: Add specific metrics for execution proof processing when metrics are added
+                
+                // Check if this proof enables any pending optimistic blocks to be verified
+                // This would happen if we had received a block but were waiting for proofs
+                // TODO: This could trigger block re-evaluation but is beyond current scope
+            }
+            Err(e) => {
+                warn!(
+                    %block_hash,
+                    subnet_id = %subnet_id_u64,
+                    error = %e,
+                    "Failed to store execution proof"
+                );
+                
+                // Don't penalize peer since this might be a duplicate or storage issue
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
         }
     }
 }

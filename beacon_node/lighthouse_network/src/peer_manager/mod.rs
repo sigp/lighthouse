@@ -1127,6 +1127,9 @@ impl<E: EthSpec> PeerManager<E> {
                         // because data column topics are subscribed as core topics until we
                         // implement recomputing data column subnets.
                         Subnet::DataColumn(_) => {}
+                        // Execution proof subnets don't need peer pruning logic yet
+                        // TODO: need to check p2p logic to confirm
+                        Subnet::ExecutionProof(_) => {}
                     }
                 }
             }

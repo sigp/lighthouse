@@ -41,6 +41,7 @@ where
                     false
                 }
             }
+            Subnet::ExecutionProof(_) => false, // Not used for peer discovery predicates
         });
 
         if !predicate {

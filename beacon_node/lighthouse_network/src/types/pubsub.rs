@@ -8,7 +8,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecutionProof, ExecutionProofSubnetId, ForkContext, ForkName,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
@@ -25,6 +25,8 @@ pub enum PubsubMessage<E: EthSpec> {
     BlobSidecar(Box<(u64, Arc<BlobSidecar<E>>)>),
     /// Gossipsub message providing notification of a [`DataColumnSidecar`] along with the subnet id where it was received.
     DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
+    /// Gossipsub message providing notification of an [`ExecutionProof`] along with the subnet id where it was received.
+    ExecutionProofMessage(Box<(ExecutionProofSubnetId, Arc<ExecutionProof>)>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
     /// Gossipsub message providing notification of a `SingleAttestation` with its subnet id.
@@ -133,6 +135,9 @@ impl<E: EthSpec> PubsubMessage<E> {
             }
             PubsubMessage::DataColumnSidecar(column_sidecar_data) => {
                 GossipKind::DataColumnSidecar(column_sidecar_data.0)
+            }
+            PubsubMessage::ExecutionProofMessage(execution_proof_data) => {
+                GossipKind::ExecutionProof(execution_proof_data.0)
             }
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
@@ -284,6 +289,16 @@ impl<E: EthSpec> PubsubMessage<E> {
                             )),
                         }
                     }
+                    GossipKind::ExecutionProof(subnet_id) => {
+                        let execution_proof = Arc::new(
+                            ExecutionProof::from_ssz_bytes(data)
+                                .map_err(|e| format!("{:?}", e))?,
+                        );
+                        Ok(PubsubMessage::ExecutionProofMessage(Box::new((
+                            *subnet_id,
+                            execution_proof,
+                        ))))
+                    }
                     GossipKind::VoluntaryExit => {
                         let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
@@ -388,6 +403,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
             PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::ExecutionProofMessage(data) => data.1.as_ssz_bytes(),
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
@@ -422,6 +438,13 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 "DataColumnSidecar: slot: {}, column index: {}",
                 data.1.slot(),
                 data.1.index,
+            ),
+            PubsubMessage::ExecutionProofMessage(data) => write!(
+                f,
+                "ExecutionProof: subnet: {}, block_hash: {:?}, description: {}",
+                *data.0,
+                data.1.block_hash,
+                data.1.description(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

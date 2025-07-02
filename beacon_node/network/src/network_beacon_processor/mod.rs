@@ -254,6 +254,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some execution proof.
+    pub fn send_gossip_execution_proof(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        subnet_id: ExecutionProofSubnetId,
+        execution_proof: Arc<ExecutionProof>,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_execution_proof(
+                    message_id,
+                    peer_id,
+                    peer_client,
+                    subnet_id,
+                    execution_proof,
+                    seen_timestamp,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipExecutionProof(Box::pin(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some sync committee signature.
     pub fn send_gossip_sync_signature(
         self: &Arc<Self>,

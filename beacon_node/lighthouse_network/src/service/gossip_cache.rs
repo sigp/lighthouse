@@ -211,6 +211,8 @@ impl GossipCache {
             GossipKind::BlsToExecutionChange => self.bls_to_execution_change,
             GossipKind::LightClientFinalityUpdate => self.light_client_finality_update,
             GossipKind::LightClientOptimisticUpdate => self.light_client_optimistic_update,
+            // TODO: maybe configure this better; proofs can be quite large
+            GossipKind::ExecutionProof(_) => self.data_column_sidecar, // Use same timeout as data columns
         };
         let Some(expire_timeout) = expire_timeout else {
             return;

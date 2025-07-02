@@ -2,7 +2,7 @@ use gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use strum::AsRefStr;
-use types::{ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
+use types::{ChainSpec, DataColumnSubnetId, EthSpec, ExecutionProofSubnetId, ForkName, SubnetId, SyncSubnetId, Unsigned};
 
 use crate::Subnet;
 
@@ -16,6 +16,7 @@ pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const BLOB_SIDECAR_PREFIX: &str = "blob_sidecar_";
 pub const DATA_COLUMN_SIDECAR_PREFIX: &str = "data_column_sidecar_";
+pub const EXECUTION_PROOF_PREFIX: &str = "execution_proof_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
@@ -115,7 +116,8 @@ pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool
         | GossipKind::SignedContributionAndProof
         | GossipKind::BlsToExecutionChange
         | GossipKind::LightClientFinalityUpdate
-        | GossipKind::LightClientOptimisticUpdate => false,
+        | GossipKind::LightClientOptimisticUpdate 
+        | GossipKind::ExecutionProof(_) => false,
     }
 }
 
@@ -156,6 +158,9 @@ pub enum GossipKind {
     BlobSidecar(u64),
     /// Topic for publishing DataColumnSidecars.
     DataColumnSidecar(DataColumnSubnetId),
+    /// Topic for publishing execution payload proofs on a particular subnet.
+    #[strum(serialize = "execution_proof")]
+    ExecutionProof(ExecutionProofSubnetId),
     /// Topic for publishing raw attestations on a particular subnet.
     #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
@@ -190,6 +195,9 @@ impl std::fmt::Display for GossipKind {
             }
             GossipKind::DataColumnSidecar(column_index) => {
                 write!(f, "{}{}", DATA_COLUMN_SIDECAR_PREFIX, **column_index)
+            }
+            GossipKind::ExecutionProof(subnet_id) => {
+                write!(f, "{}{}", EXECUTION_PROOF_PREFIX, **subnet_id)
             }
             x => f.write_str(x.as_ref()),
         }
@@ -279,6 +287,7 @@ impl GossipTopic {
             GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
             GossipKind::SyncCommitteeMessage(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
             GossipKind::DataColumnSidecar(subnet_id) => Some(Subnet::DataColumn(*subnet_id)),
+            GossipKind::ExecutionProof(subnet_id) => Some(Subnet::ExecutionProof(*subnet_id)),
             _ => None,
         }
     }
@@ -323,6 +332,9 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
+            GossipKind::ExecutionProof(index) => {
+                format!("{}{}", EXECUTION_PROOF_PREFIX, *index)
+            }
         };
         write!(
             f,
@@ -341,6 +353,7 @@ impl From<Subnet> for GossipKind {
             Subnet::Attestation(s) => GossipKind::Attestation(s),
             Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
             Subnet::DataColumn(s) => GossipKind::DataColumnSidecar(s),
+            Subnet::ExecutionProof(s) => GossipKind::ExecutionProof(s),
         }
     }
 }
@@ -366,6 +379,10 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
         return Some(GossipKind::BlobSidecar(index.parse::<u64>().ok()?));
     } else if let Some(index) = topic.strip_prefix(DATA_COLUMN_SIDECAR_PREFIX) {
         return Some(GossipKind::DataColumnSidecar(DataColumnSubnetId::new(
+            index.parse::<u64>().ok()?,
+        )));
+    } else if let Some(index) = topic.strip_prefix(EXECUTION_PROOF_PREFIX) {
+        return Some(GossipKind::ExecutionProof(ExecutionProofSubnetId::new(
             index.parse::<u64>().ok()?,
         )));
     }

@@ -107,6 +107,8 @@ pub mod blob_sidecar;
 pub mod data_column_custody_group;
 pub mod data_column_sidecar;
 pub mod data_column_subnet_id;
+pub mod execution_proof;
+pub mod execution_proof_subnet_id;
 pub mod light_client_header;
 pub mod non_zero_usize;
 pub mod runtime_fixed_vector;
@@ -155,6 +157,8 @@ pub use crate::data_column_sidecar::{
     ColumnIndex, DataColumnSidecar, DataColumnSidecarList, DataColumnsByRootIdentifier,
 };
 pub use crate::data_column_subnet_id::DataColumnSubnetId;
+pub use crate::execution_proof::ExecutionProof;
+pub use crate::execution_proof_subnet_id::ExecutionProofSubnetId;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
