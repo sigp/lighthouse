@@ -9,7 +9,7 @@ use operation_pool::PersistedOperationPool;
 use ssz::Encode;
 use std::sync::{Arc, LazyLock};
 use store::{
-    database::interface::BeaconNodeBackend, hot_cold_store::Split, metadata::DataColumnInfo,
+    database::interface::BeaconNodeBackend, hot_cold_store::Split, metadata::{DataColumnCustodyInfo, DataColumnInfo},
     DBColumn, HotColdDB, StoreConfig, StoreItem,
 };
 use strum::IntoEnumIterator;
@@ -122,6 +122,7 @@ fn check_metadata_sizes(store: &Store<E>) {
         }
     );
     assert_eq!(DataColumnInfo::default().ssz_bytes_len(), 5);
+    assert_eq!(DataColumnCustodyInfo::default().ssz_bytes_len(), 5)
 }
 
 fn check_op_pool(store: &Store<E>) {
