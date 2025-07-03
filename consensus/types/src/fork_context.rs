@@ -1,7 +1,7 @@
 use parking_lot::RwLock;
 
 use crate::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot};
-use std::collections::{HashMap, HashSet};
+use std::collections::{ HashMap, HashSet};
 
 /// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
 #[derive(Debug)]
@@ -44,7 +44,15 @@ impl ForkContext {
             })
             .collect();
 
-        let digest_epoch = RwLock::new(current_slot.epoch(E::slots_per_epoch()));
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let digest_epoch = RwLock::new(
+            epoch_to_digest
+                .keys()
+                .filter(|&&epoch| epoch <= current_epoch)
+                .max()
+                .cloned()
+                .expect("should match atleast genesis epoch"),
+        );
 
         Self {
             digest_epoch,
