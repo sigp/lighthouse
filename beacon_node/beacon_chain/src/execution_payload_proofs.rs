@@ -416,22 +416,35 @@ impl ExecutionPayloadProofStore {
 
     /// Clean up pending blocks that have been finalized or are no longer needed
     /// This should be called periodically to prevent memory leaks
+    /// Uses a two-phase approach to avoid holding locks during callback execution
     /// TODO: Test edge case where we receive a lot of pending blocks and cannot
     /// TODO: finalize
     pub fn cleanup_finalized_pending_blocks<F>(&self, should_remove: F) -> usize
     where
         F: Fn(Hash256) -> bool,
     {
+        use std::collections::HashSet;
+
+        // Collect all block roots to check (read-only access)
+        let blocks_to_check: Vec<Hash256> = {
+            let pending = self.pending_blocks.read();
+            pending.values().flatten().copied().collect()
+        };
+
+        // Determine which blocks should be removed (no locks held during callback)
+        let blocks_to_remove: HashSet<Hash256> = blocks_to_check
+            .into_iter()
+            .filter(|&block_root| should_remove(block_root))
+            .collect();
+
+        // Remove the identified blocks (short-duration write lock)
         let mut pending = self.pending_blocks.write();
         let mut removed_count = 0;
-
-        // Collect execution hashes to remove (to avoid borrowing issues)
         let mut execution_hashes_to_remove = Vec::new();
 
         for (execution_hash, blocks) in pending.iter_mut() {
-            // Remove blocks that should be cleaned up
             let original_len = blocks.len();
-            blocks.retain(|&block_root| !should_remove(block_root));
+            blocks.retain(|&block_root| !blocks_to_remove.contains(&block_root));
             removed_count += original_len - blocks.len();
 
             // Mark execution hash for removal if no blocks remain
