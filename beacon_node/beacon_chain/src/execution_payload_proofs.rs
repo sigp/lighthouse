@@ -2,7 +2,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::ExecutionBlockHash;
+use types::{ExecutionBlockHash, Hash256};
 
 /// Default maximum number of execution proof subnets for non-stateless nodes
 /// This determines how many subnets non-stateless nodes will subscribe to by default
@@ -132,6 +132,16 @@ pub struct ExecutionPayloadProofStore {
     /// Map from (execution block hash, proof ID) to proof
     /// This allows multiple proof types for the same execution payload
     proofs: Arc<RwLock<HashMap<(ExecutionBlockHash, ProofId), ExecutionPayloadProof>>>,
+    /// Reverse mapping: execution block hash -> beacon block roots waiting for proofs
+    /// This allows efficient lookup of which beacon blocks to re-evaluate when proofs arrive
+    ///
+    /// TODO: need to verify the following Note, on one execution payload mapping to multiple beacon blocks
+    /// TODO: If not the case, then it becomes a 1-1 mapping
+    ///
+    /// Note: Multiple beacon block roots can share the same execution block hash in fork scenarios.
+    /// For example, during consensus layer forks, competing beacon blocks may contain the same
+    /// execution payload, resulting in multiple beacon block roots waiting for the same execution proof.
+    pending_blocks: Arc<RwLock<HashMap<ExecutionBlockHash, Vec<Hash256>>>>,
     /// Maximum number of proofs to store (LRU eviction)
     max_proofs: usize,
 }
@@ -141,6 +151,7 @@ impl ExecutionPayloadProofStore {
     pub fn new(max_proofs: usize) -> Self {
         Self {
             proofs: Arc::new(RwLock::new(HashMap::new())),
+            pending_blocks: Arc::new(RwLock::new(HashMap::new())),
             max_proofs,
         }
     }
@@ -334,6 +345,70 @@ impl ExecutionPayloadProofStore {
                 false
             }
         }
+    }
+
+    /// Register a beacon block as pending proof for the given execution block hash
+    /// This is called when a block is imported optimistically and needs proof validation
+    pub fn register_pending_block(
+        &self,
+        execution_block_hash: ExecutionBlockHash,
+        beacon_block_root: Hash256,
+    ) {
+        let mut pending = self.pending_blocks.write();
+        pending
+            .entry(execution_block_hash)
+            .or_insert_with(Vec::new)
+            .push(beacon_block_root);
+    }
+
+    /// Get beacon block roots that are pending proofs for the given execution block hash
+    /// Returns empty vec if no blocks are pending
+    pub fn get_pending_blocks(&self, execution_block_hash: &ExecutionBlockHash) -> Vec<Hash256> {
+        self.pending_blocks
+            .read()
+            .get(execution_block_hash)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Remove and return pending blocks for the given execution block hash
+    /// This is called when proofs arrive and blocks are re-evaluated
+    pub fn take_pending_blocks(&self, execution_block_hash: &ExecutionBlockHash) -> Vec<Hash256> {
+        self.pending_blocks
+            .write()
+            .remove(execution_block_hash)
+            .unwrap_or_default()
+    }
+
+    /// Remove a specific beacon block from the pending list
+    /// This is useful when blocks are finalized or pruned
+    pub fn remove_pending_block(
+        &self,
+        execution_block_hash: &ExecutionBlockHash,
+        beacon_block_root: Hash256,
+    ) {
+        let mut pending = self.pending_blocks.write();
+        if let Some(blocks) = pending.get_mut(execution_block_hash) {
+            blocks.retain(|&block_root| block_root != beacon_block_root);
+            // Remove the entry if no blocks are left
+            if blocks.is_empty() {
+                pending.remove(execution_block_hash);
+            }
+        }
+    }
+
+    /// Get the number of execution block hashes that have pending blocks
+    pub fn pending_execution_hashes_count(&self) -> usize {
+        self.pending_blocks.read().len()
+    }
+
+    /// Get the total number of pending beacon blocks across all execution hashes
+    pub fn total_pending_blocks_count(&self) -> usize {
+        self.pending_blocks
+            .read()
+            .values()
+            .map(|blocks| blocks.len())
+            .sum()
     }
 }
 

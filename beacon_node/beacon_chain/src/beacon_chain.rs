@@ -2692,6 +2692,114 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Re-evaluate optimistic blocks that can now be validated with received proofs
+    /// This method is called when new execution proofs arrive via gossip
+    /// Returns true if head recomputation should be triggered
+    pub fn re_evaluate_optimistic_blocks_with_proofs(
+        &self,
+        execution_block_hash: ExecutionBlockHash,
+    ) -> Result<bool, Error> {
+        // Only perform re-evaluation if stateless validation is enabled
+        if !self.config.stateless_validation {
+            return Ok(false);
+        }
+
+        // Check if we have any valid proofs for this execution block hash
+        if !self
+            .execution_payload_proof_store
+            .has_valid_proof(&execution_block_hash)
+        {
+            return Ok(false);
+        }
+
+        // Get the beacon blocks that were waiting for proofs for this execution block hash
+        let pending_blocks = self
+            .execution_payload_proof_store
+            .take_pending_blocks(&execution_block_hash);
+
+        if pending_blocks.is_empty() {
+            debug!(
+                %execution_block_hash,
+                "No pending blocks found for execution proof - may have been processed already"
+            );
+            return Ok(false);
+        }
+
+        info!(
+            %execution_block_hash,
+            pending_count = pending_blocks.len(),
+            "Re-evaluating optimistic blocks with newly received execution proof"
+        );
+
+        let mut validated_count = 0;
+
+        // Mark each pending block as valid in fork choice
+        {
+            let mut fork_choice = self.canonical_head.fork_choice_write_lock();
+
+            for block_root in &pending_blocks {
+                match fork_choice.on_valid_execution_payload(*block_root) {
+                    Ok(()) => {
+                        validated_count += 1;
+                        debug!(
+                            %block_root,
+                            %execution_block_hash,
+                            "Successfully marked block as valid via execution proof"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            %block_root,
+                            %execution_block_hash,
+                            error = ?e,
+                            "Failed to mark block as valid via execution proof"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Trigger immediate fork choice recomputation when blocks are validated
+        // Note: This requires the caller to hold an Arc<BeaconChain<T>>
+        if validated_count > 0 {
+            debug!(
+                %execution_block_hash,
+                validated_count,
+                "Triggering immediate head recomputation after proof validation"
+            );
+            // Return a flag indicating head recomputation should be triggered
+            // The caller (network processor) will handle the async recomputation
+        }
+
+        info!(
+            %execution_block_hash,
+            validated_count,
+            total_pending = pending_blocks.len(),
+            "Completed re-evaluation of optimistic blocks with execution proof"
+        );
+
+        Ok(validated_count > 0)
+    }
+
+    /// Register a beacon block as pending execution proof validation
+    /// This is called when a block is imported optimistically in stateless validation mode
+    pub fn register_optimistic_block_for_proof(
+        &self,
+        beacon_block_root: Hash256,
+        execution_block_hash: ExecutionBlockHash,
+    ) {
+        if self.config.stateless_validation {
+            self.execution_payload_proof_store
+                .register_pending_block(execution_block_hash, beacon_block_root);
+
+            debug!(
+                %beacon_block_root,
+                %execution_block_hash,
+                "Registered optimistic block as pending execution proof validation"
+            );
+        }
+    }
+
     /// Import a BLS to execution change to the op pool.
     ///
     /// Return `true` if the change was added to the pool.
@@ -3929,6 +4037,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &self.spec,
                 )
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+        }
+
+        // Register optimistic blocks for proof validation in stateless validation mode
+        if payload_verification_status.is_optimistic() {
+            if let Ok(execution_payload) = block.execution_payload() {
+                let execution_block_hash = execution_payload.block_hash().into();
+                self.register_optimistic_block_for_proof(block_root, execution_block_hash);
+            }
         }
 
         // If the block is recent enough and it was not optimistically imported, check to see if it

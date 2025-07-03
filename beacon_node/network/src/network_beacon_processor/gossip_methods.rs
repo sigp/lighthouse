@@ -3244,7 +3244,49 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 // Check if this proof enables any pending optimistic blocks to be verified
                 // This would happen if we had received a block but were waiting for proofs
-                // TODO: This could trigger block re-evaluation but is beyond current scope
+
+                // TODO: What happens if we receive a proof for slot N+1 and then after receive a proof for slot N
+                // TODO: Check what this does for the current head calculation
+                //
+                // What I would expect is that the fork choice rule will see slot N and N+1 as valid.
+                // Then it choose N+1 because it is heavier
+                // If for some reason N+1 becomes invalid/forked, it would then fallback to N (the next heaviest valid slot)
+                //
+                // TODO: Technically, if we receive a proof for the execution payload for slot N+1, it
+                // TODO also attests to the execution payload for slot N too
+
+                match self
+                    .chain
+                    .re_evaluate_optimistic_blocks_with_proofs(block_hash)
+                {
+                    Ok(should_recompute_head) => {
+                        debug!(
+                            %block_hash,
+                            subnet_id = %subnet_id_u64,
+                            should_recompute_head,
+                            "Completed re-evaluation of optimistic blocks with new proof"
+                        );
+
+                        // Trigger immediate head recomputation if blocks were validated
+                        if should_recompute_head {
+                            let chain = self.chain.clone();
+                            self.executor.spawn(
+                                async move {
+                                    chain.recompute_head_at_current_slot().await;
+                                },
+                                "proof_triggered_head_recomputation",
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            %block_hash,
+                            subnet_id = %subnet_id_u64,
+                            error = ?e,
+                            "Failed to re-evaluate optimistic blocks after proof reception"
+                        );
+                    }
+                }
             }
             Err(e) => {
                 warn!(
