@@ -79,7 +79,6 @@ pub struct ExecutionPayloadProof {
     /// This will contain cryptographic proofs received via gossip
     pub proof_data: Vec<u8>,
     /// Timestamp when this proof was received/stored
-    /// TODO: maybe not needed except for debugging
     pub timestamp: u64,
 }
 
@@ -131,6 +130,7 @@ impl ExecutionPayloadProof {
 pub struct ExecutionPayloadProofStore {
     /// Map from (execution block hash, proof ID) to proof
     /// This allows multiple proof types for the same execution payload
+    /// TODO: Handle orphaned proofs - proofs that arrive for blocks we never imported
     proofs: Arc<RwLock<HashMap<(ExecutionBlockHash, ProofId), ExecutionPayloadProof>>>,
     /// Reverse mapping: execution block hash -> beacon block roots waiting for proofs
     /// This allows efficient lookup of which beacon blocks to re-evaluate when proofs arrive
