@@ -139,6 +139,10 @@ Options:
           Used by the beacon node to communicate a client version to execution
           nodes during JWT authentication. It corresponds to the 'clv' field in
           the JWT claims object.Set to empty by default
+      --execution-proof-subnets <SUBNET_IDS>
+          Comma-separated list of execution proof subnet IDs to subscribe to.
+          Only used in stateless validation mode. If not specified, defaults to
+          all subnets (0-7). Example: --execution-proof-subnets 0,1,2
       --execution-timeout-multiplier <NUM>
           Unsigned integer to multiply the default execution timeouts by.
           [default: 1]
@@ -556,6 +560,11 @@ Flags:
           Standard option for a staking beacon node. This will enable the HTTP
           server on localhost:5052 and import deposit logs from the execution
           node.
+      --stateless-validation
+          Enable stateless validation mode where all new payloads are marked as
+          optimistically valid without verification from the execution layer.
+          This bypasses normal payload validation and should only be used for
+          testing.
       --stdin-inputs
           If present, read all user inputs from stdin instead of tty.
       --subscribe-all-subnets
