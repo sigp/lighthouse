@@ -2,6 +2,7 @@ use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
 use beacon_chain::block_verification_types::RpcBlock;
@@ -833,6 +834,18 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
+            if let RpcResponseError::BlockComponentCouplingError(CouplingError {
+                column_and_peer,
+                msg,
+                peer_action,
+            }) = err
+            {
+                if let Some(columns_and_peers) = column_and_peer {
+                    for (column, peer) in column_and_peers {
+                        
+                    }
+                }
+            }
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
