@@ -991,6 +991,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(root_opt);
         }
 
+        // Do not try to access the previous slot if it's older than the oldest block root
+        // stored in the database. Instead, load just the block root at `oldest_block_slot`,
+        // under the assumption that the `oldest_block_slot` *is not* a skipped slot (should be
+        // true because it is set by the oldest *block*).
+        if request_slot == self.store.get_anchor_info().oldest_block_slot {
+            return self.block_root_at_slot_skips_prev(request_slot);
+        }
+
         if let Some(((prev_root, _), (curr_root, curr_slot))) = process_results(
             self.forwards_iter_block_roots_until(prev_slot, request_slot)?,
             |iter| iter.tuple_windows().next(),
