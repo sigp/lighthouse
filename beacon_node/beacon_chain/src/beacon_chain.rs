@@ -2778,6 +2778,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "Completed re-evaluation of optimistic blocks with execution proof"
         );
 
+        // Perform periodic cleanup of finalized pending blocks (simple integration)
+        // This happens during proof processing to ensure regular cleanup without separate timers
+        //
+        // TODO: If this is not fast, we could do this periodically in the background
+        // TODO: Maybe just add a time in ProofStore to periodically clean up
+        if validated_count > 0 {
+            let _cleaned_count = self.cleanup_finalized_pending_blocks();
+            // Note: Cleanup is logged in the cleanup method itself
+        }
+
         Ok(validated_count > 0)
     }
 
@@ -2798,6 +2808,74 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "Registered optimistic block as pending execution proof validation"
             );
         }
+    }
+
+    /// Clean up pending blocks that have been finalized or are too old
+    /// This should be called periodically to prevent memory leaks in the proof store
+    pub fn cleanup_finalized_pending_blocks(&self) -> usize {
+        if !self.config.stateless_validation {
+            return 0;
+        }
+
+        let finalized_slot = self
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+
+        // Remove pending blocks that are older than finalized slot
+        let removed_count = self
+            .execution_payload_proof_store
+            .cleanup_finalized_pending_blocks(|block_root| {
+                // Check if this block is older than finalized slot
+                // We need to look up the block to get its slot
+                if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
+                    block.slot() <= finalized_slot
+                } else {
+                    // If we can't find the block, it's likely been pruned, so remove it
+                    true
+                }
+            });
+
+        if removed_count > 0 {
+            debug!(
+                finalized_slot = %finalized_slot,
+                removed_count,
+                "Cleaned up finalized pending blocks from proof store"
+            );
+        }
+
+        removed_count
+    }
+
+    /// Clean up pending blocks older than a specific slot
+    /// This is a more aggressive cleanup that can be called during sync or maintenance
+    pub fn cleanup_pending_blocks_older_than(&self, cutoff_slot: Slot) -> usize {
+        if !self.config.stateless_validation {
+            return 0;
+        }
+
+        let removed_count = self
+            .execution_payload_proof_store
+            .cleanup_finalized_pending_blocks(|block_root| {
+                if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
+                    block.slot() < cutoff_slot
+                } else {
+                    // If we can't find the block, remove it
+                    true
+                }
+            });
+
+        if removed_count > 0 {
+            info!(
+                cutoff_slot = %cutoff_slot,
+                removed_count,
+                "Cleaned up old pending blocks from proof store"
+            );
+        }
+
+        removed_count
     }
 
     /// Import a BLS to execution change to the op pool.

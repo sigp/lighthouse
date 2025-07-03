@@ -349,16 +349,19 @@ impl ExecutionPayloadProofStore {
 
     /// Register a beacon block as pending proof for the given execution block hash
     /// This is called when a block is imported optimistically and needs proof validation
+    /// Prevents duplicate registration of the same block
     pub fn register_pending_block(
         &self,
         execution_block_hash: ExecutionBlockHash,
         beacon_block_root: Hash256,
     ) {
         let mut pending = self.pending_blocks.write();
-        pending
-            .entry(execution_block_hash)
-            .or_insert_with(Vec::new)
-            .push(beacon_block_root);
+        let blocks = pending.entry(execution_block_hash).or_insert_with(Vec::new);
+
+        // Only add if not already present (duplicate protection)
+        if !blocks.contains(&beacon_block_root) {
+            blocks.push(beacon_block_root);
+        }
     }
 
     /// Get beacon block roots that are pending proofs for the given execution block hash
@@ -409,6 +412,49 @@ impl ExecutionPayloadProofStore {
             .values()
             .map(|blocks| blocks.len())
             .sum()
+    }
+
+    /// Clean up pending blocks that have been finalized or are no longer needed
+    /// This should be called periodically to prevent memory leaks
+    /// TODO: Test edge case where we receive a lot of pending blocks and cannot
+    /// TODO: finalize
+    pub fn cleanup_finalized_pending_blocks<F>(&self, should_remove: F) -> usize
+    where
+        F: Fn(Hash256) -> bool,
+    {
+        let mut pending = self.pending_blocks.write();
+        let mut removed_count = 0;
+
+        // Collect execution hashes to remove (to avoid borrowing issues)
+        let mut execution_hashes_to_remove = Vec::new();
+
+        for (execution_hash, blocks) in pending.iter_mut() {
+            // Remove blocks that should be cleaned up
+            let original_len = blocks.len();
+            blocks.retain(|&block_root| !should_remove(block_root));
+            removed_count += original_len - blocks.len();
+
+            // Mark execution hash for removal if no blocks remain
+            if blocks.is_empty() {
+                execution_hashes_to_remove.push(*execution_hash);
+            }
+        }
+
+        // Remove empty execution hash entries
+        for execution_hash in execution_hashes_to_remove {
+            pending.remove(&execution_hash);
+        }
+
+        removed_count
+    }
+
+    /// Remove all pending blocks older than the given slot
+    /// This is a simpler cleanup method when you have access to block slot information
+    pub fn cleanup_pending_blocks_by_slot<F>(&self, is_old_block: F) -> usize
+    where
+        F: Fn(Hash256) -> bool,
+    {
+        self.cleanup_finalized_pending_blocks(is_old_block)
     }
 }
 
