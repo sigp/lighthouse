@@ -157,8 +157,6 @@ pub use crate::data_column_sidecar::{
     ColumnIndex, DataColumnSidecar, DataColumnSidecarList, DataColumnsByRootIdentifier,
 };
 pub use crate::data_column_subnet_id::DataColumnSubnetId;
-pub use crate::execution_proof::ExecutionProof;
-pub use crate::execution_proof_subnet_id::ExecutionProofSubnetId;
 pub use crate::deposit::{Deposit, DEPOSIT_TREE_DEPTH};
 pub use crate::deposit_data::DepositData;
 pub use crate::deposit_message::DepositMessage;
@@ -180,6 +178,8 @@ pub use crate::execution_payload_header::{
     ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
     ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
 };
+pub use crate::execution_proof::ExecutionProof;
+pub use crate::execution_proof_subnet_id::ExecutionProofSubnetId;
 pub use crate::execution_requests::{ExecutionRequests, RequestType};
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;

@@ -107,7 +107,7 @@ impl<E: EthSpec> PeerInfo<E> {
                 }
                 Subnet::ExecutionProof(_) => {
                     // Execution proof subnets don't use metadata bitfields
-                    return false
+                    return false;
                 }
             }
         }

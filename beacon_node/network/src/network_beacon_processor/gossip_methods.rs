@@ -36,12 +36,11 @@ use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, info, trace, warn};
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
-    ExecutionProof, ExecutionProofSubnetId,
-    AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecutionProof,
+    ExecutionProofSubnetId, Hash256, IndexedAttestation, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -3225,7 +3224,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         // Store the proof in the execution payload proof store
-        match self.chain.execution_payload_proof_store.store_proof(execution_payload_proof) {
+        match self
+            .chain
+            .execution_payload_proof_store
+            .store_proof(execution_payload_proof)
+        {
             Ok(()) => {
                 info!(
                     %block_hash,
@@ -3233,12 +3236,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     description = %proof_description,
                     "Successfully stored execution proof from gossip"
                 );
-                
+
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
                 // Log metrics for tracking proof reception
                 // TODO: Add specific metrics for execution proof processing when metrics are added
-                
+
                 // Check if this proof enables any pending optimistic blocks to be verified
                 // This would happen if we had received a block but were waiting for proofs
                 // TODO: This could trigger block re-evaluation but is beyond current scope
@@ -3250,7 +3253,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     error = %e,
                     "Failed to store execution proof"
                 );
-                
+
                 // Don't penalize peer since this might be a duplicate or storage issue
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }

@@ -389,15 +389,14 @@ impl<T: BeaconChainTypes> Router<T> {
             PubsubMessage::ExecutionProofMessage(data) => {
                 let (subnet_id, execution_proof) = *data;
                 self.handle_beacon_processor_send_result(
-                    self.network_beacon_processor
-                        .send_gossip_execution_proof(
-                            message_id,
-                            peer_id,
-                            self.network_globals.client(&peer_id),
-                            subnet_id,
-                            execution_proof,
-                            timestamp_now(),
-                        ),
+                    self.network_beacon_processor.send_gossip_execution_proof(
+                        message_id,
+                        peer_id,
+                        self.network_globals.client(&peer_id),
+                        subnet_id,
+                        execution_proof,
+                        timestamp_now(),
+                    ),
                 )
             }
             PubsubMessage::VoluntaryExit(exit) => {

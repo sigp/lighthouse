@@ -285,7 +285,6 @@ impl ExecutionPayloadProofStore {
         proofs.retain(|_, proof| proof.timestamp >= cutoff_timestamp);
     }
 
-
     /// Generate a dummy proof for testing purposes
     /// TODO: Replace with actual proof generation from zkVMs or other proof systems
     pub fn generate_dummy_proof(

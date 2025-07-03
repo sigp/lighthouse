@@ -894,7 +894,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             proposer_index = ?builder_params.pubkey,
             "Validator requesting payload (getPayload) for block production"
         );
-        
+
         let payload_result_type = match block_production_version {
             BlockProductionVersion::V3 => match self
                 .determine_and_fetch_payload(

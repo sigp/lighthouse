@@ -59,9 +59,11 @@ impl ProofBroadcastState {
 
     /// Check if this proof is ready to be broadcast
     pub fn is_ready_to_broadcast(&self) -> bool {
-        matches!(self.status, BroadcastStatus::NotBroadcast | BroadcastStatus::Failed)
+        matches!(
+            self.status,
+            BroadcastStatus::NotBroadcast | BroadcastStatus::Failed
+        )
     }
-
 
     /// Mark proof as currently being broadcast
     pub fn mark_broadcasting(&mut self) {
@@ -70,7 +72,7 @@ impl ProofBroadcastState {
         self.last_attempt = Some(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap_or_default(),
         );
     }
 
@@ -86,8 +88,7 @@ impl ProofBroadcastState {
 
     /// Check if broadcast should be retried (failed with attempts under limit)
     pub fn should_retry_broadcast(&self, max_attempts: u32) -> bool {
-        matches!(self.status, BroadcastStatus::Failed) 
-            && self.attempts < max_attempts
+        matches!(self.status, BroadcastStatus::Failed) && self.attempts < max_attempts
     }
 }
 
@@ -113,15 +114,25 @@ impl ProofBroadcastManager {
     }
 
     /// Get broadcast state for a proof, creating a new one if it doesn't exist
-    pub fn get_or_create_state(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) -> ProofBroadcastState {
+    pub fn get_or_create_state(
+        &self,
+        block_hash: ExecutionBlockHash,
+        proof_id: ProofId,
+    ) -> ProofBroadcastState {
         let mut states = self.broadcast_states.write();
-        states.entry((block_hash, proof_id))
+        states
+            .entry((block_hash, proof_id))
             .or_insert_with(ProofBroadcastState::new)
             .clone()
     }
 
     /// Update broadcast state for a proof
-    pub fn update_state(&self, block_hash: ExecutionBlockHash, proof_id: ProofId, state: ProofBroadcastState) {
+    pub fn update_state(
+        &self,
+        block_hash: ExecutionBlockHash,
+        proof_id: ProofId,
+        state: ProofBroadcastState,
+    ) {
         let mut states = self.broadcast_states.write();
         states.insert((block_hash, proof_id), state);
     }
@@ -135,7 +146,11 @@ impl ProofBroadcastManager {
     }
 
     /// Mark a proof as successfully broadcast
-    pub fn mark_broadcast_success(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) -> bool {
+    pub fn mark_broadcast_success(
+        &self,
+        block_hash: ExecutionBlockHash,
+        proof_id: ProofId,
+    ) -> bool {
         let mut state = self.get_or_create_state(block_hash, proof_id);
         state.mark_broadcast_success();
         self.update_state(block_hash, proof_id, state);
@@ -156,17 +171,17 @@ impl ProofBroadcastManager {
         chain: &Arc<BeaconChain<T>>,
     ) -> Vec<(ExecutionBlockHash, ProofId)> {
         let mut ready_proofs = Vec::new();
-        
+
         // Get all stored proofs
         let stored_proofs = chain.execution_payload_proof_store.get_all_proofs();
-        
+
         for (block_hash, proof_id) in stored_proofs.keys() {
             let state = self.get_or_create_state(*block_hash, *proof_id);
             if state.is_ready_to_broadcast() {
                 ready_proofs.push((*block_hash, *proof_id));
             }
         }
-        
+
         ready_proofs
     }
 
@@ -177,17 +192,17 @@ impl ProofBroadcastManager {
         max_attempts: u32,
     ) -> Vec<(ExecutionBlockHash, ProofId)> {
         let mut retry_proofs = Vec::new();
-        
+
         // Get all stored proofs
         let stored_proofs = chain.execution_payload_proof_store.get_all_proofs();
-        
+
         for (block_hash, proof_id) in stored_proofs.keys() {
             let state = self.get_or_create_state(*block_hash, *proof_id);
             if state.should_retry_broadcast(max_attempts) {
                 retry_proofs.push((*block_hash, *proof_id));
             }
         }
-        
+
         retry_proofs
     }
 
@@ -195,7 +210,7 @@ impl ProofBroadcastManager {
     pub fn cleanup_old_states<T: BeaconChainTypes>(&self, chain: &Arc<BeaconChain<T>>) {
         let stored_proofs = chain.execution_payload_proof_store.get_all_proofs();
         let mut states = self.broadcast_states.write();
-        
+
         // Remove broadcast states for proofs that no longer exist in storage
         states.retain(|key, _| stored_proofs.contains_key(key));
     }
@@ -234,9 +249,9 @@ pub fn start_execution_proof_broadcaster_service<T: BeaconChainTypes>(
     if !chain.config.stateless_validation {
         let config = ExecutionProofBroadcasterConfig::default();
         let broadcast_manager = Arc::new(ProofBroadcastManager::new());
-        
+
         info!("Starting execution proof broadcaster service");
-        
+
         executor.spawn(
             execution_proof_broadcaster_task(chain, network_tx, config, broadcast_manager),
             "execution_proof_broadcaster",
@@ -254,20 +269,21 @@ pub async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
     broadcast_manager: Arc<ProofBroadcastManager>,
 ) {
     let mut interval = tokio::time::interval(config.broadcast_interval);
-    
+
     info!("Starting execution proof broadcaster task");
 
     loop {
         interval.tick().await;
-        
+
         // Get proofs ready for initial broadcast
         let ready_proofs = broadcast_manager.get_proofs_ready_for_broadcast(&chain);
-            
+
         // Get proofs ready for retry
-        let retry_proofs = broadcast_manager.get_proofs_for_retry(&chain, config.max_broadcast_attempts);
+        let retry_proofs =
+            broadcast_manager.get_proofs_for_retry(&chain, config.max_broadcast_attempts);
 
         let total_proofs = ready_proofs.len() + retry_proofs.len();
-        
+
         if total_proofs > 0 {
             debug!(
                 "Found {} proofs ready for broadcast ({} new, {} retries)",
@@ -279,7 +295,10 @@ pub async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
 
         // Broadcast ready proofs
         for (execution_block_hash, proof_id) in ready_proofs {
-            if let Some(proof) = chain.execution_payload_proof_store.get_proof(&execution_block_hash, proof_id) {
+            if let Some(proof) = chain
+                .execution_payload_proof_store
+                .get_proof(&execution_block_hash, proof_id)
+            {
                 broadcast_single_proof(
                     &chain,
                     &network_tx,
@@ -287,20 +306,25 @@ pub async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
                     execution_block_hash,
                     proof_id,
                     &proof,
-                ).await;
+                )
+                .await;
             }
         }
 
         // Broadcast retry proofs (with delay if recently attempted)
         for (execution_block_hash, proof_id) in retry_proofs {
-            if let Some(proof) = chain.execution_payload_proof_store.get_proof(&execution_block_hash, proof_id) {
+            if let Some(proof) = chain
+                .execution_payload_proof_store
+                .get_proof(&execution_block_hash, proof_id)
+            {
                 // Check if enough time has passed since last attempt
-                let broadcast_state = broadcast_manager.get_or_create_state(execution_block_hash, proof_id);
+                let broadcast_state =
+                    broadcast_manager.get_or_create_state(execution_block_hash, proof_id);
                 if let Some(last_attempt) = broadcast_state.last_attempt {
                     let now = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default();
-                    
+
                     if now.saturating_sub(last_attempt) < config.retry_delay {
                         debug!(
                             "Skipping retry for proof on subnet {} - not enough time since last attempt",
@@ -323,7 +347,8 @@ pub async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
                     execution_block_hash,
                     proof_id,
                     &proof,
-                ).await;
+                )
+                .await;
             }
         }
 

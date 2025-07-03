@@ -8,13 +8,14 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecutionProof, ExecutionProofSubnetId, ForkContext, ForkName,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
-    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBlsToExecutionChange, SignedContributionAndProof,
-    SignedVoluntaryExit, SingleAttestation, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecutionProof, ExecutionProofSubnetId,
+    ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
+    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
+    SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -291,8 +292,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                     }
                     GossipKind::ExecutionProof(subnet_id) => {
                         let execution_proof = Arc::new(
-                            ExecutionProof::from_ssz_bytes(data)
-                                .map_err(|e| format!("{:?}", e))?,
+                            ExecutionProof::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?,
                         );
                         Ok(PubsubMessage::ExecutionProofMessage(Box::new((
                             *subnet_id,

@@ -13,7 +13,7 @@ pub struct ExecutionProof {
     pub block_hash: ExecutionBlockHash,
     /// The subnet ID where this proof was received/should be sent
     pub subnet_id: ExecutionProofSubnetId,
-    /// Version of the proof format 
+    /// Version of the proof format
     pub version: u32,
     /// Opaque proof data - structure depends on subnet_id and version
     /// This contains cryptographic proofs from zkVMs or other proof systems
@@ -51,7 +51,7 @@ impl ExecutionProof {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        
+
         Self::new(block_hash, subnet_id, version, proof_data, timestamp)
     }
 
@@ -103,7 +103,8 @@ mod tests {
         let subnet_id = ExecutionProofSubnetId::new(1);
         let proof_data = vec![5, 6, 7, 8];
 
-        let proof = ExecutionProof::new_with_current_timestamp(block_hash, subnet_id, 1, proof_data);
+        let proof =
+            ExecutionProof::new_with_current_timestamp(block_hash, subnet_id, 1, proof_data);
 
         // Timestamp should be recent (within last few seconds)
         let now = std::time::SystemTime::now()

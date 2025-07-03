@@ -597,7 +597,7 @@ fn spawn_proof_generation_task<T: BeaconChainTypes>(
     block_contents: &BlockProposalContentsType<T::EthSpec>,
 ) {
     let chain_clone = chain.clone();
-    
+
     // Extract execution block hash from the payload (to avoid cloning the entire block_contents)
     let execution_block_hash = match block_contents {
         BlockProposalContentsType::Full(contents) => match contents {
@@ -613,12 +613,15 @@ fn spawn_proof_generation_task<T: BeaconChainTypes>(
             None
         }
     };
-    
+
     if let Some(execution_block_hash) = execution_block_hash {
         // Spawn the proof generation task in the background
         chain.task_executor.spawn(
             async move {
-                if let Err(e) = generate_and_store_execution_proofs_for_hash(&chain_clone, execution_block_hash).await {
+                if let Err(e) =
+                    generate_and_store_execution_proofs_for_hash(&chain_clone, execution_block_hash)
+                        .await
+                {
                     warn!("Failed to generate execution proofs: {:?}", e);
                 }
             },

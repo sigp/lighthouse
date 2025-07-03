@@ -1,7 +1,7 @@
 //! Identifies each execution proof subnet by an integer identifier.
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
-use ssz::{Decode, Encode, DecodeError};
+use ssz::{Decode, DecodeError, Encode};
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 

@@ -832,18 +832,17 @@ pub fn get_config<E: EthSpec>(
     // Optimistic finalized sync.
     client_config.chain.optimistic_finalized_sync =
         !cli_args.get_flag("disable-optimistic-finalized-sync");
-    
+
     // Stateless validation.
-    client_config.chain.stateless_validation =
-        cli_args.get_flag("stateless-validation");
-    
+    client_config.chain.stateless_validation = cli_args.get_flag("stateless-validation");
+
     // Execution proof subnets (for stateless validation).
     if let Some(subnets) = cli_args.get_many::<String>("execution-proof-subnets") {
         let parsed_subnets: Result<Vec<u64>, _> = subnets
             .flat_map(|s| s.split(','))
             .map(|s| s.trim().parse::<u64>())
             .collect();
-        
+
         match parsed_subnets {
             Ok(subnets) => {
                 client_config.chain.execution_proof_subnets = subnets;

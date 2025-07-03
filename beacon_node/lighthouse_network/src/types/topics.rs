@@ -2,7 +2,10 @@ use gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use strum::AsRefStr;
-use types::{ChainSpec, DataColumnSubnetId, EthSpec, ExecutionProofSubnetId, ForkName, SubnetId, SyncSubnetId, Unsigned};
+use types::{
+    ChainSpec, DataColumnSubnetId, EthSpec, ExecutionProofSubnetId, ForkName, SubnetId,
+    SyncSubnetId, Unsigned,
+};
 
 use crate::Subnet;
 
@@ -116,7 +119,7 @@ pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool
         | GossipKind::SignedContributionAndProof
         | GossipKind::BlsToExecutionChange
         | GossipKind::LightClientFinalityUpdate
-        | GossipKind::LightClientOptimisticUpdate 
+        | GossipKind::LightClientOptimisticUpdate
         | GossipKind::ExecutionProof(_) => false,
     }
 }
