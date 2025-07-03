@@ -212,7 +212,7 @@ impl StoreItem for BlobInfo {
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct DataColumnCustodyInfo {
     /// The earliest slot for which data columns are available.
-    pub earliest_data_column_slot: Slot,
+    pub earliest_data_column_slot: Option<Slot>,
 }
 
 /// Database parameters relevant to data column sync.

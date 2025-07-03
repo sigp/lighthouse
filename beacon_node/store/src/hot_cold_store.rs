@@ -935,7 +935,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     pub fn put_data_column_custody_info(
         &self,
-        earliest_data_column_slot: Slot,
+        earliest_data_column_slot: Option<Slot>,
     ) -> Result<(), Error> {
         let data_column_custody_info = DataColumnCustodyInfo {
             earliest_data_column_slot,
@@ -2422,14 +2422,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch custody info from the cache.
-    /// A `None` value indicates that we have fulfilled our custody
-    /// requirements up to the DA window.
-    pub fn get_data_column_custody_info(
-        &self,
-        query_store: bool,
-    ) -> Result<Option<DataColumnCustodyInfo>, Error> {
-        // We only query on startup, when the cache isn't initialized
-        if query_store {
+    /// If custody info doesn't exist in the cache,
+    /// try to fetch from the DB and prime the cache.
+    pub fn get_data_column_custody_info(&self) -> Result<Option<DataColumnCustodyInfo>, Error> {
+        let Some(data_column_custody_info) = self.block_cache.lock().get_data_column_custody_info()
+        else {
             let bytes_opt = self.blobs_db.get_bytes(
                 DBColumn::BeaconDataColumnCustodyInfo,
                 DATA_COLUMN_CUSTODY_INFO_KEY.as_slice(),
@@ -2445,10 +2442,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 .lock()
                 .put_data_column_custody_info(data_column_custody_info.clone());
 
-            Ok(data_column_custody_info)
-        } else {
-            Ok(self.block_cache.lock().get_data_column_custody_info())
-        }
+            return Ok(data_column_custody_info);
+        };
+
+        Ok(Some(data_column_custody_info))
     }
 
     /// Fetch all columns for a given block from the store.

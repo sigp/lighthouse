@@ -828,10 +828,6 @@ where
             ));
         }
 
-        store
-            .get_data_column_custody_info(true)
-            .map_err(|e| format!("Unable to fetch data column custody info {:?}", e))?;
-
         let validator_pubkey_cache = self
             .validator_pubkey_cache
             .map(|mut validator_pubkey_cache| {
