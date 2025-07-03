@@ -1,4 +1,5 @@
 use crate::rpc::methods::{ResponseTermination, RpcResponse, RpcSuccessResponse, StatusMessage};
+use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
@@ -61,6 +62,11 @@ pub struct DataColumnsByRangeRequestId {
     pub id: Id,
     /// The Id of the overall By Range request for block components.
     pub parent_request_id: ComponentsByRangeRequestId,
+    /// The peer id associated with the request.
+    ///
+    /// This is useful to penalize the peer at a later point if it returned data columns that
+    /// did not match with the verified block.
+    pub peer: PeerId,
 }
 
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
@@ -306,6 +312,7 @@ mod tests {
                     batch_id: Epoch::new(0),
                 },
             },
+            peer: PeerId::random(),
         };
         assert_eq!(format!("{id}"), "123/122/RangeSync/0/54");
     }
