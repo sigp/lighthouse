@@ -139,6 +139,15 @@ async fn notify_new_payload<T: BeaconChainTypes>(
 
     info!("New payload with hash {:?}", execution_block_hash);
 
+    // Generate proof for this payload if configured to do so
+    if chain.config.generate_execution_proofs {
+        info!(
+            "Triggering proof generation for execution payload {:?}",
+            execution_block_hash
+        );
+        spawn_proof_generation_task_for_hash(chain, execution_block_hash.into());
+    }
+
     // Check if stateless validation is enabled
     if chain.config.stateless_validation {
         // Check if we have any valid proof for this execution payload
@@ -586,13 +595,33 @@ where
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
-    // Generate and store execution proofs asynchronously if not in stateless validation mode
-    if !chain.config.stateless_validation {
-        info!("STATELESS: Triggering proof generation for newly produced block");
-        spawn_proof_generation_task(&chain, &block_contents);
-    }
-
     Ok(block_contents)
+}
+
+/// Spawn a background task to generate and store execution proofs for a specific execution block hash
+/// This allows proof generation without blocking the caller
+fn spawn_proof_generation_task_for_hash<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    execution_block_hash: ExecutionBlockHash,
+) {
+    let chain_clone = chain.clone();
+
+    info!(
+        "STATELESS: Spawning proof generation task for execution block {:?}",
+        execution_block_hash
+    );
+    // Spawn the proof generation task in the background
+    chain.task_executor.spawn(
+        async move {
+            if let Err(e) =
+                generate_and_store_execution_proofs_for_hash(&chain_clone, execution_block_hash)
+                    .await
+            {
+                warn!("Failed to generate execution proofs: {:?}", e);
+            }
+        },
+        "execution_proof_generation",
+    );
 }
 
 /// Spawn a background task to generate and store execution proofs
@@ -601,8 +630,6 @@ fn spawn_proof_generation_task<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block_contents: &BlockProposalContentsType<T::EthSpec>,
 ) {
-    let chain_clone = chain.clone();
-
     // Extract execution block hash from the payload (to avoid cloning the entire block_contents)
     let execution_block_hash = match block_contents {
         BlockProposalContentsType::Full(contents) => match contents {
@@ -620,22 +647,7 @@ fn spawn_proof_generation_task<T: BeaconChainTypes>(
     };
 
     if let Some(execution_block_hash) = execution_block_hash {
-        info!(
-            "STATELESS: Spawning proof generation task for execution block {:?}",
-            execution_block_hash
-        );
-        // Spawn the proof generation task in the background
-        chain.task_executor.spawn(
-            async move {
-                if let Err(e) =
-                    generate_and_store_execution_proofs_for_hash(&chain_clone, execution_block_hash)
-                        .await
-                {
-                    warn!("Failed to generate execution proofs: {:?}", e);
-                }
-            },
-            "execution_proof_generation",
-        );
+        spawn_proof_generation_task_for_hash(chain, execution_block_hash);
     }
 }
 

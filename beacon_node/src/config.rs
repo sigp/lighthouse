@@ -839,6 +839,14 @@ pub fn get_config<E: EthSpec>(
     // Copy stateless validation configuration to network config
     client_config.network.stateless_validation = client_config.chain.stateless_validation;
 
+    // Execution proof generation.
+    client_config.chain.generate_execution_proofs = cli_args.get_flag("generate-execution-proofs");
+    
+    // Validate that stateless nodes cannot generate proofs
+    if client_config.chain.generate_execution_proofs && client_config.chain.stateless_validation {
+        return Err("The --generate-execution-proofs flag cannot be used with --stateless-validation. Stateless nodes cannot generate proofs.".to_string());
+    }
+
     if cli_args.get_flag("genesis-backfill") {
         client_config.chain.genesis_backfill = true;
     }

@@ -1520,6 +1520,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("generate-execution-proofs")
+                .long("generate-execution-proofs")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .help("Generate execution proofs for all blocks (both produced and received). \
+                       This makes the node act as a proof generator for the network. \
+                       Cannot be used with --stateless-validation.")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("light-client-server")
                 .long("light-client-server")
                 .help("DEPRECATED")

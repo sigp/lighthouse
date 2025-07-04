@@ -83,6 +83,8 @@ pub struct ChainConfig {
     pub optimistic_finalized_sync: bool,
     /// Enable stateless validation mode for new payloads.
     pub stateless_validation: bool,
+    /// Generate execution proofs for all blocks (both produced and received).
+    pub generate_execution_proofs: bool,
     /// Maximum number of execution payload proofs to store.
     pub max_execution_payload_proofs: usize,
     /// Maximum number of execution proof subnets
@@ -149,6 +151,7 @@ impl Default for ChainConfig {
             // This value isn't actually read except in tests.
             optimistic_finalized_sync: true,
             stateless_validation: false,
+            generate_execution_proofs: false,
             max_execution_payload_proofs: 10_000,
             max_execution_proof_subnets: 8,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,

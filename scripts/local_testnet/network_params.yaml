@@ -1,5 +1,15 @@
 # Full configuration reference [here](https://github.com/ethpandaops/ethereum-package?tab=readme-ov-file#configuration).
 participants:
+  # Stateful proof generator nodes (generate proofs for the network)
+  - el_type: geth
+    el_image: ethereum/client-go:latest
+    cl_type: lighthouse
+    cl_image: lighthouse:local
+    cl_extra_params:
+      - --target-peers=3
+      - --generate-execution-proofs
+    count: 2
+  # Stateless validator nodes (consume proofs but cannot generate them)
   - el_type: geth
     el_image: ethereum/client-go:latest
     cl_type: lighthouse
@@ -8,13 +18,14 @@ participants:
       - --target-peers=3
       - --stateless-validation
     count: 2
+  # Regular stateful nodes (normal operation, no proof generation)
   - el_type: geth
     el_image: ethereum/client-go:latest
     cl_type: lighthouse
     cl_image: lighthouse:local
     cl_extra_params:
       - --target-peers=3
-    count: 2
+    count: 1
 network_params:
   electra_fork_epoch: 0
   seconds_per_slot: 3
