@@ -163,7 +163,11 @@ async fn notify_new_payload<T: BeaconChainTypes>(
             return Ok(PayloadVerificationStatus::Verified);
         } else {
             info!(
-                "No valid proofs found for execution payload {:?}, marking as optimistic (proofs may arrive later via gossip subnets)",
+                "STATELESS: Block entering PENDING state - No valid proofs found for execution payload {:?}, marking as OPTIMISTIC (proofs may arrive later via gossip subnets)",
+                execution_block_hash
+            );
+            info!(
+                "STATELESS_TRACE: Block {:?} -> PENDING/OPTIMISTIC state (awaiting proof)",
                 execution_block_hash
             );
             return Ok(PayloadVerificationStatus::Optimistic);
@@ -584,6 +588,7 @@ where
 
     // Generate and store execution proofs asynchronously if not in stateless validation mode
     if !chain.config.stateless_validation {
+        info!("STATELESS: Triggering proof generation for newly produced block");
         spawn_proof_generation_task(&chain, &block_contents);
     }
 
@@ -615,6 +620,10 @@ fn spawn_proof_generation_task<T: BeaconChainTypes>(
     };
 
     if let Some(execution_block_hash) = execution_block_hash {
+        info!(
+            "STATELESS: Spawning proof generation task for execution block {:?}",
+            execution_block_hash
+        );
         // Spawn the proof generation task in the background
         chain.task_executor.spawn(
             async move {
@@ -640,7 +649,7 @@ async fn generate_and_store_execution_proofs_for_hash<T: BeaconChainTypes>(
     let proof_subnets = chain.execution_proof_subnets();
 
     info!(
-        "Generating {} dummy proofs for execution payload {:?} on subnets {:?}",
+        "STATELESS: Generating {} dummy proofs for execution payload {:?} on subnets {:?}",
         proof_subnets.len(),
         execution_block_hash,
         proof_subnets
@@ -658,7 +667,7 @@ async fn generate_and_store_execution_proofs_for_hash<T: BeaconChainTypes>(
             {
                 Ok(proof) => {
                     info!(
-                        "Generated and stored {} for execution payload {:?} on subnet {}",
+                        "STATELESS: Generated and stored {} for execution payload {:?} on subnet {}",
                         proof.description(),
                         execution_block_hash,
                         subnet_id

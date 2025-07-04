@@ -2726,9 +2726,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         info!(
-            %execution_block_hash,
-            pending_count = pending_blocks.len(),
-            "Re-evaluating optimistic blocks with newly received execution proof"
+            "STATELESS_TRACE: Starting re-evaluation for {} pending blocks with exec_hash: {:?}",
+            pending_blocks.len(),
+            execution_block_hash
         );
 
         let mut validated_count = 0;
@@ -2741,10 +2741,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 match fork_choice.on_valid_execution_payload(*block_root) {
                     Ok(()) => {
                         validated_count += 1;
-                        debug!(
+                        info!(
                             %block_root,
                             %execution_block_hash,
-                            "Successfully marked block as valid via execution proof"
+                            "STATELESS: Successfully marked block as VALID via execution proof"
                         );
                     }
                     Err(e) => {
@@ -2775,7 +2775,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             %execution_block_hash,
             validated_count,
             total_pending = pending_blocks.len(),
-            "Completed re-evaluation of optimistic blocks with execution proof"
+            "STATELESS: Completed re-evaluation - {} blocks transitioned from PENDING to VALID",
+            validated_count
+        );
+        info!(
+            "STATELESS_TRACE: Re-evaluation complete - {} of {} blocks now VALID for exec_hash: {:?}",
+            validated_count,
+            pending_blocks.len(),
+            execution_block_hash
         );
 
         // Perform periodic cleanup of finalized pending blocks (simple integration)
@@ -2802,10 +2809,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.execution_payload_proof_store
                 .register_pending_block(execution_block_hash, beacon_block_root);
 
-            debug!(
+            info!(
                 %beacon_block_root,
                 %execution_block_hash,
-                "Registered optimistic block as pending execution proof validation"
+                "STATELESS: Registered optimistic block as PENDING execution proof validation"
+            );
+            info!(
+                "STATELESS_TRACE: Block registered - beacon_root: {:?}, exec_hash: {:?} -> PENDING proof",
+                beacon_block_root,
+                execution_block_hash
             );
         }
     }

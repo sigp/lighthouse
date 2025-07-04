@@ -285,8 +285,8 @@ pub async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
         let total_proofs = ready_proofs.len() + retry_proofs.len();
 
         if total_proofs > 0 {
-            debug!(
-                "Found {} proofs ready for broadcast ({} new, {} retries)",
+            info!(
+                "STATELESS_TRACE: Broadcaster found {} proofs to broadcast (ready: {}, retry: {})",
                 total_proofs,
                 ready_proofs.len(),
                 retry_proofs.len()
@@ -400,7 +400,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
             // Mark as successfully broadcast
             if broadcast_manager.mark_broadcast_success(execution_block_hash, proof_id) {
                 info!(
-                    "Successfully broadcast execution proof for block {:?} on subnet {}",
+                    "STATELESS: Successfully BROADCAST execution proof for block {:?} on subnet {}",
                     execution_block_hash,
                     proof_id.subnet_id()
                 );
