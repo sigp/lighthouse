@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use strum::AsRefStr;
 use types::{
-    ChainSpec, DataColumnSubnetId, EthSpec, ExecutionProofSubnetId, ForkName, SubnetId,
-    SyncSubnetId, Unsigned,
+    execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS, ChainSpec, DataColumnSubnetId,
+    EthSpec, ExecutionProofSubnetId, ForkName, SubnetId, SyncSubnetId, Unsigned,
 };
 
 use crate::Subnet;
@@ -35,6 +35,8 @@ pub struct TopicConfig {
     pub subscribe_all_subnets: bool,
     pub subscribe_all_data_column_subnets: bool,
     pub sampling_subnets: HashSet<DataColumnSubnetId>,
+    pub execution_proof_subnets: Vec<u64>,
+    pub stateless_validation: bool,
 }
 
 /// Returns all the topics the node should subscribe at `fork_name`
@@ -95,6 +97,16 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
+    // Subscribe to execution proof subnets
+    // These are needed for stateless validation
+    for subnet_id in &opts.execution_proof_subnets {
+        if *subnet_id < MAX_EXECUTION_PROOF_SUBNETS {
+            topics.push(GossipKind::ExecutionProof(ExecutionProofSubnetId::new(
+                *subnet_id,
+            )));
+        }
+    }
+
     topics
 }
 
@@ -132,6 +144,8 @@ pub fn all_topics_at_fork<E: EthSpec>(fork: ForkName, spec: &ChainSpec) -> Vec<G
         subscribe_all_subnets: true,
         subscribe_all_data_column_subnets: true,
         sampling_subnets,
+        execution_proof_subnets: (0..MAX_EXECUTION_PROOF_SUBNETS).collect(),
+        stateless_validation: false,
     };
     core_topics_to_subscribe::<E>(fork, &opts, spec)
 }
@@ -542,6 +556,8 @@ mod tests {
             subscribe_all_subnets: false,
             subscribe_all_data_column_subnets: false,
             sampling_subnets: sampling_subnets.clone(),
+            execution_proof_subnets: vec![],
+            stateless_validation: false,
         }
     }
 

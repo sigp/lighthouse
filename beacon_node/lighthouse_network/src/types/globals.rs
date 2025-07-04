@@ -245,6 +245,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
             subscribe_all_subnets: self.config.subscribe_all_subnets,
             subscribe_all_data_column_subnets: self.config.subscribe_all_data_column_subnets,
             sampling_subnets: self.sampling_subnets.read().clone(),
+            execution_proof_subnets: self.config.execution_proof_subnets.clone(),
+            stateless_validation: self.config.stateless_validation,
         }
     }
 

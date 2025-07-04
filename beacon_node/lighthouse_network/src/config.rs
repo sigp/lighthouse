@@ -142,6 +142,12 @@ pub struct Config {
 
     /// Flag for advertising a fake CGC to peers for testing ONLY.
     pub advertise_false_custody_group_count: Option<u64>,
+
+    /// Execution proof subnets to subscribe to (for stateless validation).
+    pub execution_proof_subnets: Vec<u64>,
+
+    /// Whether stateless validation is enabled.
+    pub stateless_validation: bool,
 }
 
 impl Config {
@@ -367,6 +373,8 @@ impl Default for Config {
             inbound_rate_limiter_config: None,
             idontwant_message_size_threshold: DEFAULT_IDONTWANT_MESSAGE_SIZE_THRESHOLD,
             advertise_false_custody_group_count: None,
+            execution_proof_subnets: vec![],
+            stateless_validation: false,
         }
     }
 }

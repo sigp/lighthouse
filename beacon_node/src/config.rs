@@ -853,6 +853,10 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
+    // Copy execution proof configuration to network config
+    client_config.network.execution_proof_subnets = client_config.chain.execution_proof_subnets.clone();
+    client_config.network.stateless_validation = client_config.chain.stateless_validation;
+
     if cli_args.get_flag("genesis-backfill") {
         client_config.chain.genesis_backfill = true;
     }
