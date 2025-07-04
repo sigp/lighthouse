@@ -8,11 +8,11 @@ use lighthouse_network::{
     PeerAction, PeerId,
 };
 use std::{collections::HashMap, sync::Arc};
+use tracing::debug;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock,
 };
-
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
@@ -194,8 +194,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             } => {
                 let mut data_columns = vec![];
                 let mut column_peers: HashMap<u64, PeerId> = HashMap::new();
-                for req in requests.values() {
+                for (req_id, req) in requests.iter() {
                     let Some(data) = req.to_finished() else {
+                        debug!(?req_id, "Req is not finished");
                         return None;
                     };
                     data_columns.extend(data.clone())
@@ -221,12 +222,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     if let Some((peers, _)) = &err.column_and_peer {
                         for (_, peer) in peers.iter() {
                             // find the req id associated with the peer and
-                            // un-finish it
-                            for (req_id, req) in requests.iter_mut() {
-                                if req_id.peer == *peer {
-                                    req.remove_invalid_entries(*req_id);
-                                }
-                            }
+                            // delete it from the entries
+                            requests.retain(|&k, _| k.peer != *peer);
                         }
                     }
                 }
@@ -431,13 +428,6 @@ impl<I: PartialEq + std::fmt::Display, T> ByRangeRequest<I, T> {
                 Ok(())
             }
             Self::Complete(_) => Err("request already complete".to_owned()),
-        }
-    }
-
-    fn remove_invalid_entries(&mut self, id: I) {
-        match self {
-            Self::Complete(_) => *self = Self::Active(id),
-            Self::Active(_) => {}
         }
     }
 

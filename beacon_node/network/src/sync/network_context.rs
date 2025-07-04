@@ -719,6 +719,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             }
         } {
+            debug!("Error while inserting range component response");
             entry.remove();
             return Some(Err(e));
         }
@@ -727,6 +728,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             if blocks_result.is_ok() {
                 // remove the entry only if it coupled successfully with
                 // no errors
+                debug!("Removing entry");
                 entry.remove();
             }
             // If the request is finished, dequeue everything
@@ -1428,7 +1430,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         rpc_event: RpcEvent<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<Vec<Arc<SignedBeaconBlock<T::EthSpec>>>>> {
-        debug!(%peer_id, ?id, "Received blocks by range response");
+        // debug!(%peer_id, ?id, "Received blocks by range response");
         let resp = self.blocks_by_range_requests.on_response(id, rpc_event);
         self.on_rpc_response_result(id, "BlocksByRange", resp, peer_id, |b| b.len())
     }
@@ -1451,7 +1453,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<DataColumnSidecarList<T::EthSpec>>> {
-        debug!(%peer_id, ?id, "Received data columns by range response");
+        // debug!(%peer_id, ?id, "Received data columns by range response");
         let resp = self
             .data_columns_by_range_requests
             .on_response(id, rpc_event);
