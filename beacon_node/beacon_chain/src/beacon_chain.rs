@@ -2661,18 +2661,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Determine which execution proof subnets this node should subscribe to
     pub fn execution_proof_subnets(&self) -> Vec<u64> {
-        if self.config.stateless_validation {
-            // Stateless nodes: subscribe only to subnets they care about
-            if self.config.execution_proof_subnets.is_empty() {
-                // Default: subscribe to all subnets if nothing specified
-                (0..self.config.max_execution_proof_subnets).collect()
-            } else {
-                self.config.execution_proof_subnets.clone()
-            }
-        } else {
-            // Non-stateless nodes: subscribe to all configured subnets (they generate proofs)
-            (0..self.config.max_execution_proof_subnets).collect()
-        }
+        // All nodes subscribe to all execution proof subnets
+        (0..self.config.max_execution_proof_subnets).collect()
     }
 
     /// Get the maximum number of execution proof subnets for this configuration

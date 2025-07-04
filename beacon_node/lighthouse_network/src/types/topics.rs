@@ -35,7 +35,6 @@ pub struct TopicConfig {
     pub subscribe_all_subnets: bool,
     pub subscribe_all_data_column_subnets: bool,
     pub sampling_subnets: HashSet<DataColumnSubnetId>,
-    pub execution_proof_subnets: Vec<u64>,
     pub stateless_validation: bool,
 }
 
@@ -97,12 +96,11 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
-    // Subscribe to execution proof subnets
-    // These are needed for stateless validation
-    for subnet_id in &opts.execution_proof_subnets {
-        if *subnet_id < MAX_EXECUTION_PROOF_SUBNETS {
+    // Subscribe to all execution proof subnets when stateless validation is enabled
+    if opts.stateless_validation {
+        for subnet_id in 0..MAX_EXECUTION_PROOF_SUBNETS {
             topics.push(GossipKind::ExecutionProof(ExecutionProofSubnetId::new(
-                *subnet_id,
+                subnet_id,
             )));
         }
     }
@@ -144,8 +142,7 @@ pub fn all_topics_at_fork<E: EthSpec>(fork: ForkName, spec: &ChainSpec) -> Vec<G
         subscribe_all_subnets: true,
         subscribe_all_data_column_subnets: true,
         sampling_subnets,
-        execution_proof_subnets: (0..MAX_EXECUTION_PROOF_SUBNETS).collect(),
-        stateless_validation: false,
+        stateless_validation: true, // Enable for all topics at fork to include execution proofs
     };
     core_topics_to_subscribe::<E>(fork, &opts, spec)
 }
@@ -556,7 +553,6 @@ mod tests {
             subscribe_all_subnets: false,
             subscribe_all_data_column_subnets: false,
             sampling_subnets: sampling_subnets.clone(),
-            execution_proof_subnets: vec![],
             stateless_validation: false,
         }
     }

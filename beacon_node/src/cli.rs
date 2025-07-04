@@ -1520,17 +1520,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("execution-proof-subnets")
-                .long("execution-proof-subnets")
-                .value_name("SUBNET_IDS")
-                .help("Comma-separated list of execution proof subnet IDs to subscribe to. \
-                       Only used in stateless validation mode. If not specified, defaults to \
-                       all subnets (0-7). Example: --execution-proof-subnets 0,1,2")
-                .value_delimiter(',')
-                .action(ArgAction::Append)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("light-client-server")
                 .long("light-client-server")
                 .help("DEPRECATED")

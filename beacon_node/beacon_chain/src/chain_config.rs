@@ -85,9 +85,7 @@ pub struct ChainConfig {
     pub stateless_validation: bool,
     /// Maximum number of execution payload proofs to store.
     pub max_execution_payload_proofs: usize,
-    /// Execution proof subnets to subscribe to (empty = use defaults based on mode)
-    pub execution_proof_subnets: Vec<u64>,
-    /// Maximum number of execution proof subnets for non-stateless nodes to subscribe to
+    /// Maximum number of execution proof subnets
     pub max_execution_proof_subnets: u64,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
@@ -152,7 +150,6 @@ impl Default for ChainConfig {
             optimistic_finalized_sync: true,
             stateless_validation: false,
             max_execution_payload_proofs: 10_000,
-            execution_proof_subnets: Vec::new(),
             max_execution_proof_subnets: 8,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
