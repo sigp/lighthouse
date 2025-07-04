@@ -444,20 +444,38 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     pub fn retry_columns_by_range(
         &mut self,
-        requester: RangeRequestId,
         request_id: Id,
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
-        failed_columns: HashSet<ColumnIndex>,
+        request: BlocksByRangeRequest,
+        failed_columns: &HashSet<ColumnIndex>,
     ) -> Result<(), String> {
+        let Some(requester) = self.components_by_range_requests.keys().find_map(|r| {
+            if r.id == request_id {
+                Some(r.requester)
+            } else {
+                None
+            }
+        }) else {
+            return Err("request id not present".to_string());
+        };
+
         let active_request_count_by_peer = self.active_request_count_by_peer();
         // Attempt to find all required custody peers to request the failed columns from
-        let columns_by_range_peers_to_request = self.select_columns_by_range_peers_to_request(
-            &failed_columns,
-            peers,
-            active_request_count_by_peer,
-            peers_to_deprioritize,
-        )?;
+
+        debug!(
+            ?failed_columns,
+            "Retrying only failed column requests from other peers"
+        );
+
+        let columns_by_range_peers_to_request = self
+            .select_columns_by_range_peers_to_request(
+                &failed_columns,
+                peers,
+                active_request_count_by_peer,
+                peers_to_deprioritize,
+            )
+            .map_err(|e| format!("{:?}", e))?;
 
         // Reuse the id for the request that received partially correct responses
         let id = ComponentsByRangeRequestId {
@@ -478,16 +496,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     id,
                 )
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("{:?}", e))?;
 
         // instead of creating a new `RangeBlockComponentsRequest`, we reinsert
         // the new requests created for the failed requests
 
-        let Some(range_request) = self.components_by_range_requests.get(id) else {
+        let Some(range_request) = self.components_by_range_requests.get_mut(&id) else {
             return Err(
                 "retrying custody request for range request that does not exist".to_string(),
             );
         };
+
+        range_request.reinsert_failed_column_requests(data_column_requests)?;
+        Ok(())
     }
 
     /// A blocks by range request sent by the range sync algorithm
@@ -668,20 +690,31 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             let request = entry.get_mut();
             match range_block_component {
                 RangeBlockComponent::Block(req_id, resp) => resp.and_then(|(blocks, _)| {
-                    request
-                        .add_blocks(req_id, blocks)
-                        .map_err(RpcResponseError::BlockComponentCouplingError)
+                    request.add_blocks(req_id, blocks).map_err(|e| {
+                        RpcResponseError::BlockComponentCouplingError(CouplingError {
+                            msg: e,
+                            column_and_peer: None,
+                        })
+                    })
                 }),
                 RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|(blobs, _)| {
-                    request
-                        .add_blobs(req_id, blobs)
-                        .map_err(RpcResponseError::BlockComponentCouplingError)
+                    request.add_blobs(req_id, blobs).map_err(|e| {
+                        RpcResponseError::BlockComponentCouplingError(CouplingError {
+                            msg: e,
+                            column_and_peer: None,
+                        })
+                    })
                 }),
                 RangeBlockComponent::CustodyColumns(req_id, resp) => {
                     resp.and_then(|(custody_columns, _)| {
                         request
                             .add_custody_columns(req_id, custody_columns)
-                            .map_err(RpcResponseError::BlockComponentCouplingError)
+                            .map_err(|e| {
+                                RpcResponseError::BlockComponentCouplingError(CouplingError {
+                                    msg: e,
+                                    column_and_peer: None,
+                                })
+                            })
                     })
                 }
             }
@@ -690,7 +723,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Some(Err(e));
         }
 
-        if let Some(blocks_result) = entry.get().responses(&self.chain.spec) {
+        if let Some(blocks_result) = entry.get_mut().responses(&self.chain.spec) {
             if blocks_result.is_ok() {
                 // remove the entry only if it coupled successfully with
                 // no errors
