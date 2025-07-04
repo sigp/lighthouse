@@ -624,33 +624,6 @@ fn spawn_proof_generation_task_for_hash<T: BeaconChainTypes>(
     );
 }
 
-/// Spawn a background task to generate and store execution proofs
-/// This allows block production to continue without waiting for proof generation
-fn spawn_proof_generation_task<T: BeaconChainTypes>(
-    chain: &Arc<BeaconChain<T>>,
-    block_contents: &BlockProposalContentsType<T::EthSpec>,
-) {
-    // Extract execution block hash from the payload (to avoid cloning the entire block_contents)
-    let execution_block_hash = match block_contents {
-        BlockProposalContentsType::Full(contents) => match contents {
-            BlockProposalContents::Payload { payload, .. } => Some(payload.block_hash()),
-            BlockProposalContents::PayloadAndBlobs { payload, .. } => {
-                Some(payload.clone().execution_payload().block_hash())
-            }
-        },
-        BlockProposalContentsType::Blinded(_) => {
-            // For blinded payloads, we don't have the execution payload's block hash yet
-            // Skip proof generation for blinded payloads
-            debug!("Skipping proof generation for blinded payload");
-            None
-        }
-    };
-
-    if let Some(execution_block_hash) = execution_block_hash {
-        spawn_proof_generation_task_for_hash(chain, execution_block_hash);
-    }
-}
-
 /// Generate and store dummy execution proofs for a specific execution block hash
 /// This simulates receiving proofs that would normally come from zkVMs or other proof generators
 async fn generate_and_store_execution_proofs_for_hash<T: BeaconChainTypes>(
