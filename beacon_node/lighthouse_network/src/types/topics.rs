@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use strum::AsRefStr;
 use types::{
-    execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS, ChainSpec, DataColumnSubnetId,
-    EthSpec, ExecutionProofSubnetId, ForkName, SubnetId, SyncSubnetId, Unsigned,
+    execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS, ChainSpec, DataColumnSubnetId, EthSpec,
+    ExecutionProofSubnetId, ForkName, SubnetId, SyncSubnetId, Unsigned,
 };
 
 use crate::Subnet;
