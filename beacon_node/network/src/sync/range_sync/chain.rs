@@ -919,7 +919,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers()
+                .synced_peers_for_epoch(batch_id, &self.peers)
                 .cloned()
                 .collect::<HashSet<_>>();
 
