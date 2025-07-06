@@ -840,12 +840,17 @@ pub fn get_config<E: EthSpec>(
     client_config.network.stateless_validation = client_config.chain.stateless_validation;
 
     // Stateless minimum proofs required
-    if let Some(min_proofs) = clap_utils::parse_optional::<usize>(cli_args, "stateless-min-proofs-required")? {
+    if let Some(min_proofs) =
+        clap_utils::parse_optional::<usize>(cli_args, "stateless-min-proofs-required")?
+    {
         if min_proofs == 0 {
             return Err("--stateless-min-proofs-required must be at least 1".to_string());
         }
         if !client_config.chain.stateless_validation {
-            return Err("--stateless-min-proofs-required requires --stateless-validation to be enabled".to_string());
+            return Err(
+                "--stateless-min-proofs-required requires --stateless-validation to be enabled"
+                    .to_string(),
+            );
         }
         if min_proofs as u64 > client_config.chain.max_execution_proof_subnets {
             return Err(format!(
@@ -868,7 +873,9 @@ pub fn get_config<E: EthSpec>(
     // Validate that node's max_execution_proof_subnets doesn't exceed protocol maximum.
     // The protocol defines a hard limit of 8 subnets, but individual nodes can choose
     // to participate in fewer subnets to reduce resource usage.
-    if client_config.chain.max_execution_proof_subnets > types::execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS {
+    if client_config.chain.max_execution_proof_subnets
+        > types::execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS
+    {
         return Err(format!(
             "Node's max_execution_proof_subnets ({}) cannot exceed protocol MAX_EXECUTION_PROOF_SUBNETS ({})",
             client_config.chain.max_execution_proof_subnets,

@@ -2660,15 +2660,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Determine which execution proof subnets this node should subscribe to.
-    /// 
+    ///
     /// Currently uses a simple sequential allocation: if max_execution_proof_subnets is N,
     /// the node subscribes to subnets 0 through N-1.
-    /// 
+    ///
     /// For example:
     /// - max_execution_proof_subnets = 8: subscribes to subnets [0, 1, 2, 3, 4, 5, 6, 7]
     /// - max_execution_proof_subnets = 4: subscribes to subnets [0, 1, 2, 3]
     /// - max_execution_proof_subnets = 1: subscribes to subnet [0] only
-    /// 
+    ///
     /// Future implementations could use more sophisticated strategies like:
     /// - Random subnet selection for better load distribution
     /// - Validator-based selection (e.g., based on validator indices)
@@ -2711,7 +2711,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_payload_proof_store
             .get_proofs(&execution_block_hash);
         let proof_count = available_proofs.len();
-        
+
         // Check if we have enough valid proofs
         if proof_count < self.config.stateless_min_proofs_required {
             debug!(
@@ -2722,12 +2722,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
             return Ok(false);
         }
-        
-        let proof_descriptions: Vec<String> = available_proofs
-            .iter()
-            .map(|p| p.description())
-            .collect();
-        
+
+        let proof_descriptions: Vec<String> =
+            available_proofs.iter().map(|p| p.description()).collect();
+
         info!(
             %execution_block_hash,
             proof_count,

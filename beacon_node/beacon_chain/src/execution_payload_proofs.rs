@@ -126,10 +126,10 @@ impl ExecutionPayloadProof {
 /// Storage for execution payload proofs
 /// Designed to be thread-safe and efficient for concurrent access
 /// Supports multiple proof types per execution payload
-/// 
+///
 /// Workflow:
 /// 1. When spawning proofs: BeaconBlockHash → ExecutionPayload (via extract_execution_payload)
-/// 2. Proof generation receives concrete ExecutionPayload<E> 
+/// 2. Proof generation receives concrete ExecutionPayload<E>
 /// 3. Proofs are stored using ExecutionBlockHash as key (extracted from payload)
 /// 4. Verification looks up proofs by ExecutionBlockHash
 #[derive(Debug)]
@@ -347,7 +347,6 @@ impl ExecutionPayloadProofStore {
         self.store_proof(proof.clone())?;
         Ok(proof)
     }
-
 
     /// Validate a proof (placeholder implementation)
     /// TODO: Implement actual cryptographic proof validation based on version and type
@@ -795,7 +794,11 @@ mod tests {
 
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
         let dummy_witness = b"test_witness_data";
-        let proof = ExecutionPayloadProofStore::generate_dummy_proof(&exec_payload, dummy_witness, proof_id);
+        let proof = ExecutionPayloadProofStore::generate_dummy_proof(
+            &exec_payload,
+            dummy_witness,
+            proof_id,
+        );
 
         assert_eq!(proof.block_hash, execution_block_hash);
         assert_eq!(proof.proof_id, proof_id);
@@ -862,7 +865,8 @@ mod tests {
         // Generate another proof for the same payload with different proof ID
         let proof_id_2 = ProofId::custom(7);
         let exec_payload2 = ExecutionPayload::Bellatrix(payload.execution_payload);
-        let result_2 = store.generate_and_store_dummy_proof(&exec_payload2, dummy_witness, proof_id_2);
+        let result_2 =
+            store.generate_and_store_dummy_proof(&exec_payload2, dummy_witness, proof_id_2);
         assert!(result_2.is_ok());
 
         // Should have 2 proofs now

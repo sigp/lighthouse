@@ -156,7 +156,7 @@ async fn notify_new_payload<T: BeaconChainTypes>(
         let proof_count = chain
             .execution_payload_proof_store
             .proof_count_for_payload(&execution_block_hash);
-        
+
         // Check if we have enough proofs for this execution payload
         if proof_count >= chain.config.stateless_min_proofs_required {
             let proofs = chain
@@ -655,23 +655,22 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
     payload: &ExecutionPayload<T::EthSpec>,
 ) -> Result<(), BlockProductionError> {
     let execution_block_hash = payload.block_hash();
-    
+
     // Add random delay between 1-3 seconds to simulate proof computation delays
     use rand::{thread_rng, Rng};
     let delay_ms = thread_rng().gen_range(1000..=3000);
     tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-    
+
     debug!(
         "STATELESS: Waited {}ms before generating proofs for execution payload {:?}",
-        delay_ms,
-        execution_block_hash
+        delay_ms, execution_block_hash
     );
 
     // For real proof generation, we would:
     // 1. Send the ExecutionPayload to EL to fetch witness data (via debug_executionWitness or similar)
     // 2. Generate actual cryptographic proofs using payload + witness
     // For now, we generate dummy proofs with a simulated witness
-    
+
     // TODO: In production, fetch real witness from EL
     // The execution state witness contains the state data needed to verify the execution payload
     // It would be obtained from the EL via a method like debug_executionWitness
