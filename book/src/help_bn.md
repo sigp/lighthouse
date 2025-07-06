@@ -139,10 +139,6 @@ Options:
           Used by the beacon node to communicate a client version to execution
           nodes during JWT authentication. It corresponds to the 'clv' field in
           the JWT claims object.Set to empty by default
-      --execution-proof-subnets <SUBNET_IDS>
-          Comma-separated list of execution proof subnet IDs to subscribe to.
-          Only used in stateless validation mode. If not specified, defaults to
-          all subnets (0-7). Example: --execution-proof-subnets 0,1,2
       --execution-timeout-multiplier <NUM>
           Unsigned integer to multiply the default execution timeouts by.
           [default: 1]
@@ -386,6 +382,11 @@ Options:
           full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
           Specifies the size of the state cache [default: 32]
+      --stateless-min-proofs-required <COUNT>
+          Minimum number of execution proofs required to consider a block valid
+          in stateless validation mode. Only applies when --stateless-validation
+          is enabled. Must be between 1 and max_execution_proof_subnets
+          (default: 8). [default: 2]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the
@@ -490,6 +491,10 @@ Flags:
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
+      --generate-execution-proofs
+          Generate execution proofs for all blocks (both produced and received).
+          This makes the node act as a proof generator for the network. Cannot
+          be used with --stateless-validation.
       --genesis-backfill
           Attempts to download blocks all the way back to genesis when
           checkpoint syncing.
