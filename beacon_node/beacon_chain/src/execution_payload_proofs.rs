@@ -307,19 +307,24 @@ impl ExecutionPayloadProofStore {
     ///
     /// This accepts the concrete ExecutionPayload<E> type which is what the EL expects
     /// and can be easily serialized for sending to external systems.
+    /// The execution_state_witness would be obtained from the EL (e.g., via debug_executionWitness)
     pub fn generate_dummy_proof<T: EthSpec>(
         payload: &ExecutionPayload<T>,
+        execution_state_witness: &[u8],
         proof_id: ProofId,
     ) -> ExecutionPayloadProof {
         let execution_block_hash = payload.block_hash();
         let block_number = payload.block_number();
 
         // Create dummy proof data that includes the subnet information and payload details
+        // In a real implementation, this would use the execution_state_witness to generate
+        // a cryptographic proof of the payload's validity
         let dummy_data = format!(
-            "dummy_proof_subnet_{}_block_{:?}_number_{}_timestamp_{}",
+            "dummy_proof_subnet_{}_block_{:?}_number_{}_witness_len_{}_timestamp_{}",
             proof_id.subnet_id(),
             execution_block_hash,
             block_number,
+            execution_state_witness.len(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -335,9 +340,10 @@ impl ExecutionPayloadProofStore {
     pub fn generate_and_store_dummy_proof<T: EthSpec>(
         &self,
         payload: &ExecutionPayload<T>,
+        execution_state_witness: &[u8],
         proof_id: ProofId,
     ) -> Result<ExecutionPayloadProof, String> {
-        let proof = Self::generate_dummy_proof(payload, proof_id);
+        let proof = Self::generate_dummy_proof(payload, execution_state_witness, proof_id);
         self.store_proof(proof.clone())?;
         Ok(proof)
     }
@@ -788,7 +794,8 @@ mod tests {
         };
 
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
-        let proof = ExecutionPayloadProofStore::generate_dummy_proof(&exec_payload, proof_id);
+        let dummy_witness = b"test_witness_data";
+        let proof = ExecutionPayloadProofStore::generate_dummy_proof(&exec_payload, dummy_witness, proof_id);
 
         assert_eq!(proof.block_hash, execution_block_hash);
         assert_eq!(proof.proof_id, proof_id);
@@ -801,6 +808,7 @@ mod tests {
         assert!(proof_data_str.contains("dummy_proof_subnet_5"));
         assert!(proof_data_str.contains(&format!("{:?}", execution_block_hash)));
         assert!(proof_data_str.contains("number_555"));
+        assert!(proof_data_str.contains("witness_len_17")); // 17 is the length of "test_witness_data"
     }
 
     #[test]
@@ -837,7 +845,8 @@ mod tests {
 
         // Generate and store a proof
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload.clone());
-        let result = store.generate_and_store_dummy_proof(&exec_payload, proof_id);
+        let dummy_witness = b"test_witness_data";
+        let result = store.generate_and_store_dummy_proof(&exec_payload, dummy_witness, proof_id);
         assert!(result.is_ok());
 
         let proof = result.unwrap();
@@ -853,7 +862,7 @@ mod tests {
         // Generate another proof for the same payload with different proof ID
         let proof_id_2 = ProofId::custom(7);
         let exec_payload2 = ExecutionPayload::Bellatrix(payload.execution_payload);
-        let result_2 = store.generate_and_store_dummy_proof(&exec_payload2, proof_id_2);
+        let result_2 = store.generate_and_store_dummy_proof(&exec_payload2, dummy_witness, proof_id_2);
         assert!(result_2.is_ok());
 
         // Should have 2 proofs now

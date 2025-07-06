@@ -653,11 +653,28 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
     payload: &ExecutionPayload<T::EthSpec>,
 ) -> Result<(), BlockProductionError> {
     let execution_block_hash = payload.block_hash();
+    
+    // Add random delay between 1-3 seconds to simulate proof computation delays
+    use rand::{thread_rng, Rng};
+    let delay_ms = thread_rng().gen_range(1000..=3000);
+    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+    
+    debug!(
+        "STATELESS: Waited {}ms before generating proofs for execution payload {:?}",
+        delay_ms,
+        execution_block_hash
+    );
 
     // For real proof generation, we would:
     // 1. Send the ExecutionPayload to EL to fetch witness data (via debug_executionWitness or similar)
     // 2. Generate actual cryptographic proofs using payload + witness
-    // For now, we generate dummy proofs directly from the ExecutionPayload
+    // For now, we generate dummy proofs with a simulated witness
+    
+    // TODO: In production, fetch real witness from EL
+    // The execution state witness contains the state data needed to verify the execution payload
+    // It would be obtained from the EL via a method like debug_executionWitness
+    // let witness = execution_layer.get_execution_witness(execution_block_hash).await?;
+    let dummy_witness = format!("dummy_witness_for_block_{:?}", execution_block_hash).into_bytes();
 
     // Get the subnets this node wants to generate proofs for
     let proof_subnets = chain.execution_proof_subnets();
@@ -677,7 +694,7 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
             // Use the proof store method to generate and store the proof
             match chain
                 .execution_payload_proof_store
-                .generate_and_store_dummy_proof(&payload, proof_id)
+                .generate_and_store_dummy_proof(&payload, &dummy_witness, proof_id)
             {
                 Ok(proof) => {
                     info!(
@@ -750,9 +767,11 @@ mod tests {
         };
 
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
+        let dummy_witness = b"test_witness_data";
         let proof =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
+                dummy_witness,
                 proof_id,
             );
 
@@ -798,19 +817,23 @@ mod tests {
         };
 
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
+        let dummy_witness = b"test_witness_data";
         let proof_0 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
+                dummy_witness,
                 ProofId::EXECUTION_WITNESS,
             );
         let proof_1 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
+                dummy_witness,
                 ProofId::custom(1),
             );
         let proof_2 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
+                dummy_witness,
                 ProofId::custom(2),
             );
 
@@ -867,7 +890,8 @@ mod tests {
 
         // Generate and store a proof
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
-        let result = store.generate_and_store_dummy_proof(&exec_payload, proof_id);
+        let dummy_witness = b"test_witness_data";
+        let result = store.generate_and_store_dummy_proof(&exec_payload, dummy_witness, proof_id);
         assert!(result.is_ok());
 
         let proof = result.unwrap();

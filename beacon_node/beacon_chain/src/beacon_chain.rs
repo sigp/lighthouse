@@ -2701,6 +2701,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             return Ok(false);
         }
+        
+        // Get the proofs we have for logging purposes
+        let available_proofs = self
+            .execution_payload_proof_store
+            .get_proofs(&execution_block_hash);
+        let proof_descriptions: Vec<String> = available_proofs
+            .iter()
+            .map(|p| p.description())
+            .collect();
+        
+        info!(
+            %execution_block_hash,
+            proof_count = available_proofs.len(),
+            proof_types = %proof_descriptions.join(", "),
+            "STATELESS: Found proofs for re-evaluation"
+        );
 
         // Get the beacon blocks that were waiting for proofs for this execution block hash
         let pending_blocks = self
@@ -2734,6 +2750,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         info!(
                             %block_root,
                             %execution_block_hash,
+                            proof_types = %proof_descriptions.join(", "),
                             "STATELESS: Successfully marked block as VALID via execution proof"
                         );
                     }
