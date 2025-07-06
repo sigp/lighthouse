@@ -89,6 +89,8 @@ pub struct ChainConfig {
     pub max_execution_payload_proofs: usize,
     /// Maximum number of execution proof subnets
     pub max_execution_proof_subnets: u64,
+    /// Minimum number of proofs required to consider a block valid in stateless mode
+    pub stateless_min_proofs_required: usize,
     /// The size of the shuffling cache,
     pub shuffling_cache_size: usize,
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
@@ -154,6 +156,7 @@ impl Default for ChainConfig {
             generate_execution_proofs: false,
             max_execution_payload_proofs: 10_000,
             max_execution_proof_subnets: 8,
+            stateless_min_proofs_required: 2,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,

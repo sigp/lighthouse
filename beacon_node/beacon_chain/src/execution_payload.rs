@@ -153,22 +153,21 @@ async fn notify_new_payload<T: BeaconChainTypes>(
 
     // Check if stateless validation is enabled
     if chain.config.stateless_validation {
-        // Check if we have any valid proof for this execution payload
-        if chain
+        let proof_count = chain
             .execution_payload_proof_store
-            .has_valid_proof(&execution_block_hash)
-        {
-            let proof_count = chain
-                .execution_payload_proof_store
-                .proof_count_for_payload(&execution_block_hash);
+            .proof_count_for_payload(&execution_block_hash);
+        
+        // Check if we have enough proofs for this execution payload
+        if proof_count >= chain.config.stateless_min_proofs_required {
             let proofs = chain
                 .execution_payload_proof_store
                 .get_proofs(&execution_block_hash);
             let proof_descriptions: Vec<String> = proofs.iter().map(|p| p.description()).collect();
 
             info!(
-                "Found {} valid proof(s) for execution payload {:?} ({}), marking as verified",
+                "Found {}/{} required proof(s) for execution payload {:?} ({}), marking as verified",
                 proof_count,
+                chain.config.stateless_min_proofs_required,
                 execution_block_hash,
                 proof_descriptions.join(", ")
             );
@@ -176,14 +175,17 @@ async fn notify_new_payload<T: BeaconChainTypes>(
         } else {
             let beacon_block_root = block.tree_hash_root();
             info!(
-                "STATELESS: Block entering PENDING state - No valid proofs found for beacon block root {:?}, execution payload hash {:?}, marking as OPTIMISTIC (proofs may arrive later via gossip subnets)",
+                "STATELESS: Block entering PENDING state - Found {}/{} required proofs for beacon block root {:?}, execution payload hash {:?}, marking as OPTIMISTIC (proofs may arrive later via gossip subnets)",
+                proof_count,
+                chain.config.stateless_min_proofs_required,
                 beacon_block_root,
                 execution_block_hash
             );
             info!(
-                "STATELESS_TRACE: Beacon block root {:?}, execution payload hash {:?} -> PENDING/OPTIMISTIC state (awaiting proof)",
+                "STATELESS_TRACE: Beacon block root {:?}, execution payload hash {:?} -> PENDING/OPTIMISTIC state (awaiting {} proof(s))",
                 beacon_block_root,
-                execution_block_hash
+                execution_block_hash,
+                chain.config.stateless_min_proofs_required - proof_count
             );
             return Ok(PayloadVerificationStatus::Optimistic);
         }

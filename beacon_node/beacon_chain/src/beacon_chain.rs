@@ -2694,18 +2694,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(false);
         }
 
-        // Check if we have any valid proofs for this execution block hash
-        if !self
-            .execution_payload_proof_store
-            .has_valid_proof(&execution_block_hash)
-        {
-            return Ok(false);
-        }
-        
-        // Get the proofs we have for logging purposes
+        // Get the proofs we have for this execution block hash
         let available_proofs = self
             .execution_payload_proof_store
             .get_proofs(&execution_block_hash);
+        let proof_count = available_proofs.len();
+        
+        // Check if we have enough valid proofs
+        if proof_count < self.config.stateless_min_proofs_required {
+            debug!(
+                %execution_block_hash,
+                current_proofs = proof_count,
+                required_proofs = self.config.stateless_min_proofs_required,
+                "Not enough proofs yet for re-evaluation"
+            );
+            return Ok(false);
+        }
+        
         let proof_descriptions: Vec<String> = available_proofs
             .iter()
             .map(|p| p.description())
@@ -2713,9 +2718,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         
         info!(
             %execution_block_hash,
-            proof_count = available_proofs.len(),
+            proof_count,
+            required_proofs = self.config.stateless_min_proofs_required,
             proof_types = %proof_descriptions.join(", "),
-            "STATELESS: Found proofs for re-evaluation"
+            "STATELESS: Found enough proofs for re-evaluation"
         );
 
         // Get the beacon blocks that were waiting for proofs for this execution block hash
