@@ -98,15 +98,17 @@ Execution proofs are distributed via gossip subnets to ensure efficient propagat
 
 When `stateless_validation` is enabled in the chain configuration:
 
-### 1. **Proof Reception**
-- The node subscribes to execution proof subnets
+### 1. **Proof Reception and Optimistic Import**
+- The node subscribes to execution proof subnets automatically
 - Incoming proofs are validated and stored in a proof pool
-- Proofs are matched with pending block validations:
-  - When a block arrives before its proof, it enters a "pending validation" state
-  - The block's execution payload hash is used as a key to await matching proofs
-  - Once a proof with matching execution block hash arrives, validation can proceed
-  - The system follows an optimistic approach - blocks are not rejected due to missing proofs
-  - Instead, blocks without proofs are tracked until finalization, when old pending blocks are cleaned up
+- Optimistic block handling:
+  - When a block arrives without proofs, it's marked as "optimistic" (pending validation)
+  - The block's execution payload hash is registered for proof tracking
+  - The node continues processing the block optimistically, assuming it will be valid
+  - When matching proofs arrive via gossip, they trigger re-evaluation of pending blocks
+  - Blocks transition from optimistic to verified status once valid proofs are received
+  - The system never rejects blocks due to missing proofs - they remain optimistic until proven valid
+  - A background service cleans up old pending blocks after a certain period
 
 ### 2. **Block Validation**
 - Instead of executing payloads locally, the node waits for execution proofs
@@ -165,18 +167,78 @@ When a new block arrives:
 
 ### Enabling Stateless Validation
 
-In your beacon node configuration:
+To run a stateless validator node:
+
+```bash
+lighthouse bn --stateless-validation
+```
+
+This enables the node to:
+- Subscribe to all execution proof subnets automatically
+- Accept blocks optimistically while waiting for proofs
+- Validate blocks using cryptographic proofs instead of re-execution
+- Operate without requiring a full execution layer state
+
+### Proof Generation
+
+Some nodes can be configured to generate proofs for the network. This is done with a separate flag:
+
+```bash
+lighthouse bn --generate-execution-proofs
+```
+
+**Important Notes:**
+- **Only stateful nodes can generate proofs** - the `--generate-execution-proofs` flag cannot be used with `--stateless-validation`
+- Proof generation requires access to the full execution layer state
+- Proof generator nodes help the network by creating proofs for all blocks they process (both produced and received)
+- Generated proofs are automatically broadcast to the appropriate gossip subnets
+
+### Node Types
+
+With these flags, you can configure different types of nodes:
+
+1. **Regular Stateful Node** (default)
+   ```bash
+   lighthouse bn
+   ```
+   - Maintains full state
+   - Validates blocks through execution
+   - Traditional operation
+
+2. **Stateless Validator**
+   ```bash
+   lighthouse bn --stateless-validation
+   ```
+   - No state storage required
+   - Consumes proofs from the network
+   - Cannot generate proofs
+   - Validates blocks using cryptographic proofs
+
+3. **Proof Generator Node**
+   ```bash
+   lighthouse bn --generate-execution-proofs
+   ```
+   - Maintains full state
+   - Generates proofs for all blocks
+   - Helps stateless nodes by providing proofs
+   - Can also validate blocks normally
+
+### Configuration Options
+
+Key configuration parameters:
 
 ```yaml
 # Enable stateless validation mode
 stateless_validation: true
 
-# Maximum number of execution proofs to cache
-max_execution_payload_proofs: 1024
+# Generate execution proofs (only for stateful nodes)
+generate_execution_proofs: false
 
-# Subnet configuration for proof reception
-execution_proof_subnets: [0, 1, 2, 3]
-max_execution_proof_subnets: 4
+# Maximum number of execution proofs to cache
+max_execution_payload_proofs: 10000
+
+# Maximum number of execution proof subnets (default: 8)
+max_execution_proof_subnets: 8
 ```
 
 ### Performance Tuning
@@ -226,14 +288,17 @@ sequenceDiagram
 
 #### Detailed Workflow
 
-**Block Proposer (Full Node):**
+**Block Producer/Receiver with Proof Generation:**
 1. Maintains full state and can execute transactions
-2. Produces blocks normally through the EL
-3. After block production, the CL:
-   - Requests execution witness from EL (via `debug_executionWitness` or similar)
-   - Sends witness to ZK prover for proof generation
-   - Note: The CL can obtain witnesses from any source, not just its own EL
-4. Broadcasts both the block and its proof to the network
+2. When processing any block (produced or received):
+   - If `--generate-execution-proofs` is enabled, triggers proof generation
+   - Proof generation happens asynchronously in the background
+   - Generated proofs are stored in the execution payload proof store
+3. The execution proof broadcaster service:
+   - Periodically checks for unbroadcast proofs
+   - Broadcasts proofs to the appropriate gossip subnets
+   - Manages retry logic for failed broadcasts
+4. Note: Proof generation is triggered in `notify_new_payload` for all blocks when the flag is set
 
 **Stateless Validator:**
 1. Subscribes to relevant proof subnets (based on supported proof types)
@@ -255,8 +320,69 @@ The subnet for a proof is determined by the proof type itself:
 - This allows nodes to subscribe only to proof types they can validate
 - The ProofId directly maps to the subnet ID (1:1 mapping)
 
+**Automatic Subnet Subscription:**
+- When `--stateless-validation` is enabled, nodes automatically subscribe to ALL execution proof subnets (0-7 by default)
+- This ensures stateless nodes can receive proofs from any proof system
+- No manual subnet configuration is required for stateless nodes
+
 ### Security Considerations
 
 1. **Proof Validity**: All proofs must be cryptographically verified
 2. **DoS Protection**: Rate limiting on proof acceptance ( This is essentially where a bad actor floods the network with invalid proofs, or just proofs that do not belong to payloads we will ever care about)
 3. **Slashing Conditions**: Invalid proof signatures could result in slashing in the future (depends on if we choose to enshrine the proofs/incentivise it from issuance)
+
+## Practical Examples
+
+### Running a Test Network
+
+To test stateless validation with Kurtosis:
+
+```yaml
+# network_params.yaml
+participants:
+  # Stateful proof generator nodes
+  - el_type: geth
+    cl_type: lighthouse
+    cl_extra_params:
+      - --generate-execution-proofs
+    count: 2
+  
+  # Stateless validator nodes
+  - el_type: geth
+    cl_type: lighthouse
+    cl_extra_params:
+      - --stateless-validation
+    count: 2
+  
+  # Regular nodes
+  - el_type: geth
+    cl_type: lighthouse
+    count: 1
+```
+
+### Monitoring Stateless Operation
+
+Key log messages to watch for:
+
+1. **Proof Generation** (on proof generator nodes):
+   ```
+   INFO Triggering proof generation for execution payload 0x...
+   INFO STATELESS: Generated and stored proof for execution payload 0x...
+   ```
+
+2. **Optimistic Import** (on stateless nodes):
+   ```
+   INFO STATELESS: Block entering PENDING state - No valid proofs found for execution payload 0x...
+   ```
+
+3. **Proof Validation** (on stateless nodes):
+   ```
+   INFO Found 1 valid proof(s) for execution payload 0x..., marking as verified
+   INFO STATELESS: Block 0x... transitioned from PENDING to VALID
+   ```
+
+4. **Network Activity**:
+   ```
+   INFO Subscribed to ExecutionProof subnets: [0, 1, 2, 3, 4, 5, 6, 7]
+   INFO Broadcasting execution proof on subnet 0
+   ```
