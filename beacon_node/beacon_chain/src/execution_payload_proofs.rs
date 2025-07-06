@@ -2,7 +2,7 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{ExecutionBlockHash, Hash256};
+use types::{EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256};
 
 /// Default maximum number of execution proof subnets for non-stateless nodes
 /// This determines how many subnets non-stateless nodes will subscribe to by default
@@ -126,6 +126,12 @@ impl ExecutionPayloadProof {
 /// Storage for execution payload proofs
 /// Designed to be thread-safe and efficient for concurrent access
 /// Supports multiple proof types per execution payload
+/// 
+/// Workflow:
+/// 1. When spawning proofs: BeaconBlockHash → ExecutionPayload (via extract_execution_payload)
+/// 2. Proof generation receives concrete ExecutionPayload<E> 
+/// 3. Proofs are stored using ExecutionBlockHash as key (extracted from payload)
+/// 4. Verification looks up proofs by ExecutionBlockHash
 #[derive(Debug)]
 pub struct ExecutionPayloadProofStore {
     /// Map from (execution block hash, proof ID) to proof
@@ -298,15 +304,22 @@ impl ExecutionPayloadProofStore {
 
     /// Generate a dummy proof for testing purposes
     /// TODO: Replace with actual proof generation from zkVMs or other proof systems
-    pub fn generate_dummy_proof(
-        execution_block_hash: ExecutionBlockHash,
+    ///
+    /// This accepts the concrete ExecutionPayload<E> type which is what the EL expects
+    /// and can be easily serialized for sending to external systems.
+    pub fn generate_dummy_proof<T: EthSpec>(
+        payload: &ExecutionPayload<T>,
         proof_id: ProofId,
     ) -> ExecutionPayloadProof {
-        // Create dummy proof data that includes the subnet information
+        let execution_block_hash = payload.block_hash();
+        let block_number = payload.block_number();
+
+        // Create dummy proof data that includes the subnet information and payload details
         let dummy_data = format!(
-            "dummy_proof_subnet_{}_block_{:?}_timestamp_{}",
+            "dummy_proof_subnet_{}_block_{:?}_number_{}_timestamp_{}",
             proof_id.subnet_id(),
             execution_block_hash,
+            block_number,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
@@ -317,17 +330,18 @@ impl ExecutionPayloadProofStore {
         ExecutionPayloadProof::new_v1(execution_block_hash, proof_id, dummy_data)
     }
 
-    /// Generate and store a dummy proof for the given execution block hash and proof ID
+    /// Generate and store a dummy proof for the given execution payload and proof ID
     /// This is a convenience method that combines proof generation and storage
-    pub fn generate_and_store_dummy_proof(
+    pub fn generate_and_store_dummy_proof<T: EthSpec>(
         &self,
-        execution_block_hash: ExecutionBlockHash,
+        payload: &ExecutionPayload<T>,
         proof_id: ProofId,
     ) -> Result<ExecutionPayloadProof, String> {
-        let proof = Self::generate_dummy_proof(execution_block_hash, proof_id);
+        let proof = Self::generate_dummy_proof(payload, proof_id);
         self.store_proof(proof.clone())?;
         Ok(proof)
     }
+
 
     /// Validate a proof (placeholder implementation)
     /// TODO: Implement actual cryptographic proof validation based on version and type
@@ -748,11 +762,33 @@ mod tests {
 
     #[test]
     fn test_generate_dummy_proof_method() {
+        use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec};
+
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(5);
 
-        let proof =
-            ExecutionPayloadProofStore::generate_dummy_proof(execution_block_hash, proof_id);
+        // Create a dummy payload for testing
+        let payload = FullPayloadBellatrix::<MainnetEthSpec> {
+            execution_payload: ExecutionPayloadBellatrix::<MainnetEthSpec> {
+                parent_hash: ExecutionBlockHash::zero(),
+                fee_recipient: Default::default(),
+                state_root: Hash256::default(),
+                receipts_root: Hash256::default(),
+                logs_bloom: Default::default(),
+                prev_randao: Hash256::default(),
+                block_number: 555,
+                gas_limit: 0,
+                gas_used: 0,
+                timestamp: 0,
+                extra_data: Default::default(),
+                base_fee_per_gas: types::Uint256::from(0u64),
+                block_hash: execution_block_hash,
+                transactions: Default::default(),
+            },
+        };
+
+        let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
+        let proof = ExecutionPayloadProofStore::generate_dummy_proof(&exec_payload, proof_id);
 
         assert_eq!(proof.block_hash, execution_block_hash);
         assert_eq!(proof.proof_id, proof_id);
@@ -764,20 +800,44 @@ mod tests {
         let proof_data_str = String::from_utf8_lossy(&proof.proof_data);
         assert!(proof_data_str.contains("dummy_proof_subnet_5"));
         assert!(proof_data_str.contains(&format!("{:?}", execution_block_hash)));
+        assert!(proof_data_str.contains("number_555"));
     }
 
     #[test]
     fn test_generate_and_store_dummy_proof_method() {
+        use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec};
+
         let store = ExecutionPayloadProofStore::new(10);
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(3);
+
+        // Create a dummy payload for testing
+        let payload = FullPayloadBellatrix::<MainnetEthSpec> {
+            execution_payload: ExecutionPayloadBellatrix::<MainnetEthSpec> {
+                parent_hash: ExecutionBlockHash::zero(),
+                fee_recipient: Default::default(),
+                state_root: Hash256::default(),
+                receipts_root: Hash256::default(),
+                logs_bloom: Default::default(),
+                prev_randao: Hash256::default(),
+                block_number: 333,
+                gas_limit: 0,
+                gas_used: 0,
+                timestamp: 0,
+                extra_data: Default::default(),
+                base_fee_per_gas: types::Uint256::from(0u64),
+                block_hash: execution_block_hash,
+                transactions: Default::default(),
+            },
+        };
 
         // Initially no proofs
         assert!(!store.has_valid_proof(&execution_block_hash));
         assert_eq!(store.len(), 0);
 
         // Generate and store a proof
-        let result = store.generate_and_store_dummy_proof(execution_block_hash, proof_id);
+        let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload.clone());
+        let result = store.generate_and_store_dummy_proof(&exec_payload, proof_id);
         assert!(result.is_ok());
 
         let proof = result.unwrap();
@@ -792,7 +852,8 @@ mod tests {
 
         // Generate another proof for the same payload with different proof ID
         let proof_id_2 = ProofId::custom(7);
-        let result_2 = store.generate_and_store_dummy_proof(execution_block_hash, proof_id_2);
+        let exec_payload2 = ExecutionPayload::Bellatrix(payload.execution_payload);
+        let result_2 = store.generate_and_store_dummy_proof(&exec_payload2, proof_id_2);
         assert!(result_2.is_ok());
 
         // Should have 2 proofs now

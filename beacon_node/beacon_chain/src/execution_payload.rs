@@ -145,7 +145,10 @@ async fn notify_new_payload<T: BeaconChainTypes>(
             "Triggering proof generation for execution payload {:?}",
             execution_block_hash
         );
-        spawn_proof_generation_task_for_hash(chain, execution_block_hash.into());
+
+        // We need to spawn the proof generation task with the block reference
+        // The task will check if it's a full payload and extract the data
+        spawn_proof_generation_task_with_block(chain, block);
     }
 
     // Check if stateless validation is enabled
@@ -598,24 +601,40 @@ where
     Ok(block_contents)
 }
 
-/// Spawn a background task to generate and store execution proofs for a specific execution block hash
-/// This allows proof generation without blocking the caller
-fn spawn_proof_generation_task_for_hash<T: BeaconChainTypes>(
+/// Spawn a background task to generate and store execution proofs using a block reference
+/// This converts the BeaconBlockRef to ExecutionPayload before spawning the proof generation task
+fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    execution_block_hash: ExecutionBlockHash,
+    block: BeaconBlockRef<'_, T::EthSpec, FullPayload<T::EthSpec>>,
 ) {
+    // Clone the chain for the async task
     let chain_clone = chain.clone();
 
+    // Extract the concrete ExecutionPayload from the BeaconBlock
+    let payload = match extract_execution_payload(block) {
+        Ok(payload) => payload,
+        Err(e) => {
+            warn!(
+                "Failed to extract execution payload for proof generation: {:?}",
+                e
+            );
+            return;
+        }
+    };
+
+    // Extract execution payload info for logging
+    let (hash, number) = (payload.block_hash(), payload.block_number());
+
     info!(
-        "STATELESS: Spawning proof generation task for execution block {:?}",
-        execution_block_hash
+        "STATELESS: Spawning proof generation task for execution block {:?} (block #{})",
+        hash, number
     );
+
     // Spawn the proof generation task in the background
     chain.task_executor.spawn(
         async move {
             if let Err(e) =
-                generate_and_store_execution_proofs_for_hash(&chain_clone, execution_block_hash)
-                    .await
+                generate_and_store_execution_proofs_from_block(&chain_clone, &payload).await
             {
                 warn!("Failed to generate execution proofs: {:?}", e);
             }
@@ -624,12 +643,19 @@ fn spawn_proof_generation_task_for_hash<T: BeaconChainTypes>(
     );
 }
 
-/// Generate and store dummy execution proofs for a specific execution block hash
-/// This simulates receiving proofs that would normally come from zkVMs or other proof generators
-async fn generate_and_store_execution_proofs_for_hash<T: BeaconChainTypes>(
+/// Generate and store dummy execution proofs from a block
+/// This simulates receiving proofs that would normally come from zkVMs or other proof generators  
+async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    execution_block_hash: ExecutionBlockHash,
+    payload: &ExecutionPayload<T::EthSpec>,
 ) -> Result<(), BlockProductionError> {
+    let execution_block_hash = payload.block_hash();
+
+    // For real proof generation, we would:
+    // 1. Send the ExecutionPayload to EL to fetch witness data (via debug_executionWitness or similar)
+    // 2. Generate actual cryptographic proofs using payload + witness
+    // For now, we generate dummy proofs directly from the ExecutionPayload
+
     // Get the subnets this node wants to generate proofs for
     let proof_subnets = chain.execution_proof_subnets();
 
@@ -648,7 +674,7 @@ async fn generate_and_store_execution_proofs_for_hash<T: BeaconChainTypes>(
             // Use the proof store method to generate and store the proof
             match chain
                 .execution_payload_proof_store
-                .generate_and_store_dummy_proof(execution_block_hash, proof_id)
+                .generate_and_store_dummy_proof(&payload, proof_id)
             {
                 Ok(proof) => {
                     info!(
@@ -676,32 +702,15 @@ async fn generate_and_store_execution_proofs_for_hash<T: BeaconChainTypes>(
     Ok(())
 }
 
-/// Generate and store dummy execution proofs for all subscribed subnets
-/// This simulates receiving proofs that would normally come from zkVMs or other proof generators
-#[allow(dead_code)]
-async fn generate_and_store_execution_proofs<T: BeaconChainTypes>(
-    chain: &Arc<BeaconChain<T>>,
-    block_contents: &BlockProposalContentsType<T::EthSpec>,
-) -> Result<(), BlockProductionError> {
-    // Extract the execution block hash from the payload
-    let execution_block_hash = match block_contents {
-        BlockProposalContentsType::Full(contents) => match contents {
-            BlockProposalContents::Payload { payload, .. } => payload.block_hash(),
-            BlockProposalContents::PayloadAndBlobs { payload, .. } => {
-                payload.clone().execution_payload().block_hash()
-            }
-        },
-        BlockProposalContentsType::Blinded(_) => {
-            // For blinded payloads, we don't have the execution payload's block hash yet
-            // TODO: Handle blinded payloads when we implement actual proof generation
-            // TODO: Essentially if mev-boost is used then we can assume that the builder
-            // TODO: will generate the proof.
-            info!("Skipping proof generation for blinded payload");
-            return Ok(());
-        }
-    };
+fn extract_execution_payload<E: EthSpec>(
+    block: BeaconBlockRef<'_, E, FullPayload<E>>,
+) -> Result<ExecutionPayload<E>, BeaconStateError> {
+    // Convert to NewPayloadRequest first
+    // TODO: use a more direct method
+    let new_payload_request = NewPayloadRequest::try_from(block)?;
 
-    generate_and_store_execution_proofs_for_hash(chain, execution_block_hash).await
+    // Extract the concrete ExecutionPayload
+    Ok(new_payload_request.into_execution_payload())
 }
 
 #[cfg(test)]
@@ -712,12 +721,35 @@ mod tests {
 
     #[test]
     fn test_generate_dummy_proof() {
+        use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec, Uint256};
+
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::EXECUTION_WITNESS;
 
+        // Create a dummy payload for testing
+        let payload = FullPayloadBellatrix::<MainnetEthSpec> {
+            execution_payload: ExecutionPayloadBellatrix::<MainnetEthSpec> {
+                parent_hash: ExecutionBlockHash::zero(),
+                fee_recipient: Default::default(),
+                state_root: Hash256::zero(),
+                receipts_root: Hash256::zero(),
+                logs_bloom: Default::default(),
+                prev_randao: Hash256::zero(),
+                block_number: 12345,
+                gas_limit: 0,
+                gas_used: 0,
+                timestamp: 0,
+                extra_data: Default::default(),
+                base_fee_per_gas: Uint256::from(0u64),
+                block_hash: execution_block_hash,
+                transactions: Default::default(),
+            },
+        };
+
+        let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
         let proof =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
-                execution_block_hash,
+                &exec_payload,
                 proof_id,
             );
 
@@ -733,25 +765,49 @@ mod tests {
         let proof_data_str = String::from_utf8_lossy(&proof.proof_data);
         assert!(proof_data_str.contains("dummy_proof_subnet_0"));
         assert!(proof_data_str.contains(&format!("{:?}", execution_block_hash)));
+        assert!(proof_data_str.contains("number_12345"));
     }
 
     #[test]
     fn test_generate_dummy_proof_different_subnets() {
+        use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec, Uint256};
+
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
 
+        // Create a dummy payload for testing
+        let payload = FullPayloadBellatrix::<MainnetEthSpec> {
+            execution_payload: ExecutionPayloadBellatrix::<MainnetEthSpec> {
+                parent_hash: ExecutionBlockHash::zero(),
+                fee_recipient: Default::default(),
+                state_root: Hash256::zero(),
+                receipts_root: Hash256::zero(),
+                logs_bloom: Default::default(),
+                prev_randao: Hash256::zero(),
+                block_number: 42,
+                gas_limit: 0,
+                gas_used: 0,
+                timestamp: 0,
+                extra_data: Default::default(),
+                base_fee_per_gas: Uint256::from(0u64),
+                block_hash: execution_block_hash,
+                transactions: Default::default(),
+            },
+        };
+
+        let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
         let proof_0 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
-                execution_block_hash,
+                &exec_payload,
                 ProofId::EXECUTION_WITNESS,
             );
         let proof_1 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
-                execution_block_hash,
+                &exec_payload,
                 ProofId::custom(1),
             );
         let proof_2 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
-                execution_block_hash,
+                &exec_payload,
                 ProofId::custom(2),
             );
 
@@ -780,12 +836,35 @@ mod tests {
 
     #[test]
     fn test_generate_and_store_dummy_proof() {
+        use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec, Uint256};
+
         let store = crate::execution_payload_proofs::ExecutionPayloadProofStore::new(10);
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::EXECUTION_WITNESS;
 
+        // Create a dummy payload for testing
+        let payload = FullPayloadBellatrix::<MainnetEthSpec> {
+            execution_payload: ExecutionPayloadBellatrix::<MainnetEthSpec> {
+                parent_hash: ExecutionBlockHash::zero(),
+                fee_recipient: Default::default(),
+                state_root: Hash256::zero(),
+                receipts_root: Hash256::zero(),
+                logs_bloom: Default::default(),
+                prev_randao: Hash256::zero(),
+                block_number: 999,
+                gas_limit: 0,
+                gas_used: 0,
+                timestamp: 0,
+                extra_data: Default::default(),
+                base_fee_per_gas: Uint256::from(0u64),
+                block_hash: execution_block_hash,
+                transactions: Default::default(),
+            },
+        };
+
         // Generate and store a proof
-        let result = store.generate_and_store_dummy_proof(execution_block_hash, proof_id);
+        let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
+        let result = store.generate_and_store_dummy_proof(&exec_payload, proof_id);
         assert!(result.is_ok());
 
         let proof = result.unwrap();
