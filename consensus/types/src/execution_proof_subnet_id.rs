@@ -5,8 +5,19 @@ use ssz::{Decode, DecodeError, Encode};
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 
-/// Maximum number of execution proof subnets
-/// This should match DEFAULT_MAX_EXECUTION_PROOF_SUBNETS from execution_payload_proofs.rs
+/// Maximum number of execution proof subnets allowed by the protocol.
+/// 
+/// This is a hard protocol limit that defines the total number of proof subnets
+/// that can exist in the network. Individual nodes may choose to participate in
+/// fewer subnets (configured via max_execution_proof_subnets in ChainConfig),
+/// but no node can exceed this protocol maximum.
+/// 
+/// The value of 8 subnets provides a good balance between:
+/// - Proof diversity (multiple independent proofs per block)
+/// - Network overhead (not too many gossip topics)
+/// - Resource requirements (reasonable for most nodes(?))
+/// 
+/// In reality, I do not think we will have 8, more closer to 3
 pub const MAX_EXECUTION_PROOF_SUBNETS: u64 = 8;
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

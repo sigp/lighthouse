@@ -2659,9 +2659,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(current_fork.capella_enabled())
     }
 
-    /// Determine which execution proof subnets this node should subscribe to
+    /// Determine which execution proof subnets this node should subscribe to.
+    /// 
+    /// Currently uses a simple sequential allocation: if max_execution_proof_subnets is N,
+    /// the node subscribes to subnets 0 through N-1.
+    /// 
+    /// For example:
+    /// - max_execution_proof_subnets = 8: subscribes to subnets [0, 1, 2, 3, 4, 5, 6, 7]
+    /// - max_execution_proof_subnets = 4: subscribes to subnets [0, 1, 2, 3]
+    /// - max_execution_proof_subnets = 1: subscribes to subnet [0] only
+    /// 
+    /// Future implementations could use more sophisticated strategies like:
+    /// - Random subnet selection for better load distribution
+    /// - Validator-based selection (e.g., based on validator indices)
+    /// - Dynamic rebalancing based on network conditions
     pub fn execution_proof_subnets(&self) -> Vec<u64> {
-        // All nodes subscribe to all execution proof subnets
         (0..self.config.max_execution_proof_subnets).collect()
     }
 
