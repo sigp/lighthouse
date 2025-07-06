@@ -1530,6 +1530,17 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("stateless-min-proofs-required")
+                .long("stateless-min-proofs-required")
+                .value_name("COUNT")
+                .help("Minimum number of execution proofs required to consider a block valid in \
+                       stateless validation mode. Only applies when --stateless-validation is enabled. \
+                       Must be between 1 and max_execution_proof_subnets (default: 8).")
+                .default_value("2")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("light-client-server")
                 .long("light-client-server")
                 .help("DEPRECATED")

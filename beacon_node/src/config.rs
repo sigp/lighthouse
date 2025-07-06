@@ -839,6 +839,24 @@ pub fn get_config<E: EthSpec>(
     // Copy stateless validation configuration to network config
     client_config.network.stateless_validation = client_config.chain.stateless_validation;
 
+    // Stateless minimum proofs required
+    if let Some(min_proofs) = clap_utils::parse_optional::<usize>(cli_args, "stateless-min-proofs-required")? {
+        if min_proofs == 0 {
+            return Err("--stateless-min-proofs-required must be at least 1".to_string());
+        }
+        if !client_config.chain.stateless_validation {
+            return Err("--stateless-min-proofs-required requires --stateless-validation to be enabled".to_string());
+        }
+        if min_proofs as u64 > client_config.chain.max_execution_proof_subnets {
+            return Err(format!(
+                "--stateless-min-proofs-required ({}) cannot exceed max_execution_proof_subnets ({})",
+                min_proofs,
+                client_config.chain.max_execution_proof_subnets
+            ));
+        }
+        client_config.chain.stateless_min_proofs_required = min_proofs;
+    }
+
     // Execution proof generation.
     client_config.chain.generate_execution_proofs = cli_args.get_flag("generate-execution-proofs");
 
