@@ -174,12 +174,15 @@ async fn notify_new_payload<T: BeaconChainTypes>(
             );
             return Ok(PayloadVerificationStatus::Verified);
         } else {
+            let beacon_block_root = block.tree_hash_root();
             info!(
-                "STATELESS: Block entering PENDING state - No valid proofs found for execution payload {:?}, marking as OPTIMISTIC (proofs may arrive later via gossip subnets)",
+                "STATELESS: Block entering PENDING state - No valid proofs found for beacon block root {:?}, execution payload hash {:?}, marking as OPTIMISTIC (proofs may arrive later via gossip subnets)",
+                beacon_block_root,
                 execution_block_hash
             );
             info!(
-                "STATELESS_TRACE: Block {:?} -> PENDING/OPTIMISTIC state (awaiting proof)",
+                "STATELESS_TRACE: Beacon block root {:?}, execution payload hash {:?} -> PENDING/OPTIMISTIC state (awaiting proof)",
+                beacon_block_root,
                 execution_block_hash
             );
             return Ok(PayloadVerificationStatus::Optimistic);
