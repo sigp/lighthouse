@@ -865,6 +865,17 @@ pub fn get_config<E: EthSpec>(
         return Err("The --generate-execution-proofs flag cannot be used with --stateless-validation. Stateless nodes cannot generate proofs.".to_string());
     }
 
+    // Validate that node's max_execution_proof_subnets doesn't exceed protocol maximum.
+    // The protocol defines a hard limit of 8 subnets, but individual nodes can choose
+    // to participate in fewer subnets to reduce resource usage.
+    if client_config.chain.max_execution_proof_subnets > types::execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS {
+        return Err(format!(
+            "Node's max_execution_proof_subnets ({}) cannot exceed protocol MAX_EXECUTION_PROOF_SUBNETS ({})",
+            client_config.chain.max_execution_proof_subnets,
+            types::execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS
+        ));
+    }
+
     if cli_args.get_flag("genesis-backfill") {
         client_config.chain.genesis_backfill = true;
     }
