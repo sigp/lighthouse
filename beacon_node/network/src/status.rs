@@ -1,5 +1,5 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use types::{EthSpec, FixedBytesExtended, Hash256, Slot};
+use types::{EthSpec, FixedBytesExtended, Hash256};
 
 use lighthouse_network::rpc::{methods::StatusMessageV2, StatusMessage};
 /// Trait to produce a `StatusMessage` representing the state of the given `beacon_chain`.
@@ -29,21 +29,21 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
         finalized_checkpoint.root = Hash256::zero();
     }
 
+    let earliest_available_data_column_slot = beacon_chain
+        .store
+        .get_data_column_custody_info()
+        .ok()
+        .flatten()
+        .and_then(|info| info.earliest_data_column_slot);
+
     // If there is no data column custody info in the db, that indicates that
     // no recent cgc changes have occurred and no cgc backfill is in progress.
-    let earliest_available_slot = if let Ok(Some(data_column_custody_info)) =
-        beacon_chain.store.get_data_column_custody_info()
-    {
-        std::cmp::max(
-            beacon_chain.store.get_anchor_info().oldest_block_slot,
-            data_column_custody_info
-                .earliest_data_column_slot
-                .unwrap_or(Slot::new(0)),
-        )
-    } else {
-        beacon_chain.store.get_anchor_info().oldest_block_slot
-    };
-
+    let earliest_available_slot =
+        if let Some(earliest_available_data_column_slot) = earliest_available_data_column_slot {
+            earliest_available_data_column_slot
+        } else {
+            beacon_chain.store.get_anchor_info().oldest_block_slot
+        };
     StatusMessage::V2(StatusMessageV2 {
         fork_digest,
         finalized_root: finalized_checkpoint.root,
