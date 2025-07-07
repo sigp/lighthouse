@@ -1157,7 +1157,7 @@ impl<E: EthSpec> Network<E> {
         {
             if self.network_globals.peers.read().is_connected(&peer_id) {
                 error!(%peer_id, ?inbound_request_id, %response,
-                    "Request not found in RPC active requests while peer is still connected"
+                    "Request not found in RPC active requests"
                 );
             }
         }

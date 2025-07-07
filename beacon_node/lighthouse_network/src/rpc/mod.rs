@@ -227,12 +227,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             return Err(response);
         };
 
-        if peer_disconnected {
-            trace!(%peer_id, ?request_id, %response,
-                "Discarding response, peer is no longer connected");
-            return Ok(());
-        }
-
         // Add the request back to active requests if the response is `Success` and requires stream
         // termination.
         if request_type.protocol().terminator().is_some()
@@ -243,9 +237,15 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
                 ActiveInboundRequest {
                     peer_id,
                     request_type: request_type.clone(),
-                    peer_disconnected: false,
+                    peer_disconnected,
                 },
             );
+        }
+
+        if peer_disconnected {
+            trace!(%peer_id, ?request_id, %response,
+                "Discarding response, peer is no longer connected");
+            return Ok(());
         }
 
         self.send_response_inner(peer_id, request_type.protocol(), request_id, response);
