@@ -217,7 +217,7 @@ impl CustodyContext {
                     new_custody_group_count: updated_cgc,
                     sampling_count: self
                         .num_of_custody_groups_to_sample(Some(effective_epoch), spec),
-                    slot: current_slot,
+                    effective_epoch: current_slot.epoch(E::slots_per_epoch()),
                 });
             }
         }
@@ -288,7 +288,7 @@ impl CustodyContext {
 pub struct CustodyCountChanged {
     pub new_custody_group_count: u64,
     pub sampling_count: u64,
-    pub slot: Slot,
+    pub effective_epoch: Epoch,
 }
 
 /// The custody information that gets persisted across runs.
