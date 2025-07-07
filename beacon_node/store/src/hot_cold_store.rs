@@ -137,7 +137,7 @@ impl<E: EthSpec> BlockCache<E> {
             .get(block_root)
             .and_then(|map| map.get(column_index).cloned())
     }
-    pub fn get_data_column_custody_info(&mut self) -> Option<DataColumnCustodyInfo> {
+    pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
         self.data_column_custody_info_cache.clone()
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
