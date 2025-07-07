@@ -267,4 +267,6 @@ pub enum DatabaseBackend {
     LevelDb,
     #[cfg(feature = "redb")]
     Redb,
+    #[cfg(feature = "postgres")]
+    PostgresDB
 }
