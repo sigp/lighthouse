@@ -98,6 +98,13 @@ pub struct InboundRequestId {
     substream_id: SubstreamId,
 }
 
+// An Active inbound request received via Rpc.
+struct ActiveInboundRequest<E: EthSpec> {
+    pub peer_id: PeerId,
+    pub request_type: RequestType<E>,
+    pub peer_disconnected: bool,
+}
+
 impl InboundRequestId {
     /// Creates an _unchecked_ [`InboundRequestId`].
     ///
@@ -150,7 +157,7 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter for our own requests.
     outbound_request_limiter: SelfRateLimiter<Id, E>,
     /// Active inbound requests that are awaiting a response.
-    active_inbound_requests: HashMap<InboundRequestId, (PeerId, RequestType<E>)>,
+    active_inbound_requests: HashMap<InboundRequestId, ActiveInboundRequest<E>>,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -208,22 +215,37 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     )]
     pub fn send_response(
         &mut self,
-        peer_id: PeerId,
         request_id: InboundRequestId,
         response: RpcResponse<E>,
     ) -> Result<(), RpcResponse<E>> {
-        let Some((_peer_id, request_type)) = self.active_inbound_requests.remove(&request_id)
+        let Some(ActiveInboundRequest {
+            peer_id,
+            request_type,
+            peer_disconnected,
+        }) = self.active_inbound_requests.remove(&request_id)
         else {
             return Err(response);
         };
+
+        if peer_disconnected {
+            trace!(%peer_id, ?request_id, %response,
+                "Discarding response, peer is no longer connected");
+            return Ok(());
+        }
 
         // Add the request back to active requests if the response is `Success` and requires stream
         // termination.
         if request_type.protocol().terminator().is_some()
             && matches!(response, RpcResponse::Success(_))
         {
-            self.active_inbound_requests
-                .insert(request_id, (peer_id, request_type.clone()));
+            self.active_inbound_requests.insert(
+                request_id,
+                ActiveInboundRequest {
+                    peer_id,
+                    request_type: request_type.clone(),
+                    peer_disconnected: false,
+                },
+            );
         }
 
         self.send_response_inner(peer_id, request_type.protocol(), request_id, response);
@@ -424,9 +446,10 @@ where
                 self.events.push(error_msg);
             }
 
-            self.active_inbound_requests.retain(
-                |_inbound_request_id, (request_peer_id, _request_type)| *request_peer_id != peer_id,
-            );
+            self.active_inbound_requests
+                .values_mut()
+                .filter(|request| request.peer_id == peer_id)
+                .for_each(|request| request.peer_disconnected = true);
 
             if let Some(limiter) = self.response_limiter.as_mut() {
                 limiter.peer_disconnected(peer_id);
@@ -467,7 +490,14 @@ where
                     .active_inbound_requests
                     .iter()
                     .filter(
-                        |(_inbound_request_id, (request_peer_id, active_request_type))| {
+                        |(
+                            _inbound_request_id,
+                            ActiveInboundRequest {
+                                peer_id: request_peer_id,
+                                request_type: active_request_type,
+                                ..
+                            },
+                        )| {
                             *request_peer_id == peer_id
                                 && active_request_type.protocol() == request_type.protocol()
                         },
@@ -493,14 +523,19 @@ where
                 }
 
                 // Requests that are below the limit on the number of simultaneous requests are added to the active inbound requests.
-                self.active_inbound_requests
-                    .insert(request_id, (peer_id, request_type.clone()));
+                self.active_inbound_requests.insert(
+                    request_id,
+                    ActiveInboundRequest {
+                        peer_id,
+                        request_type: request_type.clone(),
+                        peer_disconnected: false,
+                    },
+                );
 
                 // If we received a Ping, we queue a Pong response.
                 if let RequestType::Ping(_) = request_type {
                     trace!(connection_id = %connection_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
-                        peer_id,
                         request_id,
                         RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,

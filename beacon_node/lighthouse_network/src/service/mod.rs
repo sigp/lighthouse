@@ -1151,14 +1151,9 @@ impl<E: EthSpec> Network<E> {
         inbound_request_id: InboundRequestId,
         response: T,
     ) {
-        let response = response.into();
-        if !self.network_globals.peers.read().is_connected(&peer_id) {
-            trace!(%peer_id, ?inbound_request_id, %response, "Discarding response, peer is not connected");
-        }
-
-        if let Err(response) =
-            self.eth2_rpc_mut()
-                .send_response(peer_id, inbound_request_id, response)
+        if let Err(response) = self
+            .eth2_rpc_mut()
+            .send_response(inbound_request_id, response.into())
         {
             if self.network_globals.peers.read().is_connected(&peer_id) {
                 error!(%peer_id, ?inbound_request_id, %response,
