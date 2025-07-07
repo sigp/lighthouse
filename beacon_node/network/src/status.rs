@@ -36,7 +36,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
         .flatten()
         .and_then(|info| info.earliest_data_column_slot);
 
-    // If there is no data column custody info in the db, that indicates that
+    // If data_column_custody_info.earliest_data_column_slot is `None`,
     // no recent cgc changes have occurred and no cgc backfill is in progress.
     let earliest_available_slot =
         if let Some(earliest_available_data_column_slot) = earliest_available_data_column_slot {
