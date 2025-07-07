@@ -481,7 +481,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
-            self.custody_context.sampling_size(Some(epoch), &self.spec),
+            self.custody_context
+                .num_of_data_columns_to_sample(Some(epoch), &self.spec),
             |block| self.state_cache.recover_pending_executed_block(block),
         )? {
             // We keep the pending components in the availability cache during block import (#5845).
@@ -526,7 +527,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
-        let num_expected_columns = self.custody_context.sampling_size(Some(epoch), &self.spec);
+        let num_expected_columns = self
+            .custody_context
+            .num_of_data_columns_to_sample(Some(epoch), &self.spec);
         debug!(
             component = "data_columns",
             ?block_root,
@@ -622,7 +625,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the block.
         pending_components.merge_block(diet_executed_block);
 
-        let num_expected_columns = self.custody_context.sampling_size(Some(epoch), &self.spec);
+        let num_expected_columns = self
+            .custody_context
+            .num_of_data_columns_to_sample(Some(epoch), &self.spec);
         debug!(
             component = "block",
             ?block_root,
@@ -631,11 +636,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         );
 
         // Check if we have all components and entire set is consistent.
-        if let Some(available_block) = pending_components.make_available(
-            &self.spec,
-            self.custody_context.sampling_size(Some(epoch), &self.spec),
-            |block| self.state_cache.recover_pending_executed_block(block),
-        )? {
+        if let Some(available_block) =
+            pending_components.make_available(&self.spec, num_expected_columns, |block| {
+                self.state_cache.recover_pending_executed_block(block)
+            })?
+        {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
             drop(write_lock);
