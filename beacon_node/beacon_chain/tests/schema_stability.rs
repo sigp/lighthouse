@@ -91,6 +91,7 @@ async fn schema_stability() {
     check_metadata_sizes(&store);
     check_op_pool(&store);
     check_custody_context(&store, &harness.spec);
+    check_custody_info(&store, &harness.spec);
     check_persisted_chain(&store);
 
     // Not covered here:
@@ -143,6 +144,15 @@ fn check_custody_context(store: &Store<E>, spec: &ChainSpec) {
         assert_eq!(custody_context_opt.unwrap().as_store_bytes().len(), 13);
     } else {
         assert!(custody_context_opt.is_none());
+    }
+}
+
+fn check_custody_info(store: &Store<E>, spec: &ChainSpec) {
+    let data_column_custody_info = store.get_data_column_custody_info().unwrap();
+    if spec.is_peer_das_scheduled() {
+        assert_eq!(data_column_custody_info.unwrap().as_ssz_bytes().len(), 13);
+    } else {
+        assert!(data_column_custody_info.is_none());
     }
 }
 

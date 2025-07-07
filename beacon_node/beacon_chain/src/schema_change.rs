@@ -69,12 +69,15 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             db.store_schema_version_atomically(to, ops)
         }
         (SchemaVersion(26), SchemaVersion(27)) => {
-            let ops = migration_schema_v27::upgrade_to_v27::<T>(db.clone())?;
-            db.store_schema_version_atomically(to, ops)
+            // This migration updates the blobs db. The schema version
+            // is bumped inside upgrade_to_v27.
+            migration_schema_v27::upgrade_to_v27::<T>(db.clone())
         }
         (SchemaVersion(27), SchemaVersion(26)) => {
-            let ops = migration_schema_v27::downgrade_from_v27::<T>(db.clone())?;
-            db.store_schema_version_atomically(to, ops)
+            // Downgrading is essentially a no-op and is only possible
+            // if peer das isn't scheduled.
+            migration_schema_v27::downgrade_from_v27::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, vec![])
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
