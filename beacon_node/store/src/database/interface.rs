@@ -2,6 +2,8 @@
 use crate::database::leveldb_impl;
 #[cfg(feature = "redb")]
 use crate::database::redb_impl;
+#[cfg(feature = "postgres")]
+use crate::database::postgres_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
 use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
 use std::collections::HashSet;
@@ -13,6 +15,8 @@ pub enum BeaconNodeBackend<E: EthSpec> {
     LevelDb(leveldb_impl::LevelDB<E>),
     #[cfg(feature = "redb")]
     Redb(redb_impl::Redb<E>),
+    #[cfg(feature = "postgres")]
+    PostgresDB(postgres_impl::PostgresDB<E>)
 }
 
 impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
@@ -24,6 +28,11 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::get_bytes(txn, column, key),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::get_bytes(txn, column, key),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(db) => {
+                let rt = tokio::runtime::Runtime::new().expect("failed to build tokio runtime");
+                rt.block_on(db.get_bytes(column, key))
+            }
         }
     }
 
@@ -45,6 +54,11 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 value,
                 txn.write_options(),
             ),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(db) => {
+                let rt = tokio::runtime::Runtime::new().expect("Failed to block tokio runtime");
+                rt.block_on(db.put_bytes(column, key, value))
+            }
         }
     }
 
@@ -193,6 +207,20 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             }
             #[cfg(feature = "redb")]
             DatabaseBackend::Redb => redb_impl::Redb::open(path).map(BeaconNodeBackend::Redb),
+            #[cfg(feature = "postgres")]
+            DatabaseBackend::PostgresDB => {
+                // Read the DATABASE_URL from the "path", assuming it's a file containing the URL
+
+                use std::fs;
+
+                use tokio::fs;
+                let file_path = path.join("postgres_url.txt");
+                let db_url = fs::read_to_string(&file_path).map_err(|e| Error::Confiq(format!("Failed to read postgres_url.txt: {}", e)))?;
+                let rt = tokio::runtime::Runtime::new().map_err(|e| Error::Config(format!("Failed to create tokio runtime: {}", e)))?;
+                let db = rt..block_on(PostgresDB::new(db_url.trim())).map_err(|e| Error::Config(format!("Failed to init PostgresDB: {:?}", e)))?;
+
+                Ok(BeaconNodeBackend::PostgresDB(db))
+            }
         }
     }
 }
