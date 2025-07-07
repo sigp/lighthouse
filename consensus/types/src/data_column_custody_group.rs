@@ -1,9 +1,9 @@
 use crate::{ChainSpec, ColumnIndex, DataColumnSubnetId};
 use alloy_primitives::U256;
 use itertools::Itertools;
-use maplit::hashset;
+use maplit::btreeset;
 use safe_arith::{ArithError, SafeArith};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 
 pub type CustodyIndex = u64;
 
@@ -24,14 +24,14 @@ pub fn get_custody_groups(
     raw_node_id: [u8; 32],
     custody_group_count: u64,
     spec: &ChainSpec,
-) -> Result<HashSet<CustodyIndex>, DataColumnCustodyGroupError> {
+) -> Result<BTreeSet<CustodyIndex>, DataColumnCustodyGroupError> {
     if custody_group_count > spec.number_of_custody_groups {
         return Err(DataColumnCustodyGroupError::InvalidCustodyGroupCount(
             custody_group_count,
         ));
     }
 
-    let mut custody_groups: HashSet<u64> = hashset![];
+    let mut custody_groups: BTreeSet<u64> = btreeset![];
     let mut current_id = U256::from_be_slice(&raw_node_id);
     while custody_groups.len() < custody_group_count as usize {
         let mut node_id_bytes = [0u8; 32];
@@ -139,6 +139,28 @@ mod test {
                 .unwrap()
                 .collect::<Vec<_>>();
             assert_eq!(subnets.len(), subnets_per_custody_group as usize);
+        }
+    }
+
+    #[test]
+    fn test_get_custody_groups_sorted() {
+        let mut spec = ChainSpec::mainnet();
+        spec.number_of_custody_groups = 64;
+        let custody_group_count = 32;
+        let node_id = [1u8; 32];
+
+        let custody_groups = get_custody_groups(node_id, custody_group_count, &spec)
+            .expect("should compute custody groups successfully");
+
+        let vec = custody_groups.iter().collect::<Vec<_>>();
+        let sorted_vec = {
+            let mut temp_vec = vec.clone();
+            temp_vec.sort();
+            temp_vec
+        };
+
+        for (a, b) in sorted_vec.iter().zip(vec.iter()) {
+            assert_eq!(a, b);
         }
     }
 }

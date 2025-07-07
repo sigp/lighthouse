@@ -36,7 +36,6 @@ impl<E: EthSpec> Case for GetCustodyGroups<E> {
         let mut computed = get_custody_groups(raw_node_id, self.custody_group_count, &spec)
             .map(|set| set.into_iter().collect::<Vec<_>>())
             .expect("should compute custody groups");
-        computed.sort();
 
         let expected = &self.result;
         if computed == *expected {

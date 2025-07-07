@@ -12,6 +12,7 @@ use lru_cache::LRUTimeCache;
 use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
 use smallvec::SmallVec;
+use std::collections::BTreeSet;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -1470,7 +1471,7 @@ impl<E: EthSpec> PeerManager<E> {
         &self,
         peer_id: &PeerId,
         custody_group_count: u64,
-    ) -> Result<HashSet<CustodyIndex>, String> {
+    ) -> Result<BTreeSet<CustodyIndex>, String> {
         // If we don't have a node id, we cannot compute the custody duties anyway
         let node_id = peer_id_to_node_id(peer_id)?;
         let spec = &self.network_globals.spec;
