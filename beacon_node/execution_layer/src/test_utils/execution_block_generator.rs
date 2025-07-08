@@ -29,7 +29,7 @@ use super::DEFAULT_TERMINAL_BLOCK;
 const TEST_BLOB_BUNDLE: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle.ssz");
 const TEST_BLOB_BUNDLE_V2: &[u8] = include_bytes!("fixtures/mainnet/test_blobs_bundle_v2.ssz");
 
-pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
+pub const DEFAULT_GAS_LIMIT: u64 = 45_000_000;
 const GAS_USED: u64 = DEFAULT_GAS_LIMIT - 1;
 
 #[derive(Clone, Debug, PartialEq)]
