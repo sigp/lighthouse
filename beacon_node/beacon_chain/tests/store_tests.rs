@@ -24,15 +24,18 @@ use state_processing::{state_advance::complete_state_advance, BlockReplayer};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
+use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
 use store::{
+    hdiff::HierarchyConfig,
     iter::{BlockRootsIterator, StateRootsIterator},
     BlobInfo, DBColumn, HotColdDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
+use tracing::info;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 
@@ -121,15 +124,16 @@ fn get_harness_generic(
     harness
 }
 
-fn count_states_descendant_of_block(
+fn get_states_descendant_of_block(
     store: &HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>,
     block_root: Hash256,
-) -> usize {
+) -> Vec<(Hash256, Slot)> {
     let summaries = store.load_hot_state_summaries().unwrap();
     summaries
         .iter()
         .filter(|(_, s)| s.latest_block_root == block_root)
-        .count()
+        .map(|(state_root, summary)| (*state_root, summary.slot))
+        .collect()
 }
 
 #[tokio::test]
@@ -491,7 +495,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .await;
 
         let head = harness.chain.head_snapshot();
-        late_attestations.extend(harness.get_unaggregated_attestations(
+        late_attestations.extend(harness.get_single_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
             head.beacon_state_root(),
@@ -511,20 +515,23 @@ async fn epoch_boundary_state_attestation_processing() {
 
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
-        let block_root = attestation.data().beacon_block_root;
+        let block_root = attestation.data.beacon_block_root;
         let block = store
             .get_blinded_block(&block_root)
             .unwrap()
             .expect("block exists");
+        // Use get_state as the state may be finalized by this point
         let mut epoch_boundary_state = store
-            .load_epoch_boundary_state(&block.state_root())
+            .get_state(&block.state_root(), None, CACHE_STATE_IN_TESTS)
             .expect("no error")
-            .expect("epoch boundary state exists");
+            .unwrap_or_else(|| {
+                panic!("epoch boundary state should exist {:?}", block.state_root())
+            });
         let ebs_state_root = epoch_boundary_state.update_tree_hash_cache().unwrap();
         let mut ebs_of_ebs = store
-            .load_epoch_boundary_state(&ebs_state_root)
+            .get_state(&ebs_state_root, None, CACHE_STATE_IN_TESTS)
             .expect("no error")
-            .expect("ebs of ebs exists");
+            .unwrap_or_else(|| panic!("ebs of ebs should exist {ebs_state_root:?}"));
         ebs_of_ebs.apply_pending_mutations().unwrap();
         assert_eq!(epoch_boundary_state, ebs_of_ebs);
 
@@ -536,7 +543,7 @@ async fn epoch_boundary_state_attestation_processing() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data().slot;
+        let expected_attestation_slot = attestation.data.slot;
         // Extra -1 to handle gossip clock disparity.
         let expected_earliest_permissible_slot = current_slot - E::slots_per_epoch() - 1;
 
@@ -2171,7 +2178,8 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
 
     let slots_per_epoch = E::slots_per_epoch();
 
-    let genesis_state = harness.get_current_state();
+    let mut genesis_state = harness.get_current_state();
+    let genesis_state_root = genesis_state.update_tree_hash_cache().unwrap();
     let block_slot = Slot::new(2 * slots_per_epoch);
     let ((signed_block, _), state) = harness.make_block(genesis_state, block_slot).await;
 
@@ -2198,7 +2206,7 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     // The bad block parent root is the genesis block root. There's `block_slot - 1` temporary
     // states to remove + the genesis state = block_slot.
     assert_eq!(
-        count_states_descendant_of_block(&store, bad_block_parent_root),
+        get_states_descendant_of_block(&store, bad_block_parent_root).len(),
         block_slot.as_usize(),
     );
 
@@ -2216,11 +2224,12 @@ async fn garbage_collect_temp_states_from_failed_block_on_finalization() {
     // Check that the finalization migration ran.
     assert_ne!(store.get_split_slot(), 0);
 
-    // Check that temporary states have been pruned. The genesis block is not a descendant of the
-    // latest finalized checkpoint, so all its states have been pruned from the hot DB, = 0.
+    // Check that temporary states have been pruned.
     assert_eq!(
-        count_states_descendant_of_block(&store, bad_block_parent_root),
-        0
+        get_states_descendant_of_block(&store, bad_block_parent_root),
+        // The genesis state is kept to support the HDiff grid
+        vec![(genesis_state_root, Slot::new(0))],
+        "get_states_descendant_of_block({bad_block_parent_root:?})"
     );
 }
 
@@ -2229,7 +2238,15 @@ async fn weak_subjectivity_sync_easy() {
     let num_initial_slots = E::slots_per_epoch() * 11;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+}
+
+#[tokio::test]
+async fn weak_subjectivity_sync_single_block_batches() {
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
+    let slots = (1..num_initial_slots).map(Slot::new).collect();
+    weak_subjectivity_sync_test(slots, checkpoint_slot, Some(1)).await
 }
 
 #[tokio::test]
@@ -2243,7 +2260,7 @@ async fn weak_subjectivity_sync_unaligned_advanced_checkpoint() {
             slot <= checkpoint_slot - 3 || slot > checkpoint_slot
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
 }
 
 #[tokio::test]
@@ -2257,7 +2274,7 @@ async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
             slot <= checkpoint_slot || slot > checkpoint_slot + 3
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
 }
 
 // Regression test for https://github.com/sigp/lighthouse/issues/4817
@@ -2269,10 +2286,27 @@ async fn weak_subjectivity_sync_skips_at_genesis() {
     let end_slot = E::slots_per_epoch() * 4;
     let slots = (start_slot..end_slot).map(Slot::new).collect();
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
-    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
 }
 
-async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
+// Checkpoint sync from the genesis state.
+//
+// This is a regression test for a bug we had involving the storage of the genesis state in the hot
+// DB.
+#[tokio::test]
+async fn weak_subjectivity_sync_from_genesis() {
+    let start_slot = 1;
+    let end_slot = E::slots_per_epoch() * 2;
+    let slots = (start_slot..end_slot).map(Slot::new).collect();
+    let checkpoint_slot = Slot::new(0);
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+}
+
+async fn weak_subjectivity_sync_test(
+    slots: Vec<Slot>,
+    checkpoint_slot: Slot,
+    backfill_batch_size: Option<usize>,
+) {
     // Build an initial chain on one harness, representing a synced node with full history.
     let num_final_blocks = E::slots_per_epoch() * 2;
 
@@ -2322,6 +2356,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .get_state(&wss_state_root, Some(checkpoint_slot), CACHE_STATE_IN_TESTS)
         .unwrap()
         .unwrap();
+    let wss_state_slot = wss_state.slot();
+    let wss_block_slot = wss_block.slot();
 
     // Add more blocks that advance finalization further.
     harness.advance_slot();
@@ -2356,7 +2392,15 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
+    let chain_config = ChainConfig {
+        // Set reconstruct_historic_states to true from the start in the genesis case. This makes
+        // some of the later checks more uniform across the genesis/non-genesis cases.
+        reconstruct_historic_states: checkpoint_slot == 0,
+        ..ChainConfig::default()
+    };
+
     let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
+        .chain_config(chain_config)
         .store(store.clone())
         .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
@@ -2368,11 +2412,8 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         )
         .unwrap()
         .store_migrator_config(MigratorConfig::default().blocking())
-        .dummy_eth1_backend()
-        .expect("should build dummy backend")
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
-        .chain_config(ChainConfig::default())
         .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
         .rng(Box::new(StdRng::seed_from_u64(42)))
@@ -2414,12 +2455,14 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
             .unwrap();
 
         let slot = full_block.slot();
+        let full_block_root = full_block.canonical_root();
         let state_root = full_block.state_root();
 
+        info!(block_root = ?full_block_root, ?state_root, %slot, "Importing block from chain dump");
         beacon_chain.slot_clock.set_slot(slot.as_u64());
         beacon_chain
             .process_block(
-                full_block.canonical_root(),
+                full_block_root,
                 harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
@@ -2438,85 +2481,156 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
 
-    // Forwards iterator from 0 should fail as we lack blocks.
-    assert!(matches!(
-        beacon_chain.forwards_iter_block_roots(Slot::new(0)),
-        Err(BeaconChainError::HistoricalBlockOutOfRange { .. })
-    ));
-
-    // Simulate processing of a `StatusMessage` with an older finalized epoch by calling
-    // `block_root_at_slot` with an old slot for which we don't know the block root. It should
-    // return `None` rather than erroring.
-    assert_eq!(
-        beacon_chain
-            .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
-            .unwrap(),
-        None
-    );
-
-    // Simulate querying the API for a historic state that is unknown. It should also return
-    // `None` rather than erroring.
-    assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None);
-
-    // Supply blocks backwards to reach genesis. Omit the genesis block to check genesis handling.
-    let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
-        .iter()
-        .filter(|s| s.beacon_block.slot() != 0)
-        .map(|s| s.beacon_block.clone())
-        .collect::<Vec<_>>();
-
-    let mut available_blocks = vec![];
-    for blinded in historical_blocks {
-        let block_root = blinded.canonical_root();
-        let full_block = harness
-            .chain
-            .get_block(&block_root)
-            .await
-            .expect("should get block")
-            .expect("should get block");
-
-        if let MaybeAvailableBlock::Available(block) = harness
-            .chain
-            .data_availability_checker
-            .verify_kzg_for_rpc_block(
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
-            )
-            .expect("should verify kzg")
-        {
-            available_blocks.push(block);
-        }
+    if checkpoint_slot != 0 {
+        // Forwards iterator from 0 should fail as we lack blocks (unless checkpoint slot is 0).
+        assert!(matches!(
+            beacon_chain.forwards_iter_block_roots(Slot::new(0)),
+            Err(BeaconChainError::HistoricalBlockOutOfRange { .. })
+        ));
+    } else {
+        assert_eq!(
+            beacon_chain
+                .forwards_iter_block_roots(Slot::new(0))
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap(),
+            (wss_block_root, Slot::new(0))
+        );
     }
 
-    // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
-    // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
-    let mut batch_with_invalid_first_block =
-        available_blocks.iter().map(clone_block).collect::<Vec<_>>();
-    batch_with_invalid_first_block[0] = {
-        let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
-        let mut corrupt_block = (*block).clone();
-        *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), data, Arc::new(spec))
-    };
+    // The checks in this block only make sense if some data is missing as a result of the
+    // checkpoint sync, i.e. if we are not just checkpoint syncing from genesis.
+    if checkpoint_slot != 0 {
+        // Simulate processing of a `StatusMessage` with an older finalized epoch by calling
+        // `block_root_at_slot` with an old slot for which we don't know the block root. It should
+        // return `None` rather than erroring.
+        assert_eq!(
+            beacon_chain
+                .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+                .unwrap(),
+            None
+        );
 
-    // Importing the invalid batch should error.
-    assert!(matches!(
-        beacon_chain
-            .import_historical_block_batch(batch_with_invalid_first_block)
-            .unwrap_err(),
-        HistoricalBlockError::InvalidSignature
-    ));
+        // Simulate querying the API for a historic state that is unknown. It should also return
+        // `None` rather than erroring.
+        assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None);
 
-    // Importing the batch with valid signatures should succeed.
-    let available_blocks_dup = available_blocks.iter().map(clone_block).collect::<Vec<_>>();
-    beacon_chain
-        .import_historical_block_batch(available_blocks_dup)
-        .unwrap();
+        // Supply blocks backwards to reach genesis. Omit the genesis block to check genesis handling.
+        let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
+            .iter()
+            .filter(|s| s.beacon_block.slot() != 0)
+            .map(|s| s.beacon_block.clone())
+            .collect::<Vec<_>>();
+
+        let mut available_blocks = vec![];
+        for blinded in historical_blocks {
+            let block_root = blinded.canonical_root();
+            let full_block = harness
+                .chain
+                .get_block(&block_root)
+                .await
+                .expect("should get block")
+                .expect("should get block");
+
+            if let MaybeAvailableBlock::Available(block) = harness
+                .chain
+                .data_availability_checker
+                .verify_kzg_for_rpc_block(
+                    harness
+                        .build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+                )
+                .expect("should verify kzg")
+            {
+                available_blocks.push(block);
+            }
+        }
+
+        // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
+        // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
+        let mut batch_with_invalid_first_block =
+            available_blocks.iter().map(clone_block).collect::<Vec<_>>();
+        batch_with_invalid_first_block[0] = {
+            let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
+            let mut corrupt_block = (*block).clone();
+            *corrupt_block.signature_mut() = Signature::empty();
+            AvailableBlock::__new_for_testing(
+                block_root,
+                Arc::new(corrupt_block),
+                data,
+                Arc::new(spec),
+            )
+        };
+
+        // Importing the invalid batch should error.
+        assert!(matches!(
+            beacon_chain
+                .import_historical_block_batch(batch_with_invalid_first_block)
+                .unwrap_err(),
+            HistoricalBlockError::InvalidSignature
+        ));
+        assert_eq!(beacon_chain.store.get_oldest_block_slot(), wss_block.slot());
+
+        let batch_size = backfill_batch_size.unwrap_or(available_blocks.len());
+
+        for batch in available_blocks.rchunks(batch_size) {
+            let available_blocks_slots = batch
+                .iter()
+                .map(|block| (block.block().slot(), block.block().canonical_root()))
+                .collect::<Vec<_>>();
+            info!(
+                ?available_blocks_slots,
+                "wss_block_slot" = wss_block.slot().as_usize(),
+                "Importing historical block batch"
+            );
+
+            // Importing the batch with valid signatures should succeed.
+            let available_blocks_batch1 = batch.iter().map(clone_block).collect::<Vec<_>>();
+            beacon_chain
+                .import_historical_block_batch(available_blocks_batch1)
+                .unwrap();
+
+            // We should be able to load the block root at the `oldest_block_slot`.
+            //
+            // This is a regression test for: https://github.com/sigp/lighthouse/issues/7690
+            let oldest_block_imported = &batch[0];
+            let (oldest_block_slot, oldest_block_root) =
+                if oldest_block_imported.block().parent_root() == beacon_chain.genesis_block_root {
+                    (Slot::new(0), beacon_chain.genesis_block_root)
+                } else {
+                    available_blocks_slots[0]
+                };
+            assert_eq!(
+                beacon_chain.store.get_oldest_block_slot(),
+                oldest_block_slot
+            );
+            assert_eq!(
+                beacon_chain
+                    .block_root_at_slot(oldest_block_slot, WhenSlotSkipped::None)
+                    .unwrap()
+                    .unwrap(),
+                oldest_block_root
+            );
+
+            // Resupplying the blocks should not fail, they can be safely ignored.
+            let available_blocks_batch2 = batch.iter().map(clone_block).collect::<Vec<_>>();
+            beacon_chain
+                .import_historical_block_batch(available_blocks_batch2)
+                .unwrap();
+        }
+    }
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
-    // Resupplying the blocks should not fail, they can be safely ignored.
-    beacon_chain
-        .import_historical_block_batch(available_blocks)
-        .unwrap();
+    // Sanity check for non-aligned WSS starts, to make sure the WSS block is persisted properly
+    if wss_block_slot != wss_state_slot {
+        let new_node_block_root_at_wss_block = beacon_chain
+            .store
+            .get_cold_block_root(wss_block_slot)
+            .unwrap()
+            .unwrap();
+        info!(?new_node_block_root_at_wss_block, %wss_block_slot);
+        assert_eq!(new_node_block_root_at_wss_block, wss_block.canonical_root());
+    }
 
     // The forwards iterator should now match the original chain
     let forwards = beacon_chain
@@ -2571,11 +2685,29 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     }
 
     // Anchor slot is still set to the slot of the checkpoint block.
-    assert_eq!(store.get_anchor_info().anchor_slot, wss_block.slot());
+    // Note: since hot tree states the anchor slot is set to the aligned ws state slot
+    // https://github.com/sigp/lighthouse/pull/6750
+    let wss_aligned_slot = if checkpoint_slot % E::slots_per_epoch() == 0 {
+        checkpoint_slot
+    } else {
+        (checkpoint_slot.epoch(E::slots_per_epoch()) + Epoch::new(1))
+            .start_slot(E::slots_per_epoch())
+    };
+    assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
+    assert_eq!(
+        store.get_anchor_info().state_upper_limit,
+        if checkpoint_slot == 0 {
+            Slot::new(0)
+        } else {
+            Slot::new(u64::MAX)
+        }
+    );
+    info!(anchor = ?store.get_anchor_info(), "anchor pre");
 
     // Reconstruct states.
     store.clone().reconstruct_historic_states(None).unwrap();
-    assert_eq!(store.get_anchor_info().anchor_slot, 0);
+    assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
+    assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
 }
 
 /// Test that blocks and attestations that refer to states around an unaligned split state are
@@ -2644,11 +2776,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert_eq!(split.block_root, valid_fork_block.parent_root());
     assert_ne!(split.state_root, unadvanced_split_state_root);
 
-    let invalid_fork_rpc_block = RpcBlock::new_without_blobs(
-        None,
-        invalid_fork_block.clone(),
-        harness.sampling_column_count,
-    );
+    let invalid_fork_rpc_block = RpcBlock::new_without_blobs(None, invalid_fork_block.clone());
     // Applying the invalid block should fail.
     let err = harness
         .chain
@@ -2664,11 +2792,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
     assert!(matches!(err, BlockError::WouldRevertFinalizedSlot { .. }));
 
     // Applying the valid block should succeed, but it should not become head.
-    let valid_fork_rpc_block = RpcBlock::new_without_blobs(
-        None,
-        valid_fork_block.clone(),
-        harness.sampling_column_count,
-    );
+    let valid_fork_rpc_block = RpcBlock::new_without_blobs(None, valid_fork_block.clone());
     harness
         .chain
         .process_block(
@@ -2712,7 +2836,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             slot,
         );
         harness.advance_slot();
-        harness.process_attestations(attestations);
+        harness.process_attestations(attestations, &advanced_split_state);
     }
 }
 
@@ -2763,10 +2887,6 @@ async fn finalizes_after_resuming_from_db() {
         .chain
         .persist_op_pool()
         .expect("should persist the op pool");
-    harness
-        .chain
-        .persist_eth1_cache()
-        .expect("should persist the eth1 cache");
 
     let original_chain = harness.chain;
 
@@ -2874,8 +2994,8 @@ async fn revert_minority_fork_on_resume() {
         );
         harness1.set_current_slot(slot);
         harness2.set_current_slot(slot);
-        harness1.process_attestations(attestations.clone());
-        harness2.process_attestations(attestations);
+        harness1.process_attestations(attestations.clone(), &state);
+        harness2.process_attestations(attestations, &state);
 
         let ((block, blobs), new_state) = harness1.make_block(state, slot).await;
 
@@ -2915,7 +3035,7 @@ async fn revert_minority_fork_on_resume() {
             slot,
         );
         harness2.set_current_slot(slot);
-        harness2.process_attestations(attestations);
+        harness2.process_attestations(attestations, &state2);
 
         // Minority chain block (no attesters).
         let ((block1, blobs1), new_state1) = harness1.make_block(state1, slot).await;
@@ -3007,12 +3127,27 @@ async fn revert_minority_fork_on_resume() {
 // version is correct. This is the easiest schema test to write without historic versions of
 // Lighthouse on-hand, but has the disadvantage that the min version needs to be adjusted manually
 // as old downgrades are deprecated.
-#[tokio::test]
-async fn schema_downgrade_to_min_version() {
+async fn schema_downgrade_to_min_version(
+    store_config: StoreConfig,
+    reconstruct_historic_states: bool,
+) {
     let num_blocks_produced = E::slots_per_epoch() * 4;
     let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
-    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let spec = test_spec::<E>();
+
+    let chain_config = ChainConfig {
+        reconstruct_historic_states,
+        ..ChainConfig::default()
+    };
+    let import_all_data_columns = false;
+
+    let store = get_store_generic(&db_path, store_config.clone(), spec.clone());
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        chain_config.clone(),
+        import_all_data_columns,
+    );
 
     harness
         .extend_chain(
@@ -3023,7 +3158,6 @@ async fn schema_downgrade_to_min_version() {
         .await;
 
     let min_version = SchemaVersion(22);
-    let genesis_state_root = Some(harness.chain.genesis_state_root);
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -3033,49 +3167,106 @@ async fn schema_downgrade_to_min_version() {
     drop(harness);
 
     // Re-open the store.
-    let store = get_store(&db_path);
+    let store = get_store_generic(&db_path, store_config, spec);
 
     // Downgrade.
-    migrate_schema::<DiskHarnessType<E>>(
-        store.clone(),
-        genesis_state_root,
-        CURRENT_SCHEMA_VERSION,
-        min_version,
-    )
-    .expect("schema downgrade to minimum version should work");
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), CURRENT_SCHEMA_VERSION, min_version)
+        .expect("schema downgrade to minimum version should work");
 
     // Upgrade back.
-    migrate_schema::<DiskHarnessType<E>>(
-        store.clone(),
-        genesis_state_root,
-        min_version,
-        CURRENT_SCHEMA_VERSION,
-    )
-    .expect("schema upgrade from minimum version should work");
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), min_version, CURRENT_SCHEMA_VERSION)
+        .expect("schema upgrade from minimum version should work");
 
     // Recreate the harness.
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
+        .chain_config(chain_config)
         .keypairs(KEYPAIRS[0..LOW_VALIDATOR_COUNT].to_vec())
         .testing_slot_clock(slot_clock)
         .resumed_disk_store(store.clone())
         .mock_execution_layer()
         .build();
 
+    // Check chain dump for appropriate range depending on whether this is an archive node.
+    let chain_dump_start_slot = if reconstruct_historic_states {
+        Slot::new(0)
+    } else {
+        store.get_split_slot()
+    };
+
     check_finalization(&harness, num_blocks_produced);
     check_split_slot(&harness, store.clone());
-    check_chain_dump(&harness, num_blocks_produced + 1);
-    check_iterators(&harness);
+    check_chain_dump_from_slot(
+        &harness,
+        chain_dump_start_slot,
+        num_blocks_produced + 1 - chain_dump_start_slot.as_u64(),
+    );
+    check_iterators_from_slot(&harness, chain_dump_start_slot);
 
     // Check that downgrading beyond the minimum version fails (bound is *tight*).
     let min_version_sub_1 = SchemaVersion(min_version.as_u64().checked_sub(1).unwrap());
-    migrate_schema::<DiskHarnessType<E>>(
-        store.clone(),
-        genesis_state_root,
-        CURRENT_SCHEMA_VERSION,
-        min_version_sub_1,
+    migrate_schema::<DiskHarnessType<E>>(store.clone(), CURRENT_SCHEMA_VERSION, min_version_sub_1)
+        .expect_err("should not downgrade below minimum version");
+}
+
+// Schema upgrade/downgrade on an archive node where the optimised migration does apply due
+// to the split state being aligned to a diff layer.
+#[tokio::test]
+async fn schema_downgrade_to_min_version_archive_node_grid_aligned() {
+    // Need to use 3 as the hierarchy exponent to get diffs on every epoch boundary with minimal
+    // spec.
+    schema_downgrade_to_min_version(
+        StoreConfig {
+            hierarchy_config: HierarchyConfig::from_str("3,4,5").unwrap(),
+            prune_payloads: false,
+            ..StoreConfig::default()
+        },
+        true,
     )
-    .expect_err("should not downgrade below minimum version");
+    .await
+}
+
+// Schema upgrade/downgrade on an archive node where the optimised migration DOES NOT apply
+// due to the split state NOT being aligned to a diff layer.
+#[tokio::test]
+async fn schema_downgrade_to_min_version_archive_node_grid_unaligned() {
+    schema_downgrade_to_min_version(
+        StoreConfig {
+            hierarchy_config: HierarchyConfig::from_str("7").unwrap(),
+            prune_payloads: false,
+            ..StoreConfig::default()
+        },
+        true,
+    )
+    .await
+}
+
+// Schema upgrade/downgrade on a full node with a fairly normal per-epoch diff config.
+#[tokio::test]
+async fn schema_downgrade_to_min_version_full_node_per_epoch_diffs() {
+    schema_downgrade_to_min_version(
+        StoreConfig {
+            hierarchy_config: HierarchyConfig::from_str("3,4,5").unwrap(),
+            prune_payloads: false,
+            ..StoreConfig::default()
+        },
+        false,
+    )
+    .await
+}
+
+// Schema upgrade/downgrade on a full node with dense per-slot diffs.
+#[tokio::test]
+async fn schema_downgrade_to_min_version_full_node_dense_diffs() {
+    schema_downgrade_to_min_version(
+        StoreConfig {
+            hierarchy_config: HierarchyConfig::from_str("0,3,4,5").unwrap(),
+            prune_payloads: false,
+            ..StoreConfig::default()
+        },
+        true,
+    )
+    .await
 }
 
 /// Check that blob pruning prunes blobs older than the data availability boundary.
@@ -3463,6 +3654,163 @@ async fn prune_historic_states() {
     check_split_slot(&harness, store);
 }
 
+// Test the function `get_ancestor_state_root` for slots prior to the split where we only have
+// sparse summaries stored.
+#[tokio::test]
+async fn ancestor_state_root_prior_to_split() {
+    let db_path = tempdir().unwrap();
+
+    let spec = test_spec::<E>();
+
+    let store_config = StoreConfig {
+        prune_payloads: false,
+        hierarchy_config: HierarchyConfig::from_str("5,7,8").unwrap(),
+        ..StoreConfig::default()
+    };
+    let chain_config = ChainConfig {
+        reconstruct_historic_states: false,
+        ..ChainConfig::default()
+    };
+    let import_all_data_columns = false;
+
+    let store = get_store_generic(&db_path, store_config, spec);
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        chain_config,
+        import_all_data_columns,
+    );
+
+    // Produce blocks until we have passed through two full snapshot periods. This period length is
+    // determined by the hierarchy config set above.
+    let num_blocks = 2 * store
+        .hierarchy
+        .next_snapshot_slot(Slot::new(1))
+        .unwrap()
+        .as_u64();
+
+    for num_blocks_so_far in 0..num_blocks {
+        harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
+        harness.advance_slot();
+
+        // Check that `get_ancestor_state_root` can look up the grid-aligned ancestors of every hot
+        // state, even at ancestor slots prior to the split.
+        let head_state = harness.get_current_state();
+        assert_eq!(head_state.slot().as_u64(), num_blocks_so_far + 1);
+
+        let split_slot = store.get_split_slot();
+        let anchor_slot = store.get_anchor_info().anchor_slot;
+
+        for state_slot in (split_slot.as_u64()..=num_blocks_so_far).map(Slot::new) {
+            for ancestor_slot in store
+                .hierarchy
+                .closest_layer_points(state_slot, anchor_slot)
+            {
+                // The function currently doesn't consider a state an ancestor of itself, so this
+                // does not work.
+                if ancestor_slot == state_slot {
+                    continue;
+                }
+                let ancestor_state_root = store::hot_cold_store::get_ancestor_state_root(
+                    &store,
+                    &head_state,
+                    ancestor_slot,
+                )
+                .unwrap_or_else(|e| {
+                    panic!(
+                        "get_ancestor_state_root failed for state_slot={state_slot}, \
+                         ancestor_slot={ancestor_slot}, head_slot={}. error: {e:?}",
+                        head_state.slot()
+                    )
+                });
+
+                // Check state root correctness.
+                assert_eq!(
+                    store
+                        .load_hot_state_summary(&ancestor_state_root)
+                        .unwrap()
+                        .unwrap_or_else(|| panic!(
+                            "no summary found for {ancestor_state_root:?} (slot {ancestor_slot})"
+                        ))
+                        .slot,
+                    ancestor_slot,
+                )
+            }
+        }
+    }
+
+    // This test only makes sense if the split is non-zero by the end.
+    assert_ne!(store.get_split_slot(), 0);
+}
+
+// Test that the chain operates correctly when the split state is stored as a ReplayFrom.
+#[tokio::test]
+async fn replay_from_split_state() {
+    let db_path = tempdir().unwrap();
+
+    let spec = test_spec::<E>();
+
+    let store_config = StoreConfig {
+        prune_payloads: false,
+        hierarchy_config: HierarchyConfig::from_str("5").unwrap(),
+        ..StoreConfig::default()
+    };
+    let chain_config = ChainConfig {
+        reconstruct_historic_states: false,
+        ..ChainConfig::default()
+    };
+    let import_all_data_columns = false;
+
+    let store = get_store_generic(&db_path, store_config.clone(), spec.clone());
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        chain_config,
+        import_all_data_columns,
+    );
+
+    // Produce blocks until we finalize epoch 3 which will not be stored as a snapshot.
+    let num_blocks = 5 * E::slots_per_epoch() as usize;
+
+    harness
+        .extend_chain(
+            num_blocks,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let split = store.get_split_info();
+    let anchor_slot = store.get_anchor_info().anchor_slot;
+    assert_eq!(split.slot, 3 * E::slots_per_epoch());
+    assert_eq!(anchor_slot, 0);
+    assert!(store
+        .hierarchy
+        .storage_strategy(split.slot, anchor_slot)
+        .unwrap()
+        .is_replay_from());
+
+    // Close the database and reopen it.
+    drop(store);
+    drop(harness);
+
+    let store = get_store_generic(&db_path, store_config, spec);
+
+    // Check that the split state is still accessible.
+    assert_eq!(store.get_split_slot(), split.slot);
+    let state = store
+        .get_hot_state(&split.state_root, false)
+        .unwrap()
+        .expect("split state should be present");
+    assert_eq!(state.slot(), split.slot);
+}
+
 /// Checks that two chains are the same, for the purpose of these tests.
 ///
 /// Several fields that are hard/impossible to check are ignored (e.g., the store).
@@ -3556,7 +3904,11 @@ fn check_split_slot(
 
 /// Check that all the states in a chain dump have the correct tree hash.
 fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
-    let mut chain_dump = harness.chain.chain_dump().unwrap();
+    check_chain_dump_from_slot(harness, Slot::new(0), expected_len)
+}
+
+fn check_chain_dump_from_slot(harness: &TestHarness, from_slot: Slot, expected_len: u64) {
+    let mut chain_dump = harness.chain.chain_dump_from_slot(from_slot).unwrap();
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
@@ -3604,7 +3956,7 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
 
     let mut forward_block_roots = harness
         .chain
-        .forwards_iter_block_roots(Slot::new(0))
+        .forwards_iter_block_roots(from_slot)
         .expect("should get iter")
         .map(Result::unwrap)
         .collect::<Vec<_>>();
@@ -3625,10 +3977,14 @@ fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
 /// Check that every state from the canonical chain is in the database, and that the
 /// reverse state and block root iterators reach genesis.
 fn check_iterators(harness: &TestHarness) {
+    check_iterators_from_slot(harness, Slot::new(0))
+}
+
+fn check_iterators_from_slot(harness: &TestHarness, slot: Slot) {
     let mut max_slot = None;
     for (state_root, slot) in harness
         .chain
-        .forwards_iter_state_roots(Slot::new(0))
+        .forwards_iter_state_roots(slot)
         .expect("should get iter")
         .map(Result::unwrap)
     {
@@ -3650,7 +4006,7 @@ fn check_iterators(harness: &TestHarness) {
     assert_eq!(
         harness
             .chain
-            .forwards_iter_block_roots(Slot::new(0))
+            .forwards_iter_block_roots(slot)
             .expect("should get iter")
             .last()
             .map(Result::unwrap)

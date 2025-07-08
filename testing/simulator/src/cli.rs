@@ -20,7 +20,7 @@ pub fn cli_app() -> Command {
                         .short('n')
                         .long("nodes")
                         .action(ArgAction::Set)
-                        .default_value("3")
+                        .default_value("2")
                         .help("Number of beacon nodes"),
                 )
                 .arg(
@@ -28,7 +28,7 @@ pub fn cli_app() -> Command {
                         .short('p')
                         .long("proposer-nodes")
                         .action(ArgAction::Set)
-                        .default_value("3")
+                        .default_value("1")
                         .help("Number of proposer-only beacon nodes"),
                 )
                 .arg(
@@ -61,6 +61,18 @@ pub fn cli_app() -> Command {
                         .long("continue_after_checks")
                         .action(ArgAction::SetTrue)
                         .help("Continue after checks (default false)"),
+                )
+                .arg(
+                    Arg::new("log-dir")
+                        .long("log-dir")
+                        .action(ArgAction::Set)
+                        .help("Set a path for logs of beacon nodes that run in this simulation."),
+                )
+                .arg(
+                    Arg::new("disable-stdout-logging")
+                        .long("disable-stdout-logging")
+                        .action(ArgAction::SetTrue)
+                        .help("Disables stdout logging."),
                 ),
         )
         .subcommand(
@@ -120,6 +132,18 @@ pub fn cli_app() -> Command {
                         .long("continue_after_checks")
                         .action(ArgAction::SetTrue)
                         .help("Continue after checks (default false)"),
+                )
+                .arg(
+                    Arg::new("log-dir")
+                        .long("log-dir")
+                        .action(ArgAction::Set)
+                        .help("Set a path for logs of beacon nodes that run in this simulation."),
+                )
+                .arg(
+                    Arg::new("disable-stdout-logging")
+                        .long("disable-stdout-logging")
+                        .action(ArgAction::SetTrue)
+                        .help("Disables stdout logging."),
                 ),
         )
 }

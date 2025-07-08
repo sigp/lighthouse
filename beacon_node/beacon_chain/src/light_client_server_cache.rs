@@ -374,7 +374,7 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let Some(current_sync_committee_branch) = store.get_sync_committee_branch(block_root)?
         else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
-                "Sync committee branch for block root {:?} not found",
+                "Sync committee branch for block root {:?} not found. This typically occurs when the block is not a finalized checkpoint. Light client bootstrap is only supported for finalized checkpoint block roots.",
                 block_root
             )));
         };
@@ -421,18 +421,13 @@ struct LightClientCachedData<E: EthSpec> {
 
 impl<E: EthSpec> LightClientCachedData<E> {
     fn from_state(state: &mut BeaconState<E>) -> Result<Self, BeaconChainError> {
-        let (finality_branch, next_sync_committee_branch, current_sync_committee_branch) = (
-            state.compute_finalized_root_proof()?,
-            state.compute_current_sync_committee_proof()?,
-            state.compute_next_sync_committee_proof()?,
-        );
         Ok(Self {
             finalized_checkpoint: state.finalized_checkpoint(),
-            finality_branch,
+            finality_branch: state.compute_finalized_root_proof()?,
             next_sync_committee: state.next_sync_committee()?.clone(),
             current_sync_committee: state.current_sync_committee()?.clone(),
-            next_sync_committee_branch,
-            current_sync_committee_branch,
+            next_sync_committee_branch: state.compute_next_sync_committee_proof()?,
+            current_sync_committee_branch: state.compute_current_sync_committee_proof()?,
             finalized_block_root: state.finalized_checkpoint().root,
         })
     }

@@ -103,6 +103,8 @@ pub enum NetworkEvent<E: EthSpec> {
     StatusPeer(PeerId),
     NewListenAddr(Multiaddr),
     ZeroListeners,
+    /// A peer has an updated custody group count from MetaData.
+    PeerUpdatedCustodyGroupCount(PeerId),
 }
 
 pub type Gossipsub = gossipsub::Behaviour<SnappyTransform, SubscriptionFilter>;
@@ -175,6 +177,7 @@ impl<E: EthSpec> Network<E> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
+        custody_group_count: u64,
     ) -> Result<(Self, Arc<NetworkGlobals<E>>), String> {
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
@@ -199,11 +202,10 @@ impl<E: EthSpec> Network<E> {
         )?;
 
         // Construct the metadata
-        let custody_group_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
-            ctx.chain_spec
-                .custody_group_count(config.subscribe_all_data_column_subnets)
-        });
-        let meta_data = utils::load_or_build_metadata(&config.network_dir, custody_group_count);
+        let advertised_cgc = config
+            .advertise_false_custody_group_count
+            .unwrap_or(custody_group_count);
+        let meta_data = utils::load_or_build_metadata(&config.network_dir, advertised_cgc);
         let seq_number = *meta_data.seq_number();
         let globals = NetworkGlobals::new(
             enr,
@@ -883,6 +885,23 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
+    /// Subscribe to all data columns determined by the cgc.
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    pub fn subscribe_new_data_column_subnets(&mut self, custody_column_count: u64) {
+        self.network_globals
+            .update_data_column_subnets(custody_column_count);
+
+        for column in self.network_globals.sampling_subnets() {
+            let kind = GossipKind::DataColumnSidecar(column);
+            self.subscribe_kind(kind);
+        }
+    }
+
     /// Returns the scoring parameters for a topic if set.
     #[instrument(parent = None,
         level = "trace",
@@ -1252,6 +1271,21 @@ impl<E: EthSpec> Network<E> {
         self.update_metadata_bitfields();
     }
 
+    /// Updates the cgc value in the ENR.
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    pub fn update_enr_cgc(&mut self, new_custody_group_count: u64) {
+        if let Err(e) = self.discovery_mut().update_enr_cgc(new_custody_group_count) {
+            crit!(error = e, "Could not update cgc in ENR");
+        }
+        // update the local meta data which informs our peers of the update during PINGS
+        self.update_metadata_cgc(new_custody_group_count);
+    }
+
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
     /// would like to retain the peers for.
     #[instrument(parent = None,
@@ -1356,6 +1390,28 @@ impl<E: EthSpec> Network<E> {
         *meta_data_w.attnets_mut() = local_attnets;
         if let Ok(syncnets) = meta_data_w.syncnets_mut() {
             *syncnets = local_syncnets;
+        }
+        let seq_number = *meta_data_w.seq_number();
+        let meta_data = meta_data_w.clone();
+
+        drop(meta_data_w);
+        self.eth2_rpc_mut().update_seq_number(seq_number);
+        // Save the updated metadata to disk
+        utils::save_metadata_to_disk(&self.network_dir, meta_data);
+    }
+
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    fn update_metadata_cgc(&mut self, custody_group_count: u64) {
+        let mut meta_data_w = self.network_globals.local_metadata.write();
+
+        *meta_data_w.seq_number_mut() += 1;
+        if let Ok(cgc) = meta_data_w.custody_group_count_mut() {
+            *cgc = custody_group_count;
         }
         let seq_number = *meta_data_w.seq_number();
         let meta_data = meta_data_w.clone();
@@ -1655,7 +1711,7 @@ impl<E: EthSpec> Network<E> {
             return None;
         }
 
-        // The METADATA and PING RPC responses are handled within the behaviour and not propagated
+        // The PING RPC responses are handled within the behaviour and not propagated
         match event.message {
             Err(handler_err) => {
                 match handler_err {
@@ -1858,9 +1914,11 @@ impl<E: EthSpec> Network<E> {
                         None
                     }
                     RpcSuccessResponse::MetaData(meta_data) => {
-                        self.peer_manager_mut()
+                        let updated_cgc = self
+                            .peer_manager_mut()
                             .meta_data_response(&peer_id, meta_data.as_ref().clone());
-                        None
+                        // Send event after calling into peer_manager so the PeerDB is updated.
+                        updated_cgc.then(|| NetworkEvent::PeerUpdatedCustodyGroupCount(peer_id))
                     }
                     /* Network propagated protocols */
                     RpcSuccessResponse::Status(msg) => {

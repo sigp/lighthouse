@@ -34,7 +34,7 @@ Esat's
 ETH
 EthDocker
 Ethereum
-Ethstaker
+EthStaker
 Exercism
 Extractable
 FFG
@@ -46,6 +46,7 @@ Goerli
 Grafana
 Holesky
 Homebrew
+Hoodi
 Infura
 IPs
 IPv
@@ -88,6 +89,7 @@ SSD
 SSL
 SSZ
 Styleguide
+TBD
 TCP
 Teku
 TLS
@@ -194,6 +196,8 @@ pem
 performant
 pid
 pre
+presign
+presigned
 pubkey
 pubkeys
 rc

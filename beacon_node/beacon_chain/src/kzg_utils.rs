@@ -8,9 +8,9 @@ use std::sync::Arc;
 use types::beacon_block_body::KzgCommitments;
 use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
-    Blob, BlobSidecar, BlobSidecarList, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnSidecarList, EthSpec, Hash256, KzgCommitment, KzgProof, SignedBeaconBlock,
-    SignedBeaconBlockHeader, SignedBlindedBeaconBlock,
+    Blob, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList,
+    EthSpec, Hash256, KzgCommitment, KzgProof, SignedBeaconBlock, SignedBeaconBlockHeader,
+    SignedBlindedBeaconBlock,
 };
 
 /// Converts a blob ssz List object to an array to be used with the kzg
@@ -25,7 +25,7 @@ fn ssz_blob_to_crypto_blob_boxed<E: EthSpec>(blob: &Blob<E>) -> Result<Box<KzgBl
 
 /// Converts a cell ssz List object to an array to be used with the kzg
 /// crypto library.
-fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCellRef, KzgError> {
+fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCellRef<'_>, KzgError> {
     let cell_bytes: &[u8] = cell.as_ref();
     Ok(cell_bytes
         .try_into()
@@ -79,38 +79,27 @@ pub fn validate_data_columns<'a, E: EthSpec, I>(
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
-    let cells = data_column_iter
-        .clone()
-        .flat_map(|data_column| data_column.column.iter().map(ssz_cell_to_crypto_cell::<E>))
-        .collect::<Result<Vec<_>, KzgError>>()?;
+    let mut cells = Vec::new();
+    let mut proofs = Vec::new();
+    let mut column_indices = Vec::new();
+    let mut commitments = Vec::new();
 
-    let proofs = data_column_iter
-        .clone()
-        .flat_map(|data_column| {
-            data_column
-                .kzg_proofs
-                .iter()
-                .map(|&proof| Bytes48::from(proof))
-        })
-        .collect::<Vec<_>>();
+    for data_column in data_column_iter {
+        let col_index = data_column.index;
 
-    let column_indices = data_column_iter
-        .clone()
-        .flat_map(|data_column| {
-            let col_index = data_column.index;
-            data_column.column.iter().map(move |_| col_index)
-        })
-        .collect::<Vec<ColumnIndex>>();
+        for cell in &data_column.column {
+            cells.push(ssz_cell_to_crypto_cell::<E>(cell)?);
+            column_indices.push(col_index);
+        }
 
-    let commitments = data_column_iter
-        .clone()
-        .flat_map(|data_column| {
-            data_column
-                .kzg_commitments
-                .iter()
-                .map(|&commitment| Bytes48::from(commitment))
-        })
-        .collect::<Vec<_>>();
+        for &proof in &data_column.kzg_proofs {
+            proofs.push(Bytes48::from(proof));
+        }
+
+        for &commitment in &data_column.kzg_commitments {
+            commitments.push(Bytes48::from(commitment));
+        }
+    }
 
     kzg.verify_cell_proof_batch(&cells, &proofs, column_indices, &commitments)
 }
@@ -198,9 +187,9 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
         .collect::<Vec<_>>();
 
     // NOTE: assumes blob sidecars are ordered by index
-    let blob_cells_and_proofs_vec = blobs
+    let zipped: Vec<_> = blobs.iter().zip(proof_chunks).collect();
+    let blob_cells_and_proofs_vec = zipped
         .into_par_iter()
-        .zip(proof_chunks.into_par_iter())
         .map(|(blob, proofs)| {
             let blob = blob
                 .as_ref()

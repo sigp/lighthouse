@@ -727,7 +727,7 @@ impl HttpJsonRpc {
     pub async fn get_blobs_v2<E: EthSpec>(
         &self,
         versioned_hashes: Vec<Hash256>,
-    ) -> Result<Vec<Option<BlobAndProofV2<E>>>, Error> {
+    ) -> Result<Option<Vec<BlobAndProofV2<E>>>, Error> {
         let params = json!([versioned_hashes]);
 
         self.rpc_request(
@@ -1242,6 +1242,10 @@ impl HttpJsonRpc {
         } else {
             let engine_version = self.get_client_version_v1().await?;
             *lock = Some(CachedResponse::new(engine_version.clone()));
+            if !engine_version.is_empty() {
+                // reset metric gauge when there's a fresh fetch
+                crate::metrics::reset_execution_layer_info_gauge();
+            }
             Ok(engine_version)
         }
     }

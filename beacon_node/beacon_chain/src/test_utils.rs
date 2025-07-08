@@ -5,7 +5,7 @@ use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
-    beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
+    beacon_chain::{BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
     single_attestation::single_attestation_to_attestation,
     sync_committee_verification::Error as SyncCommitteeError,
@@ -14,7 +14,6 @@ pub use crate::{
 };
 use crate::{
     builder::{BeaconChainBuilder, Witness},
-    eth1_chain::CachingEth1Backend,
     BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
     StateSkipConfig,
 };
@@ -69,12 +68,10 @@ use types::{typenum::U4294967296, *};
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
 // Environment variable to read if `fork_from_env` feature is enabled.
 pub const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
-// Environment variable to read if `ci_logger` feature is enabled.
-pub const CI_LOGGER_DIR_ENV_VAR: &str = "CI_LOGGER_DIR";
 
 // Pre-computed data column sidecar using a single static blob from:
 // `beacon_node/execution_layer/src/test_utils/fixtures/mainnet/test_blobs_bundle.ssz`
-const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
+pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
     include_bytes!("test_utils/fixtures/test_data_column_sidecars.ssz");
 
 // Default target aggregators to set during testing, this ensures an aggregator at each slot.
@@ -118,7 +115,7 @@ pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
 }
 
 pub type BaseHarnessType<E, THotStore, TColdStore> =
-    Witness<TestingSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>;
+    Witness<TestingSlotClock, E, THotStore, TColdStore>;
 
 pub type DiskHarnessType<E> = BaseHarnessType<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
@@ -518,11 +515,7 @@ where
         self
     }
 
-    pub fn mock_execution_layer(self) -> Self {
-        self.mock_execution_layer_with_config()
-    }
-
-    pub fn mock_execution_layer_with_config(mut self) -> Self {
+    pub fn mock_execution_layer(mut self) -> Self {
         let mock = mock_execution_layer_from_parts::<E>(
             self.spec.clone().expect("cannot build without spec"),
             self.runtime.task_executor.clone(),
@@ -581,8 +574,6 @@ where
             )
             .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
-            .dummy_eth1_backend()
-            .expect("should build dummy backend")
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
             .import_all_data_columns(self.import_all_data_columns)
@@ -615,12 +606,6 @@ where
 
         let chain = builder.build().expect("should build");
 
-        let sampling_column_count = if self.import_all_data_columns {
-            chain.spec.number_of_custody_groups as usize
-        } else {
-            chain.spec.custody_requirement as usize
-        };
-
         BeaconChainHarness {
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
@@ -631,7 +616,6 @@ where
             mock_execution_layer: self.mock_execution_layer,
             mock_builder: None,
             rng: make_rng(),
-            sampling_column_count,
         }
     }
 }
@@ -688,7 +672,6 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub mock_builder: Option<Arc<MockBuilder<T::EthSpec>>>,
-    pub sampling_column_count: usize,
 
     pub rng: Mutex<StdRng>,
 }
@@ -791,7 +774,10 @@ where
     }
 
     pub fn get_sampling_column_count(&self) -> usize {
-        self.sampling_column_count
+        self.chain
+            .data_availability_checker
+            .custody_context()
+            .num_of_data_columns_to_sample(None, &self.chain.spec) as usize
     }
 
     pub fn slots_per_epoch(&self) -> u64 {
@@ -1129,9 +1115,14 @@ where
                 attn.aggregation_bits
                     .set(aggregation_bit_index, true)
                     .unwrap();
-                attn
+                Attestation::Electra(attn)
             }
-            Attestation::Base(_) => panic!("Must be an Electra attestation"),
+            Attestation::Base(mut attn) => {
+                attn.aggregation_bits
+                    .set(aggregation_bit_index, true)
+                    .unwrap();
+                Attestation::Base(attn)
+            }
         };
 
         let aggregation_bits = attestation.get_aggregation_bits();
@@ -1159,8 +1150,10 @@ where
         let single_attestation =
             attestation.to_single_attestation_with_attester_index(attester_index as u64)?;
 
+        let fork_name = self.spec.fork_name_at_slot::<E>(attestation.data().slot);
         let attestation: Attestation<E> =
-            single_attestation_to_attestation(&single_attestation, committee.committee).unwrap();
+            single_attestation_to_attestation(&single_attestation, committee.committee, fork_name)
+                .unwrap();
 
         assert_eq!(
             single_attestation.committee_index,
@@ -2366,7 +2359,7 @@ where
             .blob_kzg_commitments()
             .is_ok_and(|c| !c.is_empty());
         if !has_blobs {
-            return RpcBlock::new_without_blobs(Some(block_root), block, 0);
+            return RpcBlock::new_without_blobs(Some(block_root), block);
         }
 
         // Blobs are stored as data columns from Fulu (PeerDAS)
@@ -2376,14 +2369,8 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(
-                Some(block_root),
-                block,
-                custody_columns,
-                self.get_sampling_column_count(),
-                &self.spec,
-            )
-            .unwrap()
+            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
+                .unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             RpcBlock::new(Some(block_root), block, blobs).unwrap()
@@ -2409,15 +2396,9 @@ where
                     .take(sampling_column_count)
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(
-                    Some(block_root),
-                    block,
-                    columns,
-                    sampling_column_count,
-                    &self.spec,
-                )?
+                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
             } else {
-                RpcBlock::new_without_blobs(Some(block_root), block, 0)
+                RpcBlock::new_without_blobs(Some(block_root), block)
             }
         } else {
             let blobs = blob_items
@@ -2430,7 +2411,11 @@ where
         })
     }
 
-    pub fn process_attestations(&self, attestations: HarnessAttestations<E>) {
+    pub fn process_attestations(
+        &self,
+        attestations: HarnessAttestations<E>,
+        state: &BeaconState<E>,
+    ) {
         let num_validators = self.validator_keypairs.len();
         let mut unaggregated = Vec::with_capacity(num_validators);
         // This is an over-allocation, but it should be fine. It won't be *that* memory hungry and
@@ -2439,7 +2424,35 @@ where
 
         for (unaggregated_attestations, maybe_signed_aggregate) in attestations.iter() {
             for (attn, subnet) in unaggregated_attestations {
-                unaggregated.push((attn, Some(*subnet)));
+                let aggregation_bits = attn.get_aggregation_bits();
+
+                if aggregation_bits.len() != 1 {
+                    panic!("Must be an unaggregated attestation")
+                }
+
+                let aggregation_bit = *aggregation_bits.first().unwrap();
+
+                let committee = state
+                    .get_beacon_committee(attn.data().slot, attn.committee_index().unwrap())
+                    .unwrap();
+
+                let attester_index = committee
+                    .committee
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, &index)| {
+                        if aggregation_bit as usize == i {
+                            return Some(index);
+                        }
+                        None
+                    })
+                    .unwrap();
+
+                let single_attestation = attn
+                    .to_single_attestation_with_attester_index(attester_index as u64)
+                    .unwrap();
+
+                unaggregated.push((single_attestation, Some(*subnet)));
             }
 
             if let Some(a) = maybe_signed_aggregate {
@@ -2449,7 +2462,9 @@ where
 
         for result in self
             .chain
-            .batch_verify_unaggregated_attestations_for_gossip(unaggregated.into_iter())
+            .batch_verify_unaggregated_attestations_for_gossip(
+                unaggregated.iter().map(|(attn, subnet)| (attn, *subnet)),
+            )
             .unwrap()
         {
             let verified = result.unwrap();
@@ -2516,7 +2531,7 @@ where
     ) {
         let attestations =
             self.make_attestations(validators, state, state_root, block_hash, block.slot());
-        self.process_attestations(attestations);
+        self.process_attestations(attestations, state);
     }
 
     pub fn sync_committee_sign_block(
@@ -2671,10 +2686,7 @@ where
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> AddBlocksResult<E> {
-        assert!(
-            slots.windows(2).all(|w| w[0] <= w[1]),
-            "Slots have to be sorted"
-        ); // slice.is_sorted() isn't stabilized at the moment of writing this
+        assert!(slots.is_sorted(), "Slots have to be in ascending order");
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {
@@ -2714,10 +2726,7 @@ where
         mut latest_block_hash: Option<SignedBeaconBlockHash>,
         sync_committee_strategy: SyncCommitteeStrategy,
     ) -> AddBlocksResult<E> {
-        assert!(
-            slots.windows(2).all(|w| w[0] <= w[1]),
-            "Slots have to be sorted"
-        ); // slice.is_sorted() isn't stabilized at the moment of writing this
+        assert!(slots.is_sorted(), "Slots have to be in ascending order");
         let mut block_hash_from_slot: HashMap<Slot, SignedBeaconBlockHash> = HashMap::new();
         let mut state_hash_from_slot: HashMap<Slot, BeaconStateHash> = HashMap::new();
         for slot in slots {

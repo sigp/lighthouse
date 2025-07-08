@@ -106,6 +106,9 @@ pub enum SyncMessage<E: EthSpec> {
         head_slot: Option<Slot>,
     },
 
+    /// Peer manager has received a MetaData of a peer with a new or updated CGC value.
+    UpdatedPeerCgc(PeerId),
+
     /// A block has been received from the RPC.
     RpcBlock {
         sync_request_id: SyncRequestId,
@@ -395,10 +398,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // ensure the beacon chain still exists
         let status = self.chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         let sync_type = remote_sync_type(&local, &remote, &self.chain);
@@ -447,10 +451,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         let status = self.chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         let head_slot = head_slot.unwrap_or_else(|| {
@@ -468,12 +473,23 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // Set finalized to same as local to trigger Head sync
             finalized_epoch: local.finalized_epoch,
             finalized_root: local.finalized_root,
+            earliest_available_slot: local.earliest_available_slot,
         };
 
         for peer_id in peers {
             self.range_sync
                 .add_peer(&mut self.network, local.clone(), *peer_id, remote.clone());
         }
+    }
+
+    fn updated_peer_cgc(&mut self, _peer_id: PeerId) {
+        // Try to make progress on custody requests that are waiting for peers
+        for (id, result) in self.network.continue_custody_by_root_requests() {
+            self.on_custody_by_root_result(id, result);
+        }
+
+        // Attempt to resume range sync too
+        self.range_sync.resume(&mut self.network);
     }
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
@@ -515,9 +531,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         // Remove peer from all data structures
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
-        let _ = self
-            .backfill_sync
-            .peer_disconnected(peer_id, &mut self.network);
+        let _ = self.backfill_sync.peer_disconnected(peer_id);
         self.block_lookups.peer_disconnected(peer_id);
 
         // Regardless of the outcome, we update the sync status.
@@ -750,6 +764,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => {
                 self.add_peers_force_range_sync(&peers, head_root, head_slot);
             }
+            SyncMessage::UpdatedPeerCgc(peer_id) => {
+                debug!(
+                    peer_id = ?peer_id,
+                    "Received updated peer CGC message"
+                );
+                self.updated_peer_cgc(peer_id);
+            }
             SyncMessage::RpcBlock {
                 sync_request_id,
                 peer_id,
@@ -911,12 +932,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         match self.should_search_for_block(Some(slot), &peer_id) {
             Ok(_) => {
-                self.block_lookups.search_child_and_parent(
+                if self.block_lookups.search_child_and_parent(
                     block_root,
                     block_component,
                     peer_id,
                     &mut self.network,
-                );
+                ) {
+                    // Lookup created. No need to log here it's logged in `new_current_lookup`
+                } else {
+                    debug!(
+                        ?block_root,
+                        ?parent_root,
+                        "No lookup created for child and parent"
+                    );
+                }
             }
             Err(reason) => {
                 debug!(%block_root, %parent_root, reason, "Ignoring unknown parent request");
@@ -927,8 +956,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     fn handle_unknown_block_root(&mut self, peer_id: PeerId, block_root: Hash256) {
         match self.should_search_for_block(None, &peer_id) {
             Ok(_) => {
-                self.block_lookups
-                    .search_unknown_block(block_root, &[peer_id], &mut self.network);
+                if self.block_lookups.search_unknown_block(
+                    block_root,
+                    &[peer_id],
+                    &mut self.network,
+                ) {
+                    // Lookup created. No need to log here it's logged in `new_current_lookup`
+                } else {
+                    debug!(?block_root, "No lookup created for unknown block");
+                }
             }
             Err(reason) => {
                 debug!(%block_root, reason, "Ignoring unknown block request");

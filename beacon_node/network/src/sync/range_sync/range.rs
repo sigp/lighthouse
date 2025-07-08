@@ -82,7 +82,6 @@ where
     T: BeaconChainTypes,
 {
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -104,7 +103,6 @@ where
     }
 
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -119,7 +117,6 @@ where
     /// chain, this may result in a different finalized chain from syncing as finalized chains are
     /// prioritised by peer-pool size.
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -219,7 +216,6 @@ where
     /// This function finds the chain that made this request. Once found, processes the result.
     /// This request could complete a chain or simply add to its progress.
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -255,7 +251,6 @@ where
     }
 
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -293,7 +288,6 @@ where
     /// A peer has disconnected. This removes the peer from any ongoing chains and mappings. A
     /// disconnected peer could remove a chain
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -311,15 +305,13 @@ where
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
     )]
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in self
-            .chains
-            .call_all(|chain| chain.remove_peer(peer_id, network))
+        for (removed_chain, sync_type, remove_reason) in
+            self.chains.call_all(|chain| chain.remove_peer(peer_id))
         {
             self.on_chain_removed(
                 removed_chain,
@@ -336,7 +328,6 @@ where
     /// Check to see if the request corresponds to a pending batch. If so, re-request it if possible, if there have
     /// been too many failed attempts for the batch, remove the chain.
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -372,7 +363,6 @@ where
     }
 
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all
@@ -386,15 +376,15 @@ where
         op: &'static str,
     ) {
         if remove_reason.is_critical() {
-            crit!(?sync_type, %chain, reason = ?remove_reason,op, "Chain removed");
+            crit!(id = chain.id(), ?sync_type, reason = ?remove_reason, op, "Chain removed");
         } else {
-            debug!(?sync_type, %chain, reason = ?remove_reason,op, "Chain removed");
+            debug!(id = chain.id(), ?sync_type, reason = ?remove_reason, op, "Chain removed");
         }
 
         if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
             if RangeSyncType::Finalized == sync_type && blacklist {
                 warn!(
-                    %chain,
+                    id = chain.id(),
                     "Chain failed! Syncing to its head won't be retried for at least the next {} seconds",
                     FAILED_CHAINS_EXPIRY_SECONDS
                 );
@@ -412,10 +402,11 @@ where
 
         let status = self.beacon_chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         // update the state of the collection
@@ -425,7 +416,6 @@ where
 
     /// Kickstarts sync.
     #[instrument(parent = None,
-        level = "info",
         fields(component = "range_sync"),
         name = "range_sync",
         skip_all

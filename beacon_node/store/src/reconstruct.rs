@@ -1,6 +1,5 @@
 //! Implementation of historic state reconstruction (given complete block history).
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
-use crate::metadata::ANCHOR_FOR_ARCHIVE_NODE;
 use crate::metrics;
 use crate::{Error, ItemStore};
 use itertools::{process_results, Itertools};
@@ -47,6 +46,12 @@ where
         let split = self.get_split_info();
         let lower_limit_slot = anchor.state_lower_limit;
         let upper_limit_slot = std::cmp::min(split.slot, anchor.state_upper_limit);
+
+        // If the split is at 0 we can't reconstruct historic states.
+        if split.slot == 0 {
+            debug!("No state reconstruction possible");
+            return Ok(());
+        }
 
         // If `num_blocks` is not specified iterate all blocks. Add 1 so that we end on an epoch
         // boundary when `num_blocks` is a multiple of an epoch boundary. We want to be *inclusive*
@@ -145,10 +150,8 @@ where
                             });
                         }
 
-                        self.compare_and_set_anchor_info_with_write(
-                            old_anchor,
-                            ANCHOR_FOR_ARCHIVE_NODE,
-                        )?;
+                        let new_anchor = old_anchor.as_archive_anchor();
+                        self.compare_and_set_anchor_info_with_write(old_anchor, new_anchor)?;
 
                         return Ok(());
                     } else {
