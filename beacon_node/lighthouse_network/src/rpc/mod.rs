@@ -495,11 +495,12 @@ where
                             ActiveInboundRequest {
                                 peer_id: request_peer_id,
                                 request_type: active_request_type,
-                                ..
+                                peer_disconnected,
                             },
                         )| {
                             *request_peer_id == peer_id
                                 && active_request_type.protocol() == request_type.protocol()
+                                && !peer_disconnected
                         },
                     )
                     .count()
