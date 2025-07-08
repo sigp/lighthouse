@@ -60,6 +60,7 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
     /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
+    #[superstruct(getter(copy))]
     pub signature_slot: Slot,
 }
 
@@ -200,7 +201,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
         if attested_slot > prev_slot {
             true
         } else {
-            attested_slot == prev_slot && signature_slot > *self.signature_slot()
+            attested_slot == prev_slot && signature_slot > self.signature_slot()
         }
     }
 }

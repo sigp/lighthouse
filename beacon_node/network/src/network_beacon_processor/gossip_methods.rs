@@ -1966,7 +1966,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e) => {
                 metrics::register_finality_update_error(&e);
                 match e {
-                    LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate => {
+                    LightClientFinalityUpdateError::MismatchedSignatureSlot { .. }
+                    | LightClientFinalityUpdateError::MismatchedAttestedHeader { .. }
+                    | LightClientFinalityUpdateError::MismatchedFinalizedHeader { .. }
+                    | LightClientFinalityUpdateError::MismatchedProofOrSyncAggregate { .. } => {
                         debug!(
                             %peer_id,
                             error = ?e,
@@ -2080,7 +2083,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                         return;
                     }
-                    LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
+                    LightClientOptimisticUpdateError::MismatchedSignatureSlot { .. }
+                    | LightClientOptimisticUpdateError::MismatchedAttestedHeader { .. }
+                    | LightClientOptimisticUpdateError::MismatchedSyncAggregate { .. } => {
                         metrics::register_optimistic_update_error(&e);
 
                         debug!(

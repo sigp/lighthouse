@@ -4,7 +4,7 @@ use eth2::types::Hash256;
 use slot_clock::SlotClock;
 use std::time::Duration;
 use strum::AsRefStr;
-use types::LightClientOptimisticUpdate;
+use types::{LightClientOptimisticUpdate, Slot};
 
 /// Returned when a light client optimistic update was not successfully verified. It might not have been verified for
 /// two reasons:
@@ -22,8 +22,22 @@ pub enum Error {
     ///
     /// Assuming the local clock is correct, the peer has sent an invalid message.
     TooEarly,
-    /// Light client optimistic update message does not match the locally constructed one.
-    InvalidLightClientOptimisticUpdate,
+    /// Light client optimistic update message does not match the locally constructed one, it has a
+    /// different signature slot.
+    MismatchedSignatureSlot { local: Slot, observed: Slot },
+    /// Light client optimistic update message does not match the locally constructed one, it has a
+    /// different block header at the same slot.
+    MismatchedAttestedHeader {
+        local_attested_header_root: Hash256,
+        observed_attested_header_root: Hash256,
+        signature_slot: Slot,
+    },
+    /// Light client optimistic update message does not match the locally constructed one, it has a
+    /// different sync aggregate for the same slot and attested header.
+    MismatchedSyncAggregate {
+        attested_header_root: Hash256,
+        signature_slot: Slot,
+    },
     /// Signature slot start time is none.
     SigSlotStartIsNone,
     /// Failed to construct a LightClientOptimisticUpdate from state.
@@ -54,7 +68,7 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
         // verify that enough time has passed for the block to have been propagated
         let start_time = chain
             .slot_clock
-            .start_of(*rcv_optimistic_update.signature_slot())
+            .start_of(rcv_optimistic_update.signature_slot())
             .ok_or(Error::SigSlotStartIsNone)?;
         let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
         if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
@@ -100,9 +114,28 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             return Err(Error::Ignore);
         }
 
-        // verify that the gossiped optimistic update is the same as the locally constructed one.
+        // Verify that the gossiped optimistic update is the same as the locally constructed one.
         if latest_optimistic_update != rcv_optimistic_update {
-            return Err(Error::InvalidLightClientOptimisticUpdate);
+            let signature_slot = latest_optimistic_update.signature_slot();
+            if signature_slot != rcv_optimistic_update.signature_slot() {
+                return Err(Error::MismatchedSignatureSlot {
+                    local: signature_slot,
+                    observed: rcv_optimistic_update.signature_slot(),
+                });
+            }
+            let local_attested_header_root = latest_optimistic_update.get_canonical_root();
+            let observed_attested_header_root = rcv_optimistic_update.get_canonical_root();
+            if local_attested_header_root != observed_attested_header_root {
+                return Err(Error::MismatchedAttestedHeader {
+                    local_attested_header_root,
+                    observed_attested_header_root,
+                    signature_slot,
+                });
+            }
+            return Err(Error::MismatchedSyncAggregate {
+                attested_header_root: local_attested_header_root,
+                signature_slot,
+            });
         }
 
         chain
