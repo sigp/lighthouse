@@ -3259,31 +3259,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .chain
                     .re_evaluate_optimistic_blocks_with_proofs(block_hash)
                 {
-                    Ok(should_recompute_head) => {
+                    Ok(_) => {
                         debug!(
                             %block_hash,
                             subnet_id = %subnet_id_u64,
-                            should_recompute_head,
-                            "Completed re-evaluation of optimistic blocks with new proof"
+                            "Updated proven chain with new proof"
                         );
 
-                        // Trigger immediate head recomputation if blocks were validated
-                        if should_recompute_head {
-                            let chain = self.chain.clone();
-                            self.executor.spawn(
-                                async move {
-                                    chain.recompute_head_at_current_slot().await;
-                                },
-                                "proof_triggered_head_recomputation",
-                            );
-                        }
+                        // In dual-view architecture, fork choice remains optimistic
+                        // The proven chain is tracked separately and doesn't trigger head recomputation
                     }
                     Err(e) => {
                         warn!(
                             %block_hash,
                             subnet_id = %subnet_id_u64,
                             error = ?e,
-                            "Failed to re-evaluate optimistic blocks after proof reception"
+                            "Failed to update proven chain after proof reception"
                         );
                     }
                 }

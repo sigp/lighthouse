@@ -2694,9 +2694,51 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Get all block roots in the canonical chain from the finalized checkpoint to the head
+    /// Returns a vector of block roots in ascending order (finalized to head)
+    pub fn get_canonical_chain_block_roots(&self) -> Result<Vec<Hash256>, Error> {
+        let head_block_root = self.canonical_head.cached_head().head_block_root();
+        let finalized_block_root = self
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint()
+            .root;
+
+        let fork_choice = self.canonical_head.fork_choice_read_lock();
+
+        // Traverse from head to finalized, collecting all block roots
+        let mut canonical_blocks = Vec::new();
+        let mut current_root = head_block_root;
+
+        // Add the head block
+        canonical_blocks.push(current_root);
+
+        // Traverse backwards from head to finalized
+        while current_root != finalized_block_root {
+            if let Some(proto_block) = fork_choice.get_block(&current_root) {
+                // Get parent root
+                if let Some(parent_root) = proto_block.parent_root {
+                    canonical_blocks.push(parent_root);
+                    current_root = parent_root;
+                } else {
+                    // We've reached the root block (genesis)
+                    break;
+                }
+            } else {
+                return Err(Error::MissingBeaconBlock(current_root));
+            }
+        }
+
+        // Reverse to get finalized-to-head order
+        canonical_blocks.reverse();
+
+        Ok(canonical_blocks)
+    }
+
     /// Re-evaluate optimistic blocks that can now be validated with received proofs
     /// This method is called when new execution proofs arrive via gossip
-    /// Returns true if head recomputation should be triggered
+    /// In the dual-view architecture, this updates the proven chain but does NOT
+    /// modify fork choice weights
     pub fn re_evaluate_optimistic_blocks_with_proofs(
         &self,
         execution_block_hash: ExecutionBlockHash,
@@ -2718,7 +2760,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 %execution_block_hash,
                 current_proofs = proof_count,
                 required_proofs = self.config.stateless_min_proofs_required,
-                "Not enough proofs yet for re-evaluation"
+                "Not enough proofs yet for proven chain update"
             );
             return Ok(false);
         }
@@ -2731,94 +2773,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             proof_count,
             required_proofs = self.config.stateless_min_proofs_required,
             proof_types = %proof_descriptions.join(", "),
-            "STATELESS: Found enough proofs for re-evaluation"
+            "STATELESS: Found enough proofs, updating proven chain"
         );
 
-        // Get the beacon blocks that were waiting for proofs for this execution block hash
-        let pending_blocks = self
+        // Update the proven canonical chain based on available proofs
+        // This does NOT modify fork choice - validators continue with optimistic view
+        let proven_head_changed = self
+            .execution_payload_proof_store
+            .update_proven_chain(self)
+            .map_err(|e| Error::ExecutionPayloadProofError(e))?;
+
+        if proven_head_changed {
+            info!(
+                %execution_block_hash,
+                "STATELESS: Proven chain head updated (fork choice remains optimistic)"
+            );
+        }
+
+        // Clean up pending blocks for this execution hash
+        let pending_blocks_cleaned = self
             .execution_payload_proof_store
             .take_pending_blocks(&execution_block_hash);
-
-        if pending_blocks.is_empty() {
+        
+        if !pending_blocks_cleaned.is_empty() {
             debug!(
                 %execution_block_hash,
-                "No pending blocks found for execution proof - may have been processed already"
+                cleaned_count = pending_blocks_cleaned.len(),
+                "Cleaned up pending blocks after proof arrival"
             );
-            return Ok(false);
         }
 
-        info!(
-            "STATELESS_TRACE: Starting re-evaluation for {} pending blocks with exec_hash: {:?}",
-            pending_blocks.len(),
-            execution_block_hash
-        );
-
-        let mut validated_count = 0;
-
-        // Mark each pending block as valid in fork choice
-        {
-            let mut fork_choice = self.canonical_head.fork_choice_write_lock();
-
-            for block_root in &pending_blocks {
-                match fork_choice.on_valid_execution_payload(*block_root) {
-                    Ok(()) => {
-                        validated_count += 1;
-                        info!(
-                            %block_root,
-                            %execution_block_hash,
-                            proof_types = %proof_descriptions.join(", "),
-                            "STATELESS: Successfully marked block as VALID via execution proof"
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            %block_root,
-                            %execution_block_hash,
-                            error = ?e,
-                            "Failed to mark block as valid via execution proof"
-                        );
-                    }
-                }
-            }
-        }
-
-        // Trigger immediate fork choice recomputation when blocks are validated
-        // Note: This requires the caller to hold an Arc<BeaconChain<T>>
-        if validated_count > 0 {
-            debug!(
-                %execution_block_hash,
-                validated_count,
-                "Triggering immediate head recomputation after proof validation"
-            );
-            // Return a flag indicating head recomputation should be triggered
-            // The caller (network processor) will handle the async recomputation
-        }
-
-        info!(
-            %execution_block_hash,
-            validated_count,
-            total_pending = pending_blocks.len(),
-            "STATELESS: Completed re-evaluation - {} blocks transitioned from PENDING to VALID",
-            validated_count
-        );
-        info!(
-            "STATELESS_TRACE: Re-evaluation complete - {} of {} blocks now VALID for exec_hash: {:?}",
-            validated_count,
-            pending_blocks.len(),
-            execution_block_hash
-        );
-
-        // Perform periodic cleanup of finalized pending blocks (simple integration)
-        // This happens during proof processing to ensure regular cleanup without separate timers
-        //
-        // TODO: If this is not fast, we could do this periodically in the background
-        // TODO: Maybe just add a time in ProofStore to periodically clean up
-        if validated_count > 0 {
+        // Perform periodic cleanup of finalized pending blocks
+        if proven_head_changed {
             let _cleaned_count = self.cleanup_finalized_pending_blocks();
-            // Note: Cleanup is logged in the cleanup method itself
         }
 
-        Ok(validated_count > 0)
+        // Return false - we never trigger head recomputation in dual-view mode
+        // Fork choice remains permanently optimistic
+        Ok(false)
     }
 
     /// Register a beacon block as pending execution proof validation

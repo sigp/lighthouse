@@ -846,12 +846,6 @@ pub fn get_config<E: EthSpec>(
         if min_proofs == 0 {
             return Err("--stateless-min-proofs-required must be at least 1".to_string());
         }
-        if !client_config.chain.stateless_validation {
-            return Err(
-                "--stateless-min-proofs-required requires --stateless-validation to be enabled"
-                    .to_string(),
-            );
-        }
         if min_proofs as u64 > client_config.chain.max_execution_proof_subnets {
             return Err(format!(
                 "--stateless-min-proofs-required ({}) cannot exceed max_execution_proof_subnets ({})",
@@ -860,6 +854,14 @@ pub fn get_config<E: EthSpec>(
             ));
         }
         client_config.chain.stateless_min_proofs_required = min_proofs;
+        
+        // Only validate stateless-validation requirement if the flag was explicitly provided
+        if !client_config.chain.stateless_validation {
+            return Err(
+                "--stateless-min-proofs-required requires --stateless-validation to be enabled"
+                    .to_string(),
+            );
+        }
     }
 
     // Execution proof generation.

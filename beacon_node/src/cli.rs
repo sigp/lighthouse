@@ -1535,8 +1535,7 @@ pub fn cli_app() -> Command {
                 .value_name("COUNT")
                 .help("Minimum number of execution proofs required to consider a block valid in \
                        stateless validation mode. Only applies when --stateless-validation is enabled. \
-                       Must be between 1 and max_execution_proof_subnets (default: 8).")
-                .default_value("2")
+                       Must be between 1 and max_execution_proof_subnets.")
                 .action(ArgAction::Set)
                 .display_order(0)
         )

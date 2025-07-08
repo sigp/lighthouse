@@ -180,7 +180,7 @@ impl Default for ChainConfig {
             generate_execution_proofs: false,
             max_execution_payload_proofs: 10_000,
             max_execution_proof_subnets: 8,
-            stateless_min_proofs_required: 2,
+            stateless_min_proofs_required: 1,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
             always_prepare_payload: false,

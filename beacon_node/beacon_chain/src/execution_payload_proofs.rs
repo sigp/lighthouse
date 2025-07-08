@@ -2,7 +2,9 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use types::{EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256};
+use std::time::Instant;
+use tracing::{debug, info, warn};
+use types::{EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload, Hash256, Slot};
 
 /// Default maximum number of execution proof subnets for non-stateless nodes
 /// This determines how many subnets non-stateless nodes will subscribe to by default
@@ -123,6 +125,23 @@ impl ExecutionPayloadProof {
     }
 }
 
+/// Information about a block that has been proven with execution proofs
+#[derive(Debug, Clone)]
+pub struct ProvenBlockInfo {
+    /// The beacon block root
+    pub beacon_block_root: Hash256,
+    /// The execution block hash
+    pub execution_block_hash: ExecutionBlockHash,
+    /// The slot of the block
+    pub slot: Slot,
+    /// The parent beacon block root
+    pub parent_root: Hash256,
+    /// Number of proofs available for this block
+    pub proof_count: usize,
+    /// When this block was marked as proven
+    pub proven_at: Instant,
+}
+
 /// Storage for execution payload proofs
 /// Designed to be thread-safe and efficient for concurrent access
 /// Supports multiple proof types per execution payload
@@ -150,6 +169,15 @@ pub struct ExecutionPayloadProofStore {
     pending_blocks: Arc<RwLock<HashMap<ExecutionBlockHash, Vec<Hash256>>>>,
     /// Maximum number of proofs to store (LRU eviction)
     max_proofs: usize,
+    /// Tracks the proven canonical chain - blocks that have sufficient proofs
+    /// Maps beacon block root to proven block information
+    proven_canonical_chain: Arc<RwLock<HashMap<Hash256, ProvenBlockInfo>>>,
+    /// The current proven head (beacon block root, slot)
+    /// This is the deepest block in the canonical chain that has sufficient proofs
+    proven_head: Arc<RwLock<Option<(Hash256, Slot)>>>,
+    /// The proven finalized checkpoint (beacon block root, slot)
+    /// This is updated when the proven chain reaches finalization depth
+    proven_finalized: Arc<RwLock<Option<(Hash256, Slot)>>>,
 }
 
 impl ExecutionPayloadProofStore {
@@ -159,6 +187,9 @@ impl ExecutionPayloadProofStore {
             proofs: Arc::new(RwLock::new(HashMap::new())),
             pending_blocks: Arc::new(RwLock::new(HashMap::new())),
             max_proofs,
+            proven_canonical_chain: Arc::new(RwLock::new(HashMap::new())),
+            proven_head: Arc::new(RwLock::new(None)),
+            proven_finalized: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -487,6 +518,169 @@ impl ExecutionPayloadProofStore {
         F: Fn(Hash256) -> bool,
     {
         self.cleanup_finalized_pending_blocks(is_old_block)
+    }
+
+    /// Get the current proven head (beacon block root and slot)
+    /// Returns None if no proven head has been established yet
+    pub fn get_proven_head(&self) -> Option<(Hash256, Slot)> {
+        *self.proven_head.read()
+    }
+
+    /// Get the proven finalized checkpoint (beacon block root and slot)
+    /// Returns None if no proven finalized checkpoint has been established yet
+    pub fn get_proven_finalized(&self) -> Option<(Hash256, Slot)> {
+        *self.proven_finalized.read()
+    }
+
+    /// Check if a beacon block is part of the proven canonical chain
+    pub fn is_block_proven(&self, beacon_block_root: &Hash256) -> bool {
+        self.proven_canonical_chain.read().contains_key(beacon_block_root)
+    }
+
+    /// Get information about a proven block
+    pub fn get_proven_block_info(&self, beacon_block_root: &Hash256) -> Option<ProvenBlockInfo> {
+        self.proven_canonical_chain.read().get(beacon_block_root).cloned()
+    }
+
+    /// Get the entire proven canonical chain from finalized to head
+    /// Returns a vector of proven blocks ordered from oldest to newest
+    pub fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
+        let chain = self.proven_canonical_chain.read();
+        let mut blocks: Vec<ProvenBlockInfo> = chain.values().cloned().collect();
+        // Sort by slot, oldest first
+        blocks.sort_by_key(|b| b.slot);
+        blocks
+    }
+
+    /// Get the depth of the proven chain (number of proven blocks)
+    pub fn get_proven_chain_depth(&self) -> usize {
+        self.proven_canonical_chain.read().len()
+    }
+
+    /// Check if an execution payload has sufficient proofs to be considered proven
+    /// This uses the stateless_min_proofs_required from the chain config
+    pub fn has_sufficient_proofs(&self, execution_block_hash: &ExecutionBlockHash, min_proofs_required: usize) -> bool {
+        let proof_count = self.proof_count_for_payload(execution_block_hash);
+        proof_count >= min_proofs_required
+    }
+
+    /// Update the proven canonical chain based on available proofs
+    /// This method walks backwards from the optimistic head to find the longest proven chain
+    /// Note: This requires access to BeaconChain, so it's called from beacon_chain.rs
+    pub fn update_proven_chain<T: crate::BeaconChainTypes>(
+        &self,
+        chain: &crate::BeaconChain<T>,
+    ) -> Result<bool, String> {
+        // Get current optimistic head from fork choice
+        let head = chain.canonical_head.cached_head();
+        let head_block_root = head.head_block_root();
+        let head_slot = head.head_slot();
+        
+        let min_proofs_required = chain.config.stateless_min_proofs_required;
+        
+        debug!(
+            optimistic_head_root = ?head_block_root,
+            optimistic_head_slot = head_slot.as_u64(),
+            "Updating proven chain from optimistic head"
+        );
+
+        // Walk backwards from optimistic head to find longest proven chain
+        let mut current = head_block_root;
+        let mut proven_chain = Vec::new();
+        let mut proven_head_candidate = None;
+        
+        while let Ok(Some(block)) = chain.get_blinded_block(&current) {
+            let beacon_block_root = block.canonical_root();
+            let slot = block.slot();
+            let parent_root = block.parent_root();
+            
+            // Get execution payload hash
+            let exec_hash = match block.message().execution_payload() {
+                Ok(payload) => payload.block_hash(),
+                Err(_) => {
+                    // Pre-merge block, stop here
+                    break;
+                }
+            };
+            
+            // Check if this block has sufficient proofs
+            if self.has_sufficient_proofs(&exec_hash, min_proofs_required) {
+                let proof_count = self.proof_count_for_payload(&exec_hash);
+                
+                let proven_info = ProvenBlockInfo {
+                    beacon_block_root,
+                    execution_block_hash: exec_hash,
+                    slot,
+                    parent_root,
+                    proof_count,
+                    proven_at: Instant::now(),
+                };
+                
+                proven_chain.push(proven_info.clone());
+                
+                // Track the deepest proven block as head candidate
+                if proven_head_candidate.is_none() {
+                    proven_head_candidate = Some((beacon_block_root, slot));
+                }
+                
+                // Continue walking backwards
+                current = parent_root;
+            } else {
+                debug!(
+                    %beacon_block_root,
+                    %exec_hash,
+                    slot = slot.as_u64(),
+                    proof_count = self.proof_count_for_payload(&exec_hash),
+                    required_proofs = min_proofs_required,
+                    "Block lacks sufficient proofs, stopping proven chain walk"
+                );
+                break;
+            }
+        }
+        
+        // Update proven chain storage
+        let mut proven_canonical_chain = self.proven_canonical_chain.write();
+        let mut proven_head = self.proven_head.write();
+        
+        // Clear old proven chain
+        proven_canonical_chain.clear();
+        
+        // Add new proven blocks
+        for block_info in proven_chain.iter() {
+            proven_canonical_chain.insert(block_info.beacon_block_root, block_info.clone());
+        }
+        
+        // Update proven head
+        let head_changed = *proven_head != proven_head_candidate;
+        *proven_head = proven_head_candidate;
+        
+        if let Some((new_head_root, new_head_slot)) = proven_head_candidate {
+            info!(
+                proven_head_root = ?new_head_root,
+                proven_head_slot = new_head_slot.as_u64(),
+                proven_chain_depth = proven_chain.len(),
+                optimistic_head_slot = head_slot.as_u64(),
+                lag_slots = head_slot.saturating_sub(new_head_slot).as_u64(),
+                "Updated proven canonical chain"
+            );
+        } else {
+            warn!("No proven head found - no blocks have sufficient proofs");
+        }
+        
+        // Check if we should update proven finalized
+        self.update_proven_finalized(&proven_chain);
+        
+        Ok(head_changed)
+    }
+
+    /// Update the proven finalized checkpoint based on the proven chain
+    fn update_proven_finalized(&self, _proven_chain: &[ProvenBlockInfo]) {
+        // TODO: Implement finalization logic
+        // For now, we'll consider a block finalized if it's proven and 
+        // at least 2 epochs old (similar to normal finalization distance)
+        
+        // This is a placeholder - proper implementation would check
+        // actual finalization rules and epoch boundaries
     }
 }
 
