@@ -45,7 +45,10 @@ pub fn cli_app() -> Command {
             Arg::new(VALIDATOR_FLAG)
                 .long(VALIDATOR_FLAG)
                 .value_name("STRING")
-                .help("Comma-separated list of validators (pubkey) that will be deleted.")
+                .help(
+                    "Comma-separated list of validators (pubkey) that will be deleted. \
+                 To delete all validators, use the keyword \"all\".",
+                )
                 .action(ArgAction::Set)
                 .required(true)
                 .display_order(0),
@@ -64,10 +67,14 @@ impl DeleteConfig {
         let validators_to_delete_str =
             clap_utils::parse_required::<String>(matches, VALIDATOR_FLAG)?;
 
-        let validators_to_delete = validators_to_delete_str
-            .split(',')
-            .map(|s| s.trim().parse())
-            .collect::<Result<Vec<PublicKeyBytes>, _>>()?;
+        let validators_to_delete = if validators_to_delete_str.trim() == "all" {
+            Vec::new()
+        } else {
+            validators_to_delete_str
+                .split(',')
+                .map(|s| s.trim().parse())
+                .collect::<Result<Vec<PublicKeyBytes>, _>>()?
+        };
 
         Ok(Self {
             vc_token_path: clap_utils::parse_required(matches, VC_TOKEN_FLAG)?,
@@ -90,10 +97,15 @@ async fn run(config: DeleteConfig) -> Result<(), String> {
     let DeleteConfig {
         vc_url,
         vc_token_path,
-        validators_to_delete,
+        mut validators_to_delete,
     } = config;
 
     let (http_client, validators) = vc_http_client(vc_url.clone(), &vc_token_path).await?;
+
+    // Delete all validators on the VC
+    if validators_to_delete.is_empty() {
+        validators_to_delete = validators.iter().map(|v| v.validating_pubkey).collect();
+    }
 
     for validator_to_delete in &validators_to_delete {
         if !validators

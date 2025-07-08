@@ -108,7 +108,7 @@ impl TaskExecutor {
     }
 
     /// Clones the task executor adding a service name.
-    #[instrument(parent = None,level = "info", fields(service = service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = service_name), name = "task_executor", skip_all)]
     pub fn clone_with_name(&self, service_name: String) -> Self {
         TaskExecutor {
             handle_provider: self.handle_provider.clone(),
@@ -124,7 +124,7 @@ impl TaskExecutor {
     /// The purpose of this function is to create a compile error if some function which previously
     /// returned `()` starts returning something else. Such a case may otherwise result in
     /// accidental error suppression.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn_ignoring_error(
         &self,
         task: impl Future<Output = Result<(), ()>> + Send + 'static,
@@ -136,7 +136,7 @@ impl TaskExecutor {
     /// Spawn a task to monitor the completion of another task.
     ///
     /// If the other task exits by panicking, then the monitor task will shut down the executor.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     fn spawn_monitor<R: Send>(
         &self,
         task_handle: impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static,
@@ -175,7 +175,7 @@ impl TaskExecutor {
     /// of a panic, the executor will be shut down via `self.signal_tx`.
     ///
     /// This function generates prometheus metrics on number of tasks and task duration.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, name: &'static str) {
         if let Some(task_handle) = self.spawn_handle(task, name) {
             self.spawn_monitor(task_handle, name)
@@ -191,7 +191,7 @@ impl TaskExecutor {
     /// This is useful in cases where the future to be spawned needs to do additional cleanup work when
     /// the task is completed/canceled (e.g. writing local variables to disk) or the task is created from
     /// some framework which does its own cleanup (e.g. a hyper server).
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn_without_exit(
         &self,
         task: impl Future<Output = ()> + Send + 'static,
@@ -235,7 +235,7 @@ impl TaskExecutor {
     /// The task is cancelled when the corresponding async-channel is dropped.
     ///
     /// This function generates prometheus metrics on number of tasks and task duration.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn_handle<R: Send + 'static>(
         &self,
         task: impl Future<Output = R> + Send + 'static,
@@ -283,7 +283,7 @@ impl TaskExecutor {
     /// The Future returned behaves like the standard JoinHandle which can return an error if the
     /// task failed.
     /// This function generates prometheus metrics on number of tasks and task duration.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn_blocking_handle<F, R>(
         &self,
         task: F,
@@ -332,7 +332,7 @@ impl TaskExecutor {
     /// a `tokio` context present in the thread-local storage due to some `rayon` funkiness. Talk to
     /// @paulhauner if you plan to use this function in production. He has put metrics in here to
     /// track any use of it, so don't think you can pull a sneaky one on him.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn block_on_dangerous<F: Future>(
         &self,
         future: F,
@@ -368,7 +368,7 @@ impl TaskExecutor {
     }
 
     /// Returns a `Handle` to the current runtime.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn handle(&self) -> Option<Handle> {
         self.handle_provider.handle()
     }
@@ -383,7 +383,7 @@ impl TaskExecutor {
     }
 
     /// Get a channel to request shutting down.
-    #[instrument(parent = None,level = "info", fields(service = self.service_name), name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.signal_tx.clone()
     }

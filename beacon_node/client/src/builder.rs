@@ -11,17 +11,15 @@ use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
-    eth1_chain::{CachingEth1Backend, Eth1Chain},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, StoreConfig},
-    BeaconChain, BeaconChainTypes, Eth1ChainBackend, MigratorConfig, ServerSentEventHandler,
+    BeaconChain, BeaconChainTypes, MigratorConfig, ServerSentEventHandler,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
-use eth1::{Config as Eth1Config, Service as Eth1Service};
 use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
@@ -29,7 +27,7 @@ use eth2::{
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::ExecutionLayer;
 use futures::channel::mpsc::Receiver;
-use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
+use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
@@ -37,14 +35,12 @@ use rand::rngs::{OsRng, StdRng};
 use rand::SeedableRng;
 use slasher::Slasher;
 use slasher_service::SlasherService;
-use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
-use tokio::sync::oneshot;
 use tracing::{debug, info, warn};
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
@@ -80,7 +76,6 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     chain_spec: Option<Arc<ChainSpec>>,
     beacon_chain_builder: Option<BeaconChainBuilder<T>>,
     beacon_chain: Option<Arc<BeaconChain<T>>>,
-    eth1_service: Option<Eth1Service>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_senders: Option<NetworkSenders<T::EthSpec>>,
     libp2p_registry: Option<Registry>,
@@ -95,11 +90,10 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth_spec_instance: T::EthSpec,
 }
 
-impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>
+impl<TSlotClock, E, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,
@@ -115,7 +109,6 @@ where
             chain_spec: None,
             beacon_chain_builder: None,
             beacon_chain: None,
-            eth1_service: None,
             network_globals: None,
             network_senders: None,
             libp2p_registry: None,
@@ -261,7 +254,7 @@ where
             client_genesis
         };
 
-        let (beacon_chain_builder, eth1_service_option) = match client_genesis {
+        let beacon_chain_builder = match client_genesis {
             ClientGenesis::Interop {
                 validator_count,
                 genesis_time,
@@ -274,7 +267,7 @@ where
                     None,
                     &spec,
                 )?;
-                builder.genesis_state(genesis_state).map(|v| (v, None))?
+                builder.genesis_state(genesis_state)?
             }
             ClientGenesis::InteropMerge {
                 validator_count,
@@ -289,7 +282,7 @@ where
                     execution_payload_header,
                     &spec,
                 )?;
-                builder.genesis_state(genesis_state).map(|v| (v, None))?
+                builder.genesis_state(genesis_state)?
             }
             ClientGenesis::GenesisState => {
                 info!("Starting from known genesis state");
@@ -337,7 +330,7 @@ where
                     }
                 }
 
-                builder.genesis_state(genesis_state).map(|v| (v, None))?
+                builder.genesis_state(genesis_state)?
             }
             ClientGenesis::WeakSubjSszBytes {
                 anchor_state_bytes,
@@ -366,14 +359,12 @@ where
                 };
                 let genesis_state = genesis_state(&runtime_context, &config).await?;
 
-                builder
-                    .weak_subjectivity_state(
-                        anchor_state,
-                        anchor_block,
-                        anchor_blobs,
-                        genesis_state,
-                    )
-                    .map(|v| (v, None))?
+                builder.weak_subjectivity_state(
+                    anchor_state,
+                    anchor_block,
+                    anchor_blobs,
+                    genesis_state,
+                )?
             }
             ClientGenesis::CheckpointSyncUrl { url } => {
                 info!(
@@ -390,47 +381,6 @@ where
                         config.chain.checkpoint_sync_url_timeout,
                     )),
                 );
-
-                let deposit_snapshot = if config.sync_eth1_chain {
-                    // We want to fetch deposit snapshot before fetching the finalized beacon state to
-                    // ensure that the snapshot is not newer than the beacon state that satisfies the
-                    // deposit finalization conditions
-                    debug!("Downloading deposit snapshot");
-                    let deposit_snapshot_result = remote
-                        .get_deposit_snapshot()
-                        .await
-                        .map_err(|e| match e {
-                            ApiError::InvalidSsz(e) => format!(
-                                "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
-                                node for the correct network",
-                                e
-                            ),
-                            e => format!("Error fetching deposit snapshot from remote: {:?}", e),
-                        });
-                    match deposit_snapshot_result {
-                        Ok(Some(deposit_snapshot)) => {
-                            if deposit_snapshot.is_valid() {
-                                Some(deposit_snapshot)
-                            } else {
-                                warn!("Remote BN sent invalid deposit snapshot!");
-                                None
-                            }
-                        }
-                        Ok(None) => {
-                            warn!("Remote BN does not support EIP-4881 fast deposit sync");
-                            None
-                        }
-                        Err(e) => {
-                            warn!(
-                                error = e,
-                                "Remote BN does not support EIP-4881 fast deposit sync"
-                            );
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
 
                 debug!("Downloading finalized state");
                 let state = remote
@@ -491,119 +441,14 @@ where
                     "Loaded checkpoint block and state"
                 );
 
-                let service =
-                    deposit_snapshot.and_then(|snapshot| match Eth1Service::from_deposit_snapshot(
-                        config.eth1,
-                        spec.clone(),
-                        &snapshot,
-                    ) {
-                        Ok(service) => {
-                            info!(
-                                deposits_loaded = snapshot.deposit_count,
-                                "Loaded deposit tree snapshot"
-                            );
-                            Some(service)
-                        }
-                        Err(e) => {
-                            warn!(error = ?e,
-                                "Unable to load deposit snapshot"
-                            );
-                            None
-                        }
-                    });
-
-                builder
-                    .weak_subjectivity_state(state, block, blobs, genesis_state)
-                    .map(|v| (v, service))?
+                builder.weak_subjectivity_state(state, block, blobs, genesis_state)?
             }
             ClientGenesis::DepositContract => {
-                info!(
-                    eth1_endpoints = ?config.eth1.endpoint,
-                    contract_deploy_block = config.eth1.deposit_contract_deploy_block,
-                    deposit_contract = &config.eth1.deposit_contract_address,
-                    "Waiting for eth2 genesis from eth1"
-                );
-
-                let genesis_service =
-                    Eth1GenesisService::new(config.eth1, context.eth2_config().spec.clone())?;
-
-                // If the HTTP API server is enabled, start an instance of it where it only
-                // contains a reference to the eth1 service (all non-eth1 endpoints will fail
-                // gracefully).
-                //
-                // Later in this function we will shutdown this temporary "waiting for genesis"
-                // server so the real one can be started later.
-                let (exit_tx, exit_rx) = oneshot::channel::<()>();
-                let http_listen_opt = if self.http_api_config.enabled {
-                    #[allow(clippy::type_complexity)]
-                    let ctx: Arc<
-                        http_api::Context<
-                            Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>,
-                        >,
-                    > = Arc::new(http_api::Context {
-                        config: self.http_api_config.clone(),
-                        chain: None,
-                        network_senders: None,
-                        network_globals: None,
-                        beacon_processor_send: None,
-                        eth1_service: Some(genesis_service.eth1_service.clone()),
-                        sse_logging_components: runtime_context.sse_logging_components.clone(),
-                    });
-
-                    // Discard the error from the oneshot.
-                    let exit_future = async {
-                        let _ = exit_rx.await;
-                    };
-
-                    let (listen_addr, server) = http_api::serve(ctx, exit_future)
-                        .map_err(|e| format!("Unable to start HTTP API server: {:?}", e))?;
-
-                    let http_api_task = async move {
-                        server.await;
-                        debug!("HTTP API server task ended");
-                    };
-
-                    context
-                        .clone()
-                        .executor
-                        .spawn_without_exit(http_api_task, "http-api");
-
-                    Some(listen_addr)
-                } else {
-                    None
-                };
-
-                let genesis_state = genesis_service
-                    .wait_for_genesis_state(Duration::from_millis(
-                        ETH1_GENESIS_UPDATE_INTERVAL_MILLIS,
-                    ))
-                    .await?;
-
-                let _ = exit_tx.send(());
-
-                if let Some(http_listen) = http_listen_opt {
-                    // This is a bit of a hack to ensure that the HTTP server has indeed shutdown.
-                    //
-                    // We will restart it again after we've finished setting up for genesis.
-                    while TcpListener::bind(http_listen).is_err() {
-                        warn!(
-                            port = %http_listen,
-                            "Waiting for HTTP server port to open"
-                        );
-                        tokio::time::sleep(Duration::from_secs(1)).await;
-                    }
-                }
-
-                builder
-                    .genesis_state(genesis_state)
-                    .map(|v| (v, Some(genesis_service.into_core_service())))?
+                return Err("Loading genesis from deposit contract no longer supported".to_string())
             }
-            ClientGenesis::FromStore => builder.resume_from_db().map(|v| (v, None))?,
+            ClientGenesis::FromStore => builder.resume_from_db()?,
         };
 
-        if config.sync_eth1_chain {
-            self.eth1_service = eth1_service_option;
-        }
         self.beacon_chain_builder = Some(beacon_chain_builder);
         Ok(self)
     }
@@ -753,7 +598,7 @@ where
     #[allow(clippy::type_complexity)]
     pub fn build(
         mut self,
-    ) -> Result<Client<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>, String> {
+    ) -> Result<Client<Witness<TSlotClock, E, THotStore, TColdStore>>, String> {
         let runtime_context = self
             .runtime_context
             .as_ref()
@@ -773,7 +618,6 @@ where
                 chain: self.beacon_chain.clone(),
                 network_senders: self.network_senders.clone(),
                 network_globals: self.network_globals.clone(),
-                eth1_service: self.eth1_service.clone(),
                 beacon_processor_send: Some(beacon_processor_channels.beacon_processor_tx.clone()),
                 sse_logging_components: runtime_context.sse_logging_components.clone(),
             });
@@ -943,11 +787,10 @@ where
     }
 }
 
-impl<TSlotClock, TEth1Backend, E, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, THotStore, TColdStore>>
+impl<TSlotClock, E, THotStore, TColdStore>
+    ClientBuilder<Witness<TSlotClock, E, THotStore, TColdStore>>
 where
     TSlotClock: SlotClock + Clone + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,
@@ -980,11 +823,10 @@ where
     }
 }
 
-impl<TSlotClock, TEth1Backend, E>
-    ClientBuilder<Witness<TSlotClock, TEth1Backend, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>
+impl<TSlotClock, E>
+    ClientBuilder<Witness<TSlotClock, E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>
 where
     TSlotClock: SlotClock + 'static,
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
 {
     /// Specifies that the `Client` should use a `HotColdDB` database.
@@ -1003,9 +845,8 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
-        let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, from, to)
-        };
+        let schema_upgrade =
+            |db, from, to| migrate_schema::<Witness<TSlotClock, _, _, _>>(db, from, to);
 
         let store = HotColdDB::open(
             hot_path,
@@ -1021,102 +862,8 @@ where
     }
 }
 
-impl<TSlotClock, E, THotStore, TColdStore>
-    ClientBuilder<Witness<TSlotClock, CachingEth1Backend<E>, E, THotStore, TColdStore>>
+impl<E, THotStore, TColdStore> ClientBuilder<Witness<SystemTimeSlotClock, E, THotStore, TColdStore>>
 where
-    TSlotClock: SlotClock + 'static,
-    E: EthSpec + 'static,
-    THotStore: ItemStore<E> + 'static,
-    TColdStore: ItemStore<E> + 'static,
-{
-    /// Specifies that the `BeaconChain` should cache eth1 blocks/logs from a remote eth1 node
-    /// (e.g., Parity/Geth) and refer to that cache when collecting deposits or eth1 votes during
-    /// block production.
-    pub async fn caching_eth1_backend(mut self, config: Eth1Config) -> Result<Self, String> {
-        let context = self
-            .runtime_context
-            .as_ref()
-            .ok_or("caching_eth1_backend requires a runtime_context")?
-            .service_context("deposit_contract_rpc".into());
-        let beacon_chain_builder = self
-            .beacon_chain_builder
-            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
-        let spec = self
-            .chain_spec
-            .clone()
-            .ok_or("caching_eth1_backend requires a chain spec")?;
-
-        let backend = if let Some(eth1_service_from_genesis) = self.eth1_service {
-            eth1_service_from_genesis.update_config(config)?;
-
-            // This cache is not useful because it's first (earliest) block likely the block that
-            // triggered genesis.
-            //
-            // In order to vote we need to be able to go back at least 2 * `ETH1_FOLLOW_DISTANCE`
-            // from the genesis-triggering block.  Presently the block cache does not support
-            // importing blocks with decreasing block numbers, it only accepts them in increasing
-            // order. If this turns out to be a bottleneck we can update the block cache to allow
-            // adding earlier blocks too.
-            eth1_service_from_genesis.drop_block_cache();
-
-            CachingEth1Backend::from_service(eth1_service_from_genesis)
-        } else if config.purge_cache {
-            CachingEth1Backend::new(config, spec)?
-        } else {
-            beacon_chain_builder
-                .get_persisted_eth1_backend()?
-                .map(|persisted| {
-                    Eth1Chain::from_ssz_container(&persisted, config.clone(), spec.clone())
-                        .map(|chain| chain.into_backend())
-                })
-                .unwrap_or_else(|| CachingEth1Backend::new(config, spec.clone()))?
-        };
-
-        self.eth1_service = Some(backend.core.clone());
-
-        // Starts the service that connects to an eth1 node and periodically updates caches.
-        backend.start(context.executor);
-
-        self.beacon_chain_builder = Some(beacon_chain_builder.eth1_backend(Some(backend)));
-
-        Ok(self)
-    }
-
-    /// Do not use any eth1 backend. The client will not be able to produce beacon blocks.
-    pub fn no_eth1_backend(mut self) -> Result<Self, String> {
-        let beacon_chain_builder = self
-            .beacon_chain_builder
-            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
-
-        self.beacon_chain_builder = Some(beacon_chain_builder.no_eth1_backend());
-
-        Ok(self)
-    }
-
-    /// Use an eth1 backend that can produce blocks but is not connected to an Eth1 node.
-    ///
-    /// This backend will never produce deposits so it's impossible to add validators after
-    /// genesis. The `Eth1Data` votes will be deterministic junk data.
-    ///
-    /// ## Notes
-    ///
-    /// The client is given the `CachingEth1Backend` type, but the http backend is never started and the
-    /// caches are never used.
-    pub fn dummy_eth1_backend(mut self) -> Result<Self, String> {
-        let beacon_chain_builder = self
-            .beacon_chain_builder
-            .ok_or("caching_eth1_backend requires a beacon_chain_builder")?;
-
-        self.beacon_chain_builder = Some(beacon_chain_builder.dummy_eth1_backend()?);
-
-        Ok(self)
-    }
-}
-
-impl<TEth1Backend, E, THotStore, TColdStore>
-    ClientBuilder<Witness<SystemTimeSlotClock, TEth1Backend, E, THotStore, TColdStore>>
-where
-    TEth1Backend: Eth1ChainBackend<E> + 'static,
     E: EthSpec + 'static,
     THotStore: ItemStore<E> + 'static,
     TColdStore: ItemStore<E> + 'static,

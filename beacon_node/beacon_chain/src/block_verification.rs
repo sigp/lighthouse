@@ -53,7 +53,6 @@ use crate::blob_verification::GossipBlobError;
 use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
-use crate::eth1_finalization_cache::Eth1FinalizationData;
 use crate::execution_payload::{
     validate_execution_payload_for_gossip, validate_merge_block, AllowOptimisticImport,
     NotifyExecutionLayer, PayloadNotifier,
@@ -324,6 +323,16 @@ pub enum BlockError {
     /// We were unable to process this block due to an internal error. It's unclear if the block is
     /// valid.
     InternalError(String),
+    /// The number of kzg commitments in the block exceed the max allowed blobs per block for
+    /// the block's epoch.
+    ///
+    /// ## Peer scoring
+    ///
+    /// This block is invalid and the peer should be penalised.
+    InvalidBlobCount {
+        max_blobs_at_epoch: usize,
+        block: usize,
+    },
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
@@ -855,6 +864,21 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 present_slot: present_slot_with_tolerance,
                 block_slot: block.slot(),
             });
+        }
+
+        // Do not gossip blocks that claim to contain more blobs than the max allowed
+        // at the given block epoch.
+        if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
+            let max_blobs_at_epoch = chain
+                .spec
+                .max_blobs_per_block(block.slot().epoch(T::EthSpec::slots_per_epoch()))
+                as usize;
+            if commitments.len() > max_blobs_at_epoch {
+                return Err(BlockError::InvalidBlobCount {
+                    max_blobs_at_epoch,
+                    block: commitments.len(),
+                });
+            }
         }
 
         let block_root = get_block_header_root(block_header);
@@ -1442,11 +1466,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .into());
         }
 
-        let parent_eth1_finalization_data = Eth1FinalizationData {
-            eth1_data: state.eth1_data().clone(),
-            eth1_deposit_index: state.eth1_deposit_index(),
-        };
-
         // Transition the parent state to the block slot.
         //
         // It is important to note that we're using a "pre-state" here, one that has potentially
@@ -1646,7 +1665,6 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 block_root,
                 state,
                 parent_block: parent.beacon_block,
-                parent_eth1_finalization_data,
                 consensus_context,
             },
             payload_verification_handle,
@@ -2049,7 +2067,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
 pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BeaconChainError> {
+) -> Result<RwLockReadGuard<'_, ValidatorPubkeyCache<T>>, BeaconChainError> {
     Ok(chain.validator_pubkey_cache.read())
 }
 

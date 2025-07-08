@@ -96,7 +96,7 @@ impl<E: EthSpec> SplitAttestation<E> {
         }
     }
 
-    pub fn as_ref(&self) -> CompactAttestationRef<E> {
+    pub fn as_ref(&self) -> CompactAttestationRef<'_, E> {
         CompactAttestationRef {
             checkpoint: &self.checkpoint,
             data: &self.data,
@@ -438,7 +438,7 @@ impl<E: EthSpec> AttestationMap<E> {
     }
 
     /// Iterate all attestations in the map.
-    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<E>> {
+    pub fn iter(&self) -> impl Iterator<Item = CompactAttestationRef<'_, E>> {
         self.checkpoint_map
             .iter()
             .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))

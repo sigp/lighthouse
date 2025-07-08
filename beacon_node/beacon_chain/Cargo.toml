@@ -19,7 +19,6 @@ alloy-primitives = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
 derivative = { workspace = true }
-eth1 = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }

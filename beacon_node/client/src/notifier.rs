@@ -60,7 +60,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         wait_time = estimated_time_pretty(Some(next_slot.as_secs() as f64)),
                         "Waiting for genesis"
                     );
-                    eth1_logging(&beacon_chain);
                     bellatrix_readiness_logging(Slot::new(0), &beacon_chain).await;
                     capella_readiness_logging(Slot::new(0), &beacon_chain).await;
                     genesis_execution_payload_logging(&beacon_chain).await;
@@ -309,7 +308,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 );
             }
 
-            eth1_logging(&beacon_chain);
             bellatrix_readiness_logging(current_slot, &beacon_chain).await;
             capella_readiness_logging(current_slot, &beacon_chain).await;
             deneb_readiness_logging(current_slot, &beacon_chain).await;
@@ -673,53 +671,6 @@ async fn genesis_execution_payload_logging<T: BeaconChainTypes>(beacon_chain: &B
                 error = ?e,
                 "Unable to check genesis execution payload"
             );
-        }
-    }
-}
-
-fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
-    let current_slot_opt = beacon_chain.slot().ok();
-
-    // Perform some logging about the eth1 chain
-    if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
-        // No need to do logging if using the dummy backend.
-        if eth1_chain.is_dummy_backend() {
-            return;
-        }
-
-        if let Some(status) = eth1_chain.sync_status(
-            beacon_chain.genesis_time,
-            current_slot_opt,
-            &beacon_chain.spec,
-        ) {
-            debug!(
-                eth1_head_block = status.head_block_number,
-                latest_cached_block_number = status.latest_cached_block_number,
-                latest_cached_timestamp = status.latest_cached_block_timestamp,
-                voting_target_timestamp = status.voting_target_timestamp,
-                ready = status.lighthouse_is_cached_and_ready,
-                "Eth1 cache sync status"
-            );
-
-            if !status.lighthouse_is_cached_and_ready {
-                let voting_target_timestamp = status.voting_target_timestamp;
-
-                let distance = status
-                    .latest_cached_block_timestamp
-                    .map(|latest| {
-                        voting_target_timestamp.saturating_sub(latest)
-                            / beacon_chain.spec.seconds_per_eth1_block
-                    })
-                    .map(|distance| distance.to_string())
-                    .unwrap_or_else(|| "initializing deposits".to_string());
-
-                warn!(
-                    est_blocks_remaining = distance,
-                    "Syncing deposit contract block cache"
-                );
-            }
-        } else {
-            error!("Unable to determine deposit contract sync status");
         }
     }
 }

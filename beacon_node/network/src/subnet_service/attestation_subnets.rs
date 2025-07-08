@@ -600,7 +600,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Update the waker if needed.
         if let Some(waker) = &self.waker {
-            if waker.will_wake(cx.waker()) {
+            if !waker.will_wake(cx.waker()) {
                 self.waker = Some(cx.waker().clone());
             }
         } else {

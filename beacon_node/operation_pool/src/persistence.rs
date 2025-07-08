@@ -86,15 +86,15 @@ impl<E: EthSpec> PersistedOperationPool<E> {
         let proposer_slashings = operation_pool
             .proposer_slashings
             .read()
-            .iter()
-            .map(|(_, slashing)| slashing.clone())
+            .values()
+            .cloned()
             .collect();
 
         let voluntary_exits = operation_pool
             .voluntary_exits
             .read()
-            .iter()
-            .map(|(_, exit)| exit.clone())
+            .values()
+            .cloned()
             .collect();
 
         let bls_to_execution_changes = operation_pool

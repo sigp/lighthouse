@@ -25,7 +25,7 @@ fn ssz_blob_to_crypto_blob_boxed<E: EthSpec>(blob: &Blob<E>) -> Result<Box<KzgBl
 
 /// Converts a cell ssz List object to an array to be used with the kzg
 /// crypto library.
-fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCellRef, KzgError> {
+fn ssz_cell_to_crypto_cell<E: EthSpec>(cell: &Cell<E>) -> Result<KzgCellRef<'_>, KzgError> {
     let cell_bytes: &[u8] = cell.as_ref();
     Ok(cell_bytes
         .try_into()
