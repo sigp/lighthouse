@@ -1135,7 +1135,7 @@ mod tests {
         let mut dst = BytesMut::new();
 
         // Add context bytes if required
-        dst.extend_from_slice(&fork_context.to_context_bytes(fork_name).unwrap());
+        dst.extend_from_slice(&fork_context.context_bytes(fork_context.digest_epoch()));
 
         let mut uvi_codec: Uvi<usize> = Uvi::default();
 
@@ -1792,8 +1792,8 @@ mod tests {
         .unwrap();
 
         let mut wrong_fork_bytes = BytesMut::new();
-        wrong_fork_bytes
-            .extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair).unwrap());
+        let altair_epoch = chain_spec.altair_fork_epoch.unwrap();
+        wrong_fork_bytes.extend_from_slice(&fork_context.context_bytes(altair_epoch));
         wrong_fork_bytes.extend_from_slice(&encoded_bytes.split_off(4));
 
         assert!(matches!(
@@ -1817,7 +1817,9 @@ mod tests {
         .unwrap();
 
         let mut wrong_fork_bytes = BytesMut::new();
-        wrong_fork_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Base).unwrap());
+        wrong_fork_bytes.extend_from_slice(
+            &fork_context.context_bytes(chain_spec.genesis_slot.epoch(Spec::slots_per_epoch())),
+        );
         wrong_fork_bytes.extend_from_slice(&encoded_bytes.split_off(4));
 
         assert!(matches!(
@@ -1833,7 +1835,7 @@ mod tests {
 
         // Adding context bytes to Protocols that don't require it should return an error
         let mut encoded_bytes = BytesMut::new();
-        encoded_bytes.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair).unwrap());
+        encoded_bytes.extend_from_slice(&fork_context.context_bytes(altair_epoch));
         encoded_bytes.extend_from_slice(
             &encode_response(
                 SupportedProtocol::MetaDataV2,
@@ -2034,7 +2036,8 @@ mod tests {
         let mut dst = BytesMut::with_capacity(1024);
 
         // Insert context bytes
-        dst.extend_from_slice(&fork_context.to_context_bytes(ForkName::Altair).unwrap());
+        let altair_epoch = fork_context.spec.altair_fork_epoch.unwrap();
+        dst.extend_from_slice(&fork_context.context_bytes(altair_epoch));
 
         // Insert length-prefix
         uvi_codec

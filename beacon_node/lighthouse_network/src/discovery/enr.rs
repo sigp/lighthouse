@@ -5,7 +5,6 @@ pub use discv5::enr::CombinedKey;
 use super::enr_ext::CombinedKeyExt;
 use super::enr_ext::{EnrExt, QUIC6_ENR_KEY, QUIC_ENR_KEY};
 use super::ENR_FILENAME;
-use crate::config::Config;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use crate::NetworkConfig;
 use alloy_rlp::bytes::Bytes;
