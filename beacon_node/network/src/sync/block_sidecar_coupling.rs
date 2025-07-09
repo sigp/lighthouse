@@ -8,7 +8,6 @@ use lighthouse_network::{
     PeerAction, PeerId,
 };
 use std::{collections::HashMap, sync::Arc};
-use tracing::debug;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock,
@@ -171,9 +170,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             } => {
                 let mut data_columns = vec![];
                 let mut column_peers: HashMap<u64, PeerId> = HashMap::new();
-                for (req_id, req) in requests.iter() {
+                for req in requests.values() {
                     let Some(data) = req.to_finished() else {
-                        debug!(?req_id, "Req is not finished");
                         return None;
                     };
                     data_columns.extend(data.clone())
