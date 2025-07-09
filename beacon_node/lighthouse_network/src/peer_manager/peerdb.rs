@@ -319,6 +319,25 @@ impl<E: EthSpec> PeerDB<E> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
+    /// the given subnet id.
+    pub fn good_range_sync_custody_subnet_peer<'a>(
+        &'a self,
+        subnet: DataColumnSubnetId,
+        allowed_peers: &'a HashSet<PeerId>,
+    ) -> impl Iterator<Item = &'a PeerId> {
+        self.peers
+            .iter()
+            .filter(move |(peer_id, info)| {
+                // The custody_subnets hashset can be populated via enr or metadata
+                let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
+                allowed_peers.contains(peer_id)
+                    && info.is_connected()
+                    && is_custody_subnet_peer
+            })
+            .map(|(peer_id, _)| peer_id)
+    }
+
     /// Gives the ids of all known disconnected peers.
     pub fn disconnected_peers(&self) -> impl Iterator<Item = &PeerId> {
         self.peers

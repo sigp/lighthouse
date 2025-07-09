@@ -8,6 +8,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use strum::Display;
+use tracing::debug;
 use types::{Epoch, EthSpec, Slot};
 
 /// The number of times to retry a batch before it is considered failed.
@@ -89,6 +90,7 @@ pub enum BatchOperationOutcome {
     Failed { blacklist: bool },
 }
 
+#[derive(Debug)]
 pub enum BatchProcessingResult {
     Success,
     FaultyFailure,
@@ -205,7 +207,9 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     }
 
     /// Verifies if an incoming block belongs to this batch.
+    #[tracing::instrument(skip(self), fields(batch = %self))]
     pub fn is_expecting_block(&self, request_id: &Id) -> bool {
+        debug!(?request_id, "Batch is expecting block?");
         if let BatchState::Downloading(expected_id) = &self.state {
             return expected_id == request_id;
         }
@@ -272,11 +276,13 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     /// Marks the batch as ready to be processed if the blocks are in the range. The number of
     /// received blocks is returned, or the wrong batch end on failure
     #[must_use = "Batch may have failed"]
+    #[tracing::instrument(skip(self), fields(state = %self.state, start = %self.start_slot))]
     pub fn download_completed(
         &mut self,
         blocks: Vec<RpcBlock<E>>,
         peer: PeerId,
     ) -> Result<usize /* Received blocks */, WrongState> {
+        debug!(?peer, "Download completed with peer_id");
         match self.state.poison() {
             BatchState::Downloading(_) => {
                 let received = blocks.len();
@@ -300,10 +306,12 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     /// The `peer` parameter, when set to None, does not increment the failed attempts of
     /// this batch and register the peer, rather attempts a re-download.
     #[must_use = "Batch may have failed"]
+    #[tracing::instrument(skip(self), fields(state = %self.state, start = %self.start_slot))]
     pub fn download_failed(
         &mut self,
         peer: Option<PeerId>,
     ) -> Result<BatchOperationOutcome, WrongState> {
+        debug!(?peer, "Download failed with peer_id");
         match self.state.poison() {
             BatchState::Downloading(_) => {
                 // register the attempt and check if the batch can be tried again
@@ -330,7 +338,9 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         }
     }
 
+    #[tracing::instrument(skip(self), fields(state = %self.state, start = %self.start_slot))]
     pub fn start_downloading(&mut self, request_id: Id) -> Result<(), WrongState> {
+        debug!(?request_id, "Download started with req_id");
         match self.state.poison() {
             BatchState::AwaitingDownload => {
                 self.state = BatchState::Downloading(request_id);
@@ -347,7 +357,9 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         }
     }
 
+    #[tracing::instrument(skip(self), fields(state = %self.state, start = %self.start_slot))]
     pub fn start_processing(&mut self) -> Result<(Vec<RpcBlock<E>>, Duration), WrongState> {
+        debug!("Processing started ");
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, blocks, start_instant) => {
                 self.state = BatchState::Processing(Attempt::new::<B, E>(peer, &blocks));
@@ -365,10 +377,12 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     }
 
     #[must_use = "Batch may have failed"]
+    #[tracing::instrument(skip(self), fields(state = %self.state, start = %self.start_slot))]
     pub fn processing_completed(
         &mut self,
         procesing_result: BatchProcessingResult,
     ) -> Result<BatchOperationOutcome, WrongState> {
+        debug!(?procesing_result, "Processing completed with status");
         match self.state.poison() {
             BatchState::Processing(attempt) => {
                 self.state = match procesing_result {
@@ -406,7 +420,9 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     }
 
     #[must_use = "Batch may have failed"]
+    #[tracing::instrument(skip(self), fields(state = %self.state, start = %self.start_slot))]
     pub fn validation_failed(&mut self) -> Result<BatchOperationOutcome, WrongState> {
+        debug!("Validation failed");
         match self.state.poison() {
             BatchState::AwaitingValidation(attempt) => {
                 self.failed_processing_attempts.push(attempt);
