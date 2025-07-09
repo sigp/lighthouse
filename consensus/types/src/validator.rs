@@ -11,18 +11,9 @@ use tree_hash_derive::TreeHash;
 /// Information about a `BeaconChain` validator.
 ///
 /// Spec v0.12.1
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    TreeHash,
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash,
 )]
 #[context_deserialize(ForkName)]
 pub struct Validator {

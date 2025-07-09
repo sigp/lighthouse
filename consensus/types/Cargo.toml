@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com
 edition = { workspace = true }
 
 [features]
-default = ["sqlite", "legacy-arith", "arbitrary"]
+default = ["sqlite", "legacy-arith"]
 # Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
 legacy-arith = []
 sqlite = ["dep:rusqlite"]

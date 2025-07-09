@@ -32,7 +32,8 @@ pub enum Domain {
 /// Lighthouse's internal configuration struct.
 ///
 /// Contains a mixture of "preset" and "config" values w.r.t to the EF definitions.
-#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Config name
@@ -1402,7 +1403,8 @@ impl Default for ChainSpec {
     }
 }
 
-#[derive(arbitrary::Arbitrary, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct BPOFork {
     epoch: Epoch,
@@ -1412,7 +1414,8 @@ pub struct BPOFork {
 
 // A wrapper around a vector of BPOFork to ensure that the vector is reverse
 // sorted by epoch.
-#[derive(arbitrary::Arbitrary, Serialize, Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct BlobSchedule(Vec<BPOFork>);
 
 impl<'de> Deserialize<'de> for BlobSchedule {
