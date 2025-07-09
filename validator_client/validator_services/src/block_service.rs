@@ -524,22 +524,50 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
         proposer_index: Option<u64>,
         builder_boost_factor: Option<u64>,
     ) -> Result<UnsignedBlock<S::E>, BlockError> {
-        let (block_response, _) = beacon_node
-            .get_validator_blocks_v3::<S::E>(
+        let block_response = match beacon_node
+            .get_validator_blocks_v3_ssz::<S::E>(
                 slot,
                 randao_reveal_ref,
                 graffiti.as_ref(),
                 builder_boost_factor,
             )
             .await
-            .map_err(|e| {
-                BlockError::Recoverable(format!(
-                    "Error from beacon node when producing block: {:?}",
-                    e
-                ))
-            })?;
+        {
+            Ok((ssz_block_response, _)) => {
+                info!(slot = slot.as_u64(), "Received unsigned block in SSZ");
 
-        let (block_proposer, unsigned_block) = match block_response.data {
+                ssz_block_response
+            }
+            Err(e) => {
+                warn!(
+                    slot = slot.as_u64(),
+                    error = %e,
+                    "Beacon node does not support SSZ in block production, falling back to JSON"
+                );
+
+                let (json_block_response, _) = beacon_node
+                    .get_validator_blocks_v3::<S::E>(
+                        slot,
+                        randao_reveal_ref,
+                        graffiti.as_ref(),
+                        builder_boost_factor,
+                    )
+                    .await
+                    .map_err(|e| {
+                        BlockError::Recoverable(format!(
+                            "Error from beacon node when producing block: {:?}",
+                            e
+                        ))
+                    })?;
+
+                info!(slot = slot.as_u64(), "Received unsigned block in JSON");
+
+                // Extract ProduceBlockV3Response (data field of the struct ForkVersionedResponse)
+                json_block_response.data
+            }
+        };
+
+        let (block_proposer, unsigned_block) = match block_response {
             eth2::types::ProduceBlockV3Response::Full(block) => {
                 (block.block().proposer_index(), UnsignedBlock::Full(block))
             }
@@ -548,7 +576,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             }
         };
 
-        info!(slot = slot.as_u64(), "Received unsigned block");
         if proposer_index != Some(block_proposer) {
             return Err(BlockError::Recoverable(
                 "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
