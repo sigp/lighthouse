@@ -452,7 +452,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(_) = &mut self.next_topic_subscriptions => {
                         if let Some((epoch, _)) = self.beacon_chain.duration_to_next_digest() {
                             let fork_name = self.beacon_chain.spec.fork_name_at_epoch(epoch);
-                            let fork_digest = self.beacon_chain.spec.compute_fork_digest(self.beacon_chain.genesis_validators_root, epoch);
+                            let fork_digest = self.beacon_chain.compute_fork_digest(epoch);
                             info!("Subscribing to new fork topics");
                             self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
                             self.next_topic_subscriptions = Box::pin(None.into());
@@ -829,7 +829,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let fork_context = &self.fork_context;
         if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
             if fork_context.current_fork() == *new_fork_name {
-                // BPO FORK
                 info!(
                     epoch = ?current_epoch,
                     "BPO Fork Triggered"

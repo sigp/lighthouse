@@ -6804,6 +6804,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .enr_fork_id::<T::EthSpec>(slot, self.genesis_validators_root)
     }
 
+    /// Returns the fork_digest corresponding to an epoch.
+    /// See [`ChainSpec::compute_fork_digest`]
+    pub fn compute_fork_digest(&self, epoch: Epoch) -> [u8; 4] {
+        self.spec
+            .compute_fork_digest(self.genesis_validators_root, epoch)
+    }
+
+    /// Calculates the `Duration` to the next fork digest (this could be either a regular or BPO
+    /// hard fork) if it exists and returns it with its corresponding `Epoch`.
     pub fn duration_to_next_digest(&self) -> Option<(Epoch, Duration)> {
         // If we are unable to read the slot clock we assume that it is prior to genesis and
         // therefore use the genesis slot.

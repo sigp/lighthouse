@@ -1,11 +1,13 @@
 use parking_lot::RwLock;
 
 use crate::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot};
-use std::collections::{ HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 /// Provides fork specific info like the current fork name and the fork digests corresponding to every valid fork.
 #[derive(Debug)]
 pub struct ForkContext {
+    /// Activation epoch of the current hard fork. This can be either a named fork (`ForkName`) or
+    /// an unnamed blob parameter only fork (BPO).
     digest_epoch: RwLock<Epoch>,
     enabled_forks: HashSet<ForkName>,
     genesis_validators_root: Hash256,
@@ -51,7 +53,7 @@ impl ForkContext {
                 .filter(|&&epoch| epoch <= current_epoch)
                 .max()
                 .cloned()
-                .expect("should match atleast genesis epoch"),
+                .expect("should match at least genesis epoch"),
         );
 
         Self {
@@ -73,7 +75,7 @@ impl ForkContext {
         self.spec.fork_name_at_epoch(self.digest_epoch())
     }
 
-    /// Returns the current digest epoch
+    /// Returns the current digest epoch.
     pub fn digest_epoch(&self) -> Epoch {
         *self.digest_epoch.read()
     }
@@ -105,7 +107,8 @@ impl ForkContext {
         self.digest_to_fork.get(&context)
     }
 
-    // TODO: we *may* delete this entire object and just use the spec
+    /// Returns the context bytes/fork_digest corresponding to an epoch.
+    /// See [`ChainSpec::compute_fork_digest`]
     pub fn context_bytes(&self, epoch: Epoch) -> [u8; 4] {
         self.spec
             .compute_fork_digest(self.genesis_validators_root, epoch)

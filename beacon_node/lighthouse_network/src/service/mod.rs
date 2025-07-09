@@ -198,8 +198,8 @@ impl<E: EthSpec> Network<E> {
             local_keypair.clone(),
             &config,
             &ctx.enr_fork_id,
-            &ctx.chain_spec,
             ctx.fork_context.next_fork_digest(),
+            &ctx.chain_spec,
         )?;
 
         // Construct the metadata
@@ -1361,15 +1361,9 @@ impl<E: EthSpec> Network<E> {
         self.enr_fork_id = enr_fork_id;
     }
 
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p"),
-        name = "libp2p",
-        skip_all
-    )]
     pub fn update_nfd(&mut self, nfd: [u8; 4]) {
         if let Err(e) = self.discovery_mut().update_enr_nfd(nfd) {
-            warn!(error = %e, "Could not update nfd in ENR");
+            crit!(error = e, "Could not update nfd in ENR");
         }
     }
 

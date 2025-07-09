@@ -150,12 +150,10 @@ fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     light_client_update: &LightClientUpdate<T::EthSpec>,
 ) -> LightClientUpdateResponseChunk {
-    let fork_digest = chain.spec.compute_fork_digest(
-        chain.genesis_validators_root,
-        light_client_update
-            .attested_header_slot()
-            .epoch(T::EthSpec::slots_per_epoch()),
-    );
+    let epoch = light_client_update
+        .attested_header_slot()
+        .epoch(T::EthSpec::slots_per_epoch());
+    let fork_digest = chain.compute_fork_digest(epoch);
 
     let payload = light_client_update.as_ssz_bytes();
     let response_chunk_len = fork_digest.len() + payload.len();
