@@ -265,7 +265,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
-        debug!(?batch_id, "Attempting to process batch");
         // Only process batches if this chain is Syncing, and only one at a time
         if self.state != ChainSyncingState::Syncing || self.current_processing_batch.is_some() {
             return Ok(KeepChain);
@@ -923,11 +922,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .synced_peers_for_epoch(batch_id, &self.peers)
                 .cloned()
                 .collect::<HashSet<_>>();
-
-            debug!(
-                ?self.peers,
-                "All synced peers",
-            );
 
             match network.block_components_by_range_request(
                 batch_type,
