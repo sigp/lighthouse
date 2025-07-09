@@ -2120,11 +2120,11 @@ mod tests {
             dst.extend_from_slice(malicious_padding);
         }
 
-        // Insert payload (8103 bytes compressed)
+        // Insert payload (8102 bytes compressed)
         let mut writer = FrameEncoder::new(Vec::new());
         writer.write_all(&block_message_bytes).unwrap();
         writer.flush().unwrap();
-        assert_eq!(writer.get_ref().len(), 8103);
+        assert_eq!(writer.get_ref().len(), 8102);
         dst.extend_from_slice(writer.get_ref());
 
         let chain_spec = Spec::default_spec();
