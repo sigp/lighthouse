@@ -1,6 +1,6 @@
 use c_kzg::KzgSettings;
 use criterion::{criterion_group, criterion_main, Criterion};
-use kzg::{trusted_setup::get_trusted_setup, TrustedSetup};
+use kzg::{trusted_setup::get_trusted_setup, TrustedSetup, NO_PRECOMPUTE};
 use rust_eth_kzg::{DASContext, TrustedSetup as PeerDASTrustedSetup};
 
 pub fn bench_init_context(c: &mut Criterion) {
@@ -25,8 +25,13 @@ pub fn bench_init_context(c: &mut Criterion) {
                 serde_json::from_reader(get_trusted_setup().as_slice())
                     .map_err(|e| format!("Unable to read trusted setup file: {}", e))
                     .expect("should have trusted setup");
-            KzgSettings::load_trusted_setup(&trusted_setup.g1_points(), &trusted_setup.g2_points())
-                .unwrap()
+            KzgSettings::load_trusted_setup(
+                &trusted_setup.g1_monomial(),
+                &trusted_setup.g1_lagrange(),
+                &trusted_setup.g2_monomial(),
+                NO_PRECOMPUTE,
+            )
+            .unwrap()
         })
     });
 }
