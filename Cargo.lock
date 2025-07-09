@@ -6020,6 +6020,7 @@ version = "0.6.0"
 source = "git+https://github.com/ec2/milhouse.git?rev=7e155d36b08f9e8ee9c2fa79e2743031535aec0c#7e155d36b08f9e8ee9c2fa79e2743031535aec0c"
 dependencies = [
  "alloy-primitives",
+ "arbitrary",
  "educe",
  "ethereum_hashing",
  "ethereum_ssz",
