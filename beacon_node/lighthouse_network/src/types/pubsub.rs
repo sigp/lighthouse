@@ -171,28 +171,29 @@ impl<E: EthSpec> PubsubMessage<E> {
                 // the ssz decoders
                 match gossip_topic.kind() {
                     GossipKind::BeaconAggregateAndProof => {
-                        let signed_aggregate_and_proof =
-                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                                Some(&fork_name) => {
-                                    if fork_name.electra_enabled() {
-                                        SignedAggregateAndProof::Electra(
-                                            SignedAggregateAndProofElectra::from_ssz_bytes(data)
-                                                .map_err(|e| format!("{:?}", e))?,
-                                        )
-                                    } else {
-                                        SignedAggregateAndProof::Base(
-                                            SignedAggregateAndProofBase::from_ssz_bytes(data)
-                                                .map_err(|e| format!("{:?}", e))?,
-                                        )
-                                    }
+                        let signed_aggregate_and_proof = match fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                        {
+                            Some(&fork_name) => {
+                                if fork_name.electra_enabled() {
+                                    SignedAggregateAndProof::Electra(
+                                        SignedAggregateAndProofElectra::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else {
+                                    SignedAggregateAndProof::Base(
+                                        SignedAggregateAndProofBase::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
                                 }
-                                None => {
-                                    return Err(format!(
-                                        "Unknown gossipsub fork digest: {:?}",
-                                        gossip_topic.fork_digest
-                                    ))
-                                }
-                            };
+                            }
+                            None => {
+                                return Err(format!(
+                                    "Unknown gossipsub fork digest: {:?}",
+                                    gossip_topic.fork_digest
+                                ))
+                            }
+                        };
                         Ok(PubsubMessage::AggregateAndProofAttestation(Box::new(
                             signed_aggregate_and_proof,
                         )))
@@ -206,48 +207,49 @@ impl<E: EthSpec> PubsubMessage<E> {
                         ))))
                     }
                     GossipKind::BeaconBlock => {
-                        let beacon_block =
-                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                                Some(ForkName::Base) => SignedBeaconBlock::<E>::Base(
-                                    SignedBeaconBlockBase::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Altair) => SignedBeaconBlock::<E>::Altair(
-                                    SignedBeaconBlockAltair::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Bellatrix) => SignedBeaconBlock::<E>::Bellatrix(
-                                    SignedBeaconBlockBellatrix::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Capella) => SignedBeaconBlock::<E>::Capella(
-                                    SignedBeaconBlockCapella::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Deneb) => SignedBeaconBlock::<E>::Deneb(
-                                    SignedBeaconBlockDeneb::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Electra) => SignedBeaconBlock::<E>::Electra(
-                                    SignedBeaconBlockElectra::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                Some(ForkName::Fulu) => SignedBeaconBlock::<E>::Fulu(
-                                    SignedBeaconBlockFulu::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                ),
-                                None => {
-                                    return Err(format!(
-                                        "Unknown gossipsub fork digest: {:?}",
-                                        gossip_topic.fork_digest
-                                    ))
-                                }
-                            };
+                        let beacon_block = match fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                        {
+                            Some(ForkName::Base) => SignedBeaconBlock::<E>::Base(
+                                SignedBeaconBlockBase::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Altair) => SignedBeaconBlock::<E>::Altair(
+                                SignedBeaconBlockAltair::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Bellatrix) => SignedBeaconBlock::<E>::Bellatrix(
+                                SignedBeaconBlockBellatrix::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Capella) => SignedBeaconBlock::<E>::Capella(
+                                SignedBeaconBlockCapella::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Deneb) => SignedBeaconBlock::<E>::Deneb(
+                                SignedBeaconBlockDeneb::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Electra) => SignedBeaconBlock::<E>::Electra(
+                                SignedBeaconBlockElectra::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            Some(ForkName::Fulu) => SignedBeaconBlock::<E>::Fulu(
+                                SignedBeaconBlockFulu::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
+                            None => {
+                                return Err(format!(
+                                    "Unknown gossipsub fork digest: {:?}",
+                                    gossip_topic.fork_digest
+                                ))
+                            }
+                        };
                         Ok(PubsubMessage::BeaconBlock(Arc::new(beacon_block)))
                     }
                     GossipKind::BlobSidecar(blob_index) => {
                         if let Some(fork_name) =
-                            fork_context.from_context_bytes(gossip_topic.fork_digest)
+                            fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest)
                         {
                             if fork_name.deneb_enabled() {
                                 let blob_sidecar = Arc::new(
@@ -267,7 +269,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         ))
                     }
                     GossipKind::DataColumnSidecar(subnet_id) => {
-                        match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                        match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(fork) if fork.fulu_enabled() => {
                                 let col_sidecar = Arc::new(
                                     DataColumnSidecar::from_ssz_bytes(data)
@@ -295,28 +297,29 @@ impl<E: EthSpec> PubsubMessage<E> {
                         Ok(PubsubMessage::ProposerSlashing(Box::new(proposer_slashing)))
                     }
                     GossipKind::AttesterSlashing => {
-                        let attester_slashing =
-                            match fork_context.from_context_bytes(gossip_topic.fork_digest) {
-                                Some(&fork_name) => {
-                                    if fork_name.electra_enabled() {
-                                        AttesterSlashing::Electra(
-                                            AttesterSlashingElectra::from_ssz_bytes(data)
-                                                .map_err(|e| format!("{:?}", e))?,
-                                        )
-                                    } else {
-                                        AttesterSlashing::Base(
-                                            AttesterSlashingBase::from_ssz_bytes(data)
-                                                .map_err(|e| format!("{:?}", e))?,
-                                        )
-                                    }
+                        let attester_slashing = match fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                        {
+                            Some(&fork_name) => {
+                                if fork_name.electra_enabled() {
+                                    AttesterSlashing::Electra(
+                                        AttesterSlashingElectra::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
+                                } else {
+                                    AttesterSlashing::Base(
+                                        AttesterSlashingBase::from_ssz_bytes(data)
+                                            .map_err(|e| format!("{:?}", e))?,
+                                    )
                                 }
-                                None => {
-                                    return Err(format!(
-                                        "Unknown gossipsub fork digest: {:?}",
-                                        gossip_topic.fork_digest
-                                    ))
-                                }
-                            };
+                            }
+                            None => {
+                                return Err(format!(
+                                    "Unknown gossipsub fork digest: {:?}",
+                                    gossip_topic.fork_digest
+                                ))
+                            }
+                        };
                         Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
                     }
                     GossipKind::SignedContributionAndProof => {
@@ -343,7 +346,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::LightClientFinalityUpdate => {
-                        let light_client_finality_update = match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                        let light_client_finality_update = match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(&fork_name) => {
                                     LightClientFinalityUpdate::from_ssz_bytes(data, fork_name)
                                     .map_err(|e| format!("{:?}", e))?
@@ -358,7 +361,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::LightClientOptimisticUpdate => {
-                        let light_client_optimistic_update = match fork_context.from_context_bytes(gossip_topic.fork_digest) {
+                        let light_client_optimistic_update = match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
                             Some(&fork_name) => {
                                 LightClientOptimisticUpdate::from_ssz_bytes(data, fork_name)
                                 .map_err(|e| format!("{:?}", e))?

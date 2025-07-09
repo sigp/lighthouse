@@ -264,7 +264,7 @@ pub fn spawn<T: BeaconChainTypes>(
     fork_context: Arc<ForkContext>,
 ) {
     assert!(
-        beacon_chain.spec.max_request_blocks(fork_context.current_fork()) as u64 >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        beacon_chain.spec.max_request_blocks(fork_context.current_fork_name()) as u64 >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
 

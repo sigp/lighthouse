@@ -879,7 +879,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             request: RequestType::DataColumnsByRoot(
                 request
                     .clone()
-                    .try_into_request(self.fork_context.current_fork(), &self.chain.spec)?,
+                    .try_into_request(self.fork_context.current_fork_name(), &self.chain.spec)?,
             ),
             app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
         })?;

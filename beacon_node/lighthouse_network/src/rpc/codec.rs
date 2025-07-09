@@ -193,7 +193,7 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
                 handle_rpc_request(
                     self.protocol.versioned_protocol,
                     &decoded_buffer,
-                    self.fork_context.current_fork(),
+                    self.fork_context.current_fork_name(),
                     &self.fork_context.spec,
                 )
             }
@@ -882,7 +882,7 @@ fn context_bytes_to_fork_name(
     fork_context: Arc<ForkContext>,
 ) -> Result<ForkName, RPCError> {
     fork_context
-        .from_context_bytes(context_bytes)
+        .get_fork_from_context_bytes(context_bytes)
         .cloned()
         .ok_or_else(|| {
             let encoded = hex::encode(context_bytes);
@@ -949,7 +949,7 @@ mod tests {
                 .unwrap()
                 .start_slot(Spec::slots_per_epoch()),
         };
-        ForkContext::new::<Spec>(current_slot, Hash256::zero(), &spec)
+        ForkContext::new::<Spec>(current_slot, Hash256::zero(), spec)
     }
 
     /// Smallest sized block across all current forks. Useful for testing
@@ -1107,11 +1107,11 @@ mod tests {
     }
 
     fn bbroot_request_v1(fork_name: ForkName, spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name, &spec))
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name, spec))
     }
 
     fn bbroot_request_v2(fork_name: ForkName, spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name, &spec))
+        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name, spec))
     }
 
     fn blbroot_request(fork_name: ForkName, spec: &ChainSpec) -> BlobsByRootRequest {
@@ -1120,7 +1120,7 @@ mod tests {
                 block_root: Hash256::zero(),
                 index: 0,
             }],
-            &fork_context(fork_name, &spec),
+            &fork_context(fork_name, spec),
         )
     }
 
@@ -1179,11 +1179,11 @@ mod tests {
         fork_name: ForkName,
         spec: &ChainSpec,
     ) -> Result<BytesMut, RPCError> {
-        let fork_context = fork_context(fork_name, &spec);
+        let fork_context = fork_context(fork_name, spec);
         let mut dst = BytesMut::new();
 
         // Add context bytes if required
-        dst.extend_from_slice(&fork_context.context_bytes(fork_context.digest_epoch()));
+        dst.extend_from_slice(&fork_context.context_bytes(fork_context.current_fork_epoch()));
 
         let mut uvi_codec: Uvi<usize> = Uvi::default();
 
@@ -1211,7 +1211,7 @@ mod tests {
         spec: &ChainSpec,
     ) -> Result<Option<RpcSuccessResponse<Spec>>, RPCError> {
         let snappy_protocol_id = ProtocolId::new(protocol, Encoding::SSZSnappy);
-        let fork_context = Arc::new(fork_context(fork_name, &spec));
+        let fork_context = Arc::new(fork_context(fork_name, spec));
         let max_packet_size = spec.max_payload_size as usize;
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
@@ -1232,7 +1232,7 @@ mod tests {
 
     /// Verifies that requests we send are encoded in a way that we would correctly decode too.
     fn encode_then_decode_request(req: RequestType<Spec>, fork_name: ForkName, spec: &ChainSpec) {
-        let fork_context = Arc::new(fork_context(fork_name, &spec));
+        let fork_context = Arc::new(fork_context(fork_name, spec));
         let max_packet_size = spec.max_payload_size as usize;
         let protocol = ProtocolId::new(req.versioned_protocol(), Encoding::SSZSnappy);
         // Encode a request we send

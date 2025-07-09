@@ -282,7 +282,7 @@ impl<E: EthSpec> Network<E> {
             // Set up a scoring update interval
             let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
-            let current_digest_epoch = ctx.fork_context.digest_epoch();
+            let current_digest_epoch = ctx.fork_context.current_fork_epoch();
             let current_and_future_digests =
                 ctx.chain_spec
                     .all_digest_epochs()
