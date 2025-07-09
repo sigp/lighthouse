@@ -2476,6 +2476,13 @@ fn logfile_format_flag() {
             )
         });
 }
+// DEPRECATED but should not crash.
+#[test]
+fn deprecated_logfile() {
+    CommandLineTest::new()
+        .flag("logfile", Some("test.txt"))
+        .run_with_zero_port();
+}
 
 // DEPRECATED but should not crash.
 #[test]
