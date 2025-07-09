@@ -330,7 +330,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             debug!("including head peer");
             self.add_peer_or_create_chain(
                 local_epoch,
-                peer_sync_info,
+                peer_sync_info.head_root,
+                peer_sync_info.head_slot,
                 peer_id,
                 RangeSyncType::Head,
                 network,
@@ -455,7 +456,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     pub fn add_peer_or_create_chain(
         &mut self,
         start_epoch: Epoch,
-        remote_info: SyncInfo,
+        target_head_root: Hash256,
+        target_head_slot: Slot,
         peer: PeerId,
         sync_type: RangeSyncType,
         network: &mut SyncNetworkContext<T>,
@@ -466,15 +468,9 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             &mut self.head_chains
         };
 
-        let target_head_root = remote_info.head_root;
-        let target_head_slot = remote_info.head_slot;
-        let target_finalized_root = remote_info.finalized_root;
-        let target_finalized_epoch = remote_info.finalized_epoch;
-
-        debug!(len=collection.len(), "Collection length");
         match collection
             .iter_mut()
-            .find(|(_, chain)| chain.has_same_target(&remote_info))
+            .find(|(_, chain)| chain.has_same_target(target_head_slot, target_head_root))
         {
             Some((&id, chain)) => {
                 debug!(peer_id = %peer, ?sync_type, id, "Adding peer to known chain");
@@ -499,8 +495,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     start_epoch,
                     target_head_slot,
                     target_head_root,
-                    target_finalized_root,
-                    target_finalized_epoch,
                     peer,
                     sync_type.into(),
                 );
@@ -512,8 +506,6 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     %start_epoch,
                     %target_head_slot,
                     ?target_head_root,
-                    ?target_finalized_root,
-                    ?target_finalized_epoch,
                     "New chain added to sync"
                 );
                 collection.insert(id, new_chain);
