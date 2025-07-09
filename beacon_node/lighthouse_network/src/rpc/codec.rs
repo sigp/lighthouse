@@ -945,34 +945,62 @@ mod tests {
         SignedBeaconBlock::from_block(empty_block, Signature::empty())
     }
 
-    fn altair_block() -> SignedBeaconBlock<Spec> {
-        let full_block =
+    fn altair_block(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
+        // The context bytes are now derived from the block epoch, so we need to have the slot set
+        // here.
+        let mut full_block =
             BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full(&Spec::default_spec()));
+        *full_block.slot_mut() = spec
+            .altair_fork_epoch
+            .expect("altair fork epoch must be set")
+            .start_slot(Spec::slots_per_epoch());
         SignedBeaconBlock::from_block(full_block, Signature::empty())
     }
 
-    fn empty_blob_sidecar() -> Arc<BlobSidecar<Spec>> {
-        Arc::new(BlobSidecar::empty())
+    fn empty_blob_sidecar(spec: &ChainSpec) -> Arc<BlobSidecar<Spec>> {
+        // The context bytes are now derived from the block epoch, so we need to have the slot set
+        // here.
+        let mut blob_sidecar = BlobSidecar::<Spec>::empty();
+        blob_sidecar.signed_block_header.message.slot = spec
+            .deneb_fork_epoch
+            .expect("deneb fork epoch must be set")
+            .start_slot(Spec::slots_per_epoch());
+        Arc::new(blob_sidecar)
     }
 
-    fn empty_data_column_sidecar() -> Arc<DataColumnSidecar<Spec>> {
-        Arc::new(DataColumnSidecar {
+    fn empty_data_column_sidecar(spec: &ChainSpec) -> Arc<DataColumnSidecar<Spec>> {
+        // The context bytes are now derived from the block epoch, so we need to have the slot set
+        // here.
+        let data_column_sidecar = DataColumnSidecar {
             index: 0,
             column: VariableList::new(vec![Cell::<Spec>::default()]).unwrap(),
             kzg_commitments: VariableList::new(vec![KzgCommitment::empty_for_testing()]).unwrap(),
             kzg_proofs: VariableList::new(vec![KzgProof::empty()]).unwrap(),
             signed_block_header: SignedBeaconBlockHeader {
-                message: BeaconBlockHeader::empty(),
+                message: BeaconBlockHeader {
+                    slot: spec
+                        .fulu_fork_epoch
+                        .expect("fulu fork epoch must be set")
+                        .start_slot(Spec::slots_per_epoch()),
+                    ..BeaconBlockHeader::empty()
+                },
                 signature: Signature::empty(),
             },
             kzg_commitments_inclusion_proof: Default::default(),
-        })
+        };
+        Arc::new(data_column_sidecar)
     }
 
     /// Bellatrix block with length < max_rpc_size.
     fn bellatrix_block_small(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
+        // The context bytes are now derived from the block epoch, so we need to have the slot set
+        // here.
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
-            BeaconBlockBellatrix::empty(&Spec::default_spec());
+            BeaconBlockBellatrix::empty(spec);
+        block.slot = spec
+            .bellatrix_fork_epoch
+            .expect("Bellatrix epoch must be set")
+            .start_slot(Spec::slots_per_epoch());
 
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>());
@@ -988,8 +1016,14 @@ mod tests {
     /// The max limit for a Bellatrix block is in the order of ~16GiB which wouldn't fit in memory.
     /// Hence, we generate a Bellatrix block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
     fn bellatrix_block_large(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
+        // The context bytes are now derived from the block epoch, so we need to have the slot set
+        // here.
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
-            BeaconBlockBellatrix::empty(&Spec::default_spec());
+            BeaconBlockBellatrix::empty(spec);
+        block.slot = spec
+            .bellatrix_fork_epoch
+            .expect("Bellatrix epoch must be set")
+            .start_slot(Spec::slots_per_epoch());
 
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>());
@@ -1255,7 +1289,9 @@ mod tests {
     // Test RPCResponse encoding/decoding for V1 messages
     #[test]
     fn test_encode_then_decode_v1() {
-        let chain_spec = Spec::default_spec();
+        let mut chain_spec = Spec::default_spec();
+        // Set a fulu fork epoch so we can encode / decode data columns
+        chain_spec.fulu_fork_epoch = Some(Epoch::new(1401280));
 
         assert_eq!(
             encode_then_decode_response(
@@ -1307,7 +1343,7 @@ mod tests {
                 encode_then_decode_response(
                     SupportedProtocol::BlocksByRangeV1,
                     RpcResponse::Success(RpcSuccessResponse::BlocksByRange(Arc::new(
-                        altair_block()
+                        altair_block(&chain_spec)
                     ))),
                     ForkName::Altair,
                     &chain_spec,
@@ -1336,9 +1372,9 @@ mod tests {
             matches!(
                 encode_then_decode_response(
                     SupportedProtocol::BlocksByRootV1,
-                    RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(
-                        Arc::new(altair_block())
-                    )),
+                    RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(Arc::new(altair_block(
+                        &chain_spec
+                    )))),
                     ForkName::Altair,
                     &chain_spec,
                 )
@@ -1383,74 +1419,98 @@ mod tests {
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRangeV1,
-                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar())),
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar(
+                    &chain_spec
+                ))),
                 ForkName::Deneb,
                 &chain_spec
             ),
-            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar()))),
+            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar(
+                &chain_spec
+            )))),
         );
 
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRangeV1,
-                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar())),
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar(
+                    &chain_spec
+                ))),
                 ForkName::Electra,
                 &chain_spec
             ),
-            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar()))),
+            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar(
+                &chain_spec
+            )))),
         );
 
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRangeV1,
-                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar())),
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar(
+                    &chain_spec
+                ))),
                 ForkName::Fulu,
                 &chain_spec
             ),
-            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar()))),
+            Ok(Some(RpcSuccessResponse::BlobsByRange(empty_blob_sidecar(
+                &chain_spec
+            )))),
         );
 
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRootV1,
-                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar())),
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar(
+                    &chain_spec
+                ))),
                 ForkName::Deneb,
                 &chain_spec
             ),
-            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar()))),
+            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar(
+                &chain_spec
+            )))),
         );
 
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRootV1,
-                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar())),
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar(
+                    &chain_spec
+                ))),
                 ForkName::Electra,
                 &chain_spec
             ),
-            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar()))),
+            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar(
+                &chain_spec
+            )))),
         );
 
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlobsByRootV1,
-                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar())),
+                RpcResponse::Success(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar(
+                    &chain_spec
+                ))),
                 ForkName::Fulu,
                 &chain_spec
             ),
-            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar()))),
+            Ok(Some(RpcSuccessResponse::BlobsByRoot(empty_blob_sidecar(
+                &chain_spec
+            )))),
         );
 
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::DataColumnsByRangeV1,
                 RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(
-                    empty_data_column_sidecar()
+                    empty_data_column_sidecar(&chain_spec)
                 )),
                 ForkName::Deneb,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::DataColumnsByRange(
-                empty_data_column_sidecar()
+                empty_data_column_sidecar(&chain_spec)
             ))),
         );
 
@@ -1458,13 +1518,13 @@ mod tests {
             encode_then_decode_response(
                 SupportedProtocol::DataColumnsByRangeV1,
                 RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(
-                    empty_data_column_sidecar()
+                    empty_data_column_sidecar(&chain_spec)
                 )),
                 ForkName::Electra,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::DataColumnsByRange(
-                empty_data_column_sidecar()
+                empty_data_column_sidecar(&chain_spec)
             ))),
         );
 
@@ -1472,13 +1532,13 @@ mod tests {
             encode_then_decode_response(
                 SupportedProtocol::DataColumnsByRangeV1,
                 RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(
-                    empty_data_column_sidecar()
+                    empty_data_column_sidecar(&chain_spec)
                 )),
                 ForkName::Fulu,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::DataColumnsByRange(
-                empty_data_column_sidecar()
+                empty_data_column_sidecar(&chain_spec)
             ))),
         );
 
@@ -1486,13 +1546,13 @@ mod tests {
             encode_then_decode_response(
                 SupportedProtocol::DataColumnsByRootV1,
                 RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(
-                    empty_data_column_sidecar()
+                    empty_data_column_sidecar(&chain_spec)
                 )),
                 ForkName::Deneb,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::DataColumnsByRoot(
-                empty_data_column_sidecar()
+                empty_data_column_sidecar(&chain_spec)
             ))),
         );
 
@@ -1500,13 +1560,13 @@ mod tests {
             encode_then_decode_response(
                 SupportedProtocol::DataColumnsByRootV1,
                 RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(
-                    empty_data_column_sidecar()
+                    empty_data_column_sidecar(&chain_spec)
                 )),
                 ForkName::Electra,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::DataColumnsByRoot(
-                empty_data_column_sidecar()
+                empty_data_column_sidecar(&chain_spec)
             ))),
         );
 
@@ -1514,13 +1574,13 @@ mod tests {
             encode_then_decode_response(
                 SupportedProtocol::DataColumnsByRootV1,
                 RpcResponse::Success(RpcSuccessResponse::DataColumnsByRoot(
-                    empty_data_column_sidecar()
+                    empty_data_column_sidecar(&chain_spec)
                 )),
                 ForkName::Fulu,
                 &chain_spec
             ),
             Ok(Some(RpcSuccessResponse::DataColumnsByRoot(
-                empty_data_column_sidecar()
+                empty_data_column_sidecar(&chain_spec)
             ))),
         );
     }
@@ -1528,7 +1588,9 @@ mod tests {
     // Test RPCResponse encoding/decoding for V1 messages
     #[test]
     fn test_encode_then_decode_v2() {
-        let chain_spec = Spec::default_spec();
+        let mut chain_spec = Spec::default_spec();
+        // Set a fulu fork epoch so we can encode / decode data columns
+        chain_spec.fulu_fork_epoch = Some(Epoch::new(1401280));
 
         assert_eq!(
             encode_then_decode_response(
@@ -1564,12 +1626,14 @@ mod tests {
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlocksByRangeV2,
-                RpcResponse::Success(RpcSuccessResponse::BlocksByRange(Arc::new(altair_block()))),
+                RpcResponse::Success(RpcSuccessResponse::BlocksByRange(Arc::new(altair_block(
+                    &chain_spec
+                )))),
                 ForkName::Altair,
                 &chain_spec,
             ),
             Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
-                altair_block()
+                altair_block(&chain_spec)
             ))))
         );
 
@@ -1642,12 +1706,14 @@ mod tests {
         assert_eq!(
             encode_then_decode_response(
                 SupportedProtocol::BlocksByRootV2,
-                RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(Arc::new(altair_block()))),
+                RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(Arc::new(altair_block(
+                    &chain_spec
+                )))),
                 ForkName::Altair,
                 &chain_spec,
             ),
             Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
-                altair_block()
+                altair_block(&chain_spec)
             ))))
         );
 
@@ -1810,7 +1876,9 @@ mod tests {
         // Trying to decode an altair block with base context bytes should give ssz decoding error
         let mut encoded_bytes = encode_response(
             SupportedProtocol::BlocksByRootV2,
-            RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(Arc::new(altair_block()))),
+            RpcResponse::Success(RpcSuccessResponse::BlocksByRoot(Arc::new(altair_block(
+                &chain_spec,
+            )))),
             ForkName::Altair,
             &chain_spec,
         )
@@ -2024,7 +2092,7 @@ mod tests {
         let malicious_padding: &'static [u8] = b"\xFE\x00\x00\x00";
 
         // Full altair block is 157916 bytes uncompressed. `max_compressed_len` is 32 + 157916 + 157916/6 = 184267.
-        let block_message_bytes = altair_block().as_ssz_bytes();
+        let block_message_bytes = altair_block(&fork_context.spec).as_ssz_bytes();
 
         assert_eq!(block_message_bytes.len(), 157916);
         assert_eq!(
