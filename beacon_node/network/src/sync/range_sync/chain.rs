@@ -836,9 +836,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             if let RpcResponseError::BlockComponentCouplingError(CouplingError {
                 column_and_peer,
-                msg: _,
+                msg,
             }) = &err
             {
+                debug!(msg, "Block components coupling error");
                 if let Some((column_and_peer, action)) = column_and_peer {
                     let mut failed_columns = HashSet::new();
                     for (column, peer) in column_and_peer {
@@ -1104,9 +1105,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .read()
                         .good_range_sync_custody_subnet_peer(*subnet_id, &self.peers)
                         .count();
-                    if peer_count == 0 {
-                        debug!(peer_count, ?subnet_id, ?self.peers, "Peer count");
-                    }
                     peer_count > 0
                 });
             peers_on_all_custody_subnets
