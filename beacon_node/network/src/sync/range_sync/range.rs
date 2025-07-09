@@ -155,20 +155,19 @@ where
                 debug!(%peer_id, "Finalization sync peer joined");
                 self.awaiting_head_peers.remove(&peer_id);
 
-                // Because of our change in finalized sync batch size from 2 to 1 and our transition
-                // to using exact epoch boundaries for batches (rather than one slot past the epoch
-                // boundary), we need to sync finalized sync to 2 epochs + 1 slot past our peer's
-                // finalized slot in order to finalize the chain locally.
-                let target_head_slot =
-                    remote_finalized_slot + (2 * T::EthSpec::slots_per_epoch()) + 1;
+                // // Because of our change in finalized sync batch size from 2 to 1 and our transition
+                // // to using exact epoch boundaries for batches (rather than one slot past the epoch
+                // // boundary), we need to sync finalized sync to 2 epochs + 1 slot past our peer's
+                // // finalized slot in order to finalize the chain locally.
+                // let target_head_slot =
+                //     remote_finalized_slot + (2 * T::EthSpec::slots_per_epoch()) + 1;
 
                 // Note: We keep current head chains. These can continue syncing whilst we complete
                 // this new finalized chain.
 
                 self.chains.add_peer_or_create_chain(
                     local_info.finalized_epoch,
-                    remote_info.finalized_root,
-                    target_head_slot,
+                    remote_info,
                     peer_id,
                     RangeSyncType::Finalized,
                     network,
@@ -199,8 +198,7 @@ where
                     .epoch(T::EthSpec::slots_per_epoch());
                 self.chains.add_peer_or_create_chain(
                     start_epoch,
-                    remote_info.head_root,
-                    remote_info.head_slot,
+                    remote_info,
                     peer_id,
                     RangeSyncType::Head,
                     network,

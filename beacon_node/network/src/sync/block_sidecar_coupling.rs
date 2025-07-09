@@ -143,29 +143,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
-    // pub fn remove_custody_columns(
-    //     &mut self,
-    //     req_id: DataColumnsByRangeRequestId,
-    // ) -> Result<(), String> {
-    //     match &mut self.block_data_request {
-    //         RangeBlockDataRequest::NoData => {
-    //             Err("received data columns but expected no data".to_owned())
-    //         }
-    //         RangeBlockDataRequest::Blobs(_) => {
-    //             Err("received data columns but expected blobs".to_owned())
-    //         }
-    //         RangeBlockDataRequest::DataColumns {
-    //             ref mut requests, ..
-    //         } => {
-    //             let req = requests
-    //                 .get_mut(&req_id)
-    //                 .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
-    //             req.remove_invalid_entries(req_id);
-    //             Ok(())
-    //         }
-    //     }
-    // }
-
     pub fn responses(
         &mut self,
         spec: &ChainSpec,
