@@ -105,7 +105,7 @@ impl SubnetId {
 
         let node_id = U256::from_be_slice(&raw_node_id);
         // calculate the prefixes used to compute the subnet and shuffling
-        let node_id_prefix = (node_id >> (NODE_ID_BITS - prefix_bits))
+        let node_id_prefix = (node_id >> (NODE_ID_BITS - prefix_bits) as u32)
             .as_le_slice()
             .get_u64_le();
 
