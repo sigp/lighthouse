@@ -839,20 +839,19 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 msg,
             }) = &err
             {
-                debug!(msg, "Block components coupling error");
+                debug!(?batch_id, msg, "Block components coupling error");
                 if let Some((column_and_peer, action)) = column_and_peer {
                     let mut failed_columns = HashSet::new();
+                    let mut failed_peers = HashSet::new();
                     for (column, peer) in column_and_peer {
-                        network.report_peer(*peer, *action, "failed to return columns");
                         failed_columns.insert(*column);
-
-                        return self.retry_partial_batch(
-                            network,
-                            batch_id,
-                            request_id,
-                            failed_columns,
-                        );
+                        failed_peers.insert(*peer);
                     }
+                    for peer in failed_peers.into_iter() {
+                        network.report_peer(peer, *action, "failed to return columns");
+                    }
+
+                    return self.retry_partial_batch(network, batch_id, request_id, failed_columns);
                 }
             }
             // A batch could be retried without the peer failing the request (disconnecting/
