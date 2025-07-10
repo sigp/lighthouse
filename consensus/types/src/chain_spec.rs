@@ -246,7 +246,7 @@ pub struct ChainSpec {
     /*
      * Networking Fulu
      */
-    blob_schedule: BlobSchedule,
+    pub(crate) blob_schedule: BlobSchedule,
     min_epochs_for_data_column_sidecars_requests: u64,
 
     /*
@@ -441,8 +441,13 @@ impl ChainSpec {
             .is_some_and(|fulu_fork_epoch| block_epoch >= fulu_fork_epoch)
     }
 
-    /// Returns true if `FULU_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    /// Returns true if PeerDAS is scheduled. Alias for [`Self::is_fulu_scheduled`]
     pub fn is_peer_das_scheduled(&self) -> bool {
+        self.is_fulu_scheduled()
+    }
+
+    /// Returns true if `FULU_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_fulu_scheduled(&self) -> bool {
         self.fulu_fork_epoch
             .is_some_and(|fulu_fork_epoch| fulu_fork_epoch != self.far_future_epoch)
     }
@@ -593,7 +598,7 @@ impl ChainSpec {
             .filter_map(|(_, epoch)| epoch)
             .collect::<std::collections::HashSet<_>>();
 
-        if self.fulu_fork_epoch.is_some() {
+        if self.is_fulu_scheduled() {
             for blob_parameters in &self.blob_schedule {
                 relevant_epochs.insert(blob_parameters.epoch);
             }
@@ -671,17 +676,6 @@ impl ChainSpec {
         }
     }
 
-    /// Returns the highest possible value for max_request_blocks based on enabled forks.
-    ///
-    /// This is useful for upper bounds in testing.
-    pub fn max_request_blocks_upper_bound(&self) -> usize {
-        if self.deneb_fork_epoch.is_some() {
-            self.max_request_blocks_deneb as usize
-        } else {
-            self.max_request_blocks as usize
-        }
-    }
-
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
         if fork_name.electra_enabled() {
             self.max_request_blob_sidecars_electra as usize
@@ -717,7 +711,8 @@ impl ChainSpec {
         }
     }
 
-    pub fn get_blob_parameters(&self, epoch: Epoch) -> Option<BlobParameters> {
+    /// Return the blob parameters at a given epoch.
+    fn get_blob_parameters(&self, epoch: Epoch) -> Option<BlobParameters> {
         match self.fulu_fork_epoch {
             Some(fulu_epoch) if epoch >= fulu_epoch => self
                 .blob_schedule
@@ -730,19 +725,7 @@ impl ChainSpec {
                         max_blobs_per_block: self.max_blobs_per_block_electra,
                     })
                 }),
-            _ => match self.electra_fork_epoch {
-                Some(electra_epoch) if epoch >= electra_epoch => Some(BlobParameters {
-                    epoch: electra_epoch,
-                    max_blobs_per_block: self.max_blobs_per_block_electra,
-                }),
-                _ => match self.deneb_fork_epoch {
-                    Some(deneb_epoch) if epoch >= deneb_epoch => Some(BlobParameters {
-                        epoch: deneb_epoch,
-                        max_blobs_per_block: self.max_blobs_per_block,
-                    }),
-                    _ => None,
-                },
-            },
+            _ => None,
         }
     }
 
@@ -1522,7 +1505,6 @@ impl BlobSchedule {
     }
 
     pub const fn default() -> Self {
-        // TODO(EIP-7892): think about what the default should be
         Self(vec![])
     }
 
@@ -1769,7 +1751,6 @@ fn default_bellatrix_fork_version() -> [u8; 4] {
 }
 
 fn default_capella_fork_version() -> [u8; 4] {
-    // TODO: determine if the bellatrix example should be copied like this
     [0xff, 0xff, 0xff, 0xff]
 }
 

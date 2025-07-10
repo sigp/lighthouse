@@ -353,7 +353,10 @@ impl RPCRateLimiter {
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
         let tokens = request
-            .max_responses(self.fork_context.digest_epoch(), &self.fork_context.spec)
+            .max_responses(
+                self.fork_context.current_fork_epoch(),
+                &self.fork_context.spec,
+            )
             .max(1);
 
         let check =

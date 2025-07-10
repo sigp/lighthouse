@@ -15,7 +15,6 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
     let udp_port: NonZeroU16 = clap_utils::parse_required(matches, "udp-port")?;
     let tcp_port: NonZeroU16 = clap_utils::parse_required(matches, "tcp-port")?;
     let output_dir: PathBuf = clap_utils::parse_required(matches, "output-dir")?;
-    // FIXME: why is this being read from.. somewhere rather than just using the spec?
     let genesis_fork_version: [u8; 4] =
         clap_utils::parse_ssz_required(matches, "genesis-fork-version")?;
 
@@ -33,13 +32,13 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
 
     let secp256k1_keypair = secp256k1::Keypair::generate();
     let enr_key = CombinedKey::from_secp256k1(&secp256k1_keypair);
+    let genesis_fork_digest = spec.compute_fork_digest(Hash256::zero(), Epoch::new(0));
     let enr_fork_id = EnrForkId {
-        fork_digest: spec.compute_fork_digest(Hash256::zero(), Epoch::new(0)),
+        fork_digest: genesis_fork_digest,
         next_fork_version: genesis_fork_version,
         next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
     };
-    // FIXME: need the next fork digest
-    let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec, [0; 4])
+    let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, genesis_fork_digest, spec)
         .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("Unable to create output-dir: {:?}", e))?;

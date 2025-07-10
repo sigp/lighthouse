@@ -452,7 +452,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     Some(_) = &mut self.next_topic_subscriptions => {
                         if let Some((epoch, _)) = self.beacon_chain.duration_to_next_digest() {
                             let fork_name = self.beacon_chain.spec.fork_name_at_epoch(epoch);
-                            let fork_digest = self.beacon_chain.spec.compute_fork_digest(self.beacon_chain.genesis_validators_root, epoch);
+                            let fork_digest = self.beacon_chain.compute_fork_digest(epoch);
                             info!("Subscribing to new fork topics");
                             self.libp2p.subscribe_new_fork_topics(fork_name, fork_digest);
                             self.next_topic_subscriptions = Box::pin(None.into());
@@ -687,7 +687,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
                 let mut subscribed_topics: Vec<GossipTopic> = vec![];
                 for topic_kind in core_topics_to_subscribe::<T::EthSpec>(
-                    self.fork_context.current_fork(),
+                    self.fork_context.current_fork_name(),
                     &self.network_globals.as_topic_config(),
                     &self.fork_context.spec,
                 ) {
@@ -827,24 +827,26 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let new_fork_digest = new_enr_fork_id.fork_digest;
 
         let fork_context = &self.fork_context;
-        if let Some(new_fork_name) = fork_context.from_context_bytes(new_fork_digest) {
-            if fork_context.current_fork() == *new_fork_name {
-                // BPO FORK
+        if let Some(new_fork_name) = fork_context.get_fork_from_context_bytes(new_fork_digest) {
+            if fork_context.current_fork_name() == *new_fork_name {
                 info!(
                     epoch = ?current_epoch,
                     "BPO Fork Triggered"
                 )
             } else {
                 info!(
-                    old_fork = ?fork_context.current_fork(),
+                    old_fork = ?fork_context.current_fork_name(),
                     new_fork = ?new_fork_name,
                     "Transitioned to new fork"
                 );
             }
 
-            fork_context.update_digest_epoch(current_epoch);
+            fork_context.update_current_fork(*new_fork_name, new_fork_digest, current_epoch);
             if self.beacon_chain.spec.is_peer_das_scheduled() {
-                self.libp2p.update_nfd(fork_context.next_fork_digest());
+                let next_fork_digest = fork_context
+                    .next_fork_digest()
+                    .unwrap_or_else(|| fork_context.current_fork_digest());
+                self.libp2p.update_nfd(next_fork_digest);
             }
 
             self.libp2p.update_fork_version(new_enr_fork_id);
@@ -875,7 +877,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn subscribed_core_topics(&self) -> bool {
         let core_topics = core_topics_to_subscribe::<T::EthSpec>(
-            self.fork_context.current_fork(),
+            self.fork_context.current_fork_name(),
             &self.network_globals.as_topic_config(),
             &self.fork_context.spec,
         );

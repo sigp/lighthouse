@@ -545,15 +545,15 @@ impl ProtocolId {
                 <StatusMessageV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
-            Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
-            Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork_name()),
+            Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork_name()),
             Protocol::BlobsByRange => rpc_blob_limits::<E>(),
             Protocol::BlobsByRoot => rpc_blob_limits::<E>(),
             Protocol::DataColumnsByRoot => {
-                rpc_data_column_limits::<E>(fork_context.digest_epoch(), &fork_context.spec)
+                rpc_data_column_limits::<E>(fork_context.current_fork_epoch(), &fork_context.spec)
             }
             Protocol::DataColumnsByRange => {
-                rpc_data_column_limits::<E>(fork_context.digest_epoch(), &fork_context.spec)
+                rpc_data_column_limits::<E>(fork_context.current_fork_epoch(), &fork_context.spec)
             }
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -564,16 +564,16 @@ impl ProtocolId {
                 <MetaDataV3<E> as Encode>::ssz_fixed_len(),
             ),
             Protocol::LightClientBootstrap => {
-                rpc_light_client_bootstrap_limits_by_fork(fork_context.current_fork())
+                rpc_light_client_bootstrap_limits_by_fork(fork_context.current_fork_name())
             }
             Protocol::LightClientOptimisticUpdate => {
-                rpc_light_client_optimistic_update_limits_by_fork(fork_context.current_fork())
+                rpc_light_client_optimistic_update_limits_by_fork(fork_context.current_fork_name())
             }
             Protocol::LightClientFinalityUpdate => {
-                rpc_light_client_finality_update_limits_by_fork(fork_context.current_fork())
+                rpc_light_client_finality_update_limits_by_fork(fork_context.current_fork_name())
             }
             Protocol::LightClientUpdatesByRange => {
-                rpc_light_client_updates_by_range_limits_by_fork(fork_context.current_fork())
+                rpc_light_client_updates_by_range_limits_by_fork(fork_context.current_fork_name())
             }
         }
     }

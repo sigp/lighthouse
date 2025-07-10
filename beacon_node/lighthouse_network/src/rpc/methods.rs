@@ -484,7 +484,7 @@ impl BlocksByRootRequest {
     pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
         let max_request_blocks = fork_context
             .spec
-            .max_request_blocks(fork_context.current_fork());
+            .max_request_blocks(fork_context.current_fork_name());
         let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
@@ -492,7 +492,7 @@ impl BlocksByRootRequest {
     pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
         let max_request_blocks = fork_context
             .spec
-            .max_request_blocks(fork_context.current_fork());
+            .max_request_blocks(fork_context.current_fork_name());
         let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V1(BlocksByRootRequestV1 { block_roots })
     }
@@ -509,7 +509,7 @@ impl BlobsByRootRequest {
     pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Self {
         let max_request_blob_sidecars = fork_context
             .spec
-            .max_request_blob_sidecars(fork_context.current_fork());
+            .max_request_blob_sidecars(fork_context.current_fork_name());
         let blob_ids = RuntimeVariableList::from_vec(blob_ids, max_request_blob_sidecars);
         Self { blob_ids }
     }

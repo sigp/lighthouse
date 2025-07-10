@@ -414,7 +414,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockAlta
     /// Returns an empty Altair block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockAltair {
-            slot: spec.genesis_slot,
+            slot: spec
+                .altair_fork_epoch
+                .expect("altair enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -447,7 +450,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> 
             sync_committee_bits: BitVector::default(),
         };
         BeaconBlockAltair {
-            slot: spec.genesis_slot,
+            slot: spec
+                .altair_fork_epoch
+                .expect("altair enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -475,7 +481,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBell
     /// Returns an empty Bellatrix block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockBellatrix {
-            slot: spec.genesis_slot,
+            slot: spec
+                .bellatrix_fork_epoch
+                .expect("bellatrix enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -503,7 +512,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockCape
     /// Returns an empty Capella block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockCapella {
-            slot: spec.genesis_slot,
+            slot: spec
+                .capella_fork_epoch
+                .expect("capella enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -532,7 +544,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDene
     /// Returns an empty Deneb block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockDeneb {
-            slot: spec.genesis_slot,
+            slot: spec
+                .deneb_fork_epoch
+                .expect("deneb enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -562,7 +577,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
     /// Returns an empty Electra block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockElectra {
-            slot: spec.genesis_slot,
+            slot: spec
+                .electra_fork_epoch
+                .expect("electra enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -593,7 +611,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockFulu
     /// Returns an empty Fulu block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockFulu {
-            slot: spec.genesis_slot,
+            slot: spec
+                .fulu_fork_epoch
+                .expect("fulu enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
