@@ -3,6 +3,15 @@ use parking_lot::RwLock;
 use crate::{ChainSpec, Epoch, EthSpec, ForkName, Hash256, Slot};
 use std::collections::BTreeMap;
 
+/// Represents a hard fork in the consensus protocol.
+///
+/// A hard fork can be one of two types:
+/// * A named fork (represented by `ForkName`) which introduces protocol changes.
+/// * A blob-parameter-only (BPO) fork which only modifies blob parameters.
+///
+/// For BPO forks, the `fork_name` remains unchanged from the previous fork,
+/// but the `fork_epoch` and `fork_digest` will be different to reflect the
+/// new blob parameter changes.
 #[derive(Debug, Clone)]
 pub struct HardFork {
     fork_name: ForkName,
@@ -77,14 +86,18 @@ impl ForkContext {
         self.current_fork.read().fork_epoch
     }
 
+    /// Returns the current fork digest.
+    pub fn current_fork_digest(&self) -> [u8; 4] {
+        self.current_fork.read().fork_digest
+    }
+
     /// Returns the next fork digest. If there's no future fork, returns the current fork digest.
-    pub fn next_fork_digest(&self) -> [u8; 4] {
+    pub fn next_fork_digest(&self) -> Option<[u8; 4]> {
         let current_fork_epoch = self.current_fork_epoch();
         self.epoch_to_forks
             .range(current_fork_epoch..)
             .nth(1)
             .map(|(_, fork)| fork.fork_digest)
-            .unwrap_or_else(|| self.current_fork.read().fork_digest)
     }
 
     /// Updates the `digest_epoch` field to a new digest epoch.
@@ -205,7 +218,7 @@ mod tests {
 
         let context = ForkContext::new::<E>(electra_slot, genesis_root, &spec);
 
-        let next_digest = context.next_fork_digest();
+        let next_digest = context.next_fork_digest().unwrap();
         let expected_digest = spec.compute_fork_digest(genesis_root, spec.fulu_fork_epoch.unwrap());
         assert_eq!(next_digest, expected_digest);
     }

@@ -194,11 +194,15 @@ impl<E: EthSpec> Network<E> {
 
         // set up a collection of variables accessible outside of the network crate
         // Create an ENR or load from disk if appropriate
+        let next_fork_digest = ctx
+            .fork_context
+            .next_fork_digest()
+            .unwrap_or_else(|| ctx.fork_context.current_fork_digest());
         let enr = crate::discovery::enr::build_or_load_enr::<E>(
             local_keypair.clone(),
             &config,
             &ctx.enr_fork_id,
-            ctx.fork_context.next_fork_digest(),
+            next_fork_digest,
             &ctx.chain_spec,
         )?;
 
