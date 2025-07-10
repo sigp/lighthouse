@@ -17,8 +17,6 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
-    /// The column indices corresponding to the id
-    column_peers: HashMap<DataColumnsByRangeRequestId, Vec<u64>>,
 }
 
 enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
@@ -34,6 +32,8 @@ enum RangeBlockDataRequest<E: EthSpec> {
             DataColumnsByRangeRequestId,
             ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
         >,
+        /// The column indices corresponding to the request
+        column_peers: HashMap<DataColumnsByRangeRequestId, Vec<u64>>,
         expected_custody_columns: Vec<ColumnIndex>,
     },
 }
@@ -53,18 +53,16 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             Vec<ColumnIndex>,
         )>,
     ) -> Self {
-        let mut column_peers = HashMap::new();
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
         } else if let Some((requests, expected_custody_columns)) = data_columns {
+            let column_peers: HashMap<_, _> = requests.into_iter().collect();
             RangeBlockDataRequest::DataColumns {
-                requests: requests
-                    .into_iter()
-                    .map(|(id, indices)| {
-                        column_peers.insert(id, indices);
-                        (id, ByRangeRequest::Active(id))
-                    })
+                requests: column_peers
+                    .keys()
+                    .map(|id| (*id, ByRangeRequest::Active(*id)))
                     .collect(),
+                column_peers,
                 expected_custody_columns,
             }
         } else {
@@ -74,7 +72,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Self {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
-            column_peers,
         }
     }
 
@@ -86,10 +83,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::DataColumns {
                 requests,
                 expected_custody_columns: _,
+                column_peers,
             } => {
                 for (request, columns) in failed_column_requests.into_iter() {
                     requests.insert(request, ByRangeRequest::Active(request));
-                    self.column_peers.insert(request, columns);
+                    column_peers.insert(request, columns);
                 }
                 Ok(())
             }
@@ -167,9 +165,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::DataColumns {
                 requests,
                 expected_custody_columns,
+                column_peers,
             } => {
                 let mut data_columns = vec![];
-                let mut column_peers: HashMap<u64, PeerId> = HashMap::new();
+                let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
                 for req in requests.values() {
                     let Some(data) = req.to_finished() else {
                         return None;
@@ -179,16 +178,16 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 // Note: this assumes that only 1 peer is responsible for a column
                 // with a batch.
-                for (id, columns) in &self.column_peers {
+                for (id, columns) in column_peers {
                     for column in columns {
-                        column_peers.insert(*column, id.peer);
+                        column_to_peer_id.insert(*column, id.peer);
                     }
                 }
 
                 let resp = Self::responses_with_custody_columns(
                     blocks.to_vec(),
                     data_columns,
-                    column_peers,
+                    column_to_peer_id,
                     expected_custody_columns,
                     spec,
                 );
@@ -281,7 +280,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     fn responses_with_custody_columns(
         blocks: Vec<Arc<SignedBeaconBlock<E>>>,
         data_columns: DataColumnSidecarList<E>,
-        column_peers: HashMap<u64, PeerId>,
+        column_to_peer: HashMap<u64, PeerId>,
         expects_custody_columns: &[ColumnIndex],
         spec: &ChainSpec,
     ) -> Result<Vec<RpcBlock<E>>, CouplingError> {
@@ -324,7 +323,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     // This is potentially dangerous as we can get isolated on a chain with a
                     // malicious block peer.
                     // TODO: fix this by checking the proposer signature before downloading columns.
-                    let responsible_peers = column_peers.iter().map(|c| (*c.0, *c.1)).collect();
+                    let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
                     return Err(CouplingError {
                         msg: format!("No columns for block {block_root:?} with data"),
                         column_and_peer: Some((responsible_peers, PeerAction::LowToleranceError)),
@@ -342,7 +341,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     } else {
                         // Penalize the peer for claiming to have the columns but not returning
                         // them
-                        let Some(responsible_peer) = column_peers.get(index) else {
+                        let Some(responsible_peer) = column_to_peer.get(index) else {
                             return Err(CouplingError {
                                 msg: format!("Internal error, no request made for column {}", index),
                                 column_and_peer: None,
