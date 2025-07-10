@@ -1809,12 +1809,12 @@ pub static KZG_VERIFICATION_BATCH_TIMES: LazyLock<Result<Histogram>> = LazyLock:
 /// * 64 columns batch: 257 ms
 /// * 128 columns batch: 508 ms
 pub static KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>> =
-    // 5 exponential buckets between 0.002 and 0.032 seconds, with more granularity on the lower end.
+    // 7 exponential buckets between 0.002 and 0.128 seconds, with more granularity on the lower end.
     LazyLock::new(|| {
             try_create_histogram_with_buckets(
                 "beacon_kzg_verification_data_column_single_seconds",
                 "Runtime of single data column kzg verification",
-                exponential_buckets(0.002, 2.0, 5),
+                exponential_buckets(0.002, 2.0, 7),
             )
         });
 pub static KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>> =
