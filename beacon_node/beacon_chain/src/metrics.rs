@@ -1803,26 +1803,30 @@ pub static KZG_VERIFICATION_BATCH_TIMES: LazyLock<Result<Histogram>> = LazyLock:
         "Runtime of batched kzg verification",
     )
 });
+/// For reference on how the kzg data column verification buckets were set, here are some numbers for 48 blobs:
+/// * 1 column batch: 5.76 ms
+/// * 8 columns batch: 34.3 ms
+/// * 64 columns batch: 257 ms
+/// * 128 columns batch: 508 ms
 pub static KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>> =
+    // 7 exponential buckets between 0.002 and 0.128 seconds, with more granularity on the lower end.
     LazyLock::new(|| {
-        try_create_histogram_with_buckets(
-            "beacon_kzg_verification_data_column_single_seconds",
-            "Runtime of single data column kzg verification",
-            Ok(vec![
-                0.0005, 0.001, 0.0015, 0.002, 0.003, 0.004, 0.005, 0.007, 0.01, 0.02, 0.05,
-            ]),
-        )
-    });
+            try_create_histogram_with_buckets(
+                "beacon_kzg_verification_data_column_single_seconds",
+                "Runtime of single data column kzg verification",
+                exponential_buckets(0.002, 2.0, 7),
+            )
+        });
 pub static KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>> =
+    // 10 exponential buckets between 0.002 and 1.024 seconds, with more
+    // granularity on the lower end.
     LazyLock::new(|| {
-        try_create_histogram_with_buckets(
-            "beacon_kzg_verification_data_column_batch_seconds",
-            "Runtime of batched data column kzg verification",
-            Ok(vec![
-                0.002, 0.004, 0.006, 0.008, 0.01, 0.012, 0.015, 0.02, 0.03, 0.05, 0.07,
-            ]),
-        )
-    });
+            try_create_histogram_with_buckets(
+                "beacon_kzg_verification_data_column_batch_seconds",
+                "Runtime of batched data column kzg verification",
+                exponential_buckets(0.002, 2.0, 10),
+            )
+        });
 
 pub static BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
     || {
