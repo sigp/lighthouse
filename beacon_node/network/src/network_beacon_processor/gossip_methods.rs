@@ -1967,7 +1967,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Err(e) => {
                 metrics::register_finality_update_error(&e);
                 match e {
-                    LightClientFinalityUpdateError::InvalidLightClientFinalityUpdate => {
+                    LightClientFinalityUpdateError::MismatchedSignatureSlot { .. }
+                    | LightClientFinalityUpdateError::MismatchedAttestedHeader { .. }
+                    | LightClientFinalityUpdateError::MismatchedFinalizedHeader { .. }
+                    | LightClientFinalityUpdateError::MismatchedProofOrSyncAggregate { .. } => {
                         debug!(
                             %peer_id,
                             error = ?e,
@@ -1999,6 +2002,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         error = ?e,
                         "Light client error constructing finality update"
                     ),
+                    LightClientFinalityUpdateError::Ignore => {}
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
@@ -2080,7 +2084,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                         return;
                     }
-                    LightClientOptimisticUpdateError::InvalidLightClientOptimisticUpdate => {
+                    LightClientOptimisticUpdateError::MismatchedSignatureSlot { .. }
+                    | LightClientOptimisticUpdateError::MismatchedAttestedHeader { .. }
+                    | LightClientOptimisticUpdateError::MismatchedSyncAggregate { .. } => {
                         metrics::register_optimistic_update_error(&e);
 
                         debug!(
@@ -2119,6 +2125,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Light client error constructing optimistic update"
                         )
                     }
+                    LightClientOptimisticUpdateError::Ignore => {}
                 }
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
