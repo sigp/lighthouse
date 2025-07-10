@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::time::Interval;
-use types::{ChainSpec, EthSpec, ForkContext, ForkName};
+use types::{ChainSpec, Epoch, EthSpec, ForkContext};
 
 /// Nanoseconds since a given time.
 // Maintained as u64 to reduce footprint
@@ -267,7 +267,7 @@ impl RPCRateLimiterBuilder {
 
 pub trait RateLimiterItem {
     fn protocol(&self) -> Protocol;
-    fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64;
+    fn max_responses(&self, digest_epoch: Epoch, spec: &ChainSpec) -> u64;
 }
 
 impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
@@ -275,8 +275,8 @@ impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
         self.versioned_protocol().protocol()
     }
 
-    fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
-        self.max_responses(current_fork, spec)
+    fn max_responses(&self, digest_epoch: Epoch, spec: &ChainSpec) -> u64 {
+        self.max_responses(digest_epoch, spec)
     }
 }
 
@@ -285,7 +285,7 @@ impl<E: EthSpec> RateLimiterItem for (super::RpcResponse<E>, Protocol) {
         self.1
     }
 
-    fn max_responses(&self, _current_fork: ForkName, _spec: &ChainSpec) -> u64 {
+    fn max_responses(&self, _digest_epoch: Epoch, _spec: &ChainSpec) -> u64 {
         // A response chunk consumes one token of the rate limiter.
         1
     }
@@ -353,7 +353,10 @@ impl RPCRateLimiter {
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
         let tokens = request
-            .max_responses(self.fork_context.current_fork(), &self.fork_context.spec)
+            .max_responses(
+                self.fork_context.current_fork_epoch(),
+                &self.fork_context.spec,
+            )
             .max(1);
 
         let check =
