@@ -442,6 +442,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         active_request_count_by_peer
     }
 
+    /// Retries only the specified failed columns by requesting them again.
+    ///
+    /// Note: This function doesn't retry the whole batch, but retries specific requests within
+    /// the batch.
     pub fn retry_columns_by_range(
         &mut self,
         request_id: Id,
@@ -461,13 +465,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         let active_request_count_by_peer = self.active_request_count_by_peer();
-        // Attempt to find all required custody peers to request the failed columns from
 
         debug!(
             ?failed_columns,
             "Retrying only failed column requests from other peers"
         );
 
+        // Attempt to find all required custody peers to request the failed columns from
         let columns_by_range_peers_to_request = self
             .select_columns_by_range_peers_to_request(
                 &failed_columns,
@@ -501,7 +505,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // instead of creating a new `RangeBlockComponentsRequest`, we reinsert
         // the new requests created for the failed requests
-
         let Some(range_request) = self.components_by_range_requests.get_mut(&id) else {
             return Err(
                 "retrying custody request for range request that does not exist".to_string(),

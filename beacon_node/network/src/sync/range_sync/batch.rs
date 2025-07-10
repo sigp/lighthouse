@@ -365,7 +365,6 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         }
     }
 
-    #[tracing::instrument(skip(self), fields(state = %self.state, start = %self.start_slot))]
     pub fn processing_completed(
         &mut self,
         procesing_result: BatchProcessingResult,

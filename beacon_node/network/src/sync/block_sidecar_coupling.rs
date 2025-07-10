@@ -75,6 +75,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    /// Modifies `self` by inserting a new `DataColumnsByRangeRequestId` for a formerly failed
+    /// request for some columns.
     pub fn reinsert_failed_column_requests(
         &mut self,
         failed_column_requests: Vec<(DataColumnsByRangeRequestId, Vec<u64>)>,
