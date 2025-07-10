@@ -840,6 +840,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }) = &err
             {
                 debug!(?batch_id, msg, "Block components coupling error");
+                // Note: we don't fail the batch here because a `CouplingError` is
+                // recoverable by requesting from other honest peers.
                 if let Some((column_and_peer, action)) = column_and_peer {
                     let mut failed_columns = HashSet::new();
                     let mut failed_peers = HashSet::new();
@@ -847,11 +849,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         failed_columns.insert(*column);
                         failed_peers.insert(*peer);
                     }
-                    for peer in failed_peers.into_iter() {
-                        network.report_peer(peer, *action, "failed to return columns");
+                    for peer in failed_peers.iter() {
+                        network.report_peer(*peer, *action, "failed to return columns");
                     }
 
-                    return self.retry_partial_batch(network, batch_id, request_id, failed_columns);
+                    return self.retry_partial_batch(
+                        network,
+                        batch_id,
+                        request_id,
+                        failed_columns,
+                        failed_peers,
+                    );
                 }
             }
             // A batch could be retried without the peer failing the request (disconnecting/
@@ -979,6 +987,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         Ok(KeepChain)
     }
 
+    /// Retries partial column requests within the batch by creating new requests for the failed columns.
     #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn retry_partial_batch(
         &mut self,
@@ -986,9 +995,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         id: Id,
         failed_columns: HashSet<ColumnIndex>,
+        mut failed_peers: HashSet<PeerId>,
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
-            let failed_peers = batch.failed_peers();
+            failed_peers.extend(&batch.failed_peers());
             let req = batch.to_blocks_by_range_request().0;
 
             let synced_peers = network
