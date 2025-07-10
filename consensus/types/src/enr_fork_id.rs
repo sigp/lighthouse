@@ -24,10 +24,14 @@ use tree_hash_derive::TreeHash;
     TestRandom,
 )]
 pub struct EnrForkId {
+    /// Fork digest of the current fork computed from [`ChainSpec::compute_fork_digest`].
     #[serde(with = "serde_utils::bytes_4_hex")]
     pub fork_digest: [u8; 4],
+    /// `next_fork_version` is the fork version corresponding to the next planned fork at a future
+    /// epoch. The fork version will only change for regular forks, not BPO forks.
     #[serde(with = "serde_utils::bytes_4_hex")]
     pub next_fork_version: [u8; 4],
+    /// `next_fork_epoch` is the epoch at which the next fork (whether a regular fork or a BPO fork) is planned
     pub next_fork_epoch: Epoch,
 }
 
