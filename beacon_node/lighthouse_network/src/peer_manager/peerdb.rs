@@ -319,8 +319,8 @@ impl<E: EthSpec> PeerDB<E> {
             .map(|(peer_id, _)| peer_id)
     }
 
-    /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
-    /// the given subnet id.
+    /// Returns an iterator of all peers that are supposed to be custodying
+    /// the given subnet id that also belong to `allowed_peers`.
     pub fn good_range_sync_custody_subnet_peer<'a>(
         &'a self,
         subnet: DataColumnSubnetId,
@@ -875,7 +875,7 @@ impl<E: EthSpec> PeerDB<E> {
             ) => {
                 // Update the ENR if one exists, and compute the custody subnets
                 if let Some(enr) = enr {
-                    info.set_enr(enr);
+                    info.set_enr(enr, );
                 }
 
                 match current_state {

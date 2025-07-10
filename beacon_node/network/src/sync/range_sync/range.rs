@@ -155,10 +155,10 @@ where
                 debug!(%peer_id, "Finalization sync peer joined");
                 self.awaiting_head_peers.remove(&peer_id);
 
-                // // Because of our change in finalized sync batch size from 2 to 1 and our transition
-                // // to using exact epoch boundaries for batches (rather than one slot past the epoch
-                // // boundary), we need to sync finalized sync to 2 epochs + 1 slot past our peer's
-                // // finalized slot in order to finalize the chain locally.
+                // Because of our change in finalized sync batch size from 2 to 1 and our transition
+                // to using exact epoch boundaries for batches (rather than one slot past the epoch
+                // boundary), we need to sync finalized sync to 2 epochs + 1 slot past our peer's
+                // finalized slot in order to finalize the chain locally.
                 let target_head_slot =
                     remote_finalized_slot + (2 * T::EthSpec::slots_per_epoch()) + 1;
 
