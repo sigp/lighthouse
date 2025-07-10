@@ -922,33 +922,16 @@ mod tests {
     }
 
     fn fork_context(fork_name: ForkName, spec: &ChainSpec) -> ForkContext {
-        let current_slot = match fork_name {
-            ForkName::Base => Slot::new(0),
-            ForkName::Altair => spec
-                .altair_fork_epoch
-                .unwrap()
-                .start_slot(Spec::slots_per_epoch()),
-            ForkName::Bellatrix => spec
-                .bellatrix_fork_epoch
-                .unwrap()
-                .start_slot(Spec::slots_per_epoch()),
-            ForkName::Capella => spec
-                .capella_fork_epoch
-                .unwrap()
-                .start_slot(Spec::slots_per_epoch()),
-            ForkName::Deneb => spec
-                .deneb_fork_epoch
-                .unwrap()
-                .start_slot(Spec::slots_per_epoch()),
-            ForkName::Electra => spec
-                .electra_fork_epoch
-                .unwrap()
-                .start_slot(Spec::slots_per_epoch()),
-            ForkName::Fulu => spec
-                .fulu_fork_epoch
-                .unwrap()
-                .start_slot(Spec::slots_per_epoch()),
+        let current_epoch = match fork_name {
+            ForkName::Base => Some(Epoch::new(0)),
+            ForkName::Altair => spec.altair_fork_epoch,
+            ForkName::Bellatrix => spec.bellatrix_fork_epoch,
+            ForkName::Capella => spec.capella_fork_epoch,
+            ForkName::Deneb => spec.deneb_fork_epoch,
+            ForkName::Electra => spec.electra_fork_epoch,
+            ForkName::Fulu => spec.fulu_fork_epoch,
         };
+        let current_slot = current_epoch.unwrap().start_slot(Spec::slots_per_epoch());
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), spec)
     }
 
@@ -962,11 +945,7 @@ mod tests {
     fn altair_block(spec: &ChainSpec) -> SignedBeaconBlock<Spec> {
         // The context bytes are now derived from the block epoch, so we need to have the slot set
         // here.
-        let mut full_block = BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full(spec));
-        *full_block.slot_mut() = spec
-            .altair_fork_epoch
-            .expect("altair fork epoch must be set")
-            .start_slot(Spec::slots_per_epoch());
+        let full_block = BeaconBlock::Altair(BeaconBlockAltair::<Spec>::full(spec));
         SignedBeaconBlock::from_block(full_block, Signature::empty())
     }
 
@@ -1010,10 +989,6 @@ mod tests {
         // here.
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
-        block.slot = spec
-            .bellatrix_fork_epoch
-            .expect("Bellatrix epoch must be set")
-            .start_slot(Spec::slots_per_epoch());
 
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat_n(tx, 5000).collect::<Vec<_>>());
@@ -1033,10 +1008,6 @@ mod tests {
         // here.
         let mut block: BeaconBlockBellatrix<_, FullPayload<Spec>> =
             BeaconBlockBellatrix::empty(spec);
-        block.slot = spec
-            .bellatrix_fork_epoch
-            .expect("Bellatrix epoch must be set")
-            .start_slot(Spec::slots_per_epoch());
 
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat_n(tx, 100000).collect::<Vec<_>>());
