@@ -918,6 +918,9 @@ mod tests {
         chain_spec.deneb_fork_epoch = Some(Epoch::new(4));
         chain_spec.electra_fork_epoch = Some(Epoch::new(5));
         chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
+
+        // check that we have all forks covered
+        assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
         chain_spec
     }
 
