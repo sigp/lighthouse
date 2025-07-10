@@ -474,7 +474,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Attempt to find all required custody peers to request the failed columns from
         let columns_by_range_peers_to_request = self
             .select_columns_by_range_peers_to_request(
-                &failed_columns,
+                failed_columns,
                 peers,
                 active_request_count_by_peer,
                 peers_to_deprioritize,

@@ -45,6 +45,7 @@ pub struct CouplingError {
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
+    #[allow(clippy::type_complexity)]
     pub fn new(
         blocks_req_id: BlocksByRangeRequestId,
         blobs_req_id: Option<BlobsByRangeRequestId>,
@@ -467,7 +468,7 @@ mod tests {
         }
     }
 
-    fn is_finished(info: &RangeBlockComponentsRequest<E>) -> bool {
+    fn is_finished(info: &mut RangeBlockComponentsRequest<E>) -> bool {
         let spec = test_spec::<E>();
         info.responses(&spec).is_some()
     }
@@ -550,7 +551,7 @@ mod tests {
         let columns_req_id = expects_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, _)| columns_id(i as Id, components_id))
+            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
@@ -564,12 +565,13 @@ mod tests {
         )
         .unwrap();
         // Assert response is not finished
-        assert!(!is_finished(&info));
+        assert!(!is_finished(&mut info));
 
         // Send data columns
         for (i, &column_index) in expects_custody_columns.iter().enumerate() {
+            let (req, _columns) = columns_req_id.get(i).unwrap();
             info.add_custody_columns(
-                columns_req_id.get(i).copied().unwrap(),
+                *req,
                 blocks
                     .iter()
                     .flat_map(|b| b.1.iter().filter(|d| d.index == column_index).cloned())
@@ -579,7 +581,7 @@ mod tests {
 
             if i < expects_custody_columns.len() - 1 {
                 assert!(
-                    !is_finished(&info),
+                    !is_finished(&mut info),
                     "requested should not be finished at loop {i}"
                 );
             }
@@ -607,7 +609,7 @@ mod tests {
         let columns_req_id = batched_column_requests
             .iter()
             .enumerate()
-            .map(|(i, _)| columns_id(i as Id, components_id))
+            .map(|(i, column)| (columns_id(i as Id, components_id), column.clone()))
             .collect::<Vec<_>>();
 
         let mut info = RangeBlockComponentsRequest::<E>::new(
@@ -635,12 +637,13 @@ mod tests {
         )
         .unwrap();
         // Assert response is not finished
-        assert!(!is_finished(&info));
+        assert!(!is_finished(&mut info));
 
         for (i, column_indices) in batched_column_requests.iter().enumerate() {
+            let (req, _columns) = columns_req_id.get(i).unwrap();
             // Send the set of columns in the same batch request
             info.add_custody_columns(
-                columns_req_id.get(i).copied().unwrap(),
+                *req,
                 blocks
                     .iter()
                     .flat_map(|b| {
@@ -654,7 +657,7 @@ mod tests {
 
             if i < num_of_data_column_requests - 1 {
                 assert!(
-                    !is_finished(&info),
+                    !is_finished(&mut info),
                     "requested should not be finished at loop {i}"
                 );
             }
