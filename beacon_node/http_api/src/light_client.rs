@@ -4,12 +4,12 @@ use crate::version::{
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{
-    self as api_types, ChainSpec, LightClientUpdate, LightClientUpdateResponseChunk,
+    self as api_types, LightClientUpdate, LightClientUpdateResponseChunk,
     LightClientUpdateResponseChunkInner, LightClientUpdatesQuery,
 };
 use ssz::Encode;
 use std::sync::Arc;
-use types::{BeaconResponse, ForkName, Hash256, LightClientBootstrap};
+use types::{BeaconResponse, EthSpec, ForkName, Hash256, LightClientBootstrap};
 use warp::{
     hyper::{Body, Response},
     reply::Reply,
@@ -150,14 +150,10 @@ fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     light_client_update: &LightClientUpdate<T::EthSpec>,
 ) -> LightClientUpdateResponseChunk {
-    let fork_name = chain
-        .spec
-        .fork_name_at_slot::<T::EthSpec>(light_client_update.attested_header_slot());
-
-    let fork_digest = ChainSpec::compute_fork_digest(
-        chain.spec.fork_version_for_name(fork_name),
-        chain.genesis_validators_root,
-    );
+    let epoch = light_client_update
+        .attested_header_slot()
+        .epoch(T::EthSpec::slots_per_epoch());
+    let fork_digest = chain.compute_fork_digest(epoch);
 
     let payload = light_client_update.as_ssz_bytes();
     let response_chunk_len = fork_digest.len() + payload.len();

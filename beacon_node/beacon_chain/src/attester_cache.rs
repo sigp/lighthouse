@@ -365,11 +365,7 @@ impl AttesterCache {
         value: AttesterCacheValue,
     ) {
         while cache.len() >= MAX_CACHE_LEN {
-            if let Some(oldest) = cache
-                .iter()
-                .map(|(key, _)| *key)
-                .min_by_key(|key| key.epoch)
-            {
+            if let Some(oldest) = cache.keys().copied().min_by_key(|key| key.epoch) {
                 cache.remove(&oldest);
             } else {
                 break;

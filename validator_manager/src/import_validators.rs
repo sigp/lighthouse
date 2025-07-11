@@ -404,8 +404,12 @@ pub mod tests {
         }
 
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-            let dir = tempdir().unwrap();
             let vc = ApiTester::new_with_http_config(http_config).await;
+            Self::new_with_vc(vc).await
+        }
+
+        pub async fn new_with_vc(vc: ApiTester) -> Self {
+            let dir = tempdir().unwrap();
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
             fs::write(&vc_token_path, &vc.api_token).unwrap();
 

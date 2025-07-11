@@ -153,25 +153,21 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Check if the chain has peers from which to process batches.
-    #[instrument(parent = None,fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn available_peers(&self) -> usize {
         self.peers.len()
     }
 
     /// Get the chain's id.
-    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn id(&self) -> ChainId {
         self.id
     }
 
     /// Peers currently syncing this chain.
-    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn peers(&self) -> impl Iterator<Item = PeerId> + '_ {
         self.peers.iter().cloned()
     }
 
     /// Progress in epochs made by the chain
-    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn processed_epochs(&self) -> u64 {
         self.processing_target
             .saturating_sub(self.start_epoch)
@@ -179,7 +175,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Returns the total count of pending blocks in all the batches of this chain
-    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn pending_blocks(&self) -> usize {
         self.batches
             .values()
@@ -189,7 +184,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
-    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn remove_peer(&mut self, peer_id: &PeerId) -> ProcessingResult {
         self.peers.remove(peer_id);
 
@@ -201,7 +195,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Returns the latest slot number that has been processed.
-    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     fn current_processed_slot(&self) -> Slot {
         // the last slot we processed was included in the previous batch, and corresponds to the
         // first slot of the current target epoch
@@ -959,7 +952,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Returns true if this chain is currently syncing.
-    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     pub fn is_syncing(&self) -> bool {
         match self.state {
             ChainSyncingState::Syncing => true,
@@ -1115,7 +1107,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// This produces a string of the form: [D,E,E,E,E]
     /// to indicate the current buffer state of the chain. The symbols are defined on each of the
     /// batch states. See [BatchState::visualize] for symbol definitions.
-    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
     fn visualize_batch_state(&self) -> String {
         let mut visualization_string = String::with_capacity((BATCH_BUFFER_SIZE * 3) as usize);
 

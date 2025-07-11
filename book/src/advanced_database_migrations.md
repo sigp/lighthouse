@@ -17,7 +17,7 @@ validator client or the slasher**.
 
 | Lighthouse version | Release date | Schema version | Downgrade available? |
 |--------------------|--------------|----------------|----------------------|
-| v7.1.0             | TBD 2025     | v23            | yes                  |
+| v7.1.0             | Jul 2025     | v26            | yes                  |
 | v7.0.0             | Apr 2025     | v22            | no                   |
 | v6.0.0             | Nov 2024     | v22            | no                   |
 
@@ -207,7 +207,7 @@ Here are the steps to prune historic states:
 
 | Lighthouse version | Release date | Schema version | Downgrade available?                |
 |--------------------|--------------|----------------|-------------------------------------|
-| v7.1.0             | TBD 2025     | v23            | yes                                 |
+| v7.1.0             | Jul 2025     | v26            | yes                                 |
 | v7.0.0             | Apr 2025     | v22            | no                                  |
 | v6.0.0             | Nov 2024     | v22            | no                                  |
 | v5.3.0             | Aug 2024     | v21            | yes before Electra using <= v7.0.0  |

@@ -381,7 +381,7 @@ Options:
           Minimum number of states to cull from the state cache when it gets
           full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 32]
+          Specifies the size of the state cache [default: 128]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the

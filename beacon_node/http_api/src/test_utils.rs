@@ -103,6 +103,13 @@ impl<E: EthSpec> InteractiveTester<E> {
 
         tokio::spawn(server);
 
+        // Override the default timeout to 2s to timeouts on CI, as CI seems to require longer
+        // to process. The 1s timeouts for other tasks have been working for a long time, so we'll
+        // keep it as it is, as it may help identify a performance regression.
+        let timeouts = Timeouts {
+            default: Duration::from_secs(2),
+            ..Timeouts::set_all(Duration::from_secs(1))
+        };
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
                 "http://{}:{}",
@@ -110,7 +117,7 @@ impl<E: EthSpec> InteractiveTester<E> {
                 listening_socket.port()
             ))
             .unwrap(),
-            Timeouts::set_all(Duration::from_secs(1)),
+            timeouts,
         );
 
         Self {

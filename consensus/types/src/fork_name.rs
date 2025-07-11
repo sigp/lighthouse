@@ -36,8 +36,6 @@ impl ForkName {
     pub fn list_all_fork_epochs(spec: &ChainSpec) -> Vec<(ForkName, Option<Epoch>)> {
         ForkName::list_all()
             .into_iter()
-            // Skip Base
-            .skip(1)
             .map(|fork| (fork, spec.fork_epoch(fork)))
             .collect()
     }
