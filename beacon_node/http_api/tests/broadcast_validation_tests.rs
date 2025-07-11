@@ -1373,7 +1373,7 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
-    let fork_name = state.fork_name(&spec).unwrap();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
     if !fork_name.deneb_enabled() {
         return;
     }
@@ -1439,7 +1439,7 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
-    let fork_name = state.fork_name(&spec).unwrap();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
     if !fork_name.deneb_enabled() {
         return;
     }
@@ -1524,7 +1524,7 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
     let state = tester.harness.get_current_state();
-    let fork_name = state.fork_name(&spec).unwrap();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
     if !fork_name.deneb_enabled() {
         return;
     }
@@ -1594,7 +1594,7 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
-    let fork_name = state.fork_name(&spec).unwrap();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
     if !fork_name.deneb_enabled() {
         return;
     }
@@ -1667,7 +1667,7 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     let num_initial: u64 = 31;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
-    let fork_name = state.fork_name(&spec).unwrap();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
     if !fork_name.deneb_enabled() {
         return;
     }
