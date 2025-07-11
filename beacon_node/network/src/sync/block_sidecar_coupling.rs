@@ -33,7 +33,7 @@ enum RangeBlockDataRequest<E: EthSpec> {
             ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
         >,
         /// The column indices corresponding to the request
-        column_peers: HashMap<DataColumnsByRangeRequestId, Vec<u64>>,
+        column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
         expected_custody_columns: Vec<ColumnIndex>,
     },
 }
@@ -41,7 +41,7 @@ enum RangeBlockDataRequest<E: EthSpec> {
 #[derive(Debug)]
 pub struct CouplingError {
     pub(crate) msg: String,
-    pub(crate) column_and_peer: Option<(Vec<(u64, PeerId)>, PeerAction)>,
+    pub(crate) column_and_peer: Option<(Vec<(ColumnIndex, PeerId)>, PeerAction)>,
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -50,7 +50,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         blocks_req_id: BlocksByRangeRequestId,
         blobs_req_id: Option<BlobsByRangeRequestId>,
         data_columns: Option<(
-            Vec<(DataColumnsByRangeRequestId, Vec<u64>)>,
+            Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
             Vec<ColumnIndex>,
         )>,
     ) -> Self {
@@ -609,7 +609,7 @@ mod tests {
         let columns_req_id = batched_column_requests
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), column.clone()))
+            .map(|(i, columns)| (columns_id(i as Id, components_id), columns.clone()))
             .collect::<Vec<_>>();
 
         let mut info = RangeBlockComponentsRequest::<E>::new(

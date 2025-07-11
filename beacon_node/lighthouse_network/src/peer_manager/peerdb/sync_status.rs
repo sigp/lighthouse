@@ -29,9 +29,9 @@ pub struct SyncInfo {
 }
 
 impl SyncInfo {
-    /// Returns true if the provided slot is greater than `earliest_available_slot`.
+    /// Returns true if the provided slot is greater than or equal to the peer's `earliest_available_slot`.
     ///
-    /// If `earliest_available_slot` does is None, then we just assume that the peer has the slot.
+    /// If `earliest_available_slot` is None, then we just assume that the peer has the slot.
     pub fn has_slot(&self, slot: Slot) -> bool {
         if let Some(earliest_available_slot) = self.earliest_available_slot {
             slot >= earliest_available_slot
