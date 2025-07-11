@@ -32,12 +32,13 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
 
     let secp256k1_keypair = secp256k1::Keypair::generate();
     let enr_key = CombinedKey::from_secp256k1(&secp256k1_keypair);
+    let genesis_fork_digest = spec.compute_fork_digest(Hash256::zero(), Epoch::new(0));
     let enr_fork_id = EnrForkId {
-        fork_digest: ChainSpec::compute_fork_digest(genesis_fork_version, Hash256::zero()),
+        fork_digest: genesis_fork_digest,
         next_fork_version: genesis_fork_version,
         next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
     };
-    let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, spec)
+    let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, genesis_fork_digest, spec)
         .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("Unable to create output-dir: {:?}", e))?;

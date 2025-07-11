@@ -486,14 +486,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        let fork_epoch = self.spec.deneb_fork_epoch?;
-        let current_slot = self.slot_clock.now()?;
-        Some(std::cmp::max(
-            fork_epoch,
-            current_slot
-                .epoch(T::EthSpec::slots_per_epoch())
-                .saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
-        ))
+        let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
+        self.spec
+            .min_epoch_data_availability_boundary(current_epoch)
     }
 
     /// Returns true if the given epoch lies within the da boundary and false otherwise.
@@ -670,15 +665,17 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                     .fork_choice_read_lock()
                     .finalized_checkpoint()
                     .epoch;
+
+                let Some(min_epochs_for_blobs) = chain
+                    .spec
+                    .min_epoch_data_availability_boundary(current_epoch)
+                else {
+                    // Shutdown service if deneb fork epoch not set. Unreachable as the same check is performed above.
+                    break;
+                };
+
                 // any data belonging to an epoch before this should be pruned
-                let cutoff_epoch = std::cmp::max(
-                    finalized_epoch + 1,
-                    std::cmp::max(
-                        current_epoch
-                            .saturating_sub(chain.spec.min_epochs_for_blob_sidecars_requests),
-                        deneb_fork_epoch,
-                    ),
-                );
+                let cutoff_epoch = std::cmp::max(finalized_epoch + 1, min_epochs_for_blobs);
 
                 if let Err(e) = overflow_cache.do_maintenance(cutoff_epoch) {
                     error!(error = ?e,"Failed to maintain availability cache");

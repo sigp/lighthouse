@@ -808,7 +808,7 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         slot: Slot,
         index: CommitteeIndex,
-    ) -> Result<BeaconCommittee, Error> {
+    ) -> Result<BeaconCommittee<'_>, Error> {
         let epoch = slot.epoch(E::slots_per_epoch());
         let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)?;
         let cache = self.committee_cache(relative_epoch)?;
@@ -823,7 +823,10 @@ impl<E: EthSpec> BeaconState<E> {
     /// Utilises the committee cache.
     ///
     /// Spec v0.12.1
-    pub fn get_beacon_committees_at_slot(&self, slot: Slot) -> Result<Vec<BeaconCommittee>, Error> {
+    pub fn get_beacon_committees_at_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         let cache = self.committee_cache_at_slot(slot)?;
         cache.get_beacon_committees_at_slot(slot)
     }
@@ -836,7 +839,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_beacon_committees_at_epoch(
         &self,
         relative_epoch: RelativeEpoch,
-    ) -> Result<Vec<BeaconCommittee>, Error> {
+    ) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         let cache = self.committee_cache(relative_epoch)?;
         cache.get_all_beacon_committees()
     }
@@ -1016,7 +1019,9 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
-    pub fn latest_execution_payload_header(&self) -> Result<ExecutionPayloadHeaderRef<E>, Error> {
+    pub fn latest_execution_payload_header(
+        &self,
+    ) -> Result<ExecutionPayloadHeaderRef<'_, E>, Error> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Bellatrix(state) => Ok(ExecutionPayloadHeaderRef::Bellatrix(
@@ -1039,7 +1044,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     pub fn latest_execution_payload_header_mut(
         &mut self,
-    ) -> Result<ExecutionPayloadHeaderRefMut<E>, Error> {
+    ) -> Result<ExecutionPayloadHeaderRefMut<'_, E>, Error> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Bellatrix(state) => Ok(ExecutionPayloadHeaderRefMut::Bellatrix(
@@ -1713,7 +1718,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_validator_cow(
         &mut self,
         validator_index: usize,
-    ) -> Result<milhouse::Cow<Validator>, Error> {
+    ) -> Result<milhouse::Cow<'_, Validator>, Error> {
         self.validators_mut()
             .get_cow(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))

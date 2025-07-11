@@ -1096,16 +1096,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
 #[cfg(test)]
 use {
-    beacon_chain::{builder::Witness, eth1_chain::CachingEth1Backend},
-    beacon_processor::BeaconProcessorChannels,
-    slot_clock::ManualSlotClock,
-    store::MemoryStore,
-    tokio::sync::mpsc::UnboundedSender,
+    beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
+    slot_clock::ManualSlotClock, store::MemoryStore, tokio::sync::mpsc::UnboundedSender,
 };
 
 #[cfg(test)]
 pub(crate) type TestBeaconChainType<E> =
-    Witness<ManualSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+    Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
 
 #[cfg(test)]
 impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {

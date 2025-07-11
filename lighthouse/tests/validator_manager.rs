@@ -10,6 +10,7 @@ use types::*;
 use validator_manager::{
     create_validators::CreateConfig,
     delete_validators::DeleteConfig,
+    exit_validators::ExitConfig,
     import_validators::ImportConfig,
     list_validators::ListConfig,
     move_validators::{MoveConfig, PasswordSource, Validators},
@@ -116,6 +117,12 @@ impl CommandLineTest<ListConfig> {
 impl CommandLineTest<DeleteConfig> {
     fn validators_delete() -> Self {
         Self::default().flag("delete", None)
+    }
+}
+
+impl CommandLineTest<ExitConfig> {
+    fn validators_exit() -> Self {
+        Self::default().flag("exit", None)
     }
 }
 
@@ -443,6 +450,8 @@ pub fn validator_list_defaults() {
             let expected = ListConfig {
                 vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
                 vc_token_path: PathBuf::from("./token.json"),
+                beacon_url: None,
+                validators_to_display: vec![],
             };
             assert_eq!(expected, config);
         });
@@ -467,4 +476,107 @@ pub fn validator_delete_defaults() {
             };
             assert_eq!(expected, config);
         });
+}
+
+#[test]
+pub fn validator_delete_missing_validator_flag() {
+    CommandLineTest::validators_delete()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_defaults() {
+    CommandLineTest::validators_exit()
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--beacon-node", Some("http://localhost:5052"))
+        .assert_success(|config| {
+            let expected = ExitConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                validators_to_exit: vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ],
+                beacon_url: Some(SensitiveUrl::parse("http://localhost:5052").unwrap()),
+                exit_epoch: None,
+                presign: false,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_exit_exit_epoch_and_presign_flags() {
+    CommandLineTest::validators_exit()
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--vc-token", Some("./token.json"))
+        .flag("--exit-epoch", Some("1234567"))
+        .flag("--presign", None)
+        .assert_success(|config| {
+            let expected = ExitConfig {
+                vc_url: SensitiveUrl::parse("http://localhost:5062").unwrap(),
+                vc_token_path: PathBuf::from("./token.json"),
+                validators_to_exit: vec![
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_1).unwrap(),
+                ],
+                beacon_url: None,
+                exit_epoch: Some(Epoch::new(1234567)),
+                presign: true,
+            };
+            assert_eq!(expected, config);
+        });
+}
+
+#[test]
+pub fn validator_exit_missing_validator_flag() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_using_beacon_and_presign_flags() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--beacon-node", Some("http://localhost:1001"))
+        .flag("--presign", None)
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_using_beacon_and_exit_epoch_flags() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--beacon-node", Some("http://localhost:1001"))
+        .flag("--exit-epoch", Some("1234567"))
+        .assert_failed();
+}
+
+#[test]
+pub fn validator_exit_exit_epoch_flag_without_presign_flag() {
+    CommandLineTest::validators_exit()
+        .flag("--vc-token", Some("./token.json"))
+        .flag(
+            "--validators",
+            Some(&format!("{},{}", EXAMPLE_PUBKEY_0, EXAMPLE_PUBKEY_1)),
+        )
+        .flag("--exit-epoch", Some("1234567"))
+        .assert_failed();
 }

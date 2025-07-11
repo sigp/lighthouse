@@ -883,11 +883,25 @@ mod test {
         }
     }
 
+    fn spec_with_all_forks_enabled<E: EthSpec>() -> ChainSpec {
+        let mut chain_spec = E::default_spec();
+        chain_spec.altair_fork_epoch = Some(Epoch::new(1));
+        chain_spec.bellatrix_fork_epoch = Some(Epoch::new(2));
+        chain_spec.capella_fork_epoch = Some(Epoch::new(3));
+        chain_spec.deneb_fork_epoch = Some(Epoch::new(4));
+        chain_spec.electra_fork_epoch = Some(Epoch::new(5));
+        chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
+
+        // check that we have all forks covered
+        assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
+        chain_spec
+    }
+
     #[test]
     fn test_ssz_tagged_signed_beacon_block() {
         type E = MainnetEthSpec;
 
-        let spec = &E::default_spec();
+        let spec = &spec_with_all_forks_enabled::<E>();
         let sig = Signature::empty();
         let blocks = vec![
             SignedBeaconBlock::<E>::from_block(
