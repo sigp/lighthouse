@@ -50,8 +50,7 @@ pub async fn gossip_invalid() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -101,8 +100,7 @@ pub async fn gossip_partial_pass() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -148,8 +146,7 @@ pub async fn gossip_full_pass() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -239,8 +236,7 @@ pub async fn consensus_invalid() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -289,8 +285,7 @@ pub async fn consensus_gossip() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -336,8 +331,7 @@ pub async fn consensus_partial_pass_only_consensus() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -408,8 +402,7 @@ pub async fn consensus_full_pass() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -455,8 +448,7 @@ pub async fn equivocation_invalid() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -506,8 +498,7 @@ pub async fn equivocation_consensus_early_equivocation() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -632,8 +623,7 @@ pub async fn equivocation_consensus_late_equivocation() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -709,8 +699,7 @@ pub async fn equivocation_full_pass() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -755,8 +744,7 @@ pub async fn blinded_gossip_invalid() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -805,8 +793,7 @@ pub async fn blinded_gossip_partial_pass() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -852,8 +839,7 @@ pub async fn blinded_gossip_full_pass() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -894,8 +880,7 @@ pub async fn blinded_gossip_full_pass_ssz() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -937,8 +922,7 @@ pub async fn blinded_consensus_invalid() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -987,8 +971,7 @@ pub async fn blinded_consensus_gossip() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1034,8 +1017,7 @@ pub async fn blinded_consensus_full_pass() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1078,8 +1060,7 @@ pub async fn blinded_equivocation_invalid() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1129,8 +1110,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1200,8 +1180,7 @@ pub async fn blinded_equivocation_gossip() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1254,8 +1233,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1351,8 +1329,7 @@ pub async fn blinded_equivocation_full_pass() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1388,14 +1365,13 @@ pub async fn blinded_equivocation_full_pass() {
 /// even if the block has already been seen on gossip without any blobs/columns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn block_seen_on_gossip_without_blobs_or_columns() {
-    let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&spec).unwrap();
     if !fork_name.deneb_enabled() {
@@ -1455,14 +1431,13 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
 /// even if the block has already been seen on gossip without all blobs/columns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
-    let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&spec).unwrap();
     if !fork_name.deneb_enabled() {
@@ -1611,14 +1586,13 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
 /// if just the blobs have already been seen on gossip.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns() {
-    let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&spec).unwrap();
     if !fork_name.deneb_enabled() {
@@ -1691,8 +1665,7 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let state = tester.harness.get_current_state();
     let fork_name = state.fork_name(&spec).unwrap();
     if !fork_name.deneb_enabled() {
@@ -1764,10 +1737,9 @@ pub async fn duplicate_block_status_code() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = test_spec::<E>();
     let duplicate_block_status_code = StatusCode::IM_A_TEAPOT;
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
-        Some(spec),
+        None,
         validator_count,
         None,
         None,
