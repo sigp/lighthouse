@@ -16,6 +16,9 @@ use types::{graffiti::GraffitiString, Address, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
 use zeroize::Zeroizing;
 
+// Add LazyLock import
+use std::sync::LazyLock;
+
 /// The file name for the serialized `ValidatorDefinitions` struct.
 pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
 
@@ -440,6 +443,14 @@ pub fn recursively_find_voting_keystores<P: AsRef<Path>>(
 
 /// Returns `true` if we should consider the `file_name` to represent a voting keystore.
 pub fn is_voting_keystore(file_name: &str) -> bool {
+    // Static compiled regular expressions
+    static LIGHTHOUSE_KEYSTORE_REGEX: LazyLock<Regex> = LazyLock::new(|| 
+        Regex::new("keystore-m_12381_3600_[0-9]+_0_0-[0-9]+.json").expect("regex is valid")
+    );
+    static PRYSM_KEYSTORE_REGEX: LazyLock<Regex> = LazyLock::new(|| 
+        Regex::new("keystore-[0-9]+.json").expect("regex is valid")
+    );
+
     // All formats end with `.json`.
     if !file_name.ends_with(".json") {
         return false;
@@ -462,19 +473,13 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
     // Key derivation path reference:
     //
     // https://eips.ethereum.org/EIPS/eip-2334
-    if Regex::new("keystore-m_12381_3600_[0-9]+_0_0-[0-9]+.json")
-        .expect("regex is valid")
-        .is_match(file_name)
-    {
+    if LIGHTHOUSE_KEYSTORE_REGEX.is_match(file_name) {
         return true;
     }
 
     // The format exported by Prysm. I don't have a reference for this, but it was shared via
     // Discord to Paul H.
-    if Regex::new("keystore-[0-9]+.json")
-        .expect("regex is valid")
-        .is_match(file_name)
-    {
+    if PRYSM_KEYSTORE_REGEX.is_match(file_name) {
         return true;
     }
 
