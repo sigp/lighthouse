@@ -2756,24 +2756,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check if we have enough valid proofs
         if proof_count < self.config.stateless_min_proofs_required {
+            // Get proof descriptions with their subnet IDs for better logging
+            let proof_details: Vec<String> = available_proofs
+                .iter()
+                .map(|p| format!("{} on subnet {}", p.description(), p.proof_id.subnet_id()))
+                .collect();
+            
             debug!(
-                %execution_block_hash,
-                current_proofs = proof_count,
-                required_proofs = self.config.stateless_min_proofs_required,
-                "Not enough proofs yet for proven chain update"
+                "PROOFCHAIN {}: {}. Proofs: {}/{} required",
+                execution_block_hash,
+                proof_details.join(", "),
+                proof_count,
+                self.config.stateless_min_proofs_required
             );
             return Ok(false);
         }
 
-        let proof_descriptions: Vec<String> =
-            available_proofs.iter().map(|p| p.description()).collect();
-
         info!(
-            %execution_block_hash,
+            "PROOFCHAIN {}: minimum proofs reached ({}/{}), updating proven chain",
+            execution_block_hash,
             proof_count,
-            required_proofs = self.config.stateless_min_proofs_required,
-            proof_types = %proof_descriptions.join(", "),
-            "STATELESS: Found enough proofs, updating proven chain"
+            self.config.stateless_min_proofs_required
         );
 
         // Update the proven canonical chain based on available proofs
@@ -2785,8 +2788,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if proven_head_changed {
             info!(
-                %execution_block_hash,
-                "STATELESS: Proven chain head updated (fork choice remains optimistic)"
+                "PROOFCHAIN {}: proven chain head updated (fork choice remains optimistic)",
+                execution_block_hash
             );
         }
 

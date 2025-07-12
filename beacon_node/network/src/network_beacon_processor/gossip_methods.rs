@@ -3231,10 +3231,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         {
             Ok(()) => {
                 info!(
-                    %block_hash,
-                    subnet_id = %subnet_id_u64,
-                    description = %proof_description,
-                    "Successfully stored execution proof from gossip"
+                    "PROOFCHAIN {}: proof type {} received on subnet {}",
+                    block_hash,
+                    proof_description,
+                    subnet_id_u64
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
@@ -3261,9 +3261,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 {
                     Ok(_) => {
                         debug!(
-                            %block_hash,
-                            subnet_id = %subnet_id_u64,
-                            "Updated proven chain with new proof"
+                            "PROOFCHAIN {}: proven chain re-evaluated after proof arrival",
+                            block_hash
                         );
 
                         // In dual-view architecture, fork choice remains optimistic
