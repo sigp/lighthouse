@@ -206,13 +206,27 @@ impl StoreItem for BlobInfo {
 }
 
 /// Database parameter relevant to data column custody sync. There is only at most a single
-/// `DataColumnCustodyInfo` stored in the db. This record is added to the db when cgc
+/// `DataColumnCustodyInfo` stored in the db. `earliest_data_column_slot` is updated when cgc
 /// count changes and is updated incrementally during data column custody backfill. Once custody backfill
-/// is complete the record is removed from the db.
+/// is complete `earliest_data_column_slot` is set to `None`.
 #[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
 pub struct DataColumnCustodyInfo {
     /// The earliest slot for which data columns are available.
     pub earliest_data_column_slot: Option<Slot>,
+}
+
+impl StoreItem for DataColumnCustodyInfo {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconDataColumnCustodyInfo
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(DataColumnCustodyInfo::from_ssz_bytes(bytes)?)
+    }
 }
 
 /// Database parameters relevant to data column sync.

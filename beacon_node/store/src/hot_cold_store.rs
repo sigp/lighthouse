@@ -941,11 +941,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             earliest_data_column_slot,
         };
 
-        self.blobs_db.put_bytes(
-            DBColumn::BeaconDataColumnCustodyInfo,
-            DATA_COLUMN_CUSTODY_INFO_KEY.as_slice(),
-            &data_column_custody_info.as_ssz_bytes(),
-        )?;
+        self.blobs_db
+            .put(&DATA_COLUMN_CUSTODY_INFO_KEY, &data_column_custody_info)?;
 
         self.block_cache
             .lock()
@@ -2427,16 +2424,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn get_data_column_custody_info(&self) -> Result<Option<DataColumnCustodyInfo>, Error> {
         let Some(data_column_custody_info) = self.block_cache.lock().get_data_column_custody_info()
         else {
-            let bytes_opt = self.blobs_db.get_bytes(
-                DBColumn::BeaconDataColumnCustodyInfo,
-                DATA_COLUMN_CUSTODY_INFO_KEY.as_slice(),
-            )?;
+            let data_column_custody_info = self
+                .blobs_db
+                .get::<DataColumnCustodyInfo>(&DATA_COLUMN_CUSTODY_INFO_KEY)?;
 
-            let Some(bytes) = bytes_opt else {
-                return Ok(None);
-            };
-
-            let data_column_custody_info = Some(DataColumnCustodyInfo::from_ssz_bytes(&bytes)?);
             // Update the cache
             self.block_cache
                 .lock()
