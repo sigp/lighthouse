@@ -217,7 +217,7 @@ impl CustodyContext {
                     new_custody_group_count: updated_cgc,
                     sampling_count: self
                         .num_of_custody_groups_to_sample(Some(effective_epoch), spec),
-                    effective_epoch: current_slot.epoch(E::slots_per_epoch()),
+                    effective_epoch,
                 });
             }
         }
