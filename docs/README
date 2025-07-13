@@ -1,0 +1,46 @@
+# Custom Validator Module: Decentralized Authorship & Timestamping
+
+This module implements experimental validator extensions for Lighthouse that link consensus activity to cryptographic authorship proofs. It is designed to serve as a cryptographic witness framework for uptime, sync checkpoints, and $btcmonzturr ledger notarization.
+
+## 🧠 Purpose
+
+- Enable validator heartbeat logging as timestamped JSON blocks
+- Embed sync metrics into OpenTimestamps proof flow
+- Push consensus state to IPFS for tamper-evident authorship tracking
+- Support slot-specific identity via validator pubkeys and signature mapping
+
+## 📦 Features
+
+- `log_sync_distance(distance, pubkey)` — records REST API sync distance to local file
+- `notarize_log()` — calls OpenTimestamps CLI to timestamp latest sync JSON
+- Integration-ready for beacon watchdog output
+- Optional slot metadata embedding for authorship claims
+
+## 🔧 Status
+
+This module is under active development and aligned with goals outlined in `docs/custom-validator-guide.md`. Next steps include modularizing log output, embedding CID pushes, and slot-based proof chaining.
+
+---
+
+Built by and for sovereign authors. Timestamp truth.
+// src/validator_client/custom.rs
+use chrono::Utc;
+use std::fs::OpenOptions;
+use std::io::Write;
+
+pub fn log_sync(distance: u64, pubkey: &str) {
+    let timestamp = Utc::now().to_rfc3339();
+    let json = format!(
+        "{{\"timestamp\":\"{}\",\"sync_distance\":{},\"validator_pubkey\":\"{}\"}}\n",
+        timestamp, distance, pubkey
+    );
+
+    let mut file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("beacon_sync.json")
+        .expect("Unable to open sync log");
+
+    file.write_all(json.as_bytes()).expect("Failed to write log");
+}
+chrono = "0.4"
