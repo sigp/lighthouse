@@ -630,8 +630,8 @@ fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
     // Extract execution payload info for logging
     let (hash, number) = (payload.block_hash(), payload.block_number());
 
-    info!(
-        "STATELESS: Spawning proof generation task for execution block {:?} (block #{})",
+    debug!(
+        "PROOFCHAIN {:?}: Spawning proof generation task (block #{})",
         hash, number
     );
 
@@ -680,17 +680,32 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
     // Get the subnets this node wants to generate proofs for
     let proof_subnets = chain.execution_proof_subnets();
 
-    info!(
-        "STATELESS: Generating {} dummy proofs for execution payload {:?} on subnets {:?}",
-        proof_subnets.len(),
+    debug!(
+        "PROOFCHAIN {:?}: Generating {} dummy proofs on subnets {:?}",
         execution_block_hash,
+        proof_subnets.len(),
         proof_subnets
     );
 
     // Generate and store a proof for each subnet
-    for subnet_id in proof_subnets {
-        if chain.should_generate_execution_proof_for_subnet(subnet_id) {
-            let proof_id = crate::execution_payload_proofs::ProofId(subnet_id);
+    for (index, subnet_id) in proof_subnets.iter().enumerate() {
+        if chain.should_generate_execution_proof_for_subnet(*subnet_id) {
+            // Add staggered delays between generating proofs for different subnets to show progression
+            // This helps visualize the proof accumulation in logs
+            let delay_ms = match index {
+                0 => 0,
+                1 => 5000,
+                2 => 10000,
+                3 => 15000,
+                4 => 20000,
+                _ => 25000,
+            };
+
+            if delay_ms > 0 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+            }
+
+            let proof_id = crate::execution_payload_proofs::ProofId(*subnet_id);
 
             // Use the proof store method to generate and store the proof
             match chain
@@ -698,10 +713,10 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
                 .generate_and_store_dummy_proof(&payload, &dummy_witness, proof_id)
             {
                 Ok(proof) => {
-                    info!(
-                        "STATELESS: Generated and stored {} for execution payload {:?} on subnet {}",
-                        proof.description(),
+                    debug!(
+                        "PROOFCHAIN {:?}: Generated {} on subnet {}",
                         execution_block_hash,
+                        proof.description(),
                         subnet_id
                     );
 

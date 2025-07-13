@@ -3259,11 +3259,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .chain
                     .re_evaluate_optimistic_blocks_with_proofs(block_hash)
                 {
-                    Ok(_) => {
-                        debug!(
-                            "PROOFCHAIN {}: proven chain re-evaluated after proof arrival",
-                            block_hash
-                        );
+                    Ok(proven_head_changed) => {
+                        if proven_head_changed {
+                            info!(
+                                "PROOFCHAIN {}: proven chain HEAD UPDATED after receiving proof on subnet {}",
+                                block_hash,
+                                subnet_id_u64
+                            );
+                        } else {
+                            debug!(
+                                "PROOFCHAIN {}: proven chain evaluated but HEAD UNCHANGED after proof on subnet {}",
+                                block_hash,
+                                subnet_id_u64
+                            );
+                        }
 
                         // In dual-view architecture, fork choice remains optimistic
                         // The proven chain is tracked separately and doesn't trigger head recomputation
