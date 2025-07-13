@@ -86,6 +86,7 @@ async fn schema_stability() {
 
     chain.persist_op_pool().unwrap();
     chain.persist_custody_context().unwrap();
+    insert_data_column_custody_info(&store, &harness.spec);
 
     check_db_columns();
     check_metadata_sizes(&store);
@@ -108,6 +109,12 @@ fn check_db_columns() {
         "brm", "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
     ];
     assert_eq!(expected_columns, current_columns);
+}
+
+fn insert_data_column_custody_info(store: &Store<E>, spec: &ChainSpec) {
+    if spec.is_peer_das_scheduled() {
+        store.put_data_column_custody_info(None).unwrap();
+    }
 }
 
 /// Check the SSZ sizes of known on-disk metadata.
