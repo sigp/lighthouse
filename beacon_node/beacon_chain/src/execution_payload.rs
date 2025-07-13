@@ -636,6 +636,8 @@ fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
     );
 
     // Spawn the proof generation task in the background
+    // WARNING: No resource limits or task counting is performed here.
+    // TODO: Implement a task queue with concurrency limits and resource monitoring.
     chain.task_executor.spawn(
         async move {
             if let Err(e) =
@@ -649,7 +651,9 @@ fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
 }
 
 /// Generate and store dummy execution proofs from a block
-/// This simulates receiving proofs that would normally come from zkVMs or other proof generators  
+/// This simulates receiving proofs that would normally come from zkVMs or other proof generators
+///
+/// TODO: This implementation lacks a circuit breaker for proof generation
 async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     payload: &ExecutionPayload<T::EthSpec>,

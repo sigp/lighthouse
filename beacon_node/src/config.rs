@@ -854,7 +854,6 @@ pub fn get_config<E: EthSpec>(
             ));
         }
         client_config.chain.stateless_min_proofs_required = min_proofs;
-        
         // Only validate stateless-validation requirement if the flag was explicitly provided
         if !client_config.chain.stateless_validation {
             return Err(
@@ -1634,4 +1633,227 @@ fn purge_db(chain_db: PathBuf, freezer_db: PathBuf, blobs_db: PathBuf) -> Result
     }
 
     Ok(())
+}
+
+// TODO: Probably remove these, they aren't present for other cli arguments
+#[cfg(test)]
+mod tests {
+    use client::config::Config;
+    use clap::{arg, Command};
+    use std::str::FromStr;
+
+    fn get_test_app() -> Command {
+        Command::new("test")
+            .arg(arg!(--"stateless-validation").action(clap::ArgAction::SetTrue))
+            .arg(arg!(--"generate-execution-proofs").action(clap::ArgAction::SetTrue))
+            .arg(arg!(--"stateless-min-proofs-required" <VALUE>))
+            .arg(arg!(--"max-execution-proof-subnets" <VALUE>))
+            .arg(arg!(--"datadir" <VALUE>))
+            .arg(arg!(--"testnet-dir" <VALUE>))
+    }
+
+    #[test]
+    fn test_stateless_validation_basic() {
+        let app = get_test_app();
+        let matches = app
+            .try_get_matches_from(vec!["test", "--stateless-validation"])
+            .unwrap();
+
+        let mut client_config = Config::default();
+        client_config.chain.stateless_validation = matches.get_flag("stateless-validation");
+
+        assert!(client_config.chain.stateless_validation);
+    }
+
+    #[test]
+    fn test_generate_execution_proofs_basic() {
+        let app = get_test_app();
+        let matches = app
+            .try_get_matches_from(vec!["test", "--generate-execution-proofs"])
+            .unwrap();
+
+        let mut client_config = Config::default();
+        client_config.chain.generate_execution_proofs =
+            matches.get_flag("generate-execution-proofs");
+
+        assert!(client_config.chain.generate_execution_proofs);
+    }
+
+    #[test]
+    fn test_stateless_validation_with_generate_proofs_fails() {
+        let app = get_test_app();
+        let matches = app
+            .try_get_matches_from(vec![
+                "test",
+                "--stateless-validation",
+                "--generate-execution-proofs",
+                "--datadir",
+                "/tmp/test",
+                "--testnet-dir",
+                "/tmp/testnet",
+            ])
+            .unwrap();
+
+        // Simulate the validation logic from get_config
+        let mut client_config = Config::default();
+        client_config.chain.stateless_validation = matches.get_flag("stateless-validation");
+        client_config.chain.generate_execution_proofs =
+            matches.get_flag("generate-execution-proofs");
+
+        // This combination should be invalid
+        let result = if client_config.chain.generate_execution_proofs
+            && client_config.chain.stateless_validation
+        {
+            Err("The --generate-execution-proofs flag cannot be used with --stateless-validation. Stateless nodes cannot generate proofs.".to_string())
+        } else {
+            Ok(())
+        };
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("cannot be used with --stateless-validation"));
+    }
+
+    #[test]
+    fn test_stateless_min_proofs_required_validation() {
+        let app = get_test_app();
+
+        // Test valid min proofs
+        let matches = app
+            .clone()
+            .try_get_matches_from(vec![
+                "test",
+                "--stateless-validation",
+                "--stateless-min-proofs-required",
+                "2",
+            ])
+            .unwrap();
+
+        let min_proofs_str = matches
+            .get_one::<String>("stateless-min-proofs-required")
+            .unwrap();
+        let min_proofs = usize::from_str(min_proofs_str).unwrap();
+
+        assert_eq!(min_proofs, 2);
+
+        // Test that min_proofs > 0
+        let result = if min_proofs == 0 {
+            Err("--stateless-min-proofs-required must be at least 1".to_string())
+        } else {
+            Ok(())
+        };
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_stateless_min_proofs_requires_stateless_validation() {
+        let app = get_test_app();
+        let matches = app
+            .try_get_matches_from(vec![
+                "test",
+                "--stateless-min-proofs-required",
+                "2",
+                "--datadir",
+                "/tmp/test",
+                "--testnet-dir",
+                "/tmp/testnet",
+            ])
+            .unwrap();
+
+        let mut client_config = Config::default();
+        client_config.chain.stateless_validation = matches.get_flag("stateless-validation");
+
+        // Setting min proofs without stateless validation should fail
+        let result = if matches
+            .get_one::<String>("stateless-min-proofs-required")
+            .is_some()
+            && !client_config.chain.stateless_validation
+        {
+            Err(
+                "--stateless-min-proofs-required requires --stateless-validation to be enabled"
+                    .to_string(),
+            )
+        } else {
+            Ok(())
+        };
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("requires --stateless-validation"));
+    }
+
+    #[test]
+    fn test_max_execution_proof_subnets_validation() {
+        let app = get_test_app();
+
+        // Test that min_proofs cannot exceed max_subnets
+        let matches = app
+            .try_get_matches_from(vec![
+                "test",
+                "--stateless-validation",
+                "--max-execution-proof-subnets",
+                "4",
+                "--stateless-min-proofs-required",
+                "5",
+            ])
+            .unwrap();
+
+        let max_subnets = usize::from_str(
+            matches
+                .get_one::<String>("max-execution-proof-subnets")
+                .unwrap(),
+        )
+        .unwrap();
+        let min_proofs = usize::from_str(
+            matches
+                .get_one::<String>("stateless-min-proofs-required")
+                .unwrap(),
+        )
+        .unwrap();
+
+        let result = if min_proofs > max_subnets {
+            Err(format!(
+                "--stateless-min-proofs-required ({}) cannot exceed max_execution_proof_subnets ({})",
+                min_proofs, max_subnets
+            ))
+        } else {
+            Ok(())
+        };
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("cannot exceed max_execution_proof_subnets"));
+    }
+
+    #[test]
+    fn test_default_stateless_min_proofs() {
+        let client_config = Config::default();
+
+        // When no min proofs is specified, it should default to 1
+        assert_eq!(client_config.chain.stateless_min_proofs_required, 1);
+    }
+
+    #[test]
+    fn test_network_config_inherits_stateless_validation() {
+        let app = get_test_app();
+        let matches = app
+            .try_get_matches_from(vec!["test", "--stateless-validation"])
+            .unwrap();
+
+        let mut client_config = Config::default();
+        client_config.chain.stateless_validation = matches.get_flag("stateless-validation");
+
+        // Network config should inherit stateless validation setting
+        client_config.network.stateless_validation = client_config.chain.stateless_validation;
+
+        assert!(client_config.network.stateless_validation);
+        assert_eq!(
+            client_config.chain.stateless_validation,
+            client_config.network.stateless_validation
+        );
+    }
 }

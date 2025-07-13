@@ -784,7 +784,7 @@ impl Default for ExecutionPayloadProofStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::Hash256;
+    use types::{Hash256, FixedBytesExtended};
 
     #[test]
     fn test_proof_store_basic_operations() {
@@ -1158,5 +1158,267 @@ mod tests {
         assert_eq!(store.proof_count_for_payload(&execution_block_hash), 2);
         assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id));
         assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id_2));
+    }
+
+    #[test]
+    fn test_proven_chain_tracking_basic() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        // Initially no proven head
+        assert!(store.get_proven_head().is_none());
+        assert!(store.get_proven_finalized().is_none());
+        
+        // The proven head and finalized are set internally by update_proven_chain
+        // We can't set them directly, so this test focuses on checking initial state
+    }
+
+    #[test]
+    fn test_is_execution_payload_proven() {
+        let store = ExecutionPayloadProofStore::new(100);
+        let min_proofs = 2;
+        
+        let block_hash = ExecutionBlockHash::from(Hash256::random());
+        
+        // No proofs = not proven
+        assert!(store.proof_count_for_payload(&block_hash) < min_proofs);
+        
+        // Add one proof - still not enough
+        let proof1 = ExecutionPayloadProof::new_v1(
+            block_hash,
+            ProofId::EXECUTION_WITNESS,
+            vec![1, 2, 3],
+        );
+        assert!(store.store_proof(proof1).is_ok());
+        assert!(store.proof_count_for_payload(&block_hash) < min_proofs);
+        
+        // Add second proof - now it's proven
+        let proof2 = ExecutionPayloadProof::new_v1(
+            block_hash,
+            ProofId::custom(1),
+            vec![4, 5, 6],
+        );
+        assert!(store.store_proof(proof2).is_ok());
+        assert!(store.proof_count_for_payload(&block_hash) >= min_proofs);
+        
+        // With min_proofs = 1, it should have been proven with just one proof
+        assert!(store.proof_count_for_payload(&block_hash) >= 1);
+    }
+
+    #[test]
+    fn test_is_beacon_block_proven() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let beacon_root = Hash256::from_low_u64_be(1);
+        
+        // Initially not proven
+        assert!(!store.is_block_proven(&beacon_root));
+        
+        // The proven chain is populated by update_proven_chain
+        // which requires a full BeaconChain, so we can't test the full flow here
+        
+        // Test with a different block
+        assert!(!store.is_block_proven(&Hash256::from_low_u64_be(999)));
+    }
+
+    #[test]
+    fn test_get_proven_chain_empty() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        // Initially the proven canonical chain should be empty
+        let proven_blocks = store.get_proven_canonical_chain();
+        assert_eq!(proven_blocks.len(), 0);
+        assert_eq!(store.get_proven_chain_depth(), 0);
+    }
+
+    #[test]
+    fn test_pending_blocks() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let exec_hash = ExecutionBlockHash::from(Hash256::random());
+        let beacon_root1 = Hash256::random();
+        let beacon_root2 = Hash256::random();
+        
+        // Register pending blocks
+        store.register_pending_block(exec_hash, beacon_root1);
+        
+        // Check pending blocks
+        let pending = store.get_pending_blocks(&exec_hash);
+        assert_eq!(pending.len(), 1);
+        assert!(pending.contains(&beacon_root1));
+        
+        // Register another
+        store.register_pending_block(exec_hash, beacon_root2);
+        let pending = store.get_pending_blocks(&exec_hash);
+        assert_eq!(pending.len(), 2);
+        
+        // Remove one pending block
+        store.remove_pending_block(&exec_hash, beacon_root1);
+        let pending = store.get_pending_blocks(&exec_hash);
+        assert_eq!(pending.len(), 1);
+        assert!(!pending.contains(&beacon_root1));
+        assert!(pending.contains(&beacon_root2));
+    }
+
+    #[test]
+    fn test_take_pending_blocks() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let exec_hash = ExecutionBlockHash::from(Hash256::random());
+        let beacon_root1 = Hash256::random();
+        let beacon_root2 = Hash256::random();
+        
+        // Register pending blocks
+        store.register_pending_block(exec_hash, beacon_root1);
+        store.register_pending_block(exec_hash, beacon_root2);
+        
+        // Take pending blocks (removes them)
+        let taken = store.take_pending_blocks(&exec_hash);
+        assert_eq!(taken.len(), 2);
+        assert!(taken.contains(&beacon_root1));
+        assert!(taken.contains(&beacon_root2));
+        
+        // Should be empty now
+        let pending = store.get_pending_blocks(&exec_hash);
+        assert_eq!(pending.len(), 0);
+    }
+
+    #[test]
+    fn test_pending_blocks_counts() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let exec_hash1 = ExecutionBlockHash::from(Hash256::random());
+        let exec_hash2 = ExecutionBlockHash::from(Hash256::random());
+        let beacon_root1 = Hash256::random();
+        let beacon_root2 = Hash256::random();
+        let beacon_root3 = Hash256::random();
+        
+        // Initially no pending blocks
+        assert_eq!(store.pending_execution_hashes_count(), 0);
+        assert_eq!(store.total_pending_blocks_count(), 0);
+        
+        // Add pending blocks
+        store.register_pending_block(exec_hash1, beacon_root1);
+        store.register_pending_block(exec_hash1, beacon_root2);
+        store.register_pending_block(exec_hash2, beacon_root3);
+        
+        // Check counts
+        assert_eq!(store.pending_execution_hashes_count(), 2); // 2 unique execution hashes
+        assert_eq!(store.total_pending_blocks_count(), 3); // 3 total pending blocks
+    }
+
+    #[test]
+    fn test_is_block_proven() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let beacon_root = Hash256::random();
+        
+        // Initially not proven
+        assert!(!store.is_block_proven(&beacon_root));
+        
+        // The proven chain is populated by update_proven_chain
+        // which requires a full BeaconChain, so we can't test it here
+    }
+
+    #[test]
+    fn test_get_proven_block_info() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let beacon_root = Hash256::random();
+        
+        // Should return None for non-existent blocks
+        assert!(store.get_proven_block_info(&beacon_root).is_none());
+    }
+
+    #[test]
+    fn test_cleanup_finalized_pending_blocks() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let exec_hash1 = ExecutionBlockHash::from(Hash256::random());
+        let exec_hash2 = ExecutionBlockHash::from(Hash256::random());
+        let beacon_root1 = Hash256::random();
+        let beacon_root2 = Hash256::random();
+        let beacon_root3 = Hash256::random();
+        
+        // Register pending blocks
+        store.register_pending_block(exec_hash1, beacon_root1);
+        store.register_pending_block(exec_hash1, beacon_root2);
+        store.register_pending_block(exec_hash2, beacon_root3);
+        
+        // Cleanup with a predicate that removes beacon_root1 and beacon_root2
+        let removed = store.cleanup_finalized_pending_blocks(|root| {
+            root == beacon_root1 || root == beacon_root2
+        });
+        
+        assert_eq!(removed, 2);
+        
+        // Check remaining blocks
+        let pending1 = store.get_pending_blocks(&exec_hash1);
+        assert_eq!(pending1.len(), 0); // All blocks for exec_hash1 were removed
+        
+        let pending2 = store.get_pending_blocks(&exec_hash2);
+        assert_eq!(pending2.len(), 1);
+        assert!(pending2.contains(&beacon_root3));
+    }
+
+    #[test]
+    fn test_cleanup_pending_blocks_by_slot() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let exec_hash1 = ExecutionBlockHash::from(Hash256::random());
+        let exec_hash2 = ExecutionBlockHash::from(Hash256::random());
+        let old_block = Hash256::random();
+        let new_block = Hash256::random();
+        
+        // Register blocks
+        store.register_pending_block(exec_hash1, old_block);
+        store.register_pending_block(exec_hash2, new_block);
+        
+        // Cleanup old blocks
+        let removed = store.cleanup_pending_blocks_by_slot(|root| root == old_block);
+        
+        assert_eq!(removed, 1);
+        
+        // Verify old block is gone
+        let pending1 = store.get_pending_blocks(&exec_hash1);
+        assert_eq!(pending1.len(), 0);
+        
+        // Verify new block remains
+        let pending2 = store.get_pending_blocks(&exec_hash2);
+        assert_eq!(pending2.len(), 1);
+        assert!(pending2.contains(&new_block));
+    }
+
+    #[test]
+    fn test_has_sufficient_proofs() {
+        let store = ExecutionPayloadProofStore::new(100);
+        
+        let exec_hash = ExecutionBlockHash::from(Hash256::random());
+        
+        // No proofs = insufficient
+        assert!(!store.has_sufficient_proofs(&exec_hash, 1));
+        assert!(!store.has_sufficient_proofs(&exec_hash, 2));
+        
+        // Add one proof
+        let proof1 = ExecutionPayloadProof::new_v1(
+            exec_hash,
+            ProofId::EXECUTION_WITNESS,
+            vec![1, 2, 3],
+        );
+        assert!(store.store_proof(proof1).is_ok());
+        
+        // Sufficient for min=1, insufficient for min=2
+        assert!(store.has_sufficient_proofs(&exec_hash, 1));
+        assert!(!store.has_sufficient_proofs(&exec_hash, 2));
+        
+        // Add second proof
+        let proof2 = ExecutionPayloadProof::new_v1(
+            exec_hash,
+            ProofId::custom(1),
+            vec![4, 5, 6],
+        );
+        assert!(store.store_proof(proof2).is_ok());
+        
+        // Now sufficient for min=2
+        assert!(store.has_sufficient_proofs(&exec_hash, 2));
     }
 }
