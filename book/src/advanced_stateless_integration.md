@@ -23,7 +23,7 @@ In some ways, you can view it as being two chains, where the EL chain can only p
 
 > Both chains store state, however when this document mentions state, it will refer to EL state if not explicitly noted.
 
-> TODO: Block is a confusing term. Whenever we mean EL block, either write EL block everywhere or change it to ExecutionPayload  
+  
 
 ### Why Stateless Validation?
 
@@ -32,7 +32,7 @@ The traditional Ethereum architecture faces several challenges:
 1. **State Growth**: The Ethereum state grows continuously (currently ~200GB+) as new accounts, contracts, and storage are added
 2. **Node Accessibility**: Running a full node requires significant disk space, making it inaccessible to many users
 3. **Centralization Risk**: As hardware requirements increase, fewer entities can afford to run nodes
-4. **Sync Times**: New nodes download and verify the entire state (or use checkpoint sync), taking days or weeks (TODO: rephrase this to note checkpoint syncing vs syncing from genesis)
+4. **Sync Times**: New nodes must either sync from genesis (taking weeks) or use checkpoint sync (still requiring state download)
 
 Stateless validation addresses these issues by:
 - Allowing nodes to validate blocks without storing the full state
@@ -67,7 +67,7 @@ The Consensus Layer relies on the Execution Layer for a few functions including:
 
 - The CL informs the EL about the canonical chain head
 - The EL uses this information to organize its own state and handle execution payload reorgs
-- This interaction happens through the Engine API (`engine_forkchoiceUpdated`) TODO: (I'm omitting the part about PayloadAttributes, probably not important?)
+- This interaction happens through the Engine API (`engine_forkchoiceUpdated`)
 
 ### Traditional vs Stateless Architecture
 
@@ -99,44 +99,13 @@ The Consensus Layer relies on the Execution Layer for a few functions including:
 - **State Storage**: No state storage required
 - **State Access**: Not needed - no execution performed
 - **Validation Process**:
-  1. Receive block with transactions AND execution proofs (TODO: with delayed execution, these come later)
+  1. Receive beacon block with execution payload AND execution proofs (may arrive later via gossip)
   2. Verify the execution proofs (no execution needed)
   3. Accept the state root if proofs are valid
 - **Trust Model**: "I trust this state root because the cryptographic proof guarantees it"
 
 > TODO: One confusing thing is that we may have a subnet for state proof, and the other subnets for execution proofs.
 
-#### Stateless vs Executionless Validation
-
-> TODO: Maybe delete/merge this section, just repeating the previous but clarifying points.
-
-It's important to distinguish between two different approaches:
-
-**Stateless Validation** (using state witnesses/Merkle proofs):
-- Nodes don't store the full state tree locally
-- Still perform execution using witness data (state proofs)
-- Must replay all transactions to verify the state transition
-- Requires witness data (1-10MB per block, up to 300MB in worst case)
-- Uses Merkle Patricia Proofs from the existing state trie
-- Verification time: Similar to full execution (without state reads) 
-
-**Executionless Validation** (using zero-knowledge proofs):
-- Nodes don't store state AND don't execute transactions at all
-- Verify cryptographic proofs instead of running the EVM
-- No transaction replay or state access required
-- Requires only proof data (KB per block, constant size)
-- Uses zkEVM/zkVM proofs that attest to correct execution
-- Verification time: Milliseconds regardless of block complexity
-- **Benefit**: Proof for a block can also be a proof for all previous blocks
-
-The key thing to note: stateless validation still requires execution (just with witnesses instead of full state), while executionless validation eliminates execution entirely through ZK proofs.
-
-#### Trust Model Evolution
-The progression of trust models across validation approaches:
-
-**Traditional**: "I executed this block myself, so I know the result is correct"
-**Stateless**: "I re-executed this block using state witnesses, so I verified the result"
-**Executionless**: "I verified a cryptographic proof of execution that if this block were executed, it would produce the correct result"
 
 ### Key Implementation Considerations
 
@@ -161,60 +130,6 @@ When implementing either stateless or executionless validation, several architec
 - **GPU Usage**: Proof generation can be intensive
 - **Network Bandwidth**: Proof propagation overhead (300KB per proof)
 
-### Beacon Blocks vs Execution Payloads
-
-> TODO: Delete this section?
-
-Understanding the relationship between beacon blocks and execution payloads.
-
-#### Beacon Block Structure
-
-A beacon block contains:
-- **Beacon Block Header**: Slot, proposer index, parent root, state root, body root
-- **Beacon Block Body**: 
-  - Attestations, deposits, voluntary exits (consensus layer operations)
-  - **Execution Payload**: The EL block embedded within the CL block
-  - Sync committee data, BLS signature aggregations
-
-#### Execution Payload Structure
-The execution payload is essentially an Ethereum block that gets embedded in the beacon block:
-- **Block Header**: Parent hash, state root, receipts root, logs bloom, block number, gas limit/used
-- **Transaction List**: All transactions to be executed
-- **Withdrawals**: Validator withdrawals (post-Capella)
-
-#### State Management Responsibilities
-
-> TODO: Maybe also remove this, not that relevant
-
-**Consensus Layer State**:
-- Validator registry, balances, and slashing history
-- Committees and sync committees
-- Finalization and justification checkpoints
-- Beacon chain fork choice and consensus rules
-- **Storage**: Maintained locally by each CL node
-
-**Execution Layer State**:
-- Account balances, nonces, and contract storage
-- Smart contract code and execution environment
-- Transaction receipts and logs
-- **Storage**: In traditional setup, maintained by EL nodes; in stateless setup, verified via proofs
-
-#### More fluff expanded
-
-TODO: Remove this I think, just another way to explain
-
-The execution payload contains transactions that modify the execution layer state (accounts, contracts, storage). In traditional validation:
-- The EL must have the current state to execute these transactions
-- Each transaction reads/writes specific storage slots
-- The final state root represents the cumulative effect of all transactions
-
-In stateless validation:
-- The execution payload is accompanied by cryptographic proofs
-- These proofs mathematically guarantee that the claimed state root is correct
-- No actual transaction execution or state storage is required
-- The CL can verify the execution payload's validity through proof verification alone
-
-This separation allows the consensus layer to continue operating normally while the execution layer transitions from state-based to proof-based validation.
 
 ## Execution Proofs and ZK Integration
 
@@ -224,7 +139,7 @@ Lighthouse implements a sophisticated execution proof system to enable stateless
 
 Located in `consensus/types/src/execution_proof.rs`, these messages contain:
 
-TODO: Change this ExecutionProof struct name to ExecutionProofMessage 
+ 
 
 ```rust
 pub struct ExecutionProof {
@@ -238,7 +153,6 @@ pub struct ExecutionProof {
     /// This contains cryptographic proofs from zkVMs or other proof systems
     pub proof_data: Vec<u8>,
     /// Timestamp when this proof was generated (Unix timestamp)
-    // TODO: Remove this possibly
     pub timestamp: u64,
 }
 ```
@@ -279,7 +193,7 @@ When `stateless_validation` is enabled in the chain configuration:
 ### 2. **Block Validation**
 
 - Instead of executing payloads locally, the node waits for execution proofs
-- Executio proofs provide cryptographic guarantees of correct execution of the payload
+- Execution proofs provide cryptographic guarantees of correct execution of the payload
 - The validator can therefore validate blocks without maintaining state
 
 ### 3. **Dual-View Architecture**
@@ -304,6 +218,54 @@ This separation provides several benefits:
 3. **Clear Monitoring**: Easy to see the gap between optimistic head and proven head
 4. **Future Flexibility**: Can later integrate proven status into fork choice
 
+## Implementation Changes
+
+### Core Components Modified
+
+The Lighthouse implementation adds the following:
+
+1. **Chain Configuration**: New flags for `stateless_validation`, `stateless_min_proofs_required`, and `max_execution_proof_subnets`
+2. **Execution Payload Proof Store**: Manages proof storage, validation, and proven chain tracking
+3. **Execution Proof Broadcaster**: Background service for broadcasting proofs to gossip subnets
+4. **Network Layer**: New gossip topics and subnet management for proof distribution
+
+### Integration Points
+
+1. **Block Import Process**: Blocks are imported optimistically while awaiting proofs
+2. **Proof Reception Process**: Incoming proofs trigger re-evaluation of pending beacon blocks
+3. **Dual-View Separation**: Fork choice remains optimistic while proven chain tracks validation status wrt proofs
+
+## Configuration
+
+### Node Types
+
+Different node configurations are possible:
+
+1. **Regular Stateful Node** (default):
+   ```bash
+   lighthouse bn
+   ```
+   - Maintains full state and validates through execution
+
+2. **Stateless Validator**:
+   ```bash
+   lighthouse bn --stateless-validation
+   ```
+   - Validates using execution proofs, no state storage required
+
+3. **Proof Generator Node**:
+   ```bash
+   lighthouse bn --generate-execution-proofs
+   ```
+   - Maintains full state and generates proofs for the network
+
+### Configuration Parameters
+
+Key settings include:
+- `stateless_validation`: Enable proof-based validation
+- `stateless_min_proofs_required`: Minimum proofs needed (default: 1)
+- `max_execution_proof_subnets`: Number of proof subnets (default: 8)
+
 ## Important Considerations
 
 ### Proof Storage Philosophy
@@ -318,7 +280,7 @@ This separation provides several benefits:
 During chain reorganizations:
 - **Proofs Already Available**: Since we store valid proofs for all blocks (not just canonical), proofs are already available when blocks switch from non-canonical to canonical
 - **No Re-propagation**: Blocks are not re-gossiped during reorgs, and neither are proofs
-- **Automatic Proven Chain Update**: The proven chain automatically adjusts based on the new canonical chain (TODO: need to check code again, since we have modified this quite a bit)
+- **Automatic Proven Chain Update**: The proven chain automatically adjusts based on the new canonical chain
 
 ## Network Architecture
 
