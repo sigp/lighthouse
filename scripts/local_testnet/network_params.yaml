@@ -8,7 +8,7 @@ participants:
     cl_extra_params:
       - --target-peers=3
       - --generate-execution-proofs
-    count: 2
+    count: 1
   # Stateless validator nodes (consume proofs but cannot generate them)
   - el_type: geth
     el_image: ethereum/client-go:latest
@@ -17,7 +17,7 @@ participants:
     cl_extra_params:
       - --target-peers=3
       - --stateless-validation
-      - --stateless-min-proofs-required=2
+      - --stateless-min-proofs-required=3
     count: 2
   # Regular stateful nodes (normal operation, no proof generation)
   - el_type: geth
