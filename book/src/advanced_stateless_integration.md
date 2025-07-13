@@ -17,41 +17,204 @@ This document explains the architecture and implementation of zero-knowledge (ZK
 Ethereum operates with a modular architecture consisting of two main layers:
 
 1. **Consensus Layer (CL)**: Responsible for block consensus, validator management, and the beacon chain
-2. **Execution Layer (EL)**: Handles transaction execution, state management, and the EVM
+2. **Execution Layer (EL)**: Handles transaction execution, execution layer state management, and the EVM
+
+In some ways, you can view it as being two chains, where the EL chain can only progress when the Consensus Layer explicitly tells it to.
+
+> Both chains store state, however when this document mentions state, it will refer to EL state if not explicitly noted.
+
+> TODO: Block is a confusing term. Whenever we mean EL block, either write EL block everywhere or change it to ExecutionPayload  
+
+### Why Stateless Validation?
+
+The traditional Ethereum architecture faces several challenges:
+
+1. **State Growth**: The Ethereum state grows continuously (currently ~200GB+) as new accounts, contracts, and storage are added
+2. **Node Accessibility**: Running a full node requires significant disk space, making it inaccessible to many users
+3. **Centralization Risk**: As hardware requirements increase, fewer entities can afford to run nodes
+4. **Sync Times**: New nodes download and verify the entire state (or use checkpoint sync), taking days or weeks (TODO: rephrase this to note checkpoint syncing vs syncing from genesis)
+
+Stateless validation addresses these issues by:
+- Allowing nodes to validate blocks without storing the full state
+   - This is because in order to verify a block, you only need a small subset of the state. This subset can arrive with the block; this is the essence of "stateless validation". Ofcourse the state that
+   is attached with the block needs to be correct. So a state proof is attached to prove correctness. This state proof is a Merkle Patricia Proof because the state trie is a Merkle Patricia Trie(MPT). 
+   Changing the state trie, changes the state proof, verkle is an example of one of these proposed changes.
+- Reducing disk requirements from hundreds of GBs to just MBs data
+   - This is because state proofs using the MPT are quite large. In the *worse case* they are 300MB at 30Million gas and scale linearly. This is a problem for bandwidth and three ways to address this are to
+   change the trie, so that we have more efficient state proofs, address the worse cases or zk stateless.
+- Enabling instant sync for new nodes
+   - This is because (in the final design) a proof for the block is also a proof for all previous blocks
 
 ### What the CL Needs from the EL
 
-The Consensus Layer relies on the Execution Layer for several critical functions:
+The Consensus Layer relies on the Execution Layer for a few functions including:
 
-#### 1. **Payload Execution**
-- The CL sends execution payloads (blocks) to the EL for processing
-- The EL validates transactions, executes them, and returns the resulting state root
-- This interaction happens through the Engine API (JSON-RPC interface)
+#### 1. **Payload Execution** (Block Production)
 
-#### 2. **EL State Validation**
-- The CL needs to verify that execution payloads produce correct state transitions
-- Traditionally, this requires the EL to maintain the full Ethereum state
-- The EL provides state roots and receipts roots for validation
+- When **producing** blocks, the CL asks the EL to build an execution payload
+- The EL assembles transactions from its mempool, executes them, and returns the payload
+- This happens during block proposal when a validator (proposer) need to create new blocks
+- This interaction happens through the Engine API (`engine_getPayload`)
 
-#### 3. **Transaction Pool Access**
-- When proposing blocks, validators need transactions from the EL's mempool
-- The CL requests transaction bundles from the EL to construct execution payloads
+#### 2. **EL State Validation** (Block Validation)
 
-#### 4. **Fork Choice Updates**
+- When **validating** blocks (from other validators), the CL needs to verify the execution payload is correct
+- This is completely separate from block production - it's about verifying someone else's work
+- Traditionally, this requires the EL to maintain the full Ethereum state and re-execute all transactions
+- This interaction happens through the Engine API (`engine_newPayload`)
+
+#### 3. **Fork Choice Updates**
+
 - The CL informs the EL about the canonical chain head
-- The EL uses this information to organize its own state and handle reorgs
+- The EL uses this information to organize its own state and handle execution payload reorgs
+- This interaction happens through the Engine API (`engine_forkchoiceUpdated`) TODO: (I'm omitting the part about PayloadAttributes, probably not important?)
 
 ### Traditional vs Stateless Architecture
 
-In a traditional setup:
-- The EL maintains the complete Ethereum state (hundreds of GBs)
-- State access is direct and requires no additional proofs (the proof is due to the fact that the EL inserted the data into the db themselves)
-- Every node must sync and store the full state
+#### Traditional Setup
 
-In a stateless architecture:
-- The EL doesn't store the complete state (only a subset of the state is accessed for block validation)
-- State access requires cryptographic proofs (witnesses or ZK proofs)
-- Nodes can validate blocks without maintaining full state
+- **State Storage**: The EL maintains the complete Ethereum state (200GB+ and growing)
+- **State Access**: Direct database lookups - "I trust this data because I put it there"
+- **Validation Process**: 
+  1. Receive block with transactions
+  2. Load affected state from local database
+  3. Execute transactions against that state
+  4. Compute new state root
+  5. Verify it matches the block's claimed state root
+- **Trust Model**: Self-verifying through re-execution
+- **Requirements**: Full/Snap state sync before validation can begin
+
+#### Stateless Architecture (For validators)
+
+- **State Storage**: No state storage required
+- **State Access**: Every state access must be accompanied by a cryptographic proof with the execution payload
+- **Validation Process**:
+  1. Receive block with transactions AND state proof + state
+  2. Use state data to re-execute transactions (no full state database needed)
+  3. Verify the computed state root matches the block's claimed state root
+- **Trust Model**: "I trust this state root because I re-executed using proven state data"
+
+#### Executionless Architecture (For validators)
+
+- **State Storage**: No state storage required
+- **State Access**: Not needed - no execution performed
+- **Validation Process**:
+  1. Receive block with transactions AND execution proofs (TODO: with delayed execution, these come later)
+  2. Verify the execution proofs (no execution needed)
+  3. Accept the state root if proofs are valid
+- **Trust Model**: "I trust this state root because the cryptographic proof guarantees it"
+
+> TODO: One confusing thing is that we may have a subnet for state proof, and the other subnets for execution proofs.
+
+#### Stateless vs Executionless Validation
+
+> TODO: Maybe delete/merge this section, just repeating the previous but clarifying points.
+
+It's important to distinguish between two different approaches:
+
+**Stateless Validation** (using state witnesses/Merkle proofs):
+- Nodes don't store the full state tree locally
+- Still perform execution using witness data (state proofs)
+- Must replay all transactions to verify the state transition
+- Requires witness data (1-10MB per block, up to 300MB in worst case)
+- Uses Merkle Patricia Proofs from the existing state trie
+- Verification time: Similar to full execution (without state reads) 
+
+**Executionless Validation** (using zero-knowledge proofs):
+- Nodes don't store state AND don't execute transactions at all
+- Verify cryptographic proofs instead of running the EVM
+- No transaction replay or state access required
+- Requires only proof data (KB per block, constant size)
+- Uses zkEVM/zkVM proofs that attest to correct execution
+- Verification time: Milliseconds regardless of block complexity
+- **Benefit**: Proof for a block can also be a proof for all previous blocks
+
+The key thing to note: stateless validation still requires execution (just with witnesses instead of full state), while executionless validation eliminates execution entirely through ZK proofs.
+
+#### Trust Model Evolution
+The progression of trust models across validation approaches:
+
+**Traditional**: "I executed this block myself, so I know the result is correct"
+**Stateless**: "I re-executed this block using state witnesses, so I verified the result"
+**Executionless**: "I verified a cryptographic proof of execution that if this block were executed, it would produce the correct result"
+
+### Key Implementation Considerations
+
+When implementing either stateless or executionless validation, several architectural decisions must be made:
+
+#### 1. **Proof Distribution Strategy**
+- **Push model Unbundled**: Proofs distributed via dedicated subnets (similar to attestations)
+- **Pull mode Unbundled**: Nodes request proofs when needed
+- **Bundled**: Proofs included with blocks (increases block size)
+
+#### 2. **Validation Timing**
+- **Optimistic Import**: Accept blocks immediately, validate when proofs arrive (This is similar to the pipelining for delayed execution)
+- **Pessimistic Import**: Wait for proofs before accepting blocks
+
+#### 3. **Fork Choice Integration**
+- **Separate Views**: Keep proven and optimistic chains separate
+- **Integrated**: Modify fork choice weights based on proof availability
+
+#### 4. **Resource Management**
+- **Number of proofs**: Number of proofs to generate
+- **Proof Storage**: How long to keep proofs, storage limits
+- **GPU Usage**: Proof generation can be intensive
+- **Network Bandwidth**: Proof propagation overhead (300KB per proof)
+
+### Beacon Blocks vs Execution Payloads
+
+> TODO: Delete this section?
+
+Understanding the relationship between beacon blocks and execution payloads.
+
+#### Beacon Block Structure
+
+A beacon block contains:
+- **Beacon Block Header**: Slot, proposer index, parent root, state root, body root
+- **Beacon Block Body**: 
+  - Attestations, deposits, voluntary exits (consensus layer operations)
+  - **Execution Payload**: The EL block embedded within the CL block
+  - Sync committee data, BLS signature aggregations
+
+#### Execution Payload Structure
+The execution payload is essentially an Ethereum block that gets embedded in the beacon block:
+- **Block Header**: Parent hash, state root, receipts root, logs bloom, block number, gas limit/used
+- **Transaction List**: All transactions to be executed
+- **Withdrawals**: Validator withdrawals (post-Capella)
+
+#### State Management Responsibilities
+
+> TODO: Maybe also remove this, not that relevant
+
+**Consensus Layer State**:
+- Validator registry, balances, and slashing history
+- Committees and sync committees
+- Finalization and justification checkpoints
+- Beacon chain fork choice and consensus rules
+- **Storage**: Maintained locally by each CL node
+
+**Execution Layer State**:
+- Account balances, nonces, and contract storage
+- Smart contract code and execution environment
+- Transaction receipts and logs
+- **Storage**: In traditional setup, maintained by EL nodes; in stateless setup, verified via proofs
+
+#### More fluff expanded
+
+TODO: Remove this I think, just another way to explain
+
+The execution payload contains transactions that modify the execution layer state (accounts, contracts, storage). In traditional validation:
+- The EL must have the current state to execute these transactions
+- Each transaction reads/writes specific storage slots
+- The final state root represents the cumulative effect of all transactions
+
+In stateless validation:
+- The execution payload is accompanied by cryptographic proofs
+- These proofs mathematically guarantee that the claimed state root is correct
+- No actual transaction execution or state storage is required
+- The CL can verify the execution payload's validity through proof verification alone
+
+This separation allows the consensus layer to continue operating normally while the execution layer transitions from state-based to proof-based validation.
 
 ## Execution Proofs and ZK Integration
 
@@ -60,6 +223,8 @@ Lighthouse implements a sophisticated execution proof system to enable stateless
 ### Execution Proof Messages
 
 Located in `consensus/types/src/execution_proof.rs`, these messages contain:
+
+TODO: Change this ExecutionProof struct name to ExecutionProofMessage 
 
 ```rust
 pub struct ExecutionProof {
@@ -73,19 +238,18 @@ pub struct ExecutionProof {
     /// This contains cryptographic proofs from zkVMs or other proof systems
     pub proof_data: Vec<u8>,
     /// Timestamp when this proof was generated (Unix timestamp)
+    // TODO: Remove this possibly
     pub timestamp: u64,
 }
 ```
 
-The proof system supports multiple proof types:
-- **Witness Proofs**: Traditional Merkle proofs for state access
-- **Custom Proofs**: ZK proofs from zkVMs or other proof systems
+The proof system supports multiple execution proofs. These are referred to as proof types.
 
 ### Proof Distribution
 
 Execution proofs are distributed via gossip subnets to ensure efficient propagation:
 
-1. Proofs are published to specific subnets based on the proof type
+1. Proofs are published to specific subnets based on the proof type. For example:
    - Subnet 0: Execution witness proofs
    - Subnet 1: SP1 zkVM proofs
    - Subnet 2: RISC-V zkVM proofs
@@ -99,137 +263,46 @@ Execution proofs are distributed via gossip subnets to ensure efficient propagat
 When `stateless_validation` is enabled in the chain configuration:
 
 ### 1. **Proof Reception and Optimistic Import**
+
 - The node subscribes to execution proof subnets automatically
 - Incoming proofs are validated and stored in a proof pool
 - Optimistic block handling:
-  - When a block arrives without proofs, it's marked as "optimistic" (pending validation)
+  - When a beacon block arrives, it's marked as "optimistic" (since the execution payload cannot be verified without a proof)
   - The block's execution payload hash is registered for proof tracking
   - The node continues processing the block optimistically, assuming it will be valid
   - When matching proofs arrive via gossip, they trigger re-evaluation of pending blocks
-  - Blocks transition from optimistic to verified status once valid proofs are received
+  - Beacon blocks transition from optimistic to verified status once enough valid proofs are received
   - The system never rejects blocks due to missing proofs - they remain optimistic until proven valid
-  - A background service cleans up old pending blocks after a certain period
+
+> None of this changes the fork choice rules. A beacon block becoming valid, is additional metadata that we store but do not use it to modify fork choice.
 
 ### 2. **Block Validation**
+
 - Instead of executing payloads locally, the node waits for execution proofs
-- ZK proofs provide cryptographic guarantees of correct execution
-- The node can validate blocks without maintaining state
+- Executio proofs provide cryptographic guarantees of correct execution of the payload
+- The validator can therefore validate blocks without maintaining state
 
-### 3. **Resource Efficiency**
-- Dramatically reduced disk usage (no state storage on the EL)
-- Lower CPU requirements (no transaction execution)
-- Faster sync times (no state download)
+### 3. **Dual-View Architecture**
 
-### 4. **Dual-View Architecture**
-
-Lighthouse implements a dual-view architecture for stateless validation that separates consensus participation from proof validation:
+We implement a dual-view architecture for stateless validation that separates consensus from proof validation:
 
 #### Optimistic View (Fork Choice)
 - Used by validators for all consensus duties (attestations, proposals, etc.)
-- Remains permanently optimistic when `stateless_validation` is enabled
-- Fork choice weights are NOT modified by proof availability
-- Allows validators to participate in consensus without waiting for proofs
+- Remains permanently optimistic when `stateless_validation` is enabled (This is akin to the EL always returning SYNCING)
+- Fork choice weights are therefore NOT modified by proof availability/correctness
+- Allows beacon nodes to participate in consensus without waiting for proofs (or more importantly, it allows us to implement this change without changing fork-choice)
 
 #### Proven View (Proof Store)
 - Tracks which blocks have received sufficient execution proofs
 - Maintains a "proven canonical chain" from finalized checkpoint to proven head
 - Updates independently of fork choice
-- Used for monitoring, metrics, and future archival purposes
 
 This separation provides several benefits:
+
 1. **Simplicity**: No complex fork choice modifications needed
-2. **Validator Safety**: Validators continue normal operations regardless of proof availability
+2. **Validator Safety**: Validators continue normal operations regardless of proof correctness
 3. **Clear Monitoring**: Easy to see the gap between optimistic head and proven head
-4. **Future Flexibility**: Can later integrate proven status into fork choice if desired
-
-### 5. **Proven Chain Tracking**
-
-The execution payload proof store maintains detailed information about the proven chain:
-
-```rust
-pub struct ProvenBlockInfo {
-    pub beacon_block_root: Hash256,
-    pub execution_block_hash: ExecutionBlockHash,
-    pub slot: Slot,
-    pub parent_root: Hash256,
-    pub proof_count: usize,
-    pub proven_at: Instant,
-}
-```
-
-Key features:
-- **Proven Head**: The deepest block in the canonical chain with sufficient proofs
-- **Proven Chain Walk**: Walks backwards from optimistic head to find longest proven chain
-- **Proof Sufficiency**: Configurable minimum proof count (default: 1)
-- **Metrics**: Track lag between optimistic and proven heads
-
-## Implementation Changes
-
-### Core Components Modified
-
-#### 1. **Chain Configuration** (`beacon_chain/src/chain_config.rs`)
-```rust
-pub struct ChainConfig {
-    pub stateless_validation: bool,
-    pub stateless_min_proofs_required: usize,  // Minimum proofs for block to be considered proven
-    pub max_execution_proof_subnets: u64,       // Number of proof subnets to subscribe to
-    // ...
-}
-```
-
-#### 2. **Execution Payload Proof Store** (`beacon_chain/src/execution_payload_proofs.rs`)
-Enhanced with dual-view tracking:
-```rust
-pub struct ExecutionPayloadProofStore {
-    // Original proof storage
-    proofs: Arc<RwLock<HashMap<(ExecutionBlockHash, ProofId), ExecutionPayloadProof>>>,
-    pending_blocks: Arc<RwLock<HashMap<ExecutionBlockHash, Vec<Hash256>>>>,
-    
-    // New proven chain tracking
-    proven_canonical_chain: Arc<RwLock<HashMap<Hash256, ProvenBlockInfo>>>,
-    proven_head: Arc<RwLock<Option<(Hash256, Slot)>>>,
-    proven_finalized: Arc<RwLock<Option<(Hash256, Slot)>>>,
-}
-```
-
-Key methods:
-- `update_proven_chain()`: Walks from optimistic head to find longest proven chain
-- `get_proven_head()`: Returns current proven head
-- `is_block_proven()`: Checks if a block has sufficient proofs
-
-#### 3. **Beacon Chain Re-evaluation** (`beacon_chain/src/beacon_chain.rs`)
-Modified `re_evaluate_optimistic_blocks_with_proofs()`:
-- No longer modifies fork choice weights
-- Updates proven chain tracking instead
-- Never triggers head recomputation
-- Fork choice remains permanently optimistic
-
-#### 4. **Network Layer**
-- New gossip topics for execution proofs
-- Subnet management for proof distribution (up to 8 subnets by default)
-- Automatic subscription to all proof subnets in stateless mode
-
-### Integration Points
-
-#### 1. **Block Import Process**
-When a new block arrives in stateless mode:
-1. Block is imported optimistically (marked as pending proof validation)
-2. Execution payload hash is registered for proof tracking
-3. Fork choice includes the block immediately (optimistic view)
-4. Block remains in optimistic state until proofs arrive
-
-#### 2. **Proof Reception Process**
-When execution proofs arrive via gossip:
-1. Proofs are validated and stored in the proof store
-2. `update_proven_chain()` is called to recompute the proven chain
-3. Proven head may advance if sufficient proofs now exist
-4. Fork choice is NOT modified (remains optimistic)
-
-#### 3. **Dual-View Separation**
-- **Fork Choice**: Always optimistic, used for validator duties
-- **Proven Chain**: Tracks validation status, used for monitoring
-- No cross-contamination between the two views
-- Validators can attest/propose regardless of proof status
+4. **Future Flexibility**: Can later integrate proven status into fork choice
 
 ## Important Considerations
 
@@ -243,117 +316,9 @@ When execution proofs arrive via gossip:
 ### Reorg Handling
 
 During chain reorganizations:
-- **Proofs Already Available**: Since we store proofs for all blocks (not just canonical), proofs are already available when blocks switch from non-canonical to canonical
+- **Proofs Already Available**: Since we store valid proofs for all blocks (not just canonical), proofs are already available when blocks switch from non-canonical to canonical
 - **No Re-propagation**: Blocks are not re-gossiped during reorgs, and neither are proofs
-- **Automatic Proven Chain Update**: The proven chain automatically adjusts based on the new canonical chain
-
-### Future Enhancements
-
-Potential improvements to the current design:
-1. **Proof Archival**: Add pluggable archival system for finalized proofs
-2. **Proof Aggregation**: Support for aggregated proofs that validate multiple blocks
-3. **Selective Fork Choice Integration**: Optionally allow proven status to influence fork choice
-4. **Cross-Proof Validation**: Verify consistency between different proof types
-
-## Configuration
-
-### Enabling Stateless Validation
-
-To run a stateless validator node:
-
-```bash
-lighthouse bn --stateless-validation
-```
-
-This enables the node to:
-- Subscribe to all execution proof subnets automatically
-- Accept blocks optimistically while waiting for proofs
-- Validate blocks using cryptographic proofs instead of re-execution
-- Operate without requiring a full execution layer state
-
-### Proof Generation
-
-Some nodes can be configured to generate proofs for the network. This is done with a separate flag:
-
-```bash
-lighthouse bn --generate-execution-proofs
-```
-
-**Important Notes:**
-- **Only stateful nodes can generate proofs** - the `--generate-execution-proofs` flag cannot be used with `--stateless-validation`
-- Proof generation requires access to the full execution layer state
-- Proof generator nodes help the network by creating proofs for all blocks they process (both produced and received)
-- Generated proofs are automatically broadcast to the appropriate gossip subnets
-
-### Node Types
-
-With these flags, you can configure different types of nodes:
-
-1. **Regular Stateful Node** (default)
-   ```bash
-   lighthouse bn
-   ```
-   - Maintains full state
-   - Validates blocks through execution
-   - Traditional operation
-
-2. **Stateless Validator**
-   ```bash
-   lighthouse bn --stateless-validation
-   ```
-   - No state storage required
-   - Consumes proofs from the network
-   - Cannot generate proofs
-   - Validates blocks using cryptographic proofs
-
-3. **Proof Generator Node**
-   ```bash
-   lighthouse bn --generate-execution-proofs
-   ```
-   - Maintains full state
-   - Generates proofs for all blocks
-   - Helps stateless nodes by providing proofs
-   - Can also validate blocks normally
-
-### Configuration Options
-
-Key configuration parameters:
-
-```yaml
-# Enable stateless validation mode
-stateless_validation: true
-
-# Generate execution proofs (only for stateful nodes)
-generate_execution_proofs: false
-
-# Maximum number of execution proofs to cache
-max_execution_payload_proofs: 10000
-
-# Maximum number of execution proof subnets (default: 8)
-max_execution_proof_subnets: 8
-
-# Minimum number of proofs required to consider a block proven (default: 1)
-stateless_min_proofs_required: 1
-```
-
-### Command Line Options
-
-```bash
-# Run a stateless validator with custom proof requirements
-lighthouse bn --stateless-validation --stateless-min-proofs-required 2
-
-# Run a proof generator node
-lighthouse bn --generate-execution-proofs
-```
-
-### Performance Tuning
-
-Key parameters to consider:
-
-1. **Proof Pool Size**: Balance memory usage vs proof availability (`max_execution_payload_proofs`)
-2. **Subnet Count**: More subnets = better load distribution (`max_execution_proof_subnets`)
-3. **Proof Requirements**: Higher `stateless_min_proofs_required` = more security but higher latency
-4. **Resource Limits**: Currently lacks circuit breaker for proof generation (see TODOs in code) (maybe remove this since not important right now)
+- **Automatic Proven Chain Update**: The proven chain automatically adjusts based on the new canonical chain (TODO: need to check code again, since we have modified this quite a bit)
 
 ## Network Architecture
 
@@ -431,135 +396,11 @@ The subnet for a proof is determined by the proof type itself:
 - This ensures stateless nodes can receive proofs from any proof system
 - No manual subnet configuration is required for stateless nodes
 
-### Security Considerations
 
-1. **Proof Validity**: All proofs must be cryptographically verified
-2. **DoS Protection**: Rate limiting on proof acceptance ( This is essentially where a bad actor floods the network with invalid proofs, or just proofs that do not belong to payloads we will ever care about)
-3. **Slashing Conditions**: Invalid proof signatures could result in slashing in the future (depends on if we choose to enshrine the proofs/incentivise it from issuance)
+### Scratch pad
 
-## Practical Examples
+> Rough notes follows
 
-### Running a Test Network
-
-To test stateless validation with Kurtosis:
-
-```yaml
-# network_params.yaml
-participants:
-  # Stateful proof generator nodes
-  - el_type: geth
-    cl_type: lighthouse
-    cl_extra_params:
-      - --generate-execution-proofs
-    count: 2
-  
-  # Stateless validator nodes
-  - el_type: geth
-    cl_type: lighthouse
-    cl_extra_params:
-      - --stateless-validation
-    count: 2
-  
-  # Regular nodes
-  - el_type: geth
-    cl_type: lighthouse
-    count: 1
-```
-
-### Monitoring Stateless Operation
-
-Key log messages to watch for:
-
-1. **Proof Generation** (on proof generator nodes):
-   ```
-   INFO Triggering proof generation for execution payload 0x...
-   DEBUG PROOFCHAIN 0x...: Spawning proof generation task (block #123)
-   DEBUG PROOFCHAIN 0x...: Generated execution_witness_v1 on subnet 0
-   ```
-
-2. **Optimistic Import** (on stateless nodes):
-   ```
-   INFO STATELESS: Block entering PENDING state - Found 0/1 required proofs
-   INFO STATELESS: Registered optimistic block as PENDING execution proof validation
-   INFO STATELESS_TRACE: Block registered - beacon_root: 0x..., exec_hash: 0x... -> PENDING proof
-   ```
-
-3. **Proven Chain Updates** (on stateless nodes):
-   ```
-   INFO PROOFCHAIN 0x...: minimum proofs reached (1/1), updating proven chain
-   INFO PROOFCHAIN STATUS: Proven slot 123 | Optimistic slot 128 | Lag 5 slots | Status: Catching up
-   INFO PROOFCHAIN SUMMARY:
-     Proven head: slot 123 (epoch 3)
-     Proven chain depth: 45 blocks
-     Optimistic head: slot 128 (epoch 4)
-     Proof generation lag: 5 slots
-   ```
-
-4. **Network Activity**:
-   ```
-   INFO Subscribed to ExecutionProof subnets: [0, 1, 2, 3, 4, 5, 6, 7]
-   INFO STATELESS: Successfully BROADCAST execution proof for block 0x... on subnet 0
-   INFO Processing gossip execution proof (from subnet 0)
-   ```
-
-### Future API Endpoints
-
-The dual-view architecture enables new monitoring endpoints (planned):
-
-1. **Proven Chain Status**:
-   ```
-   GET /eth/v1/beacon/proven_head
-   GET /eth/v1/beacon/proven_chain
-   GET /eth/v1/debug/proven_chain_status
-   ```
-
-2. **Key Metrics**:
-   - `proven_chain_depth`: Number of blocks in proven chain
-   - `proven_chain_lag_slots`: Difference between optimistic and proven heads
-   - `blocks_awaiting_proofs`: Count of optimistic blocks without proofs
-
-### Design Rationale
-
-The dual-view architecture was chosen for several reasons:
-
-1. **Simplicity**: Avoids complex modifications to the fork choice algorithm
-2. **Safety**: Validators continue normal operations even if proofs are delayed
-3. **Flexibility**: Allows experimentation with different proof requirements
-4. **Migration Path**: Easier transition from current optimistic sync
-5. **Monitoring**: Clear visibility into proof validation status
-
-This design allows the network to experiment with stateless validation while maintaining validator safety and network stability.
-
-## Current Limitations and Known Issues
-
-### Implementation Status
-
-The current implementation is a prototype with several limitations:
-
-1. **Dummy Proof Generation**: 
-   - Currently generates simulated proofs instead of real cryptographic proofs
-   - Lacks integration with actual EL witness data (`debug_executionWitness`)
-   - Proof data is placeholder content for testing
-
-2. **Block Production Limitations**:
-   - Stateless nodes cannot produce blocks (returns error)
-   - No integration with MEV-boost for stateless block production
-   - Proof generation only happens for received blocks, not produced blocks
-
-3. **Resource Management**:
-   - **No circuit breaker for proof generation** - system could be overwhelmed during high load
-   - Lacks concurrent task limits for proof generation
-   - No CPU/memory monitoring or backpressure handling
-   - Missing timeout mechanisms for runaway proof tasks
-
-4. **Proof Generation Timing**:
-   - Hardcoded delays for simulating proof generation (1-3 seconds base + staggered subnet delays)
-   - No prioritization of important blocks
-   - Sequential proof generation for multiple subnets
-
-### Future Work
-
-To make this production-ready, the following enhancements are needed:
 
 1. **Real Proof Integration**:
    - Implement actual EL witness fetching
@@ -567,16 +408,29 @@ To make this production-ready, the following enhancements are needed:
    - Support for multiple proof formats and versions
 
 2. **Resource Controls**:
-   - Add circuit breaker with configurable limits
+   - Add circuit breaker for proof generation with configurable limits
    - Implement task queue with concurrency controls
    - Add metrics for proof generation performance
+   - Rate limiting on proof acceptance ( This is essentially where a bad actor floods the network with invalid proofs, or just proofs that do not belong to payloads we will ever care about)
 
 3. **Block Production Support**:
    - Enable stateless nodes to produce blocks via MEV-boost
    - Generate proofs for self-produced blocks
-   - Optimize proof generation timing for block proposals
 
 4. **Network Optimizations**:
-   - Implement proof pre-fetching for anticipated blocks
-   - Add proof bundling to reduce network overhead
    - Support request-based proof sharing as fallback
+
+5. **Dummy Proof Generation**: 
+   - Currently generates simulated proofs instead of real cryptographic proofs
+   - Lacks integration with actual EL witness data (`debug_executionWitness`)
+   - Proof data is placeholder content for testing
+
+
+**Slashing Conditions**: Invalid proofs could result in slashing in the future (depends on if we choose to enshrine the proofs/incentivise it from issuance)
+- **Only stateful nodes can generate proofs** - the `--generate-execution-proofs` flag cannot be used with `--stateless-validation`
+- Proof generation requires access to the full execution layer state
+- Proof generator nodes help the network by creating proofs for all blocks they process (both produced and received)
+- Generated proofs are automatically broadcast to the appropriate gossip subnets
+
+**Proof Archival**: Add pluggable archival system for finalized proofs
+**Selective Fork Choice Integration**: Optionally allow proven status to influence fork choice
