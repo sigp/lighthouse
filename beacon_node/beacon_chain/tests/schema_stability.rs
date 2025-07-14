@@ -16,7 +16,7 @@ use store::{
 };
 use strum::IntoEnumIterator;
 use tempfile::{tempdir, TempDir};
-use types::{ChainSpec, Hash256, Keypair, MainnetEthSpec};
+use types::{ChainSpec, Hash256, Keypair, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
@@ -113,7 +113,9 @@ fn check_db_columns() {
 
 fn insert_data_column_custody_info(store: &Store<E>, spec: &ChainSpec) {
     if spec.is_peer_das_scheduled() {
-        store.put_data_column_custody_info(None).unwrap();
+        store
+            .put_data_column_custody_info(Some(Slot::new(0)))
+            .unwrap();
     }
 }
 
