@@ -1,10 +1,8 @@
-use crate::{DBColumn, Error, KeyValueStoreOp, AsyncKeyValueStore};
+use crate::{DBColumn, Error, AsyncKeyValueStore};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use types::EthSpec;
 use std::marker::PhantomData;
-use super::interface::WriteOptions;
 use async_trait::async_trait;
-use std::env;
 
 #[derive(Clone)]
 pub struct PostgresDB<E: EthSpec> {

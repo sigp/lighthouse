@@ -5,6 +5,7 @@ use crate::database::redb_impl;
 #[cfg(feature = "postgres")]
 use crate::database::postgres_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
+use crate::database::async_interface::AsyncKeyValueStore;
 use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
 use std::collections::HashSet;
 use std::path::Path;
@@ -29,9 +30,9 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::get_bytes(txn, column, key),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(db) => {
+            BeaconNodeBackend::PostgresDB(ref txn) => {
                 let rt = tokio::runtime::Runtime::new().expect("failed to build tokio runtime");
-                rt.block_on(db.get_bytes(column, key))
+                rt.block_on(txn.get_bytes(column, key))
             }
         }
     }
@@ -55,7 +56,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 txn.write_options(),
             ),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(db) => {
+            BeaconNodeBackend::PostgresDB(ref db) => {
                 let rt = tokio::runtime::Runtime::new().expect("Failed to block tokio runtime");
                 rt.block_on(db.put_bytes(column, key, value))
             }
@@ -80,6 +81,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 value,
                 txn.write_options_sync(),
             ),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -89,6 +94,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::sync(txn),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::sync(txn),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -98,6 +107,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_exists(txn, column, key),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_exists(txn, column, key),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -107,6 +120,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_delete(txn, column, key),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_delete(txn, column, key),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -116,6 +133,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::do_atomically(txn, batch),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::do_atomically(txn, batch),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -125,6 +146,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact(txn),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -142,6 +167,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => {
                 redb_impl::Redb::iter_column_keys_from(txn, _column, from)
             }
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -151,6 +180,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column_keys(txn, column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_keys(txn, column),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -162,6 +195,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             }
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -171,6 +208,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact_column(txn, _column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -180,6 +221,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_batch(txn, col, ops),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_batch(txn, col, ops),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 
@@ -193,6 +238,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_if(txn, column, f),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_if(txn, column, f),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::PostgresDB(_) => {
+                todo!("Implement PostgresDB logic");
+            }
         }
     }
 }
@@ -209,15 +258,24 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             DatabaseBackend::Redb => redb_impl::Redb::open(path).map(BeaconNodeBackend::Redb),
             #[cfg(feature = "postgres")]
             DatabaseBackend::PostgresDB => {
-                // Read the DATABASE_URL from the "path", assuming it's a file containing the URL
+                use crate::{database::postgres_impl::PostgresDB};
+                
+                let db_url = config
+                    .postgres_url
+                    .as_ref()
+                    .ok_or_else(|| Error::DBError {
+                        message: "Missing Postgres URL".into(),
+                    })?;
 
-                use std::fs;
-
-                use tokio::fs;
-                let file_path = path.join("postgres_url.txt");
-                let db_url = fs::read_to_string(&file_path).map_err(|e| Error::Confiq(format!("Failed to read postgres_url.txt: {}", e)))?;
-                let rt = tokio::runtime::Runtime::new().map_err(|e| Error::Config(format!("Failed to create tokio runtime: {}", e)))?;
-                let db = rt..block_on(PostgresDB::new(db_url.trim())).map_err(|e| Error::Config(format!("Failed to init PostgresDB: {:?}", e)))?;
+                // Create a Tokio runtime for sync context
+                let rt = tokio::runtime::Runtime::new()
+                    .map_err(|e| Error::DBError {
+                        message: format!("Failed to create tokio runtime: {}", e),
+                    })?;
+                let db = rt.block_on(PostgresDB::new(db_url))
+                    .map_err(|e| Error::DBError {
+                        message: format!("Failed to init PostgresDB: {:?}", e),
+                    })?;
 
                 Ok(BeaconNodeBackend::PostgresDB(db))
             }

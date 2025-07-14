@@ -1631,6 +1631,14 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("postgres-url")
+                .long("postgres-url")
+                .value_name("URL")
+                .help("The Postgres connection URL used when `--beacon-node-backend=postgres`.")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("delay-block-publishing")
                 .long("delay-block-publishing")
                 .value_name("SECONDS")
