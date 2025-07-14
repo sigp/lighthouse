@@ -6812,17 +6812,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .enr_fork_id::<T::EthSpec>(slot, self.genesis_validators_root)
     }
 
-    /// Calculates the `Duration` to the next fork if it exists and returns it
-    /// with it's corresponding `ForkName`.
-    pub fn duration_to_next_fork(&self) -> Option<(ForkName, Duration)> {
+    /// Returns the fork_digest corresponding to an epoch.
+    /// See [`ChainSpec::compute_fork_digest`]
+    pub fn compute_fork_digest(&self, epoch: Epoch) -> [u8; 4] {
+        self.spec
+            .compute_fork_digest(self.genesis_validators_root, epoch)
+    }
+
+    /// Calculates the `Duration` to the next fork digest (this could be either a regular or BPO
+    /// hard fork) if it exists and returns it with its corresponding `Epoch`.
+    pub fn duration_to_next_digest(&self) -> Option<(Epoch, Duration)> {
         // If we are unable to read the slot clock we assume that it is prior to genesis and
         // therefore use the genesis slot.
         let slot = self.slot().unwrap_or(self.spec.genesis_slot);
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
-        let (fork_name, epoch) = self.spec.next_fork_epoch::<T::EthSpec>(slot)?;
+        let next_digest_epoch = self.spec.next_digest_epoch(epoch)?;
+        let next_digest_slot = next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch());
+
         self.slot_clock
-            .duration_to_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-            .map(|duration| (fork_name, duration))
+            .duration_to_slot(next_digest_slot)
+            .map(|duration| (next_digest_epoch, duration))
     }
 
     /// This method serves to get a sense of the current chain health. It is used in block proposal

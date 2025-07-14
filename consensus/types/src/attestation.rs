@@ -661,12 +661,12 @@ mod tests {
         let attestation_data = size_of::<AttestationData>();
         let signature = size_of::<AggregateSignature>();
 
-        assert_eq!(aggregation_bits, 152);
+        assert_eq!(aggregation_bits, 144);
         assert_eq!(attestation_data, 128);
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + attestation_data + signature;
-        assert_eq!(attestation_expected, 584);
+        assert_eq!(attestation_expected, 576);
         assert_eq!(
             size_of::<AttestationBase<MainnetEthSpec>>(),
             attestation_expected
@@ -684,13 +684,13 @@ mod tests {
             size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxCommitteesPerSlot>>();
         let signature = size_of::<AggregateSignature>();
 
-        assert_eq!(aggregation_bits, 152);
-        assert_eq!(committee_bits, 152);
+        assert_eq!(aggregation_bits, 144);
+        assert_eq!(committee_bits, 144);
         assert_eq!(attestation_data, 128);
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + committee_bits + attestation_data + signature;
-        assert_eq!(attestation_expected, 736);
+        assert_eq!(attestation_expected, 720);
         assert_eq!(
             size_of::<AttestationElectra<MainnetEthSpec>>(),
             attestation_expected

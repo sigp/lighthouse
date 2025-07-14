@@ -345,7 +345,9 @@ impl<E: EthSpec> StateCache<E> {
         let mut old_boundary_state_roots = vec![];
         let mut good_boundary_state_roots = vec![];
 
-        for (&state_root, (_, state)) in self.states.iter().skip(cull_exempt) {
+        // Skip the `cull_exempt` most-recently used, then reverse the iterator to start at
+        // least-recently used states.
+        for (&state_root, (_, state)) in self.states.iter().skip(cull_exempt).rev() {
             let is_advanced = state.slot() > state.latest_block_header().slot;
             let is_boundary = state.slot() % E::slots_per_epoch() == 0;
             let could_finalize =

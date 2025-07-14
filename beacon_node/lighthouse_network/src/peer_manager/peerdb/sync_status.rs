@@ -28,6 +28,19 @@ pub struct SyncInfo {
     pub earliest_available_slot: Option<Slot>,
 }
 
+impl SyncInfo {
+    /// Returns true if the provided slot is greater than or equal to the peer's `earliest_available_slot`.
+    ///
+    /// If `earliest_available_slot` is None, then we just assume that the peer has the slot.
+    pub fn has_slot(&self, slot: Slot) -> bool {
+        if let Some(earliest_available_slot) = self.earliest_available_slot {
+            slot >= earliest_available_slot
+        } else {
+            true
+        }
+    }
+}
+
 impl std::cmp::PartialEq for SyncStatus {
     fn eq(&self, other: &Self) -> bool {
         matches!(
