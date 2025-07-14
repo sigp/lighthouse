@@ -1829,7 +1829,7 @@ fn block_cache_size_flag() {
 fn state_cache_size_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(32)));
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
 }
 #[test]
 fn state_cache_size_flag() {
@@ -2475,6 +2475,13 @@ fn logfile_format_flag() {
                 Some("JSON".to_string())
             )
         });
+}
+// DEPRECATED but should not crash.
+#[test]
+fn deprecated_logfile() {
+    CommandLineTest::new()
+        .flag("logfile", Some("test.txt"))
+        .run_with_zero_port();
 }
 
 // DEPRECATED but should not crash.

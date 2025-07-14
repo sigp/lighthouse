@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -5050,7 +5050,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5612,7 +5612,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6017,7 +6017,7 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.6.0"
-source = "git+https://github.com/risc0-labs/milhouse.git?rev=7e155d36b08f9e8ee9c2fa79e2743031535aec0c#7e155d36b08f9e8ee9c2fa79e2743031535aec0c"
+source = "git+https://github.com/sigp/milhouse.git?rev=e1c9a575c11562f72acd1ffc18e310a5a6adae2f#e1c9a575c11562f72acd1ffc18e310a5a6adae2f"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
