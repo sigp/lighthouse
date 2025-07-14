@@ -533,11 +533,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             )
             .await
         {
-            Ok((ssz_block_response, _)) => {
-                info!(slot = slot.as_u64(), "Received unsigned block in SSZ");
-
-                ssz_block_response
-            }
+            Ok((ssz_block_response, _)) => ssz_block_response,
             Err(e) => {
                 warn!(
                     slot = slot.as_u64(),
@@ -560,8 +556,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                         ))
                     })?;
 
-                info!(slot = slot.as_u64(), "Received unsigned block in JSON");
-
                 // Extract ProduceBlockV3Response (data field of the struct ForkVersionedResponse)
                 json_block_response.data
             }
@@ -576,6 +570,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             }
         };
 
+        info!(slot = slot.as_u64(), "Received unsigned block");
         if proposer_index != Some(block_proposer) {
             return Err(BlockError::Recoverable(
                 "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
