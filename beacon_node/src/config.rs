@@ -278,7 +278,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if clap_utils::parse_optional::<u64>(cli_args, "eth1-cache-follow-distance")?.is_some() {
-        warn!("The eth1-purge-cache flag is deprecated");
+        warn!("The eth1-cache-follow-distance flag is deprecated");
     }
 
     // `--execution-endpoint` is required now.

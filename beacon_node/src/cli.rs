@@ -822,7 +822,7 @@ pub fn cli_app() -> Command {
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the state cache")
-                .default_value("32")
+                .default_value("128")
                 .action(ArgAction::Set)
                 .display_order(0)
         )

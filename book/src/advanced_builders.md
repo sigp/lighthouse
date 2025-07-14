@@ -60,7 +60,7 @@ relays, run one of the following services and configure lighthouse to use it wit
 ## Validator Client Configuration
 
 In the validator client you can configure gas limit and fee recipient on a per-validator basis. If no gas limit is
-configured, Lighthouse will use a default gas limit of 30,000,000, which is the current default value used in execution
+configured, Lighthouse will use a default gas limit of 45,000,000, which is the current default value used in execution
 engines.  You can also enable or disable use of external builders on a per-validator basis rather than using
 `--builder-proposals`, `--builder-boost-factor` or `--prefer-builder-proposals`, which apply builder related preferences for all validators.
 In order to manage these configurations per-validator, you can either make updates to the `validator_definitions.yml` file
@@ -75,7 +75,7 @@ transaction within the block to the fee recipient, so a discrepancy in fee recip
 is something afoot.
 
 > Note: The gas limit configured here is effectively a vote on block size, so the configuration should not be taken lightly.
-> 30,000,000 is currently seen as a value balancing block size with how expensive it is for
+> 45,000,000 is currently seen as a value balancing block size with how expensive it is for
 > the network to validate blocks. So if you don't feel comfortable making an informed "vote", using the default value is
 > encouraged. We will update the default value if the community reaches a rough consensus on a new value.
 
@@ -114,7 +114,7 @@ Each field is optional.
 ```json
 {
     "builder_proposals": true,
-    "gas_limit": 30000001
+    "gas_limit": 45000001
 }
 ```
 
@@ -127,7 +127,7 @@ curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf4
 -H "Content-Type: application/json" \
 -d '{
     "builder_proposals": true,
-    "gas_limit": 30000001
+    "gas_limit": 45000001
 }' | jq
 ```
 
@@ -161,7 +161,7 @@ You can also directly configure these fields in the `validator_definitions.yml` 
   voting_keystore_path: /home/paul/.lighthouse/validators/0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007/voting-keystore.json
   voting_keystore_password_path: /home/paul/.lighthouse/secrets/0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007
   suggested_fee_recipient: "0x6cc8dcbca744a6e4ffedb98e1d0df903b10abd21"
-  gas_limit: 30000001
+  gas_limit: 45000001
   builder_proposals: true
   builder_boost_factor: 50
 - enabled: false

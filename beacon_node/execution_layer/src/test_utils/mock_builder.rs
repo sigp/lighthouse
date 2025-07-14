@@ -40,7 +40,7 @@ use warp::reply::{self, Reply};
 use warp::{Filter, Rejection};
 
 pub const DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
-pub const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
+pub const DEFAULT_GAS_LIMIT: u64 = 45_000_000;
 pub const DEFAULT_BUILDER_PRIVATE_KEY: &str =
     "607a11b45a7219cc61a3d9c5fd08c7eebd602a6a19a977f8d3771d5711a550f2";
 

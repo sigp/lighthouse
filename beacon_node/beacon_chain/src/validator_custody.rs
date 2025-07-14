@@ -215,7 +215,8 @@ impl CustodyContext {
                 );
                 return Some(CustodyCountChanged {
                     new_custody_group_count: updated_cgc,
-                    sampling_count: self.sampling_size(Some(effective_epoch), spec),
+                    sampling_count: self
+                        .num_of_custody_groups_to_sample(Some(effective_epoch), spec),
                 });
             }
         }
@@ -240,9 +241,13 @@ impl CustodyContext {
         }
     }
 
-    /// Returns the count of custody columns this node must sample for a block at `epoch` to import.
-    /// If an `epoch` is not specified, returns the *current* validator custody requirement.
-    pub fn sampling_size(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> u64 {
+    /// This function is used to determine the custody group count at a given epoch.
+    ///
+    /// This differs from the number of custody groups sampled per slot, as the spec requires a
+    /// minimum sampling size which may exceed the custody group count (CGC).
+    ///
+    /// See also: [`Self::num_of_custody_groups_to_sample`].
+    fn custody_group_count_at_epoch(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> u64 {
         let custody_group_count = if self.current_is_supernode {
             spec.number_of_custody_groups
         } else if let Some(epoch) = epoch_opt {
@@ -253,8 +258,26 @@ impl CustodyContext {
         } else {
             self.custody_group_count_at_head(spec)
         };
+        custody_group_count
+    }
 
-        spec.sampling_size(custody_group_count)
+    /// Returns the count of custody groups this node must _sample_ for a block at `epoch` to import.
+    /// If an `epoch` is not specified, returns the *current* validator custody requirement.
+    pub fn num_of_custody_groups_to_sample(
+        &self,
+        epoch_opt: Option<Epoch>,
+        spec: &ChainSpec,
+    ) -> u64 {
+        let custody_group_count = self.custody_group_count_at_epoch(epoch_opt, spec);
+        spec.sampling_size_custody_groups(custody_group_count)
+            .expect("should compute node sampling size from valid chain spec")
+    }
+
+    /// Returns the count of columns this node must _sample_ for a block at `epoch` to import.
+    /// If an `epoch` is not specified, returns the *current* validator custody requirement.
+    pub fn num_of_data_columns_to_sample(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> u64 {
+        let custody_group_count = self.custody_group_count_at_epoch(epoch_opt, spec);
+        spec.sampling_size_columns(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
 }
@@ -307,7 +330,7 @@ mod tests {
             spec.number_of_custody_groups
         );
         assert_eq!(
-            custody_context.sampling_size(None, &spec),
+            custody_context.num_of_custody_groups_to_sample(None, &spec),
             spec.number_of_custody_groups
         );
     }
@@ -322,7 +345,7 @@ mod tests {
             "head custody count should be minimum spec custody requirement"
         );
         assert_eq!(
-            custody_context.sampling_size(None, &spec),
+            custody_context.num_of_custody_groups_to_sample(None, &spec),
             spec.samples_per_slot
         );
     }
@@ -412,7 +435,7 @@ mod tests {
 
         register_validators_and_assert_cgc(&custody_context, validators_and_expected_cgc, &spec);
         assert_eq!(
-            custody_context.sampling_size(None, &spec),
+            custody_context.num_of_custody_groups_to_sample(None, &spec),
             spec.number_of_custody_groups
         );
     }
@@ -423,7 +446,7 @@ mod tests {
         let spec = E::default_spec();
         let current_slot = Slot::new(10);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
-        let default_sampling_size = custody_context.sampling_size(None, &spec);
+        let default_sampling_size = custody_context.num_of_custody_groups_to_sample(None, &spec);
         let validator_custody_units = 10;
 
         let _cgc_changed = custody_context.register_validators::<E>(
@@ -437,12 +460,12 @@ mod tests {
 
         // CGC update is not applied for `current_epoch`.
         assert_eq!(
-            custody_context.sampling_size(Some(current_epoch), &spec),
+            custody_context.num_of_custody_groups_to_sample(Some(current_epoch), &spec),
             default_sampling_size
         );
         // CGC update is applied for the next epoch.
         assert_eq!(
-            custody_context.sampling_size(Some(current_epoch + 1), &spec),
+            custody_context.num_of_custody_groups_to_sample(Some(current_epoch + 1), &spec),
             validator_custody_units
         );
     }
