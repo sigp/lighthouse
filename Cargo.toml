@@ -6,7 +6,6 @@ members = [
     "beacon_node/beacon_processor",
     "beacon_node/builder_client",
     "beacon_node/client",
-    "beacon_node/eth1",
     "beacon_node/execution_layer",
     "beacon_node/genesis",
     "beacon_node/http_api",
@@ -72,7 +71,6 @@ members = [
     "slasher",
     "slasher/service",
     "testing/ef_tests",
-    "testing/eth1_test_rig",
     "testing/execution_engine_integration",
     "testing/node_test_rig",
     "testing/simulator",
@@ -124,6 +122,7 @@ clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 clap_utils = { path = "common/clap_utils" }
 compare_fields = { path = "common/compare_fields" }
 compare_fields_derive = { path = "common/compare_fields_derive" }
+console-subscriber = "0.4"
 context_deserialize = { path = "consensus/context_deserialize" }
 context_deserialize_derive = { path = "consensus/context_deserialize_derive" }
 criterion = "0.5"
@@ -137,8 +136,6 @@ doppelganger_service = { path = "validator_client/doppelganger_service" }
 either = "1.9"
 env_logger = "0.9"
 environment = { path = "lighthouse/environment" }
-eth1 = { path = "beacon_node/eth1" }
-eth1_test_rig = { path = "testing/eth1_test_rig" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
 eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
@@ -188,6 +185,8 @@ maplit = "1"
 merkle_proof = { path = "consensus/merkle_proof" }
 metrics = { path = "common/metrics" }
 milhouse = "0.5"
+mockall = "0.13"
+mockall_double = "0.3"
 mockito = "1.5.0"
 monitoring_api = { path = "common/monitoring_api" }
 network = { path = "beacon_node/network" }

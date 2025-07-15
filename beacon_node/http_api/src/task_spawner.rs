@@ -30,6 +30,7 @@ impl Priority {
 }
 
 /// Spawns tasks on the `BeaconProcessor` or directly on the tokio executor.
+#[derive(Clone)]
 pub struct TaskSpawner<E: EthSpec> {
     /// Used to send tasks to the `BeaconProcessor`. The tokio executor will be
     /// used if this is `None`.
@@ -153,6 +154,32 @@ impl<E: EthSpec> TaskSpawner<E> {
                     warp_utils::reject::custom_server_error("Tokio failed to spawn task".into())
                 })
                 .and_then(|x| x)
+        }
+    }
+
+    pub fn try_send(&self, work_event: WorkEvent<E>) -> Result<(), warp::Rejection> {
+        if let Some(beacon_processor_send) = &self.beacon_processor_send {
+            let error_message = match beacon_processor_send.try_send(work_event) {
+                Ok(()) => None,
+                Err(TrySendError::Full(_)) => {
+                    Some("The task was dropped. The server is overloaded.")
+                }
+                Err(TrySendError::Closed(_)) => {
+                    Some("The task was dropped. The server is shutting down.")
+                }
+            };
+
+            if let Some(error_message) = error_message {
+                return Err(warp_utils::reject::custom_server_error(
+                    error_message.to_string(),
+                ));
+            };
+
+            Ok(())
+        } else {
+            Err(warp_utils::reject::custom_server_error(
+                "The beacon processor is unavailable".to_string(),
+            ))
         }
     }
 }

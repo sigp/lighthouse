@@ -122,15 +122,6 @@ Options:
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for
           minimizing disk writes [default: 1]
-      --eth1-blocks-per-log-query <BLOCKS>
-          Specifies the number of blocks that a deposit log query should span.
-          This will reduce the size of responses from the Eth1 endpoint.
-          [default: 1000]
-      --eth1-cache-follow-distance <BLOCKS>
-          Specifies the distance between the Eth1 chain head and the last block
-          which should be imported into the cache. Setting this value lower can
-          help compensate for irregular Proof-of-Work block times, but setting
-          it too low can make the node vulnerable to re-orgs.
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
@@ -171,10 +162,10 @@ Options:
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
       --hdiff-buffer-cache-size <SIZE>
-          Number of hierarchical diff (hdiff) buffers to cache in memory. Each
-          buffer is around the size of a BeaconState so you should be cautious
-          about setting this value too high. This flag is irrelevant for most
-          nodes, which run with state pruning enabled. [default: 16]
+          Number of cold hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. This flag is irrelevant
+          for most nodes, which run with state pruning enabled. [default: 16]
       --hierarchy-exponents <EXPONENTS>
           Specifies the frequency for storing full state snapshots and
           hierarchical diffs in the freezer DB. Accepts a comma-separated list
@@ -187,6 +178,12 @@ Options:
       --historic-state-cache-size <SIZE>
           Specifies how many states from the freezer database should be cached
           in memory [default: 1]
+      --hot-hdiff-buffer-cache-size <SIZE>
+          Number of hot hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. Setting this value higher
+          can reduce the time taken to store new states on disk at the cost of
+          higher memory usage. [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>
@@ -448,10 +445,6 @@ Flags:
           resource contention which degrades staking performance. Stakers should
           generally choose to avoid this flag since backfill sync is not
           required for staking.
-      --disable-deposit-contract-sync
-          Explicitly disables syncing of deposit logs from the execution node.
-          This overrides any previous option that depends on it. Useful if you
-          intend to run a non-validating beacon node.
       --disable-enr-auto-update
           Discovery automatically updates the nodes local ENR with an external
           IP address and port as seen by other peers on the network. This
@@ -493,8 +486,6 @@ Flags:
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
-      --eth1-purge-cache
-          Purges the eth1 block and deposit caches
       --genesis-backfill
           Attempts to download blocks all the way back to genesis when
           checkpoint syncing.

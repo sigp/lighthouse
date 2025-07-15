@@ -172,6 +172,7 @@ pub enum Error {
     AggregatorNotInCommittee {
         aggregator_index: u64,
     },
+    PleaseNotifyTheDevs(String),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -544,6 +545,12 @@ where
     #[superstruct(only(Electra, Fulu))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 
+    // Fulu
+    #[compare_fields(as_iter)]
+    #[test_random(default)]
+    #[superstruct(only(Fulu))]
+    pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
+
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
@@ -801,7 +808,7 @@ impl<E: EthSpec> BeaconState<E> {
         &self,
         slot: Slot,
         index: CommitteeIndex,
-    ) -> Result<BeaconCommittee, Error> {
+    ) -> Result<BeaconCommittee<'_>, Error> {
         let epoch = slot.epoch(E::slots_per_epoch());
         let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)?;
         let cache = self.committee_cache(relative_epoch)?;
@@ -816,7 +823,10 @@ impl<E: EthSpec> BeaconState<E> {
     /// Utilises the committee cache.
     ///
     /// Spec v0.12.1
-    pub fn get_beacon_committees_at_slot(&self, slot: Slot) -> Result<Vec<BeaconCommittee>, Error> {
+    pub fn get_beacon_committees_at_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         let cache = self.committee_cache_at_slot(slot)?;
         cache.get_beacon_committees_at_slot(slot)
     }
@@ -829,7 +839,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_beacon_committees_at_epoch(
         &self,
         relative_epoch: RelativeEpoch,
-    ) -> Result<Vec<BeaconCommittee>, Error> {
+    ) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         let cache = self.committee_cache(relative_epoch)?;
         cache.get_all_beacon_committees()
     }
@@ -948,6 +958,25 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
+    // Vec is just much easier to work with here
+    fn compute_proposer_indices(
+        &self,
+        epoch: Epoch,
+        seed: &[u8],
+        indices: &[usize],
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
+        epoch
+            .slot_iter(E::slots_per_epoch())
+            .map(|slot| {
+                let mut preimage = seed.to_vec();
+                preimage.append(&mut int_to_bytes8(slot.as_u64()));
+                let seed = hash(&preimage);
+                self.compute_proposer_index(indices, &seed, spec)
+            })
+            .collect()
+    }
+
     /// Fork-aware abstraction for the shuffling.
     ///
     /// In Electra and later, the random value is a 16-bit integer stored in a `u64`.
@@ -990,7 +1019,9 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
-    pub fn latest_execution_payload_header(&self) -> Result<ExecutionPayloadHeaderRef<E>, Error> {
+    pub fn latest_execution_payload_header(
+        &self,
+    ) -> Result<ExecutionPayloadHeaderRef<'_, E>, Error> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Bellatrix(state) => Ok(ExecutionPayloadHeaderRef::Bellatrix(
@@ -1013,7 +1044,7 @@ impl<E: EthSpec> BeaconState<E> {
 
     pub fn latest_execution_payload_header_mut(
         &mut self,
-    ) -> Result<ExecutionPayloadHeaderRefMut<E>, Error> {
+    ) -> Result<ExecutionPayloadHeaderRefMut<'_, E>, Error> {
         match self {
             BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
             BeaconState::Bellatrix(state) => Ok(ExecutionPayloadHeaderRefMut::Bellatrix(
@@ -1062,37 +1093,48 @@ impl<E: EthSpec> BeaconState<E> {
 
     /// Returns the beacon proposer index for the `slot` in `self.current_epoch()`.
     ///
-    /// Spec v0.12.1
+    /// Spec v1.6.0-alpha.1
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
         // Proposer indices are only known for the current epoch, due to the dependence on the
         // effective balances of validators, which change at every epoch transition.
         let epoch = slot.epoch(E::slots_per_epoch());
+        // TODO(EIP-7917): Explore allowing this function to be called with a slot one epoch in the future.
         if epoch != self.current_epoch() {
             return Err(Error::SlotOutOfBounds);
         }
 
-        let seed = self.get_beacon_proposer_seed(slot, spec)?;
-        let indices = self.get_active_validator_indices(epoch, spec)?;
+        if let Ok(proposer_lookahead) = self.proposer_lookahead() {
+            // Post-Fulu
+            let index = slot.as_usize().safe_rem(E::slots_per_epoch() as usize)?;
+            proposer_lookahead
+                .get(index)
+                .ok_or(Error::PleaseNotifyTheDevs(format!(
+                    "Proposer lookahead out of bounds: {} for slot: {}",
+                    index, slot
+                )))
+                .map(|index| *index as usize)
+        } else {
+            // Pre-Fulu
+            let seed = self.get_beacon_proposer_seed(slot, spec)?;
+            let indices = self.get_active_validator_indices(epoch, spec)?;
 
-        self.compute_proposer_index(&indices, &seed, spec)
+            self.compute_proposer_index(&indices, &seed, spec)
+        }
     }
 
-    /// Returns the beacon proposer index for each `slot` in `self.current_epoch()`.
+    /// Returns the beacon proposer index for each `slot` in `epoch`.
     ///
-    /// The returned `Vec` contains one proposer index for each slot. For example, if
-    /// `state.current_epoch() == 1`, then `vec[0]` refers to slot `32` and `vec[1]` refers to slot
-    /// `33`. It will always be the case that `vec.len() == SLOTS_PER_EPOCH`.
-    pub fn get_beacon_proposer_indices(&self, spec: &ChainSpec) -> Result<Vec<usize>, Error> {
+    /// The returned `Vec` contains one proposer index for each slot in the epoch.
+    pub fn get_beacon_proposer_indices(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
         // Not using the cached validator indices since they are shuffled.
-        let indices = self.get_active_validator_indices(self.current_epoch(), spec)?;
+        let indices = self.get_active_validator_indices(epoch, spec)?;
 
-        self.current_epoch()
-            .slot_iter(E::slots_per_epoch())
-            .map(|slot| {
-                let seed = self.get_beacon_proposer_seed(slot, spec)?;
-                self.compute_proposer_index(&indices, &seed, spec)
-            })
-            .collect()
+        let preimage = self.get_seed(epoch, Domain::BeaconProposer, spec)?;
+        self.compute_proposer_indices(epoch, preimage.as_slice(), &indices, spec)
     }
 
     /// Compute the seed to use for the beacon proposer selection at the given `slot`.
@@ -1676,7 +1718,7 @@ impl<E: EthSpec> BeaconState<E> {
     pub fn get_validator_cow(
         &mut self,
         validator_index: usize,
-    ) -> Result<milhouse::Cow<Validator>, Error> {
+    ) -> Result<milhouse::Cow<'_, Validator>, Error> {
         self.validators_mut()
             .get_cow(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))

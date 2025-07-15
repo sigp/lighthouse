@@ -39,8 +39,7 @@ Options:
           [default: 300]
       --keystore-file <PATH_TO_KEYSTORE_FILE>
           The path to a keystore JSON file to be imported to the validator
-          client. This file is usually created using staking-deposit-cli or
-          ethstaker-deposit-cli
+          client. This file is usually created using ethstaker-deposit-cli
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]

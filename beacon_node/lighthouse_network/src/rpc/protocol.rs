@@ -21,7 +21,7 @@ use types::{
     EmptyBlock, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
     LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
     LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
-    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock,
+    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -298,6 +298,7 @@ pub enum Encoding {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SupportedProtocol {
     StatusV1,
+    StatusV2,
     GoodbyeV1,
     BlocksByRangeV1,
     BlocksByRangeV2,
@@ -321,6 +322,7 @@ impl SupportedProtocol {
     pub fn version_string(&self) -> &'static str {
         match self {
             SupportedProtocol::StatusV1 => "1",
+            SupportedProtocol::StatusV2 => "2",
             SupportedProtocol::GoodbyeV1 => "1",
             SupportedProtocol::BlocksByRangeV1 => "1",
             SupportedProtocol::BlocksByRangeV2 => "2",
@@ -344,6 +346,7 @@ impl SupportedProtocol {
     pub fn protocol(&self) -> Protocol {
         match self {
             SupportedProtocol::StatusV1 => Protocol::Status,
+            SupportedProtocol::StatusV2 => Protocol::Status,
             SupportedProtocol::GoodbyeV1 => Protocol::Goodbye,
             SupportedProtocol::BlocksByRangeV1 => Protocol::BlocksByRange,
             SupportedProtocol::BlocksByRangeV2 => Protocol::BlocksByRange,
@@ -368,6 +371,7 @@ impl SupportedProtocol {
 
     fn currently_supported(fork_context: &ForkContext) -> Vec<ProtocolId> {
         let mut supported = vec![
+            ProtocolId::new(Self::StatusV2, Encoding::SSZSnappy),
             ProtocolId::new(Self::StatusV1, Encoding::SSZSnappy),
             ProtocolId::new(Self::GoodbyeV1, Encoding::SSZSnappy),
             // V2 variants have higher preference then V1
@@ -492,8 +496,8 @@ impl ProtocolId {
     pub fn rpc_request_limits(&self, spec: &ChainSpec) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
-                <StatusMessage as Encode>::ssz_fixed_len(),
-                <StatusMessage as Encode>::ssz_fixed_len(),
+                <StatusMessageV1 as Encode>::ssz_fixed_len(),
+                <StatusMessageV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::Goodbye => RpcLimits::new(
                 <GoodbyeReason as Encode>::ssz_fixed_len(),
@@ -537,8 +541,8 @@ impl ProtocolId {
     pub fn rpc_response_limits<E: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
-                <StatusMessage as Encode>::ssz_fixed_len(),
-                <StatusMessage as Encode>::ssz_fixed_len(),
+                <StatusMessageV1 as Encode>::ssz_fixed_len(),
+                <StatusMessageV2 as Encode>::ssz_fixed_len(),
             ),
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
@@ -589,6 +593,7 @@ impl ProtocolId {
             | SupportedProtocol::LightClientFinalityUpdateV1
             | SupportedProtocol::LightClientUpdatesByRangeV1 => true,
             SupportedProtocol::StatusV1
+            | SupportedProtocol::StatusV2
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
             | SupportedProtocol::PingV1
@@ -633,7 +638,8 @@ pub fn rpc_blob_limits<E: EthSpec>() -> RpcLimits {
 pub fn rpc_data_column_limits<E: EthSpec>(fork_name: ForkName, spec: &ChainSpec) -> RpcLimits {
     RpcLimits::new(
         DataColumnSidecar::<E>::min_size(),
-        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block_by_fork(fork_name) as usize),
+        // TODO(EIP-7892): fix this once we change fork-version on BPO forks
+        DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block_within_fork(fork_name) as usize),
     )
 }
 
@@ -732,13 +738,16 @@ impl<E: EthSpec> RequestType<E> {
     /* These functions are used in the handler for stream management */
 
     /// Maximum number of responses expected for this request.
-    pub fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
+    /// TODO(EIP-7892): refactor this to remove `_current_fork`
+    pub fn max_responses(&self, _current_fork: ForkName, spec: &ChainSpec) -> u64 {
         match self {
             RequestType::Status(_) => 1,
             RequestType::Goodbye(_) => 0,
             RequestType::BlocksByRange(req) => *req.count(),
             RequestType::BlocksByRoot(req) => req.block_roots().len() as u64,
-            RequestType::BlobsByRange(req) => req.max_blobs_requested(current_fork, spec),
+            RequestType::BlobsByRange(req) => {
+                req.max_blobs_requested(Slot::new(req.start_slot).epoch(E::slots_per_epoch()), spec)
+            }
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.max_requested() as u64,
             RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
@@ -754,7 +763,10 @@ impl<E: EthSpec> RequestType<E> {
     /// Gives the corresponding `SupportedProtocol` to this request.
     pub fn versioned_protocol(&self) -> SupportedProtocol {
         match self {
-            RequestType::Status(_) => SupportedProtocol::StatusV1,
+            RequestType::Status(req) => match req {
+                StatusMessage::V1(_) => SupportedProtocol::StatusV1,
+                StatusMessage::V2(_) => SupportedProtocol::StatusV2,
+            },
             RequestType::Goodbye(_) => SupportedProtocol::GoodbyeV1,
             RequestType::BlocksByRange(req) => match req {
                 OldBlocksByRangeRequest::V1(_) => SupportedProtocol::BlocksByRangeV1,
@@ -813,10 +825,10 @@ impl<E: EthSpec> RequestType<E> {
     pub fn supported_protocols(&self) -> Vec<ProtocolId> {
         match self {
             // add more protocols when versions/encodings are supported
-            RequestType::Status(_) => vec![ProtocolId::new(
-                SupportedProtocol::StatusV1,
-                Encoding::SSZSnappy,
-            )],
+            RequestType::Status(_) => vec![
+                ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::StatusV2, Encoding::SSZSnappy),
+            ],
             RequestType::Goodbye(_) => vec![ProtocolId::new(
                 SupportedProtocol::GoodbyeV1,
                 Encoding::SSZSnappy,

@@ -746,6 +746,7 @@ impl<E: EthSpec> PeerDB<E> {
                     head_root: Hash256::ZERO,
                     finalized_epoch: Epoch::new(0),
                     finalized_root: Hash256::ZERO,
+                    earliest_available_slot: Some(Slot::new(0)),
                 },
             },
         );
