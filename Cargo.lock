@@ -6016,8 +6016,9 @@ dependencies = [
 
 [[package]]
 name = "milhouse"
-version = "0.6.0"
-source = "git+https://github.com/sigp/milhouse.git?rev=e1c9a575c11562f72acd1ffc18e310a5a6adae2f#e1c9a575c11562f72acd1ffc18e310a5a6adae2f"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bdb104e38d3a8c5ffb7e9d2c43c522e6bcc34070edbadba565e722f0dee56c7"
 dependencies = [
  "alloy-primitives",
  "arbitrary",
