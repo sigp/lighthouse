@@ -7,10 +7,13 @@
 //!
 //! A) `JEMALLOC_SYS_WITH_MALLOC_CONF` at compile-time.
 //! B) `_RJEM_MALLOC_CONF` at runtime.
+
 use metrics::{
     set_gauge, set_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, IntGauge, IntGaugeVec,
 };
+use std::ffi::{c_char, c_int};
 use std::sync::LazyLock;
+use std::{mem, ptr};
 use tikv_jemalloc_ctl::{arenas, epoch, raw, stats, Access, AsName, Error};
 
 #[global_allocator]
@@ -122,6 +125,67 @@ unsafe fn set_stats_gauge(metric: &metrics::Result<IntGaugeVec>, arena: u32, sta
 pub fn page_size() -> Result<usize, Error> {
     // Full list of keys: https://jemalloc.net/jemalloc.3.html
     "arenas.page\0".name().read()
+}
+
+/// A convenience wrapper around `mallctl` for writing `value` to `name`.
+///
+/// # Safety
+///
+/// - `name` must be a valid, null-terminated jemalloc control name.
+/// - `value` must match the expected type for the specified control.
+/// - The jemalloc allocator must be initialised.
+///
+/// Incorrect usage may cause undefined behaviour or allocator corruption.
+unsafe fn mallctl_write<T>(name: &[u8], mut value: T) -> Result<(), c_int> {
+    // Use `tikv_jemalloc_sys::mallctl` directly since the `jemalloc_ctl::raw`
+    // functions artifically limit the `name` values.
+    let status = tikv_jemalloc_sys::mallctl(
+        name as *const _ as *const c_char,
+        ptr::null_mut(),
+        ptr::null_mut(),
+        &mut value as *mut _ as *mut _,
+        mem::size_of::<T>(),
+    );
+
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(status)
+    }
+}
+
+/// Add a C-style `0x00` terminator to the string and return it as a `Vec` of
+/// bytes.
+#[allow(dead_code)]
+fn terminate_string_for_c(s: &str) -> Vec<u8> {
+    let mut terminated = vec![0x00_u8; s.len() + 1];
+    terminated[..s.len()].copy_from_slice(s.as_ref());
+    terminated
+}
+
+/// Uses `mallctl` to call `"prof.dump"`.
+///
+/// This generates a heap profile at `filename`.
+#[allow(dead_code)]
+pub fn prof_dump(filename: &str) -> Result<(), String> {
+    let terminated_filename = terminate_string_for_c(filename);
+
+    unsafe {
+        mallctl_write(
+            "prof.dump\0".as_ref(),
+            terminated_filename.as_ptr() as *const c_char,
+        )
+    }
+    .map_err(|e| format!("Failed to call prof.dump on mallctl: {e:?}"))
+}
+
+/// Uses `mallctl` to call `"prof.enable"`.
+///
+/// Controls whether profile sampling is active.
+#[allow(dead_code)]
+pub fn prof_active(enable: bool) -> Result<(), String> {
+    unsafe { mallctl_write("prof.active\0".as_ref(), enable) }
+        .map_err(|e| format!("Failed to call prof.active on mallctl with code {e:?}"))
 }
 
 #[cfg(test)]

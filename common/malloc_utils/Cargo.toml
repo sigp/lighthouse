@@ -6,14 +6,14 @@ edition = { workspace = true }
 
 [features]
 mallinfo2 = []
-jemalloc = ["tikv-jemallocator", "tikv-jemalloc-ctl"]
-jemalloc-profiling = ["tikv-jemallocator/profiling"]
+jemalloc = ["tikv-jemallocator", "tikv-jemalloc-ctl", "tikv-jemalloc-sys"]
 
 [dependencies]
 libc = "0.2.79"
 metrics = { workspace = true }
 parking_lot = { workspace = true }
 tikv-jemalloc-ctl = { version = "0.6.0", optional = true, features = ["stats"] }
+tikv-jemalloc-sys = { version = "0.6.0", optional = true }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tikv-jemallocator = { version = "0.6.0", optional = true, features = ["stats"] }
@@ -23,4 +23,5 @@ tikv-jemallocator = { version = "0.6.0", optional = true, features = ["stats"] }
 tikv-jemallocator = { version = "0.6.0", optional = true, features = [
     "stats",
     "background_threads",
+    "profiling"
 ] }

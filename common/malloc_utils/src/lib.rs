@@ -44,6 +44,11 @@ pub use interface::*;
 mod interface {
     pub use crate::glibc::configure_glibc_malloc as configure_memory_allocator;
     pub use crate::glibc::scrape_mallinfo_metrics as scrape_allocator_metrics;
+
+    #[allow(dead_code)]
+    pub use super::prof_active_unsupported as prof_active;
+    #[allow(dead_code)]
+    pub use super::prof_dump_unsupported as prof_dump;
 }
 
 #[cfg(feature = "jemalloc")]
@@ -53,6 +58,8 @@ mod interface {
         Ok(())
     }
 
+    pub use crate::jemalloc::prof_active;
+    pub use crate::jemalloc::prof_dump;
     pub use crate::jemalloc::scrape_jemalloc_metrics as scrape_allocator_metrics;
 }
 
@@ -68,4 +75,28 @@ mod interface {
 
     #[allow(dead_code)]
     pub fn scrape_allocator_metrics() {}
+
+    #[allow(dead_code)]
+    pub use super::prof_dump_unsupported as prof_dump;
+
+    #[allow(dead_code)]
+    pub use super::prof_active_unsupported as prof_active;
+}
+
+#[allow(dead_code)]
+pub fn prof_dump_unsupported(_: &str) -> Result<(), String> {
+    Err(
+        "Profile dumps are only supported when Lighthouse is built for Linux \
+        using the `jemalloc` feature."
+            .to_string(),
+    )
+}
+
+#[allow(dead_code)]
+pub fn prof_active_unsupported(_: bool) -> Result<(), String> {
+    Err(
+        "Enabling profiling is only supported when Lighthouse is built for Linux \
+        using the `jemalloc` feature."
+            .to_string(),
+    )
 }
