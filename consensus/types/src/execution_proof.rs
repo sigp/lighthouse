@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn test_execution_proof_creation() {
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let subnet_id = ExecutionProofSubnetId::new(0);
+        let subnet_id = ExecutionProofSubnetId::new(0).unwrap();
         let proof_data = vec![1, 2, 3, 4];
         let timestamp = 1234567890;
 
@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn test_execution_proof_with_current_timestamp() {
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let subnet_id = ExecutionProofSubnetId::new(1);
+        let subnet_id = ExecutionProofSubnetId::new(1).unwrap();
         let proof_data = vec![5, 6, 7, 8];
 
         let proof =
@@ -117,7 +117,7 @@ mod tests {
     #[test]
     fn test_execution_proof_validation() {
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let subnet_id = ExecutionProofSubnetId::new(0);
+        let subnet_id = ExecutionProofSubnetId::new(0).unwrap();
 
         // Valid proof
         let valid_proof = ExecutionProof::new(block_hash, subnet_id, 1, vec![1, 2, 3], 123);
@@ -141,7 +141,7 @@ mod tests {
 
         let witness_proof = ExecutionProof::new(
             block_hash,
-            ExecutionProofSubnetId::new(0),
+            ExecutionProofSubnetId::new(0).unwrap(),
             1,
             vec![1, 2, 3],
             123,
@@ -150,7 +150,7 @@ mod tests {
 
         let custom_proof = ExecutionProof::new(
             block_hash,
-            ExecutionProofSubnetId::new(5),
+            ExecutionProofSubnetId::new(5).unwrap(),
             1,
             vec![1, 2, 3],
             123,
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn test_execution_proof_ssz_encoding() {
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let subnet_id = ExecutionProofSubnetId::new(2);
+        let subnet_id = ExecutionProofSubnetId::new(2).unwrap();
         let proof_data = vec![10, 20, 30, 40, 50];
         let timestamp = 9876543210;
 

@@ -101,7 +101,7 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         for subnet_id in 0..MAX_EXECUTION_PROOF_SUBNETS {
             topics.push(GossipKind::ExecutionProof(ExecutionProofSubnetId::new(
                 subnet_id,
-            )));
+            ).expect("subnet_id is less than MAX_EXECUTION_PROOF_SUBNETS")));
         }
     }
 
@@ -396,9 +396,10 @@ fn subnet_topic_index(topic: &str) -> Option<GossipKind> {
             index.parse::<u64>().ok()?,
         )));
     } else if let Some(index) = topic.strip_prefix(EXECUTION_PROOF_PREFIX) {
-        return Some(GossipKind::ExecutionProof(ExecutionProofSubnetId::new(
-            index.parse::<u64>().ok()?,
-        )));
+        let subnet_id = index.parse::<u64>().ok()?;
+        return ExecutionProofSubnetId::new(subnet_id)
+            .ok()
+            .map(GossipKind::ExecutionProof);
     }
     None
 }

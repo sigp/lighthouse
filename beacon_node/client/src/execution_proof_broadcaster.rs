@@ -378,17 +378,31 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
         return;
     }
 
+    // Create subnet ID, validating it's within bounds
+    let subnet_id = match ExecutionProofSubnetId::new(proof_id.subnet_id()) {
+        Ok(id) => id,
+        Err(e) => {
+            warn!(
+                "Invalid subnet ID {} for proof: {}",
+                proof_id.subnet_id(),
+                e
+            );
+            broadcast_manager.mark_broadcast_failed(execution_block_hash, proof_id);
+            return;
+        }
+    };
+
     // Convert ExecutionPayloadProof to ExecutionProof (gossip format)
     let gossip_proof = ExecutionProof::new_with_current_timestamp(
         execution_block_hash,
-        ExecutionProofSubnetId::new(proof_id.subnet_id()),
+        subnet_id,
         stored_proof.version,
         stored_proof.proof_data.clone(),
     );
 
     // Create the gossip message
     let pubsub_message = PubsubMessage::ExecutionProofMessage(Box::new((
-        ExecutionProofSubnetId::new(proof_id.subnet_id()),
+        subnet_id,
         Arc::new(gossip_proof),
     )));
 
