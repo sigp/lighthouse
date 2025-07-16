@@ -17,7 +17,10 @@ pub struct ExecutionProof {
     /// TODO: conversion from SubnetId to ProofID. We could encode the ProofID
     /// TODO: into the `proof_data`.
     pub subnet_id: ExecutionProofSubnetId,
-    /// Version of the proof format
+    /// Version of the proof format.
+    /// TODO: This is currently always set to `1` by `new_v1`
+    /// TODO: but we want to have a proper way to set this and or
+    /// TODO: decide, if this should be explicitly set in lighthouse.
     pub version: u32,
     /// Opaque proof data - structure depends on subnet_id and version
     /// This contains cryptographic proofs from zkVMs or other proof systems
@@ -79,7 +82,6 @@ mod tests {
         assert_eq!(proof.version, 1);
         assert_eq!(proof.proof_data, proof_data);
     }
-
 
     #[test]
     fn test_execution_proof_validation() {
