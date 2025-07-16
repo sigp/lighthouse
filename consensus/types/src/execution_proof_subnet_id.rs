@@ -1,5 +1,4 @@
 //! Identifies each execution proof subnet by an integer identifier.
-use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt::{self, Display};
@@ -17,7 +16,8 @@ use std::ops::{Deref, DerefMut};
 /// - Network overhead (not too many gossip topics)
 /// - Resource requirements (reasonable for most nodes(?))
 ///
-/// In reality, I do not think we will have 8, more closer to 3
+/// In reality, I do not think we will have 8, more closer to 3, though this is still being
+/// explored. This number could be larger if we consider combining different zkVMs with different guests.
 pub const MAX_EXECUTION_PROOF_SUBNETS: u64 = 8;
 
 #[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -25,22 +25,15 @@ pub const MAX_EXECUTION_PROOF_SUBNETS: u64 = 8;
 pub struct ExecutionProofSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
 impl ExecutionProofSubnetId {
-    pub fn new(id: u64) -> Self {
-        id.into()
-    }
-
-    /// Create an ExecutionProofSubnetId from a ProofId
-    /// Since ProofId directly maps to subnet ID, this is a simple conversion
-    pub fn from_proof_id(proof_id: u64) -> Result<Self, Error> {
-        if proof_id >= MAX_EXECUTION_PROOF_SUBNETS {
-            return Err(Error::InvalidSubnetId(proof_id));
+    /// Create an ExecutionProofSubnetId from a u64, validating it's within bounds
+    ///
+    /// Note: bounds here relates to the fact that there is a maximum number of subnets
+    /// that we can have; it is the number of maximum number of proofs that we will accept.
+    pub fn new(id: u64) -> Result<Self, InvalidSubnetId> {
+        if id >= MAX_EXECUTION_PROOF_SUBNETS {
+            return Err(InvalidSubnetId(id));
         }
-        Ok(Self(proof_id))
-    }
-
-    /// Validate that this subnet ID is within acceptable bounds
-    pub fn is_valid(&self) -> bool {
-        self.0 < MAX_EXECUTION_PROOF_SUBNETS
+        Ok(Self(id))
     }
 }
 
@@ -64,12 +57,6 @@ impl DerefMut for ExecutionProofSubnetId {
     }
 }
 
-impl From<u64> for ExecutionProofSubnetId {
-    fn from(x: u64) -> Self {
-        Self(x)
-    }
-}
-
 impl From<ExecutionProofSubnetId> for u64 {
     fn from(val: ExecutionProofSubnetId) -> Self {
         val.0
@@ -83,31 +70,19 @@ impl From<&ExecutionProofSubnetId> for u64 {
 }
 
 #[derive(Debug)]
-pub enum Error {
-    ArithError(ArithError),
-    InvalidSubnetId(u64),
-}
+pub struct InvalidSubnetId(pub u64);
 
-impl From<ArithError> for Error {
-    fn from(e: ArithError) -> Self {
-        Error::ArithError(e)
-    }
-}
-
-impl std::fmt::Display for Error {
+impl std::fmt::Display for InvalidSubnetId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Error::ArithError(e) => write!(f, "Arithmetic error: {:?}", e),
-            Error::InvalidSubnetId(id) => write!(
-                f,
-                "Invalid execution proof subnet ID: {}, must be < {}",
-                id, MAX_EXECUTION_PROOF_SUBNETS
-            ),
-        }
+        write!(
+            f,
+            "Invalid execution proof subnet ID: {}, must be < {}",
+            self.0, MAX_EXECUTION_PROOF_SUBNETS
+        )
     }
 }
 
-impl std::error::Error for Error {}
+impl std::error::Error for InvalidSubnetId {}
 
 // Manual SSZ implementations for ExecutionProofSubnetId
 impl Encode for ExecutionProofSubnetId {
@@ -148,53 +123,36 @@ mod tests {
 
     #[test]
     fn test_execution_proof_subnet_id_creation() {
-        // Valid subnet IDs
         for id in 0..MAX_EXECUTION_PROOF_SUBNETS {
-            let subnet_id = ExecutionProofSubnetId::new(id);
+            let subnet_id = ExecutionProofSubnetId::new(id).unwrap();
             assert_eq!(*subnet_id, id);
-            assert!(subnet_id.is_valid());
         }
 
-        // Test from_proof_id
-        assert!(ExecutionProofSubnetId::from_proof_id(0).is_ok());
-        assert!(ExecutionProofSubnetId::from_proof_id(7).is_ok());
-        assert!(ExecutionProofSubnetId::from_proof_id(8).is_err()); // >= MAX
-        assert!(ExecutionProofSubnetId::from_proof_id(100).is_err());
-    }
-
-    #[test]
-    fn test_execution_proof_subnet_id_validation() {
-        // Valid IDs
-        assert!(ExecutionProofSubnetId::new(0).is_valid());
-        assert!(ExecutionProofSubnetId::new(7).is_valid());
-
-        // Invalid IDs (outside bounds)
-        assert!(!ExecutionProofSubnetId::new(8).is_valid());
-        assert!(!ExecutionProofSubnetId::new(100).is_valid());
+        assert!(ExecutionProofSubnetId::new(0).is_ok());
+        assert!(ExecutionProofSubnetId::new(7).is_ok());
+        assert!(ExecutionProofSubnetId::new(MAX_EXECUTION_PROOF_SUBNETS).is_err());
+        assert!(ExecutionProofSubnetId::new(u64::MAX).is_err());
     }
 
     #[test]
     fn test_execution_proof_subnet_id_conversions() {
-        let subnet_id = ExecutionProofSubnetId::new(5);
+        let subnet_id = ExecutionProofSubnetId::new(5).unwrap();
 
         // Test Deref
         assert_eq!(*subnet_id, 5);
 
-        // Test Into/From u64
+        // Test Into u64
         let id_u64: u64 = subnet_id.into();
         assert_eq!(id_u64, 5);
 
-        let subnet_id2 = ExecutionProofSubnetId::from(5u64);
-        assert_eq!(subnet_id, subnet_id2);
-
-        // Test Into/From &u64
+        // Test Into u64 from reference
         let id_ref: u64 = (&subnet_id).into();
         assert_eq!(id_ref, 5);
     }
 
     #[test]
     fn test_execution_proof_subnet_id_display() {
-        let subnet_id = ExecutionProofSubnetId::new(3);
+        let subnet_id = ExecutionProofSubnetId::new(3).unwrap();
         assert_eq!(format!("{}", subnet_id), "3");
     }
 }
