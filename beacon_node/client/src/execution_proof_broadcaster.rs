@@ -393,7 +393,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
     };
 
     // Convert ExecutionPayloadProof to ExecutionProof (gossip format)
-    let gossip_proof = ExecutionProof::new_with_current_timestamp(
+    let gossip_proof = ExecutionProof::new(
         execution_block_hash,
         subnet_id,
         stored_proof.version,
