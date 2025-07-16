@@ -17,16 +17,16 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info, warn};
 use types::{ExecutionBlockHash, ExecutionProof, ExecutionProofSubnetId};
 
-/// Status of proof broadcasting to the network
+/// Status of proof broadcasting to the network of a particular proof
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BroadcastStatus {
-    /// Proof has not been broadcast yet
+    /// Proof has not been broadcasted yet
     NotBroadcast,
-    /// Proof is currently being broadcast
+    /// Proof is currently being broadcasted
     Broadcasting,
-    /// Proof has been successfully broadcast
+    /// Proof has been successfully broadcasted
     Broadcast,
-    /// Proof broadcasting failed after retries
+    /// Proof broadcasting failed
     Failed,
 }
 
@@ -57,7 +57,7 @@ impl ProofBroadcastState {
         }
     }
 
-    /// Check if this proof is ready to be broadcast
+    /// Check if this proof is ready to be broadcasted
     pub fn is_ready_to_broadcast(&self) -> bool {
         matches!(
             self.status,
@@ -137,12 +137,11 @@ impl ProofBroadcastManager {
         states.insert((block_hash, proof_id), state);
     }
 
-    /// Mark a proof as being broadcast
-    pub fn mark_broadcasting(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) -> bool {
+    /// Mark a proof as being broadcasted
+    pub fn mark_broadcasting(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
         let mut state = self.get_or_create_state(block_hash, proof_id);
         state.mark_broadcasting();
         self.update_state(block_hash, proof_id, state);
-        true
     }
 
     /// Mark a proof as successfully broadcast
@@ -150,19 +149,17 @@ impl ProofBroadcastManager {
         &self,
         block_hash: ExecutionBlockHash,
         proof_id: ProofId,
-    ) -> bool {
+    ) {
         let mut state = self.get_or_create_state(block_hash, proof_id);
         state.mark_broadcast_success();
         self.update_state(block_hash, proof_id, state);
-        true
     }
 
     /// Mark a proof broadcast as failed
-    pub fn mark_broadcast_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) -> bool {
+    pub fn mark_broadcast_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
         let mut state = self.get_or_create_state(block_hash, proof_id);
         state.mark_broadcast_failed();
         self.update_state(block_hash, proof_id, state);
-        true
     }
 
     /// Get all proofs ready for broadcast
@@ -369,14 +366,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
     stored_proof: &beacon_chain::execution_payload_proofs::ExecutionPayloadProof,
 ) {
     // Mark as currently broadcasting
-    if !broadcast_manager.mark_broadcasting(execution_block_hash, proof_id) {
-        warn!(
-            "Failed to mark proof as broadcasting for block {:?} subnet {}",
-            execution_block_hash,
-            proof_id.subnet_id()
-        );
-        return;
-    }
+    broadcast_manager.mark_broadcasting(execution_block_hash, proof_id);
 
     // Create subnet ID, validating it's within bounds
     let subnet_id = match ExecutionProofSubnetId::new(proof_id.subnet_id()) {
@@ -412,37 +402,22 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
     }) {
         Ok(()) => {
             // Mark as successfully broadcast
-            if broadcast_manager.mark_broadcast_success(execution_block_hash, proof_id) {
-                info!(
-                    "STATELESS: Successfully BROADCAST execution proof for block {:?} on subnet {}",
-                    execution_block_hash,
-                    proof_id.subnet_id()
-                );
-            } else {
-                warn!(
-                    "Broadcast succeeded but failed to update proof status for block {:?} subnet {}",
-                    execution_block_hash,
-                    proof_id.subnet_id()
-                );
-            }
+            broadcast_manager.mark_broadcast_success(execution_block_hash, proof_id);
+            info!(
+                "STATELESS: Successfully BROADCAST execution proof for block {:?} on subnet {}",
+                execution_block_hash,
+                proof_id.subnet_id()
+            );
         }
         Err(e) => {
             // Mark as failed
-            if broadcast_manager.mark_broadcast_failed(execution_block_hash, proof_id) {
-                warn!(
-                    "Failed to broadcast execution proof for block {:?} subnet {}: {}",
-                    execution_block_hash,
-                    proof_id.subnet_id(),
-                    e
-                );
-            } else {
-                warn!(
-                    "Broadcast failed and unable to update proof status for block {:?} subnet {}: {}",
-                    execution_block_hash,
-                    proof_id.subnet_id(),
-                    e
-                );
-            }
+            broadcast_manager.mark_broadcast_failed(execution_block_hash, proof_id);
+            warn!(
+                "Failed to broadcast execution proof for block {:?} subnet {}: {}",
+                execution_block_hash,
+                proof_id.subnet_id(),
+                e
+            );
         }
     }
 }
@@ -581,19 +556,19 @@ mod tests {
         let proof_id = ProofId::custom(1).unwrap();
         
         // Test mark_broadcasting
-        assert!(manager.mark_broadcasting(block_hash, proof_id));
+        manager.mark_broadcasting(block_hash, proof_id);
         let state = manager.get_or_create_state(block_hash, proof_id);
         assert_eq!(state.status, BroadcastStatus::Broadcasting);
         assert_eq!(state.attempts, 1);
         
         // Test mark_broadcast_success
-        assert!(manager.mark_broadcast_success(block_hash, proof_id));
+        manager.mark_broadcast_success(block_hash, proof_id);
         let state = manager.get_or_create_state(block_hash, proof_id);
         assert_eq!(state.status, BroadcastStatus::Broadcast);
         
         // Test mark_broadcast_failed
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        assert!(manager.mark_broadcast_failed(block_hash2, proof_id));
+        manager.mark_broadcast_failed(block_hash2, proof_id);
         let state = manager.get_or_create_state(block_hash2, proof_id);
         assert_eq!(state.status, BroadcastStatus::Failed);
     }
