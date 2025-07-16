@@ -542,7 +542,7 @@ mod tests {
     fn test_proof_broadcast_manager_get_or_create_state() {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1);
+        let proof_id = ProofId::custom(1).unwrap();
         
         // First access creates new state
         let state1 = manager.get_or_create_state(block_hash, proof_id);
@@ -559,7 +559,7 @@ mod tests {
     fn test_proof_broadcast_manager_update_state() {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1);
+        let proof_id = ProofId::custom(1).unwrap();
         
         // Update with custom state
         let mut custom_state = ProofBroadcastState::new();
@@ -578,7 +578,7 @@ mod tests {
     fn test_proof_broadcast_manager_mark_methods() {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1);
+        let proof_id = ProofId::custom(1).unwrap();
         
         // Test mark_broadcasting
         assert!(manager.mark_broadcasting(block_hash, proof_id));
@@ -612,8 +612,8 @@ mod tests {
         // Add some test proofs to the store
         let block_hash1 = ExecutionBlockHash::from(Hash256::random());
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id1 = ProofId::custom(1);
-        let proof_id2 = ProofId::custom(2);
+        let proof_id1 = ProofId::custom(1).unwrap();
+        let proof_id2 = ProofId::custom(2).unwrap();
         
         // Store proofs
         let proof1 = ExecutionPayloadProof::new_v1(
@@ -660,7 +660,7 @@ mod tests {
         // Add test proofs
         let block_hash1 = ExecutionBlockHash::from(Hash256::random());
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1);
+        let proof_id = ProofId::custom(1).unwrap();
         
         // Store proofs
         let proof1 = ExecutionPayloadProof::new_v1(block_hash1, proof_id, vec![1, 2, 3]);
@@ -705,7 +705,7 @@ mod tests {
         // Add states for proofs that exist and don't exist
         let block_hash1 = ExecutionBlockHash::from(Hash256::random());
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1);
+        let proof_id = ProofId::custom(1).unwrap();
         
         // Store only one proof
         let proof1 = ExecutionPayloadProof::new_v1(block_hash1, proof_id, vec![1, 2, 3]);
@@ -753,7 +753,7 @@ mod tests {
         let broadcast_manager = ProofBroadcastManager::new();
         
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1);
+        let proof_id = ProofId::custom(1).unwrap();
         let stored_proof = ExecutionPayloadProof::new_v1(
             block_hash,
             proof_id,
@@ -810,7 +810,7 @@ mod tests {
         let broadcast_manager = ProofBroadcastManager::new();
         
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1);
+        let proof_id = ProofId::custom(1).unwrap();
         let stored_proof = ExecutionPayloadProof::new_v1(
             block_hash,
             proof_id,

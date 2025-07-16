@@ -848,13 +848,13 @@ mod tests {
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
                 dummy_witness,
-                ProofId::custom(1),
+                ProofId::custom(1).unwrap(),
             );
         let proof_2 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
                 dummy_witness,
-                ProofId::custom(2),
+                ProofId::custom(2).unwrap(),
             );
 
         // All proofs should be for the same block hash
