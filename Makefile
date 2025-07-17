@@ -34,6 +34,9 @@ PROFILE ?= release
 # they run for different forks.
 FORKS=phase0 altair bellatrix capella deneb electra fulu
 
+# List of all recent hard forks. This list is used to set env variables for http_api tests
+RECENT_FORKS=electra fulu
+
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
 
@@ -141,24 +144,26 @@ build-release-tarballs:
 test-release:
 	cargo test --workspace --release --features "$(TEST_FEATURES)" \
  		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+		--exclude http_api
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors, using nextest.
 nextest-release:
 	cargo nextest run --workspace --release --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
+		--exclude http_api
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
 	cargo test --workspace --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude network
+		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors, using nextest.
 nextest-debug:
 	cargo nextest run --workspace --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude network
+		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -187,6 +192,13 @@ test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
+
+# Run the tests in the `beacon_chain` crate for all known forks.
+test-http-api: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
+
+test-http-api-%:
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p http_api
+
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
