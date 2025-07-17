@@ -148,14 +148,18 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Check if we have any proof for the given execution block hash
-    /// Returns true if at least one proof type exists (all stored proofs are pre-validated)
+    /// Returns true if at least one proof type exists
+    ///
+    /// Note: all stored proofs are validated. We assume that proofs are added via `store_proofs`
     pub fn has_valid_proof(&self, block_hash: &ExecutionBlockHash) -> bool {
         let proofs = self.proofs.read();
         proofs.keys().any(|(hash, _proof_id)| hash == block_hash)
     }
 
     /// Check if we have a proof for a specific proof ID and execution block hash
-    /// Returns true if the proof exists (all stored proofs are pre-validated)
+    /// Returns true if the proof exists
+    ///
+    /// Note: all stored proofs are validated. We assume that proofs are added via `store_proofs`
     pub fn has_valid_proof_for_id(
         &self,
         block_hash: &ExecutionBlockHash,
@@ -180,11 +184,6 @@ impl ExecutionPayloadProofStore {
             .collect()
     }
 
-    /// Get all stored proofs (for broadcast management)
-    pub fn get_all_proofs(&self) -> HashMap<(ExecutionBlockHash, ProofId), ExecutionProof> {
-        self.proofs.read().clone()
-    }
-
     /// Get a specific proof for the given execution block hash and proof ID
     pub fn get_proof(
         &self,
@@ -204,9 +203,9 @@ impl ExecutionPayloadProofStore {
         std::mem::take(&mut *queue)
     }
 
-    /// Store a proof for an execution payload after validation
-    /// This method validates the proof before storing it
-    /// TODO: This will be called when proofs are received via gossip subnet
+    /// Store a proof for an execution payload
+    ///
+    /// Note: This method validates the proof before storing it
     pub fn store_proof(&self, proof: ExecutionProof) -> Result<(), ExecutionProofError> {
         // Validate the proof before storing
         if !Self::validate_proof(&proof) {
