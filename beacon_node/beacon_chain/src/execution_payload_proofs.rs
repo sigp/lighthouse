@@ -664,17 +664,6 @@ impl ExecutionPayloadProofStore {
         self.proofs.read().len()
     }
 
-    /// Check if the store is empty
-    fn is_empty(&self) -> bool {
-        self.proofs.read().is_empty()
-    }
-
-    /// Clear all stored proofs
-    fn clear(&self) {
-        self.proofs.write().clear();
-        self.insertion_order.write().clear();
-    }
-
     /// Check if we have any proof for the given execution block hash
     /// Returns true if at least one proof type exists
     ///
