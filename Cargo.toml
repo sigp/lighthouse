@@ -98,8 +98,8 @@ edition = "2021"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
-alloy-consensus = "0.3.0"
-alloy-primitives = { version = "0.8", features = ["rlp", "getrandom"] }
+alloy-consensus = { version = "0.14.0", default-features = false }
+alloy-primitives = { version = "1.0", features = ["rlp", "getrandom"] }
 alloy-rlp = "0.3.4"
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
@@ -116,7 +116,7 @@ byteorder = "1"
 bytes = "1"
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-c-kzg = { version = "1", default-features = false }
+c-kzg = { version = "2.1.0", default-features = false }
 cargo_metadata = "0.19"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 clap_utils = { path = "common/clap_utils" }
@@ -143,9 +143,9 @@ eth2_keystore = { path = "crypto/eth2_keystore" }
 eth2_network_config = { path = "common/eth2_network_config" }
 eth2_wallet = { path = "crypto/eth2_wallet" }
 ethereum_hashing = "0.7.0"
-ethereum_serde_utils = "0.7"
-ethereum_ssz = "0.8.2"
-ethereum_ssz_derive = "0.8.2"
+ethereum_serde_utils = "0.8.0"
+ethereum_ssz = "0.9.0"
+ethereum_ssz_derive = "0.9.0"
 ethers-core = "1"
 ethers-middleware = { version = "1", default-features = false }
 ethers-providers = { version = "1", default-features = false }
@@ -184,7 +184,7 @@ malloc_utils = { path = "common/malloc_utils" }
 maplit = "1"
 merkle_proof = { path = "consensus/merkle_proof" }
 metrics = { path = "common/metrics" }
-milhouse = "0.5"
+milhouse = "0.6"
 mockall = "0.13"
 mockall_double = "0.3"
 mockito = "1.5.0"
@@ -230,7 +230,7 @@ slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
-ssz_types = "0.10"
+ssz_types = "0.11.0"
 state_processing = { path = "consensus/state_processing" }
 store = { path = "beacon_node/store" }
 strum = { version = "0.24", features = ["derive"] }
@@ -254,8 +254,8 @@ tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tree_hash = "0.9"
-tree_hash_derive = "0.9"
+tree_hash = "0.10.0"
+tree_hash_derive = "0.10.0"
 types = { path = "consensus/types" }
 unused_port = { path = "common/unused_port" }
 url = "2"

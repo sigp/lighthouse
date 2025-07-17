@@ -79,6 +79,7 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
+    #[superstruct(getter(copy))]
     pub signature_slot: Slot,
 }
 
@@ -179,6 +180,20 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         })
     }
 
+    pub fn get_attested_header_root<'a>(&'a self) -> Hash256 {
+        map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.attested_header.beacon.canonical_root()
+        })
+    }
+
+    pub fn get_finalized_header_root<'a>(&'a self) -> Hash256 {
+        map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.finalized_header.beacon.canonical_root()
+        })
+    }
+
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let finality_update = match fork_name {
             ForkName::Altair | ForkName::Bellatrix => {
@@ -227,7 +242,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         if attested_slot > prev_slot {
             true
         } else {
-            attested_slot == prev_slot && signature_slot > *self.signature_slot()
+            attested_slot == prev_slot && signature_slot > self.signature_slot()
         }
     }
 }

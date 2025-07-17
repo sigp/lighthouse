@@ -4669,7 +4669,7 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .add_operation(Operation::GasLimit(30_000_000));
+            .add_operation(Operation::GasLimit(DEFAULT_GAS_LIMIT as usize));
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -4692,7 +4692,7 @@ impl ApiTester {
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
-        assert_eq!(payload.gas_limit(), 30_000_000);
+        assert_eq!(payload.gas_limit(), DEFAULT_GAS_LIMIT);
 
         self
     }

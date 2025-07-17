@@ -381,7 +381,7 @@ Options:
           Minimum number of states to cull from the state cache when it gets
           full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 32]
+          Specifies the size of the state cache [default: 128]
       --stateless-min-proofs-required <COUNT>
           Minimum number of execution proofs required to consider a block valid
           in stateless validation mode. Only applies when --stateless-validation

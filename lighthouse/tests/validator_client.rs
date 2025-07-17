@@ -505,7 +505,7 @@ fn no_doppelganger_protection_flag() {
 fn no_gas_limit_flag() {
     CommandLineTest::new()
         .run()
-        .with_config(|config| assert!(config.validator_store.gas_limit == Some(36_000_000)));
+        .with_config(|config| assert!(config.validator_store.gas_limit == Some(45_000_000)));
 }
 #[test]
 fn gas_limit_flag() {

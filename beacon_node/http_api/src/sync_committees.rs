@@ -320,6 +320,38 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
 
     let seen_timestamp = timestamp_now();
 
+    if let Some(latest_optimistic_update) = chain
+        .light_client_server_cache
+        .should_broadcast_latest_optimistic_update()
+    {
+        let _ = publish_pubsub_message(
+            &network_tx,
+            PubsubMessage::LightClientOptimisticUpdate(Box::new(latest_optimistic_update)),
+        )
+        .inspect_err(|e| {
+            error!(
+                error = ?e,
+                "Unable to broadcast latest light client optimistic update"
+            );
+        });
+    };
+
+    if let Some(latest_finality_update) = chain
+        .light_client_server_cache
+        .should_broadcast_latest_finality_update()
+    {
+        let _ = publish_pubsub_message(
+            &network_tx,
+            PubsubMessage::LightClientFinalityUpdate(Box::new(latest_finality_update)),
+        )
+        .inspect_err(|e| {
+            error!(
+                error = ?e,
+                "Unable to broadcast latest light client finality update"
+            );
+        });
+    };
+
     // Verify contributions & broadcast to the network.
     for (index, contribution) in signed_contribution_and_proofs.into_iter().enumerate() {
         let aggregator_index = contribution.message.aggregator_index;
