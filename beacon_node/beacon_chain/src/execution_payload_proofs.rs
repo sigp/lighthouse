@@ -165,6 +165,8 @@ pub struct ExecutionPayloadProofStore {
     /// This allows multiple proof types for the same execution payload
     /// TODO: Handle orphaned proofs - proofs that arrive for blocks we never imported
     proofs: Arc<RwLock<HashMap<(ExecutionBlockHash, ProofId), ExecutionPayloadProof>>>,
+    /// Queue of proofs waiting to be broadcast
+    broadcast_queue: Arc<RwLock<Vec<(ExecutionBlockHash, ProofId)>>>,
     /// Reverse mapping: execution block hash -> beacon block roots waiting for proofs
     /// This allows efficient lookup of which beacon blocks to re-evaluate when proofs arrive
     ///
@@ -193,6 +195,7 @@ impl ExecutionPayloadProofStore {
     pub fn new(max_proofs: usize) -> Self {
         Self {
             proofs: Arc::new(RwLock::new(HashMap::new())),
+            broadcast_queue: Arc::new(RwLock::new(Vec::new())),
             pending_blocks: Arc::new(RwLock::new(HashMap::new())),
             max_proofs,
             proven_canonical_chain: Arc::new(RwLock::new(HashMap::new())),
@@ -249,6 +252,13 @@ impl ExecutionPayloadProofStore {
         proofs.get(&(*block_hash, proof_id)).cloned()
     }
 
+    /// Take all proofs from the broadcast queue
+    /// This drains the queue and returns all pending proofs
+    pub fn take_unqueued_proofs(&self) -> Vec<(ExecutionBlockHash, ProofId)> {
+        let mut queue = self.broadcast_queue.write();
+        std::mem::take(&mut *queue)
+    }
+
     /// Store a proof for an execution payload after validation
     /// This method validates the proof before storing it
     /// TODO: This will be called when proofs are received via gossip subnet
@@ -278,6 +288,12 @@ impl ExecutionPayloadProofStore {
 
         let key = (proof.block_hash, proof.proof_id);
         proofs.insert(key, proof);
+        
+        // Add to broadcast queue
+        drop(proofs); // Release the proofs lock before acquiring broadcast_queue lock
+        let mut queue = self.broadcast_queue.write();
+        queue.push(key);
+        
         Ok(())
     }
 
@@ -301,6 +317,11 @@ impl ExecutionPayloadProofStore {
 
         let key = (proof.block_hash, proof.proof_id);
         proofs.insert(key, proof);
+        
+        // Add to broadcast queue
+        drop(proofs); // Release the proofs lock before acquiring broadcast_queue lock
+        let mut queue = self.broadcast_queue.write();
+        queue.push(key);
     }
 
     /// Get the total number of stored proofs (across all proof types and payloads)
