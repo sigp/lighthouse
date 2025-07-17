@@ -123,21 +123,31 @@ impl ProofBroadcastManager {
     }
 
     /// Mark proof broadcast as failed
-    fn mark_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
+    fn mark_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId, max_attempts: u32) {
         let key = (block_hash, proof_id);
         
         let mut broadcasting = self.broadcasting.write();
         broadcasting.remove(&key);
         
-        // Re-add to queued for retry
-        let mut queued = self.queued.write();
-        queued.insert(key);
-        
         // Update or create failed attempt record
         let mut failed = self.failed.write();
-        failed.entry(key)
+        let attempt = failed.entry(key)
             .and_modify(|attempt| attempt.increment())
             .or_insert_with(FailedAttempt::new);
+        
+        // Check if we've exceeded retry limit
+        if attempt.attempts >= max_attempts {
+            // Remove from failed tracking
+            failed.remove(&key);
+            warn!(
+                "Proof for block {:?} subnet {} exceeded retry limit ({} attempts), abandoning",
+                key.0, key.1.subnet_id(), max_attempts
+            );
+        } else {
+            // Still have retries left, re-add to queued
+            let mut queued = self.queued.write();
+            queued.insert(key);
+        }
     }
 }
 
@@ -169,21 +179,15 @@ pub fn start_execution_proof_broadcaster_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) {
-    // Only start the broadcaster if not in stateless validation mode
-    // (stateless nodes don't generate proofs, they only validate them)
-    if !chain.config.stateless_validation {
-        let config = ExecutionProofBroadcasterConfig::default();
-        let broadcast_manager = Arc::new(ProofBroadcastManager::new());
+    let config = ExecutionProofBroadcasterConfig::default();
+    let broadcast_manager = Arc::new(ProofBroadcastManager::new());
 
-        info!("Starting execution proof broadcaster service");
+    info!("Starting execution proof broadcaster service");
 
-        executor.spawn(
-            execution_proof_broadcaster_task(chain, network_tx, config, broadcast_manager),
-            "execution_proof_broadcaster",
-        );
-    } else {
-        debug!("Skipping execution proof broadcaster service in stateless validation mode");
-    }
+    executor.spawn(
+        execution_proof_broadcaster_task(chain, network_tx, config, broadcast_manager),
+        "execution_proof_broadcaster",
+    );
 }
 
 /// Background task that periodically broadcasts unbroadcast execution proofs
@@ -236,6 +240,7 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
                     execution_block_hash,
                     proof_id,
                     &proof,
+                    config.max_broadcast_attempts,
                 )
                 .await;
             } else {
@@ -254,6 +259,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
     execution_block_hash: ExecutionBlockHash,
     proof_id: ProofId,
     stored_proof: &beacon_chain::execution_payload_proofs::ExecutionPayloadProof,
+    max_attempts: u32,
 ) {
     // Mark as currently broadcasting
     broadcast_manager.start_broadcast(execution_block_hash, proof_id);
@@ -267,7 +273,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
                 proof_id.subnet_id(),
                 e
             );
-            broadcast_manager.mark_failed(execution_block_hash, proof_id);
+            broadcast_manager.mark_failed(execution_block_hash, proof_id, max_attempts);
             return;
         }
     };
@@ -301,7 +307,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
         }
         Err(e) => {
             // Mark as failed
-            broadcast_manager.mark_failed(execution_block_hash, proof_id);
+            broadcast_manager.mark_failed(execution_block_hash, proof_id, max_attempts);
             warn!(
                 "Failed to broadcast execution proof for block {:?} subnet {}: {}",
                 execution_block_hash,
@@ -400,7 +406,7 @@ mod tests {
         manager.start_broadcast(block_hash2, proof_id);
         
         // Mark one as failed but can retry
-        manager.mark_failed(block_hash3, proof_id);
+        manager.mark_failed(block_hash3, proof_id, 3);
         
         // Get ready proofs
         let ready = manager.get_ready_proofs(3, Duration::from_secs(0));
@@ -451,7 +457,7 @@ mod tests {
         manager.queue_proofs(vec![(block_hash, proof_id)]);
         
         // First failure
-        manager.mark_failed(block_hash, proof_id);
+        manager.mark_failed(block_hash, proof_id, 3);
         {
             let failed = manager.failed.read();
             let attempt = failed.get(&(block_hash, proof_id)).unwrap();
@@ -459,7 +465,7 @@ mod tests {
         }
         
         // Second failure
-        manager.mark_failed(block_hash, proof_id);
+        manager.mark_failed(block_hash, proof_id, 3);
         {
             let failed = manager.failed.read();
             let attempt = failed.get(&(block_hash, proof_id)).unwrap();
@@ -467,7 +473,7 @@ mod tests {
         }
         
         // At max attempts (3), should not be in ready list
-        manager.mark_failed(block_hash, proof_id);
+        manager.mark_failed(block_hash, proof_id, 3);
         let ready = manager.get_ready_proofs(3, Duration::from_secs(0));
         assert!(!ready.contains(&(block_hash, proof_id)));
     }
@@ -508,6 +514,7 @@ mod tests {
             block_hash,
             proof_id,
             &stored_proof,
+            3, // max_attempts
         ).await;
         
         // Verify the network message was sent
@@ -569,6 +576,7 @@ mod tests {
             block_hash,
             proof_id,
             &stored_proof,
+            3, // max_attempts
         ).await;
         
         // Verify the proof was marked as failed
