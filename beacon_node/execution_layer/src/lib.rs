@@ -887,14 +887,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
         builder_boost_factor: Option<u64>,
         block_production_version: BlockProductionVersion,
     ) -> Result<BlockProposalContentsType<E>, Error> {
-        info!(
-            parent_hash = ?payload_parameters.parent_hash,
-            timestamp = payload_parameters.payload_attributes.timestamp(),
-            slot = ?builder_params.slot,
-            proposer_index = ?builder_params.pubkey,
-            "Validator requesting payload (getPayload) for block production"
-        );
-
         let payload_result_type = match block_production_version {
             BlockProductionVersion::V3 => match self
                 .determine_and_fetch_payload(
