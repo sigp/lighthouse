@@ -896,6 +896,7 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
+        let max_execution_payload_proofs = self.chain_config.max_execution_payload_proofs;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -977,7 +978,9 @@ where
             observed_bls_to_execution_changes: <_>::default(),
             execution_layer: self.execution_layer.clone(),
             // TODO: allow for persisting and loading from disk (when a block has been confirmed)
-            execution_payload_proof_store: Arc::new(ExecutionPayloadProofStore::default()),
+            execution_payload_proof_store: Arc::new(ExecutionPayloadProofStore::new(
+                max_execution_payload_proofs,
+            )),
             genesis_validators_root,
             genesis_time,
             canonical_head,
