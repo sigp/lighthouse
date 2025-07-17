@@ -377,11 +377,13 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Get the number of execution block hashes that have pending blocks
+    #[cfg(test)]
     pub fn pending_execution_hashes_count(&self) -> usize {
         self.pending_blocks.read().len()
     }
 
     /// Get the total number of pending beacon blocks across all execution hashes
+    #[cfg(test)]
     pub fn total_pending_blocks_count(&self) -> usize {
         self.pending_blocks
             .read()
@@ -394,14 +396,14 @@ impl ExecutionPayloadProofStore {
     /// This should be called periodically to prevent memory leaks
     /// Uses a two-phase approach to avoid holding locks during callback execution
     /// TODO: Test edge case where we receive a lot of pending blocks and cannot
-    /// TODO: finalize
+    /// TODO: finalize. Perhaps we can move to storage, when doing LRU evictions
     pub fn cleanup_finalized_pending_blocks<F>(&self, should_remove: F) -> usize
     where
         F: Fn(Hash256) -> bool,
     {
         use std::collections::HashSet;
 
-        // Collect all block roots to check (read-only access)
+        // Collect all block roots to check
         let blocks_to_check: Vec<Hash256> = {
             let pending = self.pending_blocks.read();
             pending.values().flatten().copied().collect()
@@ -437,14 +439,6 @@ impl ExecutionPayloadProofStore {
         removed_count
     }
 
-    /// Remove all pending blocks older than the given slot
-    /// This is a simpler cleanup method when you have access to block slot information
-    pub fn cleanup_pending_blocks_by_slot<F>(&self, is_old_block: F) -> usize
-    where
-        F: Fn(Hash256) -> bool,
-    {
-        self.cleanup_finalized_pending_blocks(is_old_block)
-    }
 
     /// Get the current proven head (beacon block root and slot)
     /// Returns None if no proven head has been established yet
@@ -1255,7 +1249,7 @@ mod tests {
         store.register_pending_block(exec_hash2, new_block);
 
         // Cleanup old blocks
-        let removed = store.cleanup_pending_blocks_by_slot(|root| root == old_block);
+        let removed = store.cleanup_finalized_pending_blocks(|root| root == old_block);
 
         assert_eq!(removed, 1);
 
