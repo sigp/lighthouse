@@ -214,8 +214,8 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
         let new_proofs = chain.execution_payload_proof_store.take_unqueued_proofs();
         if !new_proofs.is_empty() {
             debug!(
-                "STATELESS_TRACE: Found {} new unqueued proofs",
-                new_proofs.len()
+                proof_count = new_proofs.len(),
+                "Queueing execution proofs for broadcast"
             );
             broadcast_manager.queue_proofs(new_proofs);
         }
@@ -223,13 +223,6 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
         // Get proofs ready to broadcast (new and retries)
         let ready_proofs =
             broadcast_manager.get_ready_proofs(config.max_broadcast_attempts, config.retry_delay);
-
-        if !ready_proofs.is_empty() {
-            info!(
-                "STATELESS_TRACE: Broadcasting {} proofs",
-                ready_proofs.len()
-            );
-        }
 
         // Broadcast each ready proof
         for (execution_block_hash, proof_id) in ready_proofs {
@@ -280,17 +273,20 @@ async fn broadcast_single_proof<E: EthSpec>(
         Ok(()) => {
             // Mark as successfully broadcast
             broadcast_manager.mark_success(execution_block_hash, proof_id);
-            info!(
-                "STATELESS: Successfully BROADCAST execution proof for block {:?} on subnet {}",
-                execution_block_hash, *proof_id
+            debug!(
+                execution_block_hash = ?execution_block_hash,
+                subnet_id = *proof_id,
+                "Broadcast execution proof"
             );
         }
         Err(e) => {
             // Mark as failed
             broadcast_manager.mark_failed(execution_block_hash, proof_id, max_attempts);
             warn!(
-                "Failed to broadcast execution proof for block {:?} subnet {}: {}",
-                execution_block_hash, *proof_id, e
+                execution_block_hash = ?execution_block_hash,
+                subnet_id = *proof_id,
+                error = %e,
+                "Failed to broadcast execution proof"
             );
         }
     }

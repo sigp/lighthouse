@@ -31,10 +31,10 @@ pub async fn generate_proof<T: EthSpec>(
     let delay_ms = thread_rng().gen_range(1000..=3000);
 
     tracing::debug!(
-        "PROOFCHAIN {:?}: Generating proof on subnet {} (simulated delay: {}ms)",
-        execution_block_hash,
-        *proof_id,
-        delay_ms
+        execution_block_hash = ?execution_block_hash,
+        subnet_id = *proof_id,
+        delay_ms,
+        "Simulating proof generation delay"
     );
 
     tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;

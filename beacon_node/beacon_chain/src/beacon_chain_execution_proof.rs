@@ -1,7 +1,7 @@
 use crate::errors::BeaconChainError as Error;
 use crate::{BeaconChain, BeaconChainTypes};
-use tracing::{debug, info, warn};
-use types::{EthSpec, ExecPayload, ExecutionBlockHash, ExecutionProof, Hash256, Slot};
+use tracing::{debug, info};
+use types::{EthSpec, ExecPayload, ExecutionBlockHash, Hash256, Slot};
 
 // Execution Proof Management for BeaconChain
 //
@@ -69,13 +69,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check if we have enough valid proofs
         if proof_count < self.config.stateless_min_proofs_required {
-            self.log_insufficient_proofs(&execution_block_hash, &available_proofs, proof_count);
+            // Only log if we're close to having enough proofs
+            if proof_count > 0 {
+                debug!(
+                    execution_block_hash = %execution_block_hash,
+                    proof_count,
+                    required_proofs = self.config.stateless_min_proofs_required,
+                    "Insufficient proofs for execution block"
+                );
+            }
             return Ok(false);
         }
 
         debug!(
-            "PROOFCHAIN {}: minimum proofs reached ({}/{}), updating proven chain",
-            execution_block_hash, proof_count, self.config.stateless_min_proofs_required
+            execution_block_hash = %execution_block_hash,
+            proof_count,
+            required_proofs = self.config.stateless_min_proofs_required,
+            "Minimum proofs reached, updating proven chain"
         );
 
         // Get current chain state
@@ -111,8 +121,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .map_err(Error::ExecutionProofError)?;
 
-        // Log proven chain status
-        self.log_proven_chain_status(&proven_status, head_slot, slots_per_epoch);
+        // Log proven chain status if it changed
+        if let Some((_proven_root, proven_slot)) = proven_status.proven_head {
+            if proven_status.head_changed {
+                let lag_slots = head_slot.saturating_sub(proven_slot);
+                info!(
+                    proven_slot = %proven_slot,
+                    head_slot = %head_slot,
+                    lag_slots = %lag_slots,
+                    "Proven chain updated"
+                );
+            }
+        }
 
         // Remove pending blocks that now have sufficient proofs
         let proven_blocks = self
@@ -151,15 +171,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.execution_payload_proof_store
                 .register_pending_block(execution_block_hash, beacon_block_root);
 
-            info!(
-                %beacon_block_root,
-                %execution_block_hash,
-                "STATELESS: Registered optimistic block as PENDING execution proof validation"
-            );
-            info!(
-                "STATELESS_TRACE: Block registered - beacon_root: {:?}, exec_hash: {:?} -> PENDING proof",
-                beacon_block_root,
-                execution_block_hash
+            debug!(
+                beacon_block_root = %beacon_block_root,
+                execution_block_hash = %execution_block_hash,
+                "Registered optimistic block awaiting proofs"
             );
         }
     }
@@ -205,116 +220,5 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         removed_count
-    }
-
-    // ========================================================================
-    // Logging and Monitoring
-    // ========================================================================
-
-    /// Log insufficient proofs for an execution block hash
-    fn log_insufficient_proofs(
-        &self,
-        execution_block_hash: &ExecutionBlockHash,
-        available_proofs: &[ExecutionProof],
-        proof_count: usize,
-    ) {
-        let proof_details: Vec<String> = available_proofs
-            .iter()
-            .map(|p| format!("{} on subnet {}", p.description(), *p.subnet_id))
-            .collect();
-
-        debug!(
-            "PROOFCHAIN {}: {}. Proofs: {}/{} required",
-            execution_block_hash,
-            proof_details.join(", "),
-            proof_count,
-            self.config.stateless_min_proofs_required
-        );
-    }
-
-    /// Log proven chain status and detailed summary
-    fn log_proven_chain_status(
-        &self,
-        proven_status: &crate::execution_payload_proofs::ProvenChainStatus,
-        head_slot: Slot,
-        slots_per_epoch: u64,
-    ) {
-        if let Some((_proven_root, proven_slot)) = proven_status.proven_head {
-            if proven_status.head_changed {
-                info!(
-                    "PROOFCHAIN STATUS: Proven slot {} | Optimistic slot {} | Lag {} slots | Status: {}",
-                    proven_slot.as_u64(),
-                    head_slot.as_u64(),
-                    head_slot.saturating_sub(proven_slot).as_u64(),
-                    if head_slot == proven_slot { "Fully proven" } else { "Catching up" }
-                );
-
-                self.log_proven_chain_summary(proven_status, head_slot, slots_per_epoch);
-            }
-        } else {
-            warn!("PROOFCHAIN: no proven head found - no blocks have sufficient proofs");
-        }
-    }
-
-    /// Log detailed proven chain summary
-    fn log_proven_chain_summary(
-        &self,
-        proven_status: &crate::execution_payload_proofs::ProvenChainStatus,
-        head_slot: Slot,
-        slots_per_epoch: u64,
-    ) {
-        let Some((_, proven_slot)) = proven_status.proven_head else {
-            return;
-        };
-
-        let head = self.canonical_head.cached_head();
-        let finalized_checkpoint = head.finalized_checkpoint();
-        let finalized_slot = finalized_checkpoint.epoch.start_slot(slots_per_epoch);
-
-        info!("PROOFCHAIN SUMMARY:");
-        info!(
-            "  Proven head: slot {} (epoch {})",
-            proven_slot.as_u64(),
-            proven_slot.epoch(slots_per_epoch).as_u64()
-        );
-        info!(
-            "  Proven chain depth: {} blocks",
-            proven_status.proven_chain_depth
-        );
-        info!(
-            "  Optimistic head: slot {} (epoch {})",
-            head_slot.as_u64(),
-            head_slot.epoch(slots_per_epoch).as_u64()
-        );
-        info!(
-            "  Regular finalized: slot {} (epoch {})",
-            finalized_slot.as_u64(),
-            finalized_checkpoint.epoch.as_u64()
-        );
-
-        if let Some((pf_root, pf_slot)) = proven_status.proven_finalized {
-            info!(
-                "  Proven finalized: slot {} (epoch {})",
-                pf_slot.as_u64(),
-                pf_slot.epoch(slots_per_epoch).as_u64()
-            );
-            info!(
-                "PROOFCHAIN FINALIZED: block {:?} at slot {} (epoch {})",
-                pf_root,
-                pf_slot.as_u64(),
-                pf_slot.epoch(slots_per_epoch).as_u64()
-            );
-        } else {
-            info!("  Proven finalized: none");
-        }
-
-        info!(
-            "  Proof generation lag: {} slots",
-            head_slot.saturating_sub(proven_slot).as_u64()
-        );
-        info!(
-            "  Min proofs required: {}",
-            self.config.stateless_min_proofs_required
-        );
     }
 }

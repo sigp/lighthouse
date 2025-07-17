@@ -2,7 +2,6 @@ use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::Arc;
-use tracing::debug;
 use types::{
     execution_proof_subnet_id::ExecutionProofSubnetId, EthSpec, ExecutionBlockHash,
     ExecutionPayload, ExecutionProof, Hash256, Slot,
@@ -508,13 +507,7 @@ impl ExecutionPayloadProofStore {
                 // Continue walking backwards
                 current = parent_root;
             } else {
-                debug!(
-                    "PROOFCHAIN {}: insufficient proofs at slot {}. Proofs: {}/{} required",
-                    exec_hash,
-                    slot.as_u64(),
-                    self.proof_count_for_payload(&exec_hash),
-                    min_proofs_required
-                );
+                // Stop walking when we find a block without sufficient proofs
                 break;
             }
         }

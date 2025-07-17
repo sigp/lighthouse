@@ -174,18 +174,12 @@ async fn notify_new_payload<T: BeaconChainTypes>(
             return Ok(PayloadVerificationStatus::Verified);
         } else {
             let beacon_block_root = block.tree_hash_root();
-            info!(
-                "STATELESS: Block entering PENDING state - Found {}/{} required proofs for beacon block root {:?}, execution payload hash {:?}, marking as OPTIMISTIC (proofs may arrive later via gossip subnets)",
+            debug!(
+                beacon_block_root = ?beacon_block_root,
+                execution_block_hash = ?execution_block_hash,
                 proof_count,
-                chain.config.stateless_min_proofs_required,
-                beacon_block_root,
-                execution_block_hash
-            );
-            info!(
-                "STATELESS_TRACE: Beacon block root {:?}, execution payload hash {:?} -> PENDING/OPTIMISTIC state (awaiting {} proof(s))",
-                beacon_block_root,
-                execution_block_hash,
-                chain.config.stateless_min_proofs_required - proof_count
+                required_proofs = chain.config.stateless_min_proofs_required,
+                "Insufficient proofs for block, marking as optimistic"
             );
             return Ok(PayloadVerificationStatus::Optimistic);
         }
@@ -627,13 +621,6 @@ fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
         }
     };
 
-    // Extract execution payload info for logging
-    let (hash, number) = (payload.block_hash(), payload.block_number());
-
-    debug!(
-        "PROOFCHAIN {:?}: Spawning proof generation task (block #{})",
-        hash, number
-    );
 
     // Spawn the proof generation task in the background
     // WARNING: No resource limits or task counting is performed here.
@@ -660,9 +647,9 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
 ) -> Result<(), BlockProductionError> {
     let execution_block_hash = payload.block_hash();
 
-    debug!(
-        "STATELESS: Starting proof generation for execution payload {:?}",
-        execution_block_hash
+    info!(
+        execution_block_hash = ?execution_block_hash,
+        "Starting execution proof generation"
     );
 
     // For real proof generation, we would:
@@ -677,10 +664,10 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
     let proof_subnets = chain.execution_proof_subnets();
 
     debug!(
-        "PROOFCHAIN {:?}: Generating {} proofs on subnets {:?}",
-        execution_block_hash,
-        proof_subnets.len(),
-        proof_subnets
+        execution_block_hash = ?execution_block_hash,
+        subnet_count = proof_subnets.len(),
+        subnets = ?proof_subnets,
+        "Generating proofs for configured subnets"
     );
 
     // Generate and store a proof for each subnet
@@ -701,23 +688,18 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
                 .generate_and_store_proof(&payload, &witness, proof_id)
                 .await
             {
-                Ok(proof) => {
+                Ok(_proof) => {
                     debug!(
-                        "PROOFCHAIN {:?}: Generated {} on subnet {}",
-                        execution_block_hash,
-                        proof.description(),
-                        subnet_id
-                    );
-
-                    debug!(
-                        "Generated proof for subnet {} - will be broadcast during block production",
-                        subnet_id
+                        execution_block_hash = ?execution_block_hash,
+                        subnet_id,
+                        "Generated execution proof"
                     );
                 }
                 Err(e) => {
                     warn!(
-                        "Failed to generate and store proof for subnet {}: {}",
-                        subnet_id, e
+                        subnet_id,
+                        error = %e,
+                        "Failed to generate execution proof"
                     );
                 }
             }

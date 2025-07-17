@@ -3249,9 +3249,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // Proof stored successfully
-        info!(
-            "PROOFCHAIN {}: proof type {} received on subnet {}",
-            block_hash, proof_description, subnet_id_u64
+        debug!(
+            execution_block_hash = %block_hash,
+            subnet_id = subnet_id_u64,
+            "Execution proof received via gossip"
         );
         self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -3265,18 +3266,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .chain
             .re_evaluate_optimistic_blocks_with_proofs(block_hash)
         {
-            Ok(proven_head_changed) => {
-                if proven_head_changed {
-                    info!(
-                        "PROOFCHAIN {}: proven chain HEAD UPDATED after receiving proof on subnet {}",
-                        block_hash, subnet_id
-                    );
-                } else {
-                    debug!(
-                        "PROOFCHAIN {}: proven chain evaluated but HEAD UNCHANGED after proof on subnet {}",
-                        block_hash, subnet_id
-                    );
-                }
+            Ok(_) => {
+                // Success - any important updates are logged by re_evaluate_optimistic_blocks_with_proofs
             }
             Err(e) => {
                 warn!(
