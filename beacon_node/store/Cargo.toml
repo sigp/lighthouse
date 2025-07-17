@@ -37,7 +37,6 @@ tracing-subscriber = { workspace = true }
 types = { workspace = true }
 xdelta3 = { workspace = true }
 zstd = { workspace = true }
-dotenvy = "0.15.7"
 
 [dev-dependencies]
 beacon_chain = { workspace = true }
