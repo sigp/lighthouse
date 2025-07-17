@@ -2756,19 +2756,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check if we have enough valid proofs
         if proof_count < self.config.stateless_min_proofs_required {
-            // Get proof descriptions with their subnet IDs for better logging
-            let proof_details: Vec<String> = available_proofs
-                .iter()
-                .map(|p| format!("{} on subnet {}", p.description(), *p.subnet_id))
-                .collect();
-
-            debug!(
-                "PROOFCHAIN {}: {}. Proofs: {}/{} required",
-                execution_block_hash,
-                proof_details.join(", "),
-                proof_count,
-                self.config.stateless_min_proofs_required
-            );
+            self.log_insufficient_proofs(&execution_block_hash, &available_proofs, proof_count);
             return Ok(false);
         }
 
@@ -2811,75 +2799,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Error::ExecutionProofError)?;
 
         // Log proven chain status
-        if let Some((_proven_root, proven_slot)) = proven_status.proven_head {
-            if proven_status.head_changed {
-                info!(
-                    "PROOFCHAIN STATUS: Proven slot {} | Optimistic slot {} | Lag {} slots | Status: {}",
-                    proven_slot.as_u64(),
-                    head_slot.as_u64(),
-                    head_slot.saturating_sub(proven_slot).as_u64(),
-                    if head_slot == proven_slot { "Fully proven" } else { "Catching up" }
-                );
-
-                // Log detailed summary when proven head changes
-                let finalized_checkpoint = head.finalized_checkpoint();
-                let finalized_slot = finalized_checkpoint.epoch.start_slot(slots_per_epoch);
-
-                info!("PROOFCHAIN SUMMARY:");
-                info!(
-                    "  Proven head: slot {} (epoch {})",
-                    proven_slot.as_u64(),
-                    proven_slot.epoch(slots_per_epoch).as_u64()
-                );
-                info!(
-                    "  Proven chain depth: {} blocks",
-                    proven_status.proven_chain_depth
-                );
-                info!(
-                    "  Optimistic head: slot {} (epoch {})",
-                    head_slot.as_u64(),
-                    head_slot.epoch(slots_per_epoch).as_u64()
-                );
-                info!(
-                    "  Regular finalized: slot {} (epoch {})",
-                    finalized_slot.as_u64(),
-                    finalized_checkpoint.epoch.as_u64()
-                );
-                if let Some((pf_root, pf_slot)) = proven_status.proven_finalized {
-                    info!(
-                        "  Proven finalized: slot {} (epoch {})",
-                        pf_slot.as_u64(),
-                        pf_slot.epoch(slots_per_epoch).as_u64()
-                    );
-
-                    // Log when proven finalized changes
-                    static LAST_PROVEN_FINALIZED: std::sync::Mutex<Option<(Hash256, Slot)>> =
-                        std::sync::Mutex::new(None);
-                    let mut last = LAST_PROVEN_FINALIZED.lock().unwrap();
-                    if last.as_ref() != Some(&(pf_root, pf_slot)) {
-                        info!(
-                            "PROOFCHAIN FINALIZED: block {:?} at slot {} (epoch {})",
-                            pf_root,
-                            pf_slot.as_u64(),
-                            pf_slot.epoch(slots_per_epoch).as_u64()
-                        );
-                        *last = Some((pf_root, pf_slot));
-                    }
-                } else {
-                    info!("  Proven finalized: none");
-                }
-                info!(
-                    "  Proof generation lag: {} slots",
-                    head_slot.saturating_sub(proven_slot).as_u64()
-                );
-                info!(
-                    "  Min proofs required: {}",
-                    self.config.stateless_min_proofs_required
-                );
-            }
-        } else {
-            warn!("PROOFCHAIN: no proven head found - no blocks have sufficient proofs");
-        }
+        self.log_proven_chain_status(&proven_status, head_slot, slots_per_epoch);
 
         // Remove pending blocks that now have sufficient proofs
         let proven_blocks = self
@@ -2898,12 +2818,120 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Perform periodic cleanup of finalized pending blocks
         if proven_status.head_changed {
+            // TODO: Revisit, if this is still needed
             let _cleaned_count = self.cleanup_finalized_pending_blocks();
         }
 
         // Return false - we never trigger head recomputation in dual-view mode
         // Fork choice remains permanently optimistic
         Ok(false)
+    }
+
+    /// Log insufficient proofs for an execution block hash
+    fn log_insufficient_proofs(
+        &self,
+        execution_block_hash: &ExecutionBlockHash,
+        available_proofs: &[ExecutionProof],
+        proof_count: usize,
+    ) {
+        let proof_details: Vec<String> = available_proofs
+            .iter()
+            .map(|p| format!("{} on subnet {}", p.description(), *p.subnet_id))
+            .collect();
+
+        debug!(
+            "PROOFCHAIN {}: {}. Proofs: {}/{} required",
+            execution_block_hash,
+            proof_details.join(", "),
+            proof_count,
+            self.config.stateless_min_proofs_required
+        );
+    }
+
+    /// Log proven chain status and detailed summary
+    fn log_proven_chain_status(
+        &self,
+        proven_status: &crate::execution_payload_proofs::ProvenChainStatus,
+        head_slot: Slot,
+        slots_per_epoch: u64,
+    ) {
+        if let Some((_proven_root, proven_slot)) = proven_status.proven_head {
+            if proven_status.head_changed {
+                info!(
+                    "PROOFCHAIN STATUS: Proven slot {} | Optimistic slot {} | Lag {} slots | Status: {}",
+                    proven_slot.as_u64(),
+                    head_slot.as_u64(),
+                    head_slot.saturating_sub(proven_slot).as_u64(),
+                    if head_slot == proven_slot { "Fully proven" } else { "Catching up" }
+                );
+
+                self.log_proven_chain_summary(proven_status, head_slot, slots_per_epoch);
+            }
+        } else {
+            warn!("PROOFCHAIN: no proven head found - no blocks have sufficient proofs");
+        }
+    }
+
+    /// Log detailed proven chain summary
+    fn log_proven_chain_summary(
+        &self,
+        proven_status: &crate::execution_payload_proofs::ProvenChainStatus,
+        head_slot: Slot,
+        slots_per_epoch: u64,
+    ) {
+        let Some((_, proven_slot)) = proven_status.proven_head else {
+            return;
+        };
+
+        let head = self.canonical_head.cached_head();
+        let finalized_checkpoint = head.finalized_checkpoint();
+        let finalized_slot = finalized_checkpoint.epoch.start_slot(slots_per_epoch);
+
+        info!("PROOFCHAIN SUMMARY:");
+        info!(
+            "  Proven head: slot {} (epoch {})",
+            proven_slot.as_u64(),
+            proven_slot.epoch(slots_per_epoch).as_u64()
+        );
+        info!(
+            "  Proven chain depth: {} blocks",
+            proven_status.proven_chain_depth
+        );
+        info!(
+            "  Optimistic head: slot {} (epoch {})",
+            head_slot.as_u64(),
+            head_slot.epoch(slots_per_epoch).as_u64()
+        );
+        info!(
+            "  Regular finalized: slot {} (epoch {})",
+            finalized_slot.as_u64(),
+            finalized_checkpoint.epoch.as_u64()
+        );
+
+        if let Some((pf_root, pf_slot)) = proven_status.proven_finalized {
+            info!(
+                "  Proven finalized: slot {} (epoch {})",
+                pf_slot.as_u64(),
+                pf_slot.epoch(slots_per_epoch).as_u64()
+            );
+            info!(
+                "PROOFCHAIN FINALIZED: block {:?} at slot {} (epoch {})",
+                pf_root,
+                pf_slot.as_u64(),
+                pf_slot.epoch(slots_per_epoch).as_u64()
+            );
+        } else {
+            info!("  Proven finalized: none");
+        }
+
+        info!(
+            "  Proof generation lag: {} slots",
+            head_slot.saturating_sub(proven_slot).as_u64()
+        );
+        info!(
+            "  Min proofs required: {}",
+            self.config.stateless_min_proofs_required
+        );
     }
 
     /// Register a beacon block as pending execution proof validation
