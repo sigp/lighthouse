@@ -908,8 +908,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     %peer_id,
                     %request_start_slot,
                     %fulu_start_slot,
-                    requested_count = req.count,
-                    served_count = effective_count,
+                    requested = req.count,
+                    returned = effective_count,
                     "BlobsByRange request spans across Fulu fork, only serving blobs before Fulu slots"
                 )
             }
