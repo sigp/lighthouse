@@ -779,12 +779,15 @@ where
             );
 
             // Start the execution proof broadcaster service if we have network senders
+            // and we're in stateless validation mode
             if let Some(network_senders) = &self.network_senders {
-                start_execution_proof_broadcaster_service(
-                    runtime_context.executor.clone(),
-                    beacon_chain.clone(),
-                    network_senders.network_send(),
-                );
+                if beacon_chain.config.stateless_validation || beacon_chain.config.generate_execution_proofs {
+                    start_execution_proof_broadcaster_service(
+                        runtime_context.executor.clone(),
+                        beacon_chain.clone(),
+                        network_senders.network_send(),
+                    );
+                }
             }
         }
 
