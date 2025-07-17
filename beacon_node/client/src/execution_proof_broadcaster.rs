@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info, warn};
-use types::{ExecutionBlockHash, ExecutionProof, ExecutionProofSubnetId};
+use types::{EthSpec, ExecutionBlockHash, ExecutionProof, ExecutionProofSubnetId};
 
 /// Information about failed broadcast attempts
 #[derive(Debug, Clone)]
@@ -239,7 +239,7 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
                 .execution_payload_proof_store
                 .get_proof(&execution_block_hash, proof_id)
             {
-                broadcast_single_proof::<T>(
+                broadcast_single_proof::<T::EthSpec>(
                     &network_tx,
                     &broadcast_manager,
                     execution_block_hash,
@@ -257,8 +257,8 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
 }
 
 /// Broadcast a single execution proof to the gossip network
-async fn broadcast_single_proof<T: BeaconChainTypes>(
-    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+async fn broadcast_single_proof<E: EthSpec>(
+    network_tx: &UnboundedSender<NetworkMessage<E>>,
     broadcast_manager: &ProofBroadcastManager,
     execution_block_hash: ExecutionBlockHash,
     proof_id: ProofId,
@@ -373,7 +373,9 @@ mod tests {
             assert!(queued.contains(&(block_hash2, proof_id2)));
         }
 
-        // Mark one as successful (removes from queue)
+        // Start broadcast for one (moves from queue to broadcasting)
+        manager.start_broadcast(block_hash1, proof_id1);
+        // Mark one as successful (removes from broadcasting)
         manager.mark_success(block_hash1, proof_id1);
 
         // Verify it was removed from queue
@@ -454,7 +456,8 @@ mod tests {
         // Queue and fail multiple times
         manager.queue_proofs(vec![(block_hash, proof_id)]);
 
-        // First failure
+        // First failure - start broadcast, then fail
+        manager.start_broadcast(block_hash, proof_id);
         manager.mark_failed(block_hash, proof_id, 3);
         {
             let failed = manager.failed.read();
@@ -462,7 +465,8 @@ mod tests {
             assert_eq!(attempt.attempts, 1);
         }
 
-        // Second failure
+        // Second failure - start broadcast, then fail
+        manager.start_broadcast(block_hash, proof_id);
         manager.mark_failed(block_hash, proof_id, 3);
         {
             let failed = manager.failed.read();
@@ -470,7 +474,8 @@ mod tests {
             assert_eq!(attempt.attempts, 2);
         }
 
-        // At max attempts (3), should not be in ready list
+        // At max attempts (3) - start broadcast, then fail
+        manager.start_broadcast(block_hash, proof_id);
         manager.mark_failed(block_hash, proof_id, 3);
         let ready = manager.get_ready_proofs(3, Duration::from_secs(0));
         assert!(!ready.contains(&(block_hash, proof_id)));
@@ -481,7 +486,7 @@ mod tests {
         let config = ExecutionProofBroadcasterConfig::default();
         assert_eq!(config.broadcast_interval, Duration::from_secs(1));
         assert_eq!(config.max_broadcast_attempts, 3);
-        assert_eq!(config.retry_delay, Duration::from_secs(5));
+        assert_eq!(config.retry_delay, Duration::from_secs(3));
     }
 
     #[tokio::test]
