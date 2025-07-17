@@ -112,13 +112,39 @@ impl Default for ExecutionPayloadProofStore {
     }
 }
 
-/// Storage for execution payload proofs
+/// Manages storage and tracking of execution payload proofs for stateless validation.
 ///
-/// Workflow:
-/// 1. When spawning proofs: BeaconBlockHash → ExecutionPayload (via extract_execution_payload)
-/// 2. Proof generation receives concrete ExecutionPayload<E>
-/// 3. Proofs are stored using ExecutionBlockHash as key (extracted from payload)
-/// 4. Verification looks up proofs by ExecutionBlockHash
+/// It maintains proofs submitted by network participants and tracks
+/// which beacon blocks have transitioned from `optimistic` to `proven` based on
+/// receiving sufficient independent proofs for that beacon blocks execution payload.
+///
+/// # Key Responsibilities
+///
+/// 1. **Proof Storage**: Stores execution proofs indexed by (ExecutionBlockHash, ProofId)
+///    with LRU eviction to manage memory usage.
+///
+/// 2. **Pending Block Tracking**: Maintains a mapping of execution block hashes to
+///    beacon blocks awaiting proofs.
+///
+/// 3. **Proven Chain Tracking**: Maintains the longest chain of blocks that have received
+///    sufficient proofs, including tracking the proven head and finalized checkpoints.
+///    Note: Once proofs are a part of consensus, this tracking will not be needed.
+///
+/// 4. **Broadcast Queue**: Manages a queue of newly received proofs that need to be
+///    broadcasted to the network.
+///
+/// # Stateless Validation Flow (Roughly)
+///
+/// 1. When a beacon block is imported optimistically, it is registered as pending
+/// 2. Network participants generate and submit proofs for the execution payload
+/// 3. Once sufficient proofs are received (e.g., 2 out of 3), the block transitions to proven
+/// 4. The proven chain is updated, potentially advancing the proven head
+/// 5. Old or abandoned blocks are periodically cleaned up
+///
+/// # Thread Safety
+///
+/// All state is protected by read-write locks, making this store safe to access
+/// across multiple threads.
 #[derive(Debug)]
 pub struct ExecutionPayloadProofStore {
     /// Map from (execution block hash, proof ID) to proof
