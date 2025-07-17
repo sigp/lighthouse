@@ -3198,7 +3198,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         }
 
-        // Validate subnet ID matches proof ID
+        // Validate subnet ID matches "proof ID"
+        //
+        // Note: `subnet_id_u64` was the subnet that the message was received on
+        // while `execution_proof.subnet_id` was the subnet ID embedded in the proof
+        // TODO: We could possibly remove the subnet ID being embedded in the execution proof
+        // TODO: Its really the ProofID, so we could change it to `execution_proof.proof_id` 
         if subnet_id_u64 != *execution_proof.subnet_id {
             warn!(
                 %block_hash,
@@ -3236,22 +3241,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-
-                // Log metrics for tracking proof reception
-                // TODO: Add specific metrics for execution proof processing when metrics are added
-
-                // Check if this proof enables any pending optimistic blocks to be verified
-                // This would happen if we had received a block but were waiting for proofs
-
-                // TODO: What happens if we receive a proof for slot N+1 and then after receive a proof for slot N
-                // TODO: Check what this does for the current head calculation
-                //
-                // What I would expect is that the fork choice rule will see slot N and N+1 as valid.
-                // Then it choose N+1 because it is heavier
-                // If for some reason N+1 becomes invalid/forked, it would then fallback to N (the next heaviest valid slot)
-                //
-                // TODO: Technically, if we receive a proof for the execution payload for slot N+1, it
-                // TODO also attests to the execution payload for slot N too
 
                 match self
                     .chain
