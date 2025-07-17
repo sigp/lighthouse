@@ -119,7 +119,7 @@ pub struct ExecutionPayloadProofStore {
     /// For example, during consensus layer forks, competing beacon blocks may contain the same
     /// execution payload, resulting in multiple beacon block roots waiting for the same execution proof.
     ///
-    /// TODO: The most common case is an executionBlockHash to 1 beacon root, so SmallVec<[Hash256; 1]> might make more sense
+    /// TODO: The most common case is 1 ExecutionBlockHash to 1 BeaconRoot, so SmallVec<[Hash256; 1]> might make more sense
     pending_blocks: Arc<RwLock<HashMap<ExecutionBlockHash, Vec<Hash256>>>>,
     /// Maximum number of proofs to store (LRU eviction)
     max_proofs: usize,
@@ -399,10 +399,12 @@ impl ExecutionPayloadProofStore {
     /// Note: This should be called periodically to prevent memory leaks
     ///
     /// Note: `take_pending_blocks` is called to remove blocks which have received
-    /// enough proofs. Whereas this method is periodically triggered to remove blocks
-    /// that will no longer receive proofs. This can be due to:
-    /// -  Them being on abandoned forks
-    /// -  They are too old (past the finalization slot) TODO: This shouldn't happen once proofs are a part of consensus
+    /// enough proofs, it uses the `ExecutionPayloadHash` to do the removal.
+    /// Whereas this method is periodically triggered to remove blocks that will no longer receive proofs, it uses `BeaconBlockRoot`s
+    /// to do this removal.
+    /// The reason for removal can be due to:
+    /// -  Beacon blocks being on abandoned forks
+    /// -  Beacon blocks are too old (past the finalization slot) TODO: This shouldn't happen once proofs are a part of consensus
     ///
     /// Uses a two-phase approach to avoid holding locks during callback execution
     ///
@@ -414,7 +416,7 @@ impl ExecutionPayloadProofStore {
     {
         use std::collections::HashSet;
 
-        // 1) Collect all unique block roots to check
+        // 1) Collect all unique beacon block roots to check
         let blocks_to_check: HashSet<Hash256> = self
             .pending_blocks
             .read()
@@ -423,7 +425,7 @@ impl ExecutionPayloadProofStore {
             .copied()
             .collect();
 
-        // 2) Evaluate predicate without holding locks
+        // 2) Evaluate predicate (without holding locks)
         let blocks_to_remove: HashSet<Hash256> = blocks_to_check
             .into_iter()
             .filter(|&block_root| should_remove(block_root))
