@@ -100,21 +100,25 @@ impl ProofBroadcastManager {
 
     /// Mark proof as currently broadcasting
     fn start_broadcast(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
+        let key = (block_hash, proof_id);
+        
+        // Move from queued to broadcasting
+        let mut queued = self.queued.write();
         let mut broadcasting = self.broadcasting.write();
-        broadcasting.insert((block_hash, proof_id));
+        
+        queued.remove(&key);
+        broadcasting.insert(key);
     }
 
     /// Mark proof as successfully broadcast
     fn mark_success(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
         let key = (block_hash, proof_id);
         
-        // Remove from all tracking
-        let mut queued = self.queued.write();
         let mut broadcasting = self.broadcasting.write();
-        let mut failed = self.failed.write();
-        
-        queued.remove(&key);
         broadcasting.remove(&key);
+        
+        // Also remove from failed in case this was a retry
+        let mut failed = self.failed.write();
         failed.remove(&key);
     }
 
@@ -122,9 +126,12 @@ impl ProofBroadcastManager {
     fn mark_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
         let key = (block_hash, proof_id);
         
-        // Remove from broadcasting
         let mut broadcasting = self.broadcasting.write();
         broadcasting.remove(&key);
+        
+        // Re-add to queued for retry
+        let mut queued = self.queued.write();
+        queued.insert(key);
         
         // Update or create failed attempt record
         let mut failed = self.failed.write();
