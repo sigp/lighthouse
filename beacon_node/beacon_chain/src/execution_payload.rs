@@ -150,10 +150,6 @@ async fn notify_new_payload<T: BeaconChainTypes>(
 
         // Eagerly heck if we have enough proofs for this execution payload
         if proof_count >= chain.config.stateless_min_proofs_required {
-            let proofs = chain
-                .execution_payload_proof_store
-                .get_proofs(&execution_block_hash);
-
             info!(
                 execution_block_hash = ?execution_block_hash,
                 proof_count,
@@ -705,10 +701,21 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
 fn extract_execution_payload<E: EthSpec>(
     block: BeaconBlockRef<'_, E, FullPayload<E>>,
 ) -> Result<ExecutionPayload<E>, BeaconStateError> {
-    // Convert to NewPayloadRequest first
-    // TODO: use a more direct method
-    let new_payload_request = NewPayloadRequest::try_from(block)?;
-
-    // Extract the concrete ExecutionPayload
-    Ok(new_payload_request.into_execution_payload())
+    // Extract ExecutionPayload using the FullPayload's execution_payload field
+    let payload_ref = block.body().execution_payload()?;
+    Ok(match payload_ref {
+        FullPayloadRef::Bellatrix(payload) => {
+            ExecutionPayload::Bellatrix(payload.execution_payload.clone())
+        }
+        FullPayloadRef::Capella(payload) => {
+            ExecutionPayload::Capella(payload.execution_payload.clone())
+        }
+        FullPayloadRef::Deneb(payload) => {
+            ExecutionPayload::Deneb(payload.execution_payload.clone())
+        }
+        FullPayloadRef::Electra(payload) => {
+            ExecutionPayload::Electra(payload.execution_payload.clone())
+        }
+        FullPayloadRef::Fulu(payload) => ExecutionPayload::Fulu(payload.execution_payload.clone()),
+    })
 }
