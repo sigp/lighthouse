@@ -103,6 +103,15 @@ pub struct ProvenChainStatus {
     pub head_changed: bool,
 }
 
+/// Default maximum number of proofs to store
+const DEFAULT_MAX_PROOFS: usize = 10_000;
+
+impl Default for ExecutionPayloadProofStore {
+    fn default() -> Self {
+        Self::new(DEFAULT_MAX_PROOFS)
+    }
+}
+
 /// Storage for execution payload proofs
 ///
 /// Workflow:
@@ -518,8 +527,6 @@ impl ExecutionPayloadProofStore {
     /// Update the proven canonical chain based on available proofs
     /// This method walks backwards from the optimistic head to find the longest proven chain
     ///
-    ///  Note: This requires access to BeaconChain, so it's called from beacon_chain.rs
-    ///
     /// Example:
     ///
     ///```text
@@ -574,12 +581,6 @@ impl ExecutionPayloadProofStore {
         current_slot: Slot,
         slots_per_epoch: u64,
     ) {
-        // TODO: Implement finalization logic
-        // For now, we'll consider a block finalized if it's proven and
-        // at least 2 epochs old (similar to normal finalization distance)
-
-        // This is a placeholder - proper implementation would check
-        // actual finalization rules and epoch boundaries
         if proven_chain.is_empty() {
             return;
         }
@@ -643,7 +644,7 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Get the number of unique payloads that have at least one proof
-    pub fn unique_payload_count(&self) -> usize {
+    fn unique_payload_count(&self) -> usize {
         let proofs = self.proofs.read();
         let unique_hashes: std::collections::HashSet<ExecutionBlockHash> =
             proofs.keys().map(|(hash, _proof_id)| *hash).collect();
@@ -651,12 +652,12 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Get the number of execution block hashes that have pending blocks
-    pub fn pending_execution_hashes_count(&self) -> usize {
+    fn pending_execution_hashes_count(&self) -> usize {
         self.pending_blocks.read().len()
     }
 
     /// Get the total number of pending beacon blocks across all execution hashes
-    pub fn total_pending_blocks_count(&self) -> usize {
+    fn total_pending_blocks_count(&self) -> usize {
         self.pending_blocks
             .read()
             .values()
@@ -704,13 +705,6 @@ impl ExecutionPayloadProofStore {
     /// Get the depth of the proven chain (number of proven blocks)
     fn get_proven_chain_depth(&self) -> usize {
         self.proven_canonical_chain.read().len()
-    }
-}
-
-impl Default for ExecutionPayloadProofStore {
-    fn default() -> Self {
-        // Default to storing 10,000 proofs
-        Self::new(10_000)
     }
 }
 
