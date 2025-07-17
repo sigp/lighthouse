@@ -2791,16 +2791,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Clean up pending blocks for this execution hash
-        let pending_blocks_cleaned = self
+        // Remove pending blocks that now have sufficient proofs
+        let proven_blocks = self
             .execution_payload_proof_store
             .take_pending_blocks(&execution_block_hash);
+        // Note: That if we were to modify fork choice, it would likely be here, where we know what set of
+        // beacon blocks have valid execution payloads.
 
-        if !pending_blocks_cleaned.is_empty() {
+        if !proven_blocks.is_empty() {
             debug!(
                 %execution_block_hash,
-                cleaned_count = pending_blocks_cleaned.len(),
-                "Cleaned up pending blocks after proof arrival"
+                proven_count = proven_blocks.len(),
+                "Removed pending blocks that now have sufficient proofs"
             );
         }
 

@@ -317,9 +317,11 @@ impl ExecutionPayloadProofStore {
         Ok(proof)
     }
 
-    /// Register a beacon block as pending proof for the given execution block hash
-    /// This is called when a block is imported optimistically and needs proof validation
-    /// Prevents duplicate registration of the same block
+    /// Adds a beacon block to the list of blocks awaiting proofs for their execution payloads
+    ///
+    /// This is called when a block is imported optimistically.
+    ///
+    /// Note: Prevents duplicate registration of the same block
     pub fn register_pending_block(
         &self,
         execution_block_hash: ExecutionBlockHash,
@@ -328,13 +330,15 @@ impl ExecutionPayloadProofStore {
         let mut pending = self.pending_blocks.write();
         let blocks = pending.entry(execution_block_hash).or_insert_with(Vec::new);
 
-        // Only add if not already present (duplicate protection)
+        // Only add if not already present (prevents duplicate registration of the same beacon block)
+        // Note: Multiple different beacon blocks can reference the same execution payload hash (e.g., during reorgs)
         if !blocks.contains(&beacon_block_root) {
             blocks.push(beacon_block_root);
         }
     }
 
     /// Get beacon block roots that are pending proofs for the given execution block hash
+    ///
     /// Returns empty vec if no blocks are pending
     pub fn get_pending_blocks(&self, execution_block_hash: &ExecutionBlockHash) -> Vec<Hash256> {
         self.pending_blocks
@@ -345,7 +349,9 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Remove and return pending blocks for the given execution block hash
-    /// This is called when proofs arrive and blocks are re-evaluated
+    ///
+    /// This is called after we've verified that sufficient proofs exist for the payload.
+    /// The returned blocks have transitioned from optimistic to proven state.
     pub fn take_pending_blocks(&self, execution_block_hash: &ExecutionBlockHash) -> Vec<Hash256> {
         self.pending_blocks
             .write()
