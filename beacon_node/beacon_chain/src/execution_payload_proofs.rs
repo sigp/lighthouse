@@ -2,10 +2,9 @@ use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::Arc;
-use std::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::debug;
 use types::{
-    execution_proof_subnet_id::ExecutionProofSubnetId, EthSpec, ExecPayload, ExecutionBlockHash,
+    execution_proof_subnet_id::ExecutionProofSubnetId, EthSpec, ExecutionBlockHash,
     ExecutionPayload, ExecutionProof, Hash256, Slot,
 };
 
@@ -88,8 +87,19 @@ pub struct ProvenBlockInfo {
     pub parent_root: Hash256,
     /// Number of proofs available for this block
     pub proof_count: usize,
-    /// When this block was marked as proven
-    pub proven_at: Instant,
+}
+
+/// Information about the current proven chain status
+#[derive(Debug, Clone)]
+pub struct ProvenChainStatus {
+    /// The proven head (block root and slot), if any
+    pub proven_head: Option<(Hash256, Slot)>,
+    /// The proven finalized checkpoint (block root and slot), if any
+    pub proven_finalized: Option<(Hash256, Slot)>,
+    /// The depth of the proven chain
+    pub proven_chain_depth: usize,
+    /// Whether the proven head changed in the last update
+    pub head_changed: bool,
 }
 
 /// Storage for execution payload proofs
@@ -482,8 +492,7 @@ impl ExecutionPayloadProofStore {
 
     /// Get the entire proven canonical chain from finalized to head
     /// Returns a vector of proven blocks ordered from oldest to newest
-    #[cfg(test)]
-    fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
+    pub fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
         let chain = self.proven_canonical_chain.read();
         let mut blocks: Vec<ProvenBlockInfo> = chain.values().cloned().collect();
         // Sort by slot, oldest first
@@ -508,56 +517,43 @@ impl ExecutionPayloadProofStore {
         proof_count >= min_proofs_required
     }
 
-    /// Update the proven canonical chain based on available proofs
-    /// This method walks backwards from the optimistic head to find the longest proven chain
+    /// Collect proven blocks by walking backwards from the given head
     ///
-    ///  Note: This requires access to BeaconChain, so it's called from beacon_chain.rs
+    /// # Parameters
+    /// - `get_block`: A function that takes a block root and returns block information:
+    ///   - Input: `&Hash256` - The block root to look up
+    ///   - Output: `Result<Option<(slot, parent_root, exec_hash_opt)>, Error>`
+    ///     - `slot`: The slot number of the block
+    ///     - `parent_root`: The parent block's root hash
+    ///     - `exec_hash_opt`: The execution payload hash (None for pre-merge blocks)
+    ///   - Returns `Ok(None)` if block doesn't exist
+    ///   - Returns `Err` on storage/retrieval errors
+    /// - `head_block_root`: The block root to start walking backwards from
+    /// - `min_proofs_required`: Minimum number of proofs needed to consider a block proven
     ///
-    /// Example:
-    ///
-    ///```text
-    ///   Genesis ← Block 1 ← Block 2 ← Block 3 ← Block 4 ← Block 5 (optimistic head)
-    ///             [proven]   [proven]   [proven]   [no proofs] [no proofs]
-    ///                                     ↑
-    ///                                proven_head
-    ///```
-    /// TODO: Walking back each time is expensive, we can probably make this faster by
-    /// TODO: having the proof store save intermediate information would help here, but don't want to
-    /// TODO: make it complex (ie keeping track of different forks)
-    pub fn update_proven_chain<T: crate::BeaconChainTypes>(
+    /// # Returns
+    /// - `proven_chain`: Vector of proven blocks (from newest to oldest)
+    /// - `proven_head`: The deepest proven block (highest slot with proofs), if any
+    fn collect_proven_blocks<F, E>(
         &self,
-        chain: &crate::BeaconChain<T>,
-    ) -> Result<bool, String> {
-        // Keep track of the current proven head before update to detect actual changes
-        let previous_proven_slot = self.proven_head.read().as_ref().map(|(_, slot)| *slot);
-
-        // Get current optimistic head from fork choice
-        let head = chain.canonical_head.cached_head();
-        let head_block_root = head.head_block_root();
-        let head_slot = head.head_slot();
-
-        let min_proofs_required = chain.config.stateless_min_proofs_required;
-
-        info!(
-            "PROOFCHAIN: updating proven chain from optimistic head at slot {}",
-            head_slot.as_u64()
-        );
-
-        // Walk backwards from optimistic head to find the block at the highest slot which is proven
+        get_block: F,
+        head_block_root: Hash256,
+        min_proofs_required: usize,
+    ) -> (Vec<ProvenBlockInfo>, Option<(Hash256, Slot)>)
+    where
+        F: Fn(&Hash256) -> Result<Option<(Slot, Hash256, Option<ExecutionBlockHash>)>, E>,
+        E: std::fmt::Debug,
+    {
         let mut current = head_block_root;
         let mut proven_chain = Vec::new();
         let mut proven_head_candidate = None;
 
-        // Note: call `get_blinded_block` because we only need the header and not the transactions
-        while let Ok(Some(block)) = chain.get_blinded_block(&current) {
-            let beacon_block_root = block.canonical_root();
-            let slot = block.slot();
-            let parent_root = block.parent_root();
-
-            // Get execution payload hash
-            let exec_hash = match block.message().execution_payload() {
-                Ok(payload) => payload.block_hash(),
-                Err(_) => {
+        // Walk backwards through the chain using the provided getter
+        while let Ok(Some((slot, parent_root, exec_hash_opt))) = get_block(&current) {
+            // Check if this is a pre-merge block
+            let exec_hash = match exec_hash_opt {
+                Some(hash) => hash,
+                None => {
                     // Pre-merge block, stop here
                     // TODO: should we just panic here?
                     break;
@@ -569,20 +565,18 @@ impl ExecutionPayloadProofStore {
                 let proof_count = self.proof_count_for_payload(&exec_hash);
 
                 let proven_info = ProvenBlockInfo {
-                    beacon_block_root,
+                    beacon_block_root: current, // Use the current block root we're examining
                     execution_block_hash: exec_hash,
                     slot,
                     parent_root,
                     proof_count,
-                    // TODO: remove `proven_at` -- if we want to save when a block was proven at, this should be exactly when it was proven
-                    proven_at: Instant::now(),
                 };
 
-                proven_chain.push(proven_info.clone());
+                proven_chain.push(proven_info);
 
                 // Track the deepest proven block as head candidate
                 if proven_head_candidate.is_none() {
-                    proven_head_candidate = Some((beacon_block_root, slot));
+                    proven_head_candidate = Some((current, slot));
                 }
 
                 // Continue walking backwards
@@ -599,7 +593,17 @@ impl ExecutionPayloadProofStore {
             }
         }
 
-        // Update proven chain storage
+        (proven_chain, proven_head_candidate)
+    }
+
+
+    /// Update the proven chain storage with new proven blocks
+    /// Returns true if the proven head changed
+    fn update_proven_storage(
+        &self,
+        proven_chain: &[ProvenBlockInfo],
+        proven_head_candidate: Option<(Hash256, Slot)>,
+    ) -> bool {
         let mut proven_canonical_chain = self.proven_canonical_chain.write();
         let mut proven_head = self.proven_head.write();
 
@@ -615,85 +619,68 @@ impl ExecutionPayloadProofStore {
         let head_changed = *proven_head != proven_head_candidate;
         *proven_head = proven_head_candidate;
 
-        if let Some((_new_head_root, new_head_slot)) = proven_head_candidate {
-            // Get current finalization info from the chain
-            let finalized_checkpoint = chain.canonical_head.cached_head().finalized_checkpoint();
-            let finalized_slot = finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch());
+        head_changed
+    }
 
-            // Calculate proven epochs (most likely 32 slots per epoch)
-            let slots_per_epoch = T::EthSpec::slots_per_epoch();
-            let proven_epoch = new_head_slot.epoch(slots_per_epoch);
-            let head_epoch = head_slot.epoch(slots_per_epoch);
 
-            // Get proven finalized info
-            let proven_finalized_info = self.proven_finalized.read();
-            let proven_finalized_str = if let Some((_pf_root, pf_slot)) = *proven_finalized_info {
-                format!(
-                    "slot {} (epoch {})",
-                    pf_slot.as_u64(),
-                    pf_slot.epoch(slots_per_epoch).as_u64()
-                )
-            } else {
-                "none".to_string()
-            };
+    /// Update the proven canonical chain based on available proofs
+    /// This method walks backwards from the optimistic head to find the longest proven chain
+    ///
+    ///  Note: This requires access to BeaconChain, so it's called from beacon_chain.rs
+    ///
+    /// Example:
+    ///
+    ///```text
+    ///   Genesis ← Block 1 ← Block 2 ← Block 3 ← Block 4 ← Block 5 (optimistic head)
+    ///             [proven]   [proven]   [proven]   [no proofs] [no proofs]
+    ///                                     ↑
+    ///                                proven_head
+    ///```
+    /// TODO: Walking back each time is expensive, we can probably make this faster by
+    /// TODO: having the proof store save intermediate information would help here, but don't want to
+    /// TODO: make it complex (ie keeping track of different forks)
+    pub fn update_proven_chain<F, E>(
+        &self,
+        get_block: F,
+        head_block_root: Hash256,
+        current_slot: Slot,
+        slots_per_epoch: u64,
+        min_proofs_required: usize,
+    ) -> Result<ProvenChainStatus, String>
+    where
+        F: Fn(&Hash256) -> Result<Option<(Slot, Hash256, Option<ExecutionBlockHash>)>, E>,
+        E: std::fmt::Debug,
+    {
+        // Keep track of the current proven head before update to detect actual changes
+        let _previous_proven_head = self.proven_head.read().clone();
 
-            // Only log if the proven slot has actually changed
-            if previous_proven_slot != Some(new_head_slot) {
-                info!(
-                    "PROOFCHAIN STATUS: Proven slot {} | Optimistic slot {} | Lag {} slots | Status: {}",
-                    new_head_slot.as_u64(),
-                    head_slot.as_u64(),
-                    head_slot.saturating_sub(new_head_slot).as_u64(),
-                    if head_slot == new_head_slot { "Fully proven" } else { "Catching up" }
-                );
-            }
+        // Step 1: Collect proven blocks by walking backwards from head
+        let (proven_chain, proven_head_candidate) =
+            self.collect_proven_blocks(get_block, head_block_root, min_proofs_required);
 
-            // Log a detailed summary every 3 updates
-            static UPDATE_COUNTER: std::sync::atomic::AtomicU64 =
-                std::sync::atomic::AtomicU64::new(0);
-            let counter = UPDATE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if counter % 3 == 0 {
-                info!("PROOFCHAIN SUMMARY:");
-                info!(
-                    "  Proven head: slot {} (epoch {})",
-                    new_head_slot.as_u64(),
-                    proven_epoch.as_u64()
-                );
-                info!("  Proven chain depth: {} blocks", proven_chain.len());
-                info!(
-                    "  Optimistic head: slot {} (epoch {})",
-                    head_slot.as_u64(),
-                    head_epoch.as_u64()
-                );
-                info!(
-                    "  Regular finalized: slot {} (epoch {})",
-                    finalized_slot.as_u64(),
-                    finalized_checkpoint.epoch.as_u64()
-                );
-                info!("  Proven finalized: {}", proven_finalized_str);
-                info!(
-                    "  Proof generation lag: {} slots",
-                    head_slot.saturating_sub(new_head_slot).as_u64()
-                );
-                info!("  Min proofs required: {}", min_proofs_required);
-            }
-        } else {
-            warn!("PROOFCHAIN: no proven head found - no blocks have sufficient proofs");
-        }
+        // Step 2: Update storage with the new proven chain
+        let head_changed = self.update_proven_storage(&proven_chain, proven_head_candidate);
 
-        // Check if we should update proven finalized
-        self.update_proven_finalized(&proven_chain, chain);
+        // Step 3: Update proven finalized checkpoint
+        self.update_proven_finalized(&proven_chain, current_slot, slots_per_epoch);
 
-        Ok(head_changed)
+        // Step 4: Get current proven finalized for status
+        let proven_finalized = self.proven_finalized.read().clone();
+
+        Ok(ProvenChainStatus {
+            proven_head: proven_head_candidate,
+            proven_finalized,
+            proven_chain_depth: proven_chain.len(),
+            head_changed,
+        })
     }
 
     /// Update the proven finalized checkpoint based on the proven chain
-    fn update_proven_finalized<T: crate::BeaconChainTypes>(
+    fn update_proven_finalized(
         &self,
         proven_chain: &[ProvenBlockInfo],
-        chain: &crate::BeaconChain<T>,
+        current_slot: Slot,
+        slots_per_epoch: u64,
     ) {
         // TODO: Implement finalization logic
         // For now, we'll consider a block finalized if it's proven and
@@ -705,9 +692,6 @@ impl ExecutionPayloadProofStore {
             return;
         }
 
-        // Get current epoch for the proof chain
-        let current_slot = chain.slot().unwrap_or(Slot::new(0));
-        let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let current_epoch = current_slot.epoch(slots_per_epoch);
 
         // Find the latest proven block that is at least 2 epochs old (similar to finalization distance)
@@ -726,16 +710,6 @@ impl ExecutionPayloadProofStore {
         let mut proven_finalized = self.proven_finalized.write();
         if proven_finalized_candidate != *proven_finalized {
             *proven_finalized = proven_finalized_candidate;
-
-            if let Some((finalized_root, finalized_slot)) = proven_finalized_candidate {
-                let finalized_epoch = finalized_slot.epoch(slots_per_epoch);
-                info!(
-                    "PROOFCHAIN FINALIZED: block {:?} at slot {} (epoch {})",
-                    finalized_root,
-                    finalized_slot.as_u64(),
-                    finalized_epoch.as_u64()
-                );
-            }
         }
     }
 }
@@ -1325,5 +1299,256 @@ mod tests {
 
         // Now sufficient for min=2
         assert!(store.has_sufficient_proofs(&exec_hash, 2));
+    }
+
+    #[test]
+    fn test_update_proven_storage() {
+        let store = ExecutionPayloadProofStore::new(100);
+
+        // Initially no proven head
+        assert!(store.get_proven_head().is_none());
+
+        // Create some test proven blocks
+        let block1_root = Hash256::from_low_u64_be(1);
+        let block2_root = Hash256::from_low_u64_be(2);
+        let exec_hash1 = ExecutionBlockHash::from(Hash256::from_low_u64_be(101));
+        let exec_hash2 = ExecutionBlockHash::from(Hash256::from_low_u64_be(102));
+
+        let proven_chain = vec![
+            ProvenBlockInfo {
+                beacon_block_root: block1_root,
+                execution_block_hash: exec_hash1,
+                slot: Slot::new(1),
+                parent_root: Hash256::zero(),
+                proof_count: 2,
+            },
+            ProvenBlockInfo {
+                beacon_block_root: block2_root,
+                execution_block_hash: exec_hash2,
+                slot: Slot::new(2),
+                parent_root: block1_root,
+                proof_count: 3,
+            },
+        ];
+
+        let proven_head_candidate = Some((block2_root, Slot::new(2)));
+
+        // Update storage
+        let head_changed = store.update_proven_storage(&proven_chain, proven_head_candidate);
+        assert!(head_changed);
+
+        // Verify proven head was updated
+        assert_eq!(store.get_proven_head(), proven_head_candidate);
+
+        // Verify blocks are in proven chain
+        assert!(store.is_block_proven(&block1_root));
+        assert!(store.is_block_proven(&block2_root));
+
+        // Verify block info is stored correctly
+        let block1_info = store.get_proven_block_info(&block1_root).unwrap();
+        assert_eq!(block1_info.execution_block_hash, exec_hash1);
+        assert_eq!(block1_info.slot, Slot::new(1));
+
+        // Test updating with same head (no change)
+        let head_changed2 = store.update_proven_storage(&proven_chain, proven_head_candidate);
+        assert!(!head_changed2);
+
+        // Test clearing proven chain
+        let head_changed3 = store.update_proven_storage(&[], None);
+        assert!(head_changed3);
+        assert!(store.get_proven_head().is_none());
+        assert!(!store.is_block_proven(&block1_root));
+    }
+
+    #[test]
+    fn test_proven_chain_depth_tracking() {
+        let store = ExecutionPayloadProofStore::new(100);
+
+        // Initially depth is 0
+        assert_eq!(store.get_proven_chain_depth(), 0);
+
+        // Create a chain of 5 blocks
+        let mut proven_chain = Vec::new();
+        for i in 1..=5 {
+            proven_chain.push(ProvenBlockInfo {
+                beacon_block_root: Hash256::from_low_u64_be(i),
+                execution_block_hash: ExecutionBlockHash::from(Hash256::from_low_u64_be(100 + i)),
+                slot: Slot::new(i),
+                parent_root: if i == 1 {
+                    Hash256::zero()
+                } else {
+                    Hash256::from_low_u64_be(i - 1)
+                },
+                proof_count: 2,
+            });
+        }
+
+        let proven_head = Some((Hash256::from_low_u64_be(5), Slot::new(5)));
+        store.update_proven_storage(&proven_chain, proven_head);
+
+        // Verify depth
+        assert_eq!(store.get_proven_chain_depth(), 5);
+
+        // Verify chain is ordered correctly
+        let chain = store.get_proven_canonical_chain();
+        assert_eq!(chain.len(), 5);
+        for (i, block) in chain.iter().enumerate() {
+            assert_eq!(block.slot, Slot::new((i + 1) as u64));
+        }
+    }
+
+    #[test]
+    fn test_cleanup_pending_blocks_integration() {
+        let store = ExecutionPayloadProofStore::new(100);
+
+        // Set up some execution hashes and beacon blocks
+        let exec_hash1 = ExecutionBlockHash::from(Hash256::random());
+        let exec_hash2 = ExecutionBlockHash::from(Hash256::random());
+        let beacon_root1 = Hash256::from_low_u64_be(1);
+        let beacon_root2 = Hash256::from_low_u64_be(2);
+        let beacon_root3 = Hash256::from_low_u64_be(3);
+
+        // Register pending blocks
+        store.register_pending_block(exec_hash1, beacon_root1);
+        store.register_pending_block(exec_hash1, beacon_root2);
+        store.register_pending_block(exec_hash2, beacon_root3);
+
+        // Initial counts
+        assert_eq!(store.pending_execution_hashes_count(), 2);
+        assert_eq!(store.total_pending_blocks_count(), 3);
+
+        // Clean up blocks 1 and 3 (simulating they're finalized)
+        let removed =
+            store.cleanup_pending_blocks(|root| root == beacon_root1 || root == beacon_root3);
+        assert_eq!(removed, 2);
+
+        // Verify remaining state
+        assert_eq!(store.pending_execution_hashes_count(), 1);
+        assert_eq!(store.total_pending_blocks_count(), 1);
+
+        let remaining = store.get_pending_blocks(&exec_hash1);
+        assert_eq!(remaining.len(), 1);
+        assert!(remaining.contains(&beacon_root2));
+    }
+
+    #[test]
+    fn test_collect_proven_blocks() {
+        let store = ExecutionPayloadProofStore::new(100);
+
+        // Set up test data
+        let block1_root = Hash256::from_low_u64_be(1);
+        let block2_root = Hash256::from_low_u64_be(2);
+        let block3_root = Hash256::from_low_u64_be(3);
+        let block4_root = Hash256::from_low_u64_be(4);
+        let block5_root = Hash256::from_low_u64_be(5);
+
+        let exec_hash1 = ExecutionBlockHash::from(Hash256::from_low_u64_be(101));
+        let exec_hash2 = ExecutionBlockHash::from(Hash256::from_low_u64_be(102));
+        let exec_hash3 = ExecutionBlockHash::from(Hash256::from_low_u64_be(103));
+        let exec_hash4 = ExecutionBlockHash::from(Hash256::from_low_u64_be(104));
+        let exec_hash5 = ExecutionBlockHash::from(Hash256::from_low_u64_be(105));
+
+        // Add proofs for blocks 1, 2, and 3 (but not 4 and 5)
+        for exec_hash in &[exec_hash1, exec_hash2, exec_hash3] {
+            for subnet in 0..2 {
+                let proof = ExecutionProof::new(
+                    *exec_hash,
+                    ExecutionProofSubnetId::new(subnet).unwrap(),
+                    1,
+                    vec![1, 2, 3],
+                );
+                store.store_proof(proof).unwrap();
+            }
+        }
+
+        // Create a mock getter that simulates the chain
+        let mock_getter = |block_root: &Hash256| -> Result<
+            Option<(Slot, Hash256, Option<ExecutionBlockHash>)>,
+            String,
+        > {
+            if *block_root == block5_root {
+                Ok(Some((Slot::new(5), block4_root, Some(exec_hash5))))
+            } else if *block_root == block4_root {
+                Ok(Some((Slot::new(4), block3_root, Some(exec_hash4))))
+            } else if *block_root == block3_root {
+                Ok(Some((Slot::new(3), block2_root, Some(exec_hash3))))
+            } else if *block_root == block2_root {
+                Ok(Some((Slot::new(2), block1_root, Some(exec_hash2))))
+            } else if *block_root == block1_root {
+                Ok(Some((Slot::new(1), Hash256::zero(), Some(exec_hash1))))
+            } else if *block_root == Hash256::zero() {
+                Ok(None) // Genesis has no parent
+            } else {
+                Ok(None)
+            }
+        };
+
+        // Test collecting from block 5 (head) with min_proofs = 2
+        let (proven_chain, proven_head) = store.collect_proven_blocks(
+            mock_getter,
+            block5_root,
+            2, // min_proofs_required
+        );
+
+        // Should find no proven blocks because block 5 has no proofs (stops immediately)
+        assert_eq!(proven_chain.len(), 0);
+        assert_eq!(proven_head, None);
+
+        // Now test from block 3 which has proofs
+        let (proven_chain2, proven_head2) =
+            store.collect_proven_blocks(mock_getter, block3_root, 2);
+
+        // Should find blocks 3, 2, 1 as proven
+        assert_eq!(proven_chain2.len(), 3);
+        assert_eq!(proven_chain2[0].beacon_block_root, block3_root);
+        assert_eq!(proven_chain2[1].beacon_block_root, block2_root);
+        assert_eq!(proven_chain2[2].beacon_block_root, block1_root);
+        assert_eq!(proven_head2, Some((block3_root, Slot::new(3))));
+
+        // Test with pre-merge block
+        let pre_merge_getter = |block_root: &Hash256| -> Result<
+            Option<(Slot, Hash256, Option<ExecutionBlockHash>)>,
+            String,
+        > {
+            if *block_root == block3_root {
+                Ok(Some((Slot::new(3), block2_root, Some(exec_hash3))))
+            } else if *block_root == block2_root {
+                Ok(Some((Slot::new(2), block1_root, None))) // Pre-merge
+            } else {
+                Ok(None)
+            }
+        };
+
+        let (proven_chain_pre_merge, proven_head_pre_merge) =
+            store.collect_proven_blocks(pre_merge_getter, block3_root, 2);
+
+        // Should only find block 3 (stops at pre-merge block 2)
+        assert_eq!(proven_chain_pre_merge.len(), 1);
+        assert_eq!(proven_chain_pre_merge[0].beacon_block_root, block3_root);
+        assert_eq!(proven_head_pre_merge, Some((block3_root, Slot::new(3))));
+    }
+
+    #[test]
+    fn test_proof_broadcast_queue() {
+        let store = ExecutionPayloadProofStore::new(100);
+
+        // Initially queue is empty
+        let proofs = store.take_unqueued_proofs();
+        assert!(proofs.is_empty());
+
+        // Store a proof (should add to broadcast queue)
+        let exec_hash = ExecutionBlockHash::from(Hash256::random());
+        let proof_id = ExecutionProofSubnetId::new(0).unwrap();
+        let proof = ExecutionProof::new(exec_hash, proof_id, 1, vec![1, 2, 3]);
+        store.store_proof(proof).unwrap();
+
+        // Take from queue
+        let proofs = store.take_unqueued_proofs();
+        assert_eq!(proofs.len(), 1);
+        assert_eq!(proofs[0], (exec_hash, proof_id));
+
+        // Queue should be empty after taking
+        let proofs = store.take_unqueued_proofs();
+        assert!(proofs.is_empty());
     }
 }

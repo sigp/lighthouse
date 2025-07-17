@@ -2772,23 +2772,106 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(false);
         }
 
-        info!(
+        debug!(
             "PROOFCHAIN {}: minimum proofs reached ({}/{}), updating proven chain",
             execution_block_hash, proof_count, self.config.stateless_min_proofs_required
         );
 
+        // Get current chain state
+        let head = self.canonical_head.cached_head();
+        let head_block_root = head.head_block_root();
+        let head_slot = head.head_slot();
+        let current_slot = self.slot().unwrap_or(Slot::new(0));
+        let slots_per_epoch = T::EthSpec::slots_per_epoch();
+
         // Update the proven canonical chain based on available proofs
         // This does NOT modify fork choice - validators continue with optimistic view
-        let proven_head_changed = self
+        let proven_status = self
             .execution_payload_proof_store
-            .update_proven_chain(self)
+            .update_proven_chain(
+                |block_root| {
+                    self.get_blinded_block(block_root).map(|result| {
+                        result.map(|block| {
+                            let slot = block.slot();
+                            let parent_root = block.parent_root();
+                            let exec_hash_opt = block
+                                .message()
+                                .execution_payload()
+                                .ok()
+                                .map(|payload| payload.block_hash());
+                            (slot, parent_root, exec_hash_opt)
+                        })
+                    })
+                },
+                head_block_root,
+                current_slot,
+                slots_per_epoch,
+                self.config.stateless_min_proofs_required,
+            )
             .map_err(Error::ExecutionProofError)?;
 
-        if proven_head_changed {
-            info!(
-                "PROOFCHAIN {}: proven chain head updated (fork choice remains optimistic)",
-                execution_block_hash
-            );
+        // Log proven chain status
+        if let Some((_proven_root, proven_slot)) = proven_status.proven_head {
+            if proven_status.head_changed {
+                info!(
+                    "PROOFCHAIN STATUS: Proven slot {} | Optimistic slot {} | Lag {} slots | Status: {}",
+                    proven_slot.as_u64(),
+                    head_slot.as_u64(),
+                    head_slot.saturating_sub(proven_slot).as_u64(),
+                    if head_slot == proven_slot { "Fully proven" } else { "Catching up" }
+                );
+
+                // Log detailed summary when proven head changes
+                let finalized_checkpoint = head.finalized_checkpoint();
+                let finalized_slot = finalized_checkpoint.epoch.start_slot(slots_per_epoch);
+                
+                info!("PROOFCHAIN SUMMARY:");
+                info!(
+                    "  Proven head: slot {} (epoch {})",
+                    proven_slot.as_u64(),
+                    proven_slot.epoch(slots_per_epoch).as_u64()
+                );
+                info!("  Proven chain depth: {} blocks", proven_status.proven_chain_depth);
+                info!(
+                    "  Optimistic head: slot {} (epoch {})",
+                    head_slot.as_u64(),
+                    head_slot.epoch(slots_per_epoch).as_u64()
+                );
+                info!(
+                    "  Regular finalized: slot {} (epoch {})",
+                    finalized_slot.as_u64(),
+                    finalized_checkpoint.epoch.as_u64()
+                );
+                if let Some((pf_root, pf_slot)) = proven_status.proven_finalized {
+                    info!(
+                        "  Proven finalized: slot {} (epoch {})",
+                        pf_slot.as_u64(),
+                        pf_slot.epoch(slots_per_epoch).as_u64()
+                    );
+                    
+                    // Log when proven finalized changes
+                    static LAST_PROVEN_FINALIZED: std::sync::Mutex<Option<(Hash256, Slot)>> = std::sync::Mutex::new(None);
+                    let mut last = LAST_PROVEN_FINALIZED.lock().unwrap();
+                    if last.as_ref() != Some(&(pf_root, pf_slot)) {
+                        info!(
+                            "PROOFCHAIN FINALIZED: block {:?} at slot {} (epoch {})",
+                            pf_root,
+                            pf_slot.as_u64(),
+                            pf_slot.epoch(slots_per_epoch).as_u64()
+                        );
+                        *last = Some((pf_root, pf_slot));
+                    }
+                } else {
+                    info!("  Proven finalized: none");
+                }
+                info!(
+                    "  Proof generation lag: {} slots",
+                    head_slot.saturating_sub(proven_slot).as_u64()
+                );
+                info!("  Min proofs required: {}", self.config.stateless_min_proofs_required);
+            }
+        } else {
+            warn!("PROOFCHAIN: no proven head found - no blocks have sufficient proofs");
         }
 
         // Remove pending blocks that now have sufficient proofs
@@ -2807,7 +2890,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Perform periodic cleanup of finalized pending blocks
-        if proven_head_changed {
+        if proven_status.head_changed {
             let _cleaned_count = self.cleanup_finalized_pending_blocks();
         }
 
