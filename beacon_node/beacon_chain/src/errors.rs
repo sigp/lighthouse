@@ -230,7 +230,7 @@ pub enum BeaconChainError {
         columns_found: usize,
     },
     FailedToReconstructBlobs(String),
-    ExecutionPayloadProofError(String),
+    ExecutionProofError(String),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

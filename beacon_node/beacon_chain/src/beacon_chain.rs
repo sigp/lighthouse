@@ -2782,7 +2782,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let proven_head_changed = self
             .execution_payload_proof_store
             .update_proven_chain(self)
-            .map_err(|e| Error::ExecutionPayloadProofError(e))?;
+            .map_err(Error::ExecutionProofError)?;
 
         if proven_head_changed {
             info!(
