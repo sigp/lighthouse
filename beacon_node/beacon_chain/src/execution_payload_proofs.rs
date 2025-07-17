@@ -118,6 +118,8 @@ pub struct ExecutionPayloadProofStore {
     /// Note: Multiple beacon block roots can share the same execution block hash in fork scenarios.
     /// For example, during consensus layer forks, competing beacon blocks may contain the same
     /// execution payload, resulting in multiple beacon block roots waiting for the same execution proof.
+    ///
+    /// TODO: The most common case is an executionBlockHash to 1 beacon root, so SmallVec<[Hash256; 1]> might make more sense
     pending_blocks: Arc<RwLock<HashMap<ExecutionBlockHash, Vec<Hash256>>>>,
     /// Maximum number of proofs to store (LRU eviction)
     max_proofs: usize,
