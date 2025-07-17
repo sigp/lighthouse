@@ -218,6 +218,28 @@ This separation provides several benefits:
 3. **Clear Monitoring**: Easy to see the gap between optimistic head and proven head
 4. **Future Flexibility**: Can later integrate proven status into fork choice
 
+### Dual-View Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────┐
+│                 Fork Choice                      │
+│         (Always Optimistic in Stateless)         │
+│  - Used for attestations, proposals              │
+│  - Never modified by proof availability          │
+│  - Beacon chain always see optimistic head       │
+└─────────────────────────────────────────────────┘
+                       │
+                       │ Reads blocks
+                       │
+┌─────────────────────────────────────────────────┐
+│              Proof Store                         │
+│        (Tracks Proven Chain Status)              │
+│  - Maintains proven head                         │
+│  - Updates when sufficient proofs received       │
+│  - For monitoring/metrics only                   │
+└─────────────────────────────────────────────────┘
+```
+
 ## Implementation Changes
 
 ### Core Components Modified
@@ -234,6 +256,27 @@ The Lighthouse implementation adds the following:
 1. **Block Import Process**: Blocks are imported optimistically while awaiting proofs
 2. **Proof Reception Process**: Incoming proofs trigger re-evaluation of pending beacon blocks
 3. **Dual-View Separation**: Fork choice remains optimistic while proven chain tracks validation status wrt proofs
+
+### Implementation Notes
+
+Main files to focus on:
+
+1. **Core Proof Infrastructure**:
+   - `consensus/types/src/execution_proof.rs` - Proof message types
+   - `consensus/types/src/execution_proof_subnet_id.rs` - Subnet ID type (0-7)
+   - `beacon_node/beacon_chain/src/execution_payload_proofs.rs` - Proof storage and management
+   - `beacon_node/beacon_chain/src/execution_proof_generation.rs` - Proof generation logic
+
+2. **Integration Points**:
+   - `beacon_node/beacon_chain/src/execution_payload.rs` - Modified `notify_new_payload` for proof generation
+   - `beacon_node/beacon_chain/src/beacon_chain_execution_proof.rs` - Beacon chain proof methods
+   - `beacon_node/network/src/network_beacon_processor/gossip_methods.rs` - Proof gossip handling
+
+3. **Background Services**:
+   - `beacon_node/client/src/execution_proof_broadcaster.rs` - Proof broadcasting service
+
+4. **Configuration**:
+   - `beacon_node/beacon_chain/src/chain_config.rs` - New configuration parameters
 
 ## Configuration
 
@@ -281,6 +324,20 @@ During chain reorganizations:
 - **Proofs Already Available**: Since we store valid proofs for all blocks (not just canonical), proofs are already available when blocks switch from non-canonical to canonical
 - **No Re-propagation**: Blocks are not re-gossiped during reorgs, and neither are proofs
 - **Automatic Proven Chain Update**: The proven chain automatically adjusts based on the new canonical chain
+
+## Few common questions
+
+**Q: Why doesn't proof availability/verification affect fork choice?**
+A: This is currently a deliberate design choice for both simplicity and safety. This will allow us to run modified beacon nodes alongside testnets like hoodi without anything at stake.
+
+**Q: What happens if proofs never arrive?**
+A: Blocks remain permanently optimistic. They can still be finalized through normal consensus. Cleanup removes them from pending after finalization though. This is okay since proof generation benchmarks are currenly around 3-4 minutes per proof. 
+
+**Q: Why store proofs for non-canonical blocks?**
+A: During reorgs, previously non-canonical blocks may become canonical. Having proofs already available avoids re-generation/re-propagation -- I think this is how the logic for beacon blocks work, so I wanted to be as close to that as possible.
+
+**Q: What's the memory impact?**
+A: Default LRU cache stores 10,000 proofs. Each proof is ~300KB, so maximum ~3GB. Pending blocks are cleaned up after finalization, so these are worse cases where the chain is not finalizing and or for some reason we are receiving many proofs for valid execution payloads.
 
 ## Network Architecture
 
