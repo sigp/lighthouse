@@ -74,19 +74,20 @@ impl ExecutionProofError {
 /// Type alias for ProofId using ExecutionProofSubnetId
 pub type ProofId = ExecutionProofSubnetId;
 
-/// Information about a block that has been proven with execution proofs
+/// Information about a block that has been proven using execution proofs
 #[derive(Debug, Clone)]
-pub struct ProvenBlockInfo {
+#[allow(dead_code)]
+struct ProvenBlockInfo {
     /// The beacon block root
-    pub beacon_block_root: Hash256,
+    beacon_block_root: Hash256,
     /// The execution block hash
-    pub execution_block_hash: ExecutionBlockHash,
+    execution_block_hash: ExecutionBlockHash,
     /// The slot of the block
-    pub slot: Slot,
+    slot: Slot,
     /// The parent beacon block root
-    pub parent_root: Hash256,
+    parent_root: Hash256,
     /// Number of proofs available for this block
-    pub proof_count: usize,
+    proof_count: usize,
 }
 
 /// Information about the current proven chain status
@@ -492,7 +493,8 @@ impl ExecutionPayloadProofStore {
 
     /// Get the entire proven canonical chain from finalized to head
     /// Returns a vector of proven blocks ordered from oldest to newest
-    pub fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
+    #[cfg(test)]
+    fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
         let chain = self.proven_canonical_chain.read();
         let mut blocks: Vec<ProvenBlockInfo> = chain.values().cloned().collect();
         // Sort by slot, oldest first
@@ -1102,7 +1104,10 @@ mod tests {
         }
 
         // Mock getter that returns our block
-        let mock_getter = |block_root: &Hash256| -> Result<Option<(Slot, Hash256, Option<ExecutionBlockHash>)>, &'static str> {
+        let mock_getter = |block_root: &Hash256| -> Result<
+            Option<(Slot, Hash256, Option<ExecutionBlockHash>)>,
+            &'static str,
+        > {
             if *block_root == beacon_root {
                 Ok(Some((Slot::new(1), Hash256::zero(), Some(exec_hash))))
             } else {
@@ -1111,13 +1116,9 @@ mod tests {
         };
 
         // Update proven chain
-        let status = store.update_proven_chain(
-            mock_getter,
-            beacon_root,
-            Slot::new(10),
-            32,
-            2,
-        ).unwrap();
+        let status = store
+            .update_proven_chain(mock_getter, beacon_root, Slot::new(10), 32, 2)
+            .unwrap();
 
         // Now the block should be proven
         assert!(store.is_block_proven(&beacon_root));
@@ -1235,7 +1236,10 @@ mod tests {
         }
 
         // Create a simple chain: genesis <- block1
-        let mock_getter = |block_root: &Hash256| -> Result<Option<(Slot, Hash256, Option<ExecutionBlockHash>)>, &'static str> {
+        let mock_getter = |block_root: &Hash256| -> Result<
+            Option<(Slot, Hash256, Option<ExecutionBlockHash>)>,
+            &'static str,
+        > {
             if *block_root == beacon_root {
                 Ok(Some((Slot::new(1), Hash256::zero(), Some(exec_hash))))
             } else if block_root == &Hash256::zero() {
@@ -1246,13 +1250,9 @@ mod tests {
         };
 
         // Update proven chain with min_proofs = 3
-        store.update_proven_chain(
-            mock_getter,
-            beacon_root,
-            Slot::new(100),
-            32,
-            3,
-        ).unwrap();
+        store
+            .update_proven_chain(mock_getter, beacon_root, Slot::new(100), 32, 3)
+            .unwrap();
 
         // Now it should be proven
         assert!(store.is_block_proven(&beacon_root));
@@ -1285,7 +1285,10 @@ mod tests {
         }
 
         // Mock getter
-        let mock_getter = |block_root: &Hash256| -> Result<Option<(Slot, Hash256, Option<ExecutionBlockHash>)>, &'static str> {
+        let mock_getter = |block_root: &Hash256| -> Result<
+            Option<(Slot, Hash256, Option<ExecutionBlockHash>)>,
+            &'static str,
+        > {
             if *block_root == beacon_root {
                 Ok(Some((Slot::new(42), parent_root, Some(exec_hash))))
             } else if *block_root == parent_root {
@@ -1296,18 +1299,14 @@ mod tests {
         };
 
         // Update proven chain
-        store.update_proven_chain(
-            mock_getter,
-            beacon_root,
-            Slot::new(100),
-            32,
-            2,
-        ).unwrap();
+        store
+            .update_proven_chain(mock_getter, beacon_root, Slot::new(100), 32, 2)
+            .unwrap();
 
         // Now we should be able to get the proven block info
         let info = store.get_proven_block_info(&beacon_root);
         assert!(info.is_some());
-        
+
         let info = info.unwrap();
         assert_eq!(info.beacon_block_root, beacon_root);
         assert_eq!(info.execution_block_hash, exec_hash);
@@ -1664,13 +1663,13 @@ mod tests {
     #[test]
     fn test_update_proven_chain_returns_status() {
         let store = ExecutionPayloadProofStore::new(100);
-        
+
         // Setup mock blocks
         let exec_hash1 = ExecutionBlockHash::from(Hash256::from_low_u64_be(101));
         let exec_hash2 = ExecutionBlockHash::from(Hash256::from_low_u64_be(102));
         let block1_root = Hash256::from_low_u64_be(1);
         let block2_root = Hash256::from_low_u64_be(2);
-        
+
         // Store proofs for both blocks
         for i in 0..2 {
             let proof1 = ExecutionProof::new(
@@ -1680,7 +1679,7 @@ mod tests {
                 vec![i as u8],
             );
             store.store_proof(proof1).unwrap();
-            
+
             let proof2 = ExecutionProof::new(
                 exec_hash2,
                 ExecutionProofSubnetId::new(i).unwrap(),
@@ -1689,9 +1688,12 @@ mod tests {
             );
             store.store_proof(proof2).unwrap();
         }
-        
+
         // Mock getter
-        let mock_getter = |block_root: &Hash256| -> Result<Option<(Slot, Hash256, Option<ExecutionBlockHash>)>, &'static str> {
+        let mock_getter = |block_root: &Hash256| -> Result<
+            Option<(Slot, Hash256, Option<ExecutionBlockHash>)>,
+            &'static str,
+        > {
             if *block_root == block2_root {
                 Ok(Some((Slot::new(2), block1_root, Some(exec_hash2))))
             } else if *block_root == block1_root {
@@ -1700,31 +1702,29 @@ mod tests {
                 Ok(None)
             }
         };
-        
+
         // Test update_proven_chain
-        let status = store.update_proven_chain(
-            mock_getter,
-            block2_root,
-            Slot::new(10), // current slot
-            32, // slots per epoch
-            2, // min proofs required
-        ).unwrap();
-        
+        let status = store
+            .update_proven_chain(
+                mock_getter,
+                block2_root,
+                Slot::new(10), // current slot
+                32,            // slots per epoch
+                2,             // min proofs required
+            )
+            .unwrap();
+
         // Verify status - both blocks have proofs, so proven head should be block2
         assert_eq!(status.proven_head, Some((block2_root, Slot::new(2))));
         assert_eq!(status.proven_chain_depth, 2);
         assert!(status.head_changed);
         assert_eq!(status.proven_finalized, None); // Too recent to be finalized
-        
+
         // Update again with same state - head_changed should be false
-        let status2 = store.update_proven_chain(
-            mock_getter,
-            block2_root,
-            Slot::new(10),
-            32,
-            2,
-        ).unwrap();
-        
+        let status2 = store
+            .update_proven_chain(mock_getter, block2_root, Slot::new(10), 32, 2)
+            .unwrap();
+
         assert!(!status2.head_changed);
         assert_eq!(status2.proven_head, status.proven_head);
     }
@@ -1732,11 +1732,11 @@ mod tests {
     #[test]
     fn test_update_proven_finalized() {
         let store = ExecutionPayloadProofStore::new(100);
-        
+
         // Create a proven chain with blocks at different epochs
         let mut proven_chain = Vec::new();
         let slots_per_epoch = 32;
-        
+
         // Block at slot 32 (epoch 1)
         proven_chain.push(ProvenBlockInfo {
             beacon_block_root: Hash256::from_low_u64_be(1),
@@ -1745,7 +1745,7 @@ mod tests {
             parent_root: Hash256::zero(),
             proof_count: 2,
         });
-        
+
         // Block at slot 64 (epoch 2)
         proven_chain.push(ProvenBlockInfo {
             beacon_block_root: Hash256::from_low_u64_be(2),
@@ -1754,7 +1754,7 @@ mod tests {
             parent_root: Hash256::from_low_u64_be(1),
             proof_count: 2,
         });
-        
+
         // Block at slot 96 (epoch 3)
         proven_chain.push(ProvenBlockInfo {
             beacon_block_root: Hash256::from_low_u64_be(3),
@@ -1763,19 +1763,24 @@ mod tests {
             parent_root: Hash256::from_low_u64_be(2),
             proof_count: 2,
         });
-        
+
         // Test at current slot 160 (epoch 5) - blocks at epochs 1,2,3 should be finalizable
         store.update_proven_finalized(&proven_chain, Slot::new(160), slots_per_epoch);
-        
+
         let finalized = store.proven_finalized.read();
-        assert_eq!(*finalized, Some((Hash256::from_low_u64_be(3), Slot::new(96))));
+        assert_eq!(
+            *finalized,
+            Some((Hash256::from_low_u64_be(3), Slot::new(96)))
+        );
         drop(finalized);
-        
+
         // Test with current slot 96 (epoch 3) - only block at epoch 1 should be finalizable
         store.update_proven_finalized(&proven_chain, Slot::new(96), slots_per_epoch);
-        
-        let finalized2 = store.proven_finalized.read();
-        assert_eq!(*finalized2, Some((Hash256::from_low_u64_be(1), Slot::new(32))));
-    }
 
+        let finalized2 = store.proven_finalized.read();
+        assert_eq!(
+            *finalized2,
+            Some((Hash256::from_low_u64_be(1), Slot::new(32)))
+        );
+    }
 }
