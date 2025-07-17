@@ -360,17 +360,6 @@ impl ExecutionPayloadProofStore {
         }
     }
 
-    /// Get beacon block roots that are pending proofs for the given execution block hash
-    ///
-    /// Returns empty vec if no blocks are pending
-    fn get_pending_blocks(&self, execution_block_hash: &ExecutionBlockHash) -> Vec<Hash256> {
-        self.pending_blocks
-            .read()
-            .get(execution_block_hash)
-            .cloned()
-            .unwrap_or_default()
-    }
-
     /// Remove and return pending blocks for the given execution block hash
     ///
     /// This is called after we've verified that sufficient proofs exist for the payload.
@@ -380,23 +369,6 @@ impl ExecutionPayloadProofStore {
             .write()
             .remove(execution_block_hash)
             .unwrap_or_default()
-    }
-
-    /// Remove a specific beacon block from the pending list
-    /// This is useful when blocks are finalized or pruned
-    fn remove_pending_block(
-        &self,
-        execution_block_hash: &ExecutionBlockHash,
-        beacon_block_root: Hash256,
-    ) {
-        let mut pending = self.pending_blocks.write();
-        if let Some(blocks) = pending.get_mut(execution_block_hash) {
-            blocks.retain(|&block_root| block_root != beacon_block_root);
-            // Remove the entry if no blocks are left
-            if blocks.is_empty() {
-                pending.remove(execution_block_hash);
-            }
-        }
     }
 
     /// Clean up pending blocks based on a provided predicate
@@ -722,6 +694,16 @@ impl ExecutionPayloadProofStore {
         self.proven_canonical_chain
             .read()
             .contains_key(beacon_block_root)
+    }
+
+    /// Get beacon block roots that are pending proofs for the given execution block hash
+    /// (Test-only helper method)
+    fn get_pending_blocks(&self, execution_block_hash: &ExecutionBlockHash) -> Vec<Hash256> {
+        self.pending_blocks
+            .read()
+            .get(execution_block_hash)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Get information about a proven block
@@ -1189,12 +1171,7 @@ mod tests {
         store.register_pending_block(exec_hash, beacon_root2);
         let pending = store.get_pending_blocks(&exec_hash);
         assert_eq!(pending.len(), 2);
-
-        // Remove one pending block
-        store.remove_pending_block(&exec_hash, beacon_root1);
-        let pending = store.get_pending_blocks(&exec_hash);
-        assert_eq!(pending.len(), 1);
-        assert!(!pending.contains(&beacon_root1));
+        assert!(pending.contains(&beacon_root1));
         assert!(pending.contains(&beacon_root2));
     }
 
