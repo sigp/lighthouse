@@ -97,25 +97,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Update the proven canonical chain based on available proofs
         // This does NOT modify fork choice - validators continue with optimistic view
-        // Create closure for fetching block info
-        let get_block_info = |block_root| {
-            let block = self.get_blinded_block(block_root)?;
-            block.map(|block| {
-                let slot = block.slot();
-                let parent_root = block.parent_root();
-                let exec_hash_opt = block
-                    .message()
-                    .execution_payload()
-                    .ok()
-                    .map(|payload| payload.block_hash());
-                (slot, parent_root, exec_hash_opt)
-            })
-        };
-
         let proven_status = self
             .execution_payload_proof_store
             .update_proven_chain(
-                get_block_info,
+                |block_root| {
+                    self.get_blinded_block(block_root).map(|result| {
+                        result.map(|block| {
+                            let slot = block.slot();
+                            let parent_root = block.parent_root();
+                            let exec_hash_opt = block
+                                .message()
+                                .execution_payload()
+                                .ok()
+                                .map(|payload| payload.block_hash());
+                            (slot, parent_root, exec_hash_opt)
+                        })
+                    })
+                },
                 head_block_root,
                 current_slot,
                 slots_per_epoch,
