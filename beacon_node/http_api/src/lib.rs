@@ -3774,14 +3774,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
-        .and(network_globals.clone())
         .and(warp_utils::json::json())
         .then(
             |not_synced_filter: Result<(), Rejection>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             network_globals: Arc<NetworkGlobals<T::EthSpec>>,
              preparation_data: Vec<ProposerPreparationData>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     not_synced_filter?;
@@ -3842,19 +3840,12 @@ pub fn serve<T: BeaconChainTypes>(
                             current_slot,
                             &chain.spec,
                         ) {
-                            // Don't update custody info if we're advertising a
-                            // false custody group count.
-                            if network_globals
-                                .config
-                                .advertise_false_custody_group_count
-                                .is_none()
-                            {
-                                chain.update_data_column_custody_info(Some(
-                                    cgc_change
-                                        .effective_epoch
-                                        .start_slot(T::EthSpec::slots_per_epoch()),
-                                ))
-                            }
+                            chain.update_data_column_custody_info(Some(
+                                cgc_change
+                                    .effective_epoch
+                                    .start_slot(T::EthSpec::slots_per_epoch()),
+                            ));
+
                             network_tx.send(NetworkMessage::CustodyCountChanged {
                                 new_custody_group_count: cgc_change.new_custody_group_count,
                                 sampling_count: cgc_change.sampling_count,
