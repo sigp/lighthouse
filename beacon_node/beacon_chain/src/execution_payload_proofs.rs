@@ -403,6 +403,7 @@ impl ExecutionPayloadProofStore {
     /// -  They are too old (past the finalization slot) TODO: This shouldn't happen once proofs are a part of consensus
     ///
     /// Uses a two-phase approach to avoid holding locks during callback execution
+    ///
     /// TODO: Test edge case where we receive a lot of pending blocks and cannot
     /// TODO: finalize. Perhaps we can move to storage, when doing LRU evictions
     pub fn cleanup_pending_blocks<F>(&self, should_remove: F) -> usize
@@ -414,16 +415,17 @@ impl ExecutionPayloadProofStore {
         // Collect all block roots to check
         let blocks_to_check: Vec<Hash256> = {
             let pending = self.pending_blocks.read();
+            // TODO: From a memory perspective, this is likely fine since its 32 byte values
             pending.values().flatten().copied().collect()
         };
 
-        // Determine which blocks should be removed (no locks held during callback)
+        // Determine which blocks should be removed using the callback
         let blocks_to_remove: HashSet<Hash256> = blocks_to_check
             .into_iter()
             .filter(|&block_root| should_remove(block_root))
             .collect();
 
-        // Remove the identified blocks (short-duration write lock)
+        // Remove the identified blocks
         let mut pending = self.pending_blocks.write();
         let mut removed_count = 0;
         let mut execution_hashes_to_remove = Vec::new();
