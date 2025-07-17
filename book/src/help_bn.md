@@ -385,8 +385,7 @@ Options:
       --stateless-min-proofs-required <COUNT>
           Minimum number of execution proofs required to consider a block valid
           in stateless validation mode. Only applies when --stateless-validation
-          is enabled. Must be between 1 and max_execution_proof_subnets
-          (default: 8). [default: 2]
+          is enabled. Must be between 1 and max_execution_proof_subnets.
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the
