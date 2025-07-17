@@ -82,10 +82,16 @@ pub struct ChainConfig {
     /// Use EL-free optimistic sync for the finalized part of the chain.
     pub optimistic_finalized_sync: bool,
     /// Enable stateless validation mode for new payloads.
+    ///
+    /// Currently this means that the node will accept blocks optimistically
+    /// and maintain metadata about which blocks have been proven and which ones have not.
     pub stateless_validation: bool,
-    /// Generate execution proofs for all blocks (both produced and received).
+    /// Generate execution proofs for all blocks received.
+    ///
+    /// Nodes that have this enabled will be used to bootstrap proofs into the subnets,
+    /// whether they are a proposer or not.
     pub generate_execution_proofs: bool,
-    /// Maximum number of execution payload proofs to store.
+    /// Maximum number of execution payload proofs to store in memory.
     pub max_execution_payload_proofs: usize,
     /// Maximum number of execution proof subnets this node will participate in.
     ///
