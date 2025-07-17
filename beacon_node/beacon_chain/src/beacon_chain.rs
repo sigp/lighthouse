@@ -3824,7 +3824,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// (i.e., this function is not atomic).
     #[allow(clippy::too_many_arguments)]
     fn import_block(
-        &self,
+        self: &Arc<Self>,
         signed_block: AvailableBlock<T::EthSpec>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
@@ -3907,57 +3907,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
         }
 
-        // If the block is recent enough and it was not optimistically imported, check to see if it
-        // becomes the head block. If so, apply it to the early attester cache. This will allow
-        // attestations to the block without waiting for the block and state to be inserted to the
-        // database.
+        // Run a fork choice update immediately in the common case where we are in sync.
         //
-        // Only performing this check on recent blocks avoids slowing down sync with lots of calls
-        // to fork choice `get_head`.
-        //
-        // Optimistically imported blocks are not added to the cache since the cache is only useful
-        // for a small window of time and the complexity of keeping track of the optimistic status
-        // is not worth it.
+        // This gets the fcU to the EL ASAP, prior to disk writes and other slow operations.
         if !payload_verification_status.is_optimistic()
             && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
         {
-            let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
-            match fork_choice.get_head(current_slot, &self.spec) {
-                // This block became the head, add it to the early attester cache.
-                Ok(new_head_root) if new_head_root == block_root => {
-                    if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                        if let Err(e) = self.early_attester_cache.add_head_block(
-                            block_root,
-                            &signed_block,
-                            proto_block,
-                            &state,
-                            &self.spec,
-                        ) {
-                            warn!(
-                                error = ?e,
-                                "Early attester cache insert failed"
-                            );
-                        } else {
-                            let attestable_timestamp =
-                                self.slot_clock.now_duration().unwrap_or_default();
-                            self.block_times_cache.write().set_time_attestable(
-                                block_root,
-                                signed_block.slot(),
-                                attestable_timestamp,
-                            )
-                        }
-                    } else {
-                        warn!(?block_root, "Early attester block missing");
-                    }
-                }
-                // This block did not become the head, nothing to do.
-                Ok(_) => (),
-                Err(e) => error!(
-                    error = ?e,
-                    "Failed to compute head during block import"
-                ),
-            }
-            drop(fork_choice_timer);
+            let _fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_FORK_CHOICE);
+            let pending_block_snapshot = BeaconSnapshot {
+                beacon_block: signed_block.block_cloned(),
+                beacon_block_root: block_root,
+                beacon_state: state.clone(),
+            };
+            self.recompute_head_at_slot_blocking(
+                current_slot,
+                fork_choice,
+                Some(pending_block_snapshot),
+            )?;
         }
         drop(post_exec_timer);
 
@@ -4005,10 +3971,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     ?block_root,
                     "Failed to store data columns into the database"
                 );
+                return Err(BlockError::InternalError(e));
+                /*
                 return Err(self
                     .handle_import_block_db_write_error(fork_choice)
                     .err()
                     .unwrap_or(BlockError::InternalError(e)));
+                */
             }
         }
 
@@ -4023,15 +3992,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 error = ?e,
                 "Database write failed!"
             );
+            /* FIXME(sproul): hmmm
             return Err(self
                 .handle_import_block_db_write_error(fork_choice)
                 .err()
                 .unwrap_or(e.into()));
+            */
+            return Err(e.into());
         }
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
-        drop(fork_choice);
+        // FIXME(sproul): consider how to restore this invariant
+        // drop(fork_choice);
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.
@@ -4070,6 +4043,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_root)
     }
 
+    #[allow(dead_code)]
     fn handle_import_block_db_write_error(
         &self,
         // We don't actually need this value, however it's always present when we call this function

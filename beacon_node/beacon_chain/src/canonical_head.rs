@@ -500,8 +500,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let chain = self.clone();
         match self
             .spawn_blocking_handle(
-                move || chain.recompute_head_at_slot_internal(current_slot),
-                "recompute_head_internal",
+                move || {
+                    let fork_choice_write_lock = chain.canonical_head.fork_choice_write_lock();
+                    chain.recompute_head_at_slot_blocking(
+                        current_slot,
+                        fork_choice_write_lock,
+                        None,
+                    )
+                },
+                "recompute_head_blocking",
             )
             .await
         {
@@ -546,10 +553,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This function performs long-running, heavy-lifting tasks which should not be performed on
     /// the core `tokio` executor.
-    fn recompute_head_at_slot_internal(
+    pub fn recompute_head_at_slot_blocking(
         self: &Arc<Self>,
         current_slot: Slot,
+        mut fork_choice_write_lock: RwLockWriteGuard<'_, BeaconForkChoice<T>>,
+        pending_block_snapshot: Option<BeaconSnapshot<T::EthSpec>>,
     ) -> Result<Option<JoinHandle<Option<()>>>, Error> {
+        // FIXME(sproul): consider getting rid of this lock
         let recompute_head_lock = self.canonical_head.recompute_head_lock.lock();
 
         // Take a clone of the current ("old") head.
@@ -566,8 +576,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             justified_checkpoint: old_cached_head.justified_checkpoint(),
             finalized_checkpoint: old_cached_head.finalized_checkpoint(),
         };
-
-        let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
 
         // Recompute the current head via the fork choice algorithm.
         fork_choice_write_lock.get_head(current_slot, &self.spec)?;
@@ -636,34 +644,77 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // will just cause lock contention.
         drop(fork_choice_read_lock);
 
+        // Update the early attester cache as soon as the fork choice lock is dropped.
+        if let Some(ref snapshot) = pending_block_snapshot {
+            if snapshot.beacon_block_root == new_view.head_block_root {
+                // FIXME(sproul): update add_head_block to take a snapshot
+                if let Err(e) = self.early_attester_cache.add_head_block(
+                    snapshot.beacon_block_root,
+                    snapshot.beacon_block.clone(),
+                    new_head_proto_block.clone(),
+                    &snapshot.beacon_state,
+                    &self.spec,
+                ) {
+                    warn!(
+                        error = ?e,
+                        "Early attester cache insert failed"
+                    );
+                } else {
+                    let attestable_timestamp = self.slot_clock.now_duration().unwrap_or_default();
+                    self.block_times_cache.write().set_time_attestable(
+                        snapshot.beacon_block_root,
+                        snapshot.beacon_block.slot(),
+                        attestable_timestamp,
+                    )
+                }
+            }
+        }
+
+        // The execution layer updates might attempt to take a write-lock on fork choice, so it's
+        // important to ensure the fork-choice lock isn't being held (dropped a few lines earlier).
+        //
+        // We want to shoot this update off ASAP so that the EL can update its view of the head and
+        // start work like block building, etc. We used to unnecessarily do a bunch of work before
+        // this: https://github.com/sigp/lighthouse/issues/7745
+        let el_update_handle =
+            spawn_execution_layer_updates(self.clone(), new_forkchoice_update_parameters)?;
+
         // If the head has changed, update `self.canonical_head`.
         let new_cached_head = if new_view.head_block_root != old_view.head_block_root {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
-            let mut new_snapshot = {
-                let beacon_block = self
-                    .store
-                    .get_full_block(&new_view.head_block_root)?
-                    .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
+            // FIXME(sproul): this would be nicer with a let chain.
+            let head_block_root = new_view.head_block_root;
+            let store = self.store.clone();
+            let get_snapshot = move || -> Result<BeaconSnapshot<_>, Error> {
+                if let Some(snapshot) = pending_block_snapshot {
+                    if snapshot.beacon_block_root == head_block_root {
+                        return Ok(snapshot);
+                    }
+                }
+                let beacon_block = store
+                    .get_full_block(&head_block_root)?
+                    .ok_or(Error::MissingBeaconBlock(head_block_root))?;
 
-                let (_, beacon_state) = self
-                    .store
+                let (_, beacon_state) = store
                     .get_advanced_hot_state(
-                        new_view.head_block_root,
+                        head_block_root,
                         current_slot,
                         beacon_block.state_root(),
                     )?
                     .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
 
-                BeaconSnapshot {
+                Ok(BeaconSnapshot {
                     beacon_block: Arc::new(beacon_block),
                     beacon_block_root: new_view.head_block_root,
                     beacon_state,
-                }
+                })
             };
 
             // Regardless of where we got the state from, attempt to build all the
             // caches except the tree hash cache.
+            let mut new_snapshot = get_snapshot()?;
+
             new_snapshot.beacon_state.build_all_caches(&self.spec)?;
 
             let new_cached_head = CachedHead {
@@ -746,11 +797,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
         }
-
-        // The execution layer updates might attempt to take a write-lock on fork choice, so it's
-        // important to ensure the fork-choice lock isn't being held.
-        let el_update_handle =
-            spawn_execution_layer_updates(self.clone(), new_forkchoice_update_parameters)?;
 
         // We have completed recomputing the head and it's now valid for another process to do the
         // same.

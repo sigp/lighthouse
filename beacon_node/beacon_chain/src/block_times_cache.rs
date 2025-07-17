@@ -50,7 +50,7 @@ pub struct BlockDelays {
     /// We need to use `available` again rather than `attestable` to handle the case where the block
     /// does not get added to the early-attester cache.
     pub imported: Option<Duration>,
-    /// Time after `imported`.
+    /// Time after `available`.
     pub set_as_head: Option<Duration>,
 }
 
@@ -83,7 +83,7 @@ impl BlockDelays {
             .and_then(|imported_time| imported_time.checked_sub(available_time?));
         let set_as_head = times
             .set_as_head
-            .and_then(|set_as_head_time| set_as_head_time.checked_sub(times.imported?));
+            .and_then(|set_as_head_time| set_as_head_time.checked_sub(available_time?));
         BlockDelays {
             observed,
             all_blobs_observed,

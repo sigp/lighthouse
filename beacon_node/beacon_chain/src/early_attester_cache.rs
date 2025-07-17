@@ -1,4 +1,3 @@
-use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{
     attester_cache::{CommitteeLengths, Error},
     metrics,
@@ -21,8 +20,6 @@ pub struct CacheItem<E: EthSpec> {
      * Values used to make the block available.
      */
     block: Arc<SignedBeaconBlock<E>>,
-    blobs: Option<BlobSidecarList<E>>,
-    data_columns: Option<DataColumnSidecarList<E>>,
     proto_block: ProtoBlock,
 }
 
@@ -52,7 +49,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     pub fn add_head_block(
         &self,
         beacon_block_root: Hash256,
-        block: &AvailableBlock<E>,
+        block: Arc<SignedBeaconBlock<E>>,
         proto_block: ProtoBlock,
         state: &BeaconState<E>,
         spec: &ChainSpec,
@@ -70,21 +67,13 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             },
         };
 
-        let (blobs, data_columns) = match block.data() {
-            AvailableBlockData::NoData => (None, None),
-            AvailableBlockData::Blobs(blobs) => (Some(blobs.clone()), None),
-            AvailableBlockData::DataColumns(data_columns) => (None, Some(data_columns.clone())),
-        };
-
         let item = CacheItem {
             epoch,
             committee_lengths,
             beacon_block_root,
             source,
             target,
-            block: block.block_cloned(),
-            blobs,
-            data_columns,
+            block,
             proto_block,
         };
 
@@ -163,21 +152,27 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     }
 
     /// Returns the blobs, if `block_root` matches the cached item.
-    pub fn get_blobs(&self, block_root: Hash256) -> Option<BlobSidecarList<E>> {
+    pub fn get_blobs(&self, _block_root: Hash256) -> Option<BlobSidecarList<E>> {
+        /* FIXME(sproul): nah bruv
         self.item
             .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
             .and_then(|item| item.blobs.clone())
+        */
+        None
     }
 
     /// Returns the data columns, if `block_root` matches the cached item.
-    pub fn get_data_columns(&self, block_root: Hash256) -> Option<DataColumnSidecarList<E>> {
+    pub fn get_data_columns(&self, _block_root: Hash256) -> Option<DataColumnSidecarList<E>> {
+        /* FIXME(sproul): nah bruv
         self.item
             .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
             .and_then(|item| item.data_columns.clone())
+        */
+        None
     }
 
     /// Returns the proto-array block, if `block_root` matches the cached item.

@@ -1143,6 +1143,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         .fork_choice_read_lock()
         .get_block(&attestation_data.beacon_block_root)
         .or_else(|| {
+            // FIXME(sproul): abolish?
             chain
                 .early_attester_cache
                 .get_proto_block(attestation_data.beacon_block_root)
