@@ -315,7 +315,7 @@ impl ExecutionPayloadProofStore {
         proof_id: ProofId,
     ) -> Result<ExecutionProof, ExecutionProofError> {
         let block_hash = payload.block_hash();
-        
+
         // Check if we already have this proof
         if let Some(existing_proof) = self.get_proof(&block_hash, proof_id) {
             tracing::debug!(
@@ -325,7 +325,7 @@ impl ExecutionPayloadProofStore {
             );
             return Ok(existing_proof);
         }
-        
+
         let proof = Self::generate_proof(payload, execution_state_witness, proof_id).await;
         self.store_proof(proof.clone())?;
         Ok(proof)
