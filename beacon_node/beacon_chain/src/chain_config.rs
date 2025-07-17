@@ -90,19 +90,9 @@ pub struct ChainConfig {
     /// Maximum number of execution proof subnets this node will participate in.
     ///
     /// This is a per-node configuration that must not exceed the protocol maximum
-    /// (MAX_EXECUTION_PROOF_SUBNETS = 8). Nodes may choose to participate in fewer
+    /// (MAX_EXECUTION_PROOF_SUBNETS). Nodes may choose to participate in fewer
     /// subnets to reduce resource usage, but this limits the number of proofs they
     /// can generate or validate.
-    ///
-    /// Subnet selection is sequential starting from 0. For example:
-    /// - max_execution_proof_subnets = 8: participates in subnets [0, 1, 2, 3, 4, 5, 6, 7]
-    /// - max_execution_proof_subnets = 4: participates in subnets [0, 1, 2, 3]
-    /// - max_execution_proof_subnets = 1: participates in subnet [0] only
-    ///
-    /// This sequential allocation ensures that:
-    /// - Lower-numbered subnets always have at least as many participants as higher ones
-    /// - Nodes with different max_execution_proof_subnets settings still overlap on lower subnets
-    /// - At least subnet 0 is always covered by all nodes
     ///
     /// TODO: We can remove the sequential allocations with a random allocation, so that lower numbered
     /// TODO: subnets are not important. Current strategy is mostly POC.
