@@ -3223,67 +3223,85 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Convert ExecutionProof to ExecutionPayloadProof for storage
         let execution_payload_proof = ExecutionPayloadProof::new(
             execution_proof.block_hash,
+            // TODO: Check that this is infallible, ie `subnet_id_u64` is validated
             ProofId(subnet_id_u64),
             execution_proof.version,
             execution_proof.proof_data.clone(),
         );
 
         // Store the proof in the execution payload proof store
-        match self
+        if let Err(e) = self
             .chain
             .execution_payload_proof_store
             .store_proof(execution_payload_proof)
         {
-            Ok(()) => {
-                info!(
-                    "PROOFCHAIN {}: proof type {} received on subnet {}",
-                    block_hash, proof_description, subnet_id_u64
+            warn!(
+                %block_hash,
+                subnet_id = %subnet_id_u64,
+                error = %e,
+                "Failed to store execution proof"
+            );
+            
+            // Handle different error types appropriately
+            if e.should_penalize_peer() {
+                // Validation errors should penalize the peer
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "execution_proof_validation_failed",
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+            } else {
+                // Storage errors should not penalize peers
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            return;
+        }
 
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+        // Proof stored successfully
+        info!(
+            "PROOFCHAIN {}: proof type {} received on subnet {}",
+            block_hash, proof_description, subnet_id_u64
+        );
+        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
-                match self
-                    .chain
-                    .re_evaluate_optimistic_blocks_with_proofs(block_hash)
-                {
-                    Ok(proven_head_changed) => {
-                        if proven_head_changed {
-                            info!(
-                                "PROOFCHAIN {}: proven chain HEAD UPDATED after receiving proof on subnet {}",
-                                block_hash,
-                                subnet_id_u64
-                            );
-                        } else {
-                            debug!(
-                                "PROOFCHAIN {}: proven chain evaluated but HEAD UNCHANGED after proof on subnet {}",
-                                block_hash,
-                                subnet_id_u64
-                            );
-                        }
+        // Re-evaluate optimistic blocks now that we have this proof
+        self.handle_proof_chain_update(block_hash, subnet_id_u64);
+    }
 
-                        // In dual-view architecture, fork choice remains optimistic
-                        // The proven chain is tracked separately and doesn't trigger head recomputation
-                    }
-                    Err(e) => {
-                        warn!(
-                            %block_hash,
-                            subnet_id = %subnet_id_u64,
-                            error = ?e,
-                            "Failed to update proven chain after proof reception"
-                        );
-                    }
+    /// Handle proven chain updates after successfully storing a proof
+    fn handle_proof_chain_update(
+        &self,
+        block_hash: types::ExecutionBlockHash,
+        subnet_id: u64,
+    ) {
+        match self
+            .chain
+            .re_evaluate_optimistic_blocks_with_proofs(block_hash)
+        {
+            Ok(proven_head_changed) => {
+                if proven_head_changed {
+                    info!(
+                        "PROOFCHAIN {}: proven chain HEAD UPDATED after receiving proof on subnet {}",
+                        block_hash, subnet_id
+                    );
+                } else {
+                    debug!(
+                        "PROOFCHAIN {}: proven chain evaluated but HEAD UNCHANGED after proof on subnet {}",
+                        block_hash, subnet_id
+                    );
                 }
+
+                // In dual-view architecture, fork choice remains optimistic
+                // The proven chain is tracked separately and doesn't trigger head recomputation
             }
             Err(e) => {
                 warn!(
                     %block_hash,
-                    subnet_id = %subnet_id_u64,
-                    error = %e,
-                    "Failed to store execution proof"
+                    subnet_id = %subnet_id,
+                    error = ?e,
+                    "Failed to update proven chain after proof reception"
                 );
-
-                // Don't penalize peer since this might be a duplicate or storage issue
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
         }
     }

@@ -1,6 +1,7 @@
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
@@ -8,6 +9,70 @@ use types::{
     execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS, EthSpec, ExecPayload,
     ExecutionBlockHash, ExecutionPayload, Hash256, Slot,
 };
+
+/// Error types for execution payload proof operations
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExecutionPayloadProofError {
+    /// Validation errors indicate the proof is invalid
+    ValidationError {
+        proof_id: u64,
+        block_hash: ExecutionBlockHash,
+        reason: String,
+    },
+    /// Storage errors indicate internal issues and should not result in peer penalties
+    StorageError {
+        reason: String,
+    },
+}
+
+impl fmt::Display for ExecutionPayloadProofError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ExecutionPayloadProofError::ValidationError {
+                proof_id,
+                block_hash,
+                reason,
+            } => write!(
+                f,
+                "Invalid proof for block hash {:?}, proof ID {}: {}",
+                block_hash, proof_id, reason
+            ),
+            ExecutionPayloadProofError::StorageError { reason } => {
+                write!(f, "Storage error: {}", reason)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ExecutionPayloadProofError {}
+
+impl ExecutionPayloadProofError {
+    /// Check if this error should result in peer penalties
+    /// TODO: maybe remove this and put this in `process_gossip_execution_proof`
+    pub fn should_penalize_peer(&self) -> bool {
+        matches!(self, ExecutionPayloadProofError::ValidationError { .. })
+    }
+
+    /// Create a validation error
+    pub fn validation_error(
+        proof_id: u64,
+        block_hash: ExecutionBlockHash,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self::ValidationError {
+            proof_id,
+            block_hash,
+            reason: reason.into(),
+        }
+    }
+
+    /// Create a storage error
+    pub fn storage_error(reason: impl Into<String>) -> Self {
+        Self::StorageError {
+            reason: reason.into(),
+        }
+    }
+}
 
 /// Identifier for different types of proofs that can be received for execution payloads
 /// Each proof ID will be received on a different gossip subnet
@@ -261,13 +326,13 @@ impl ExecutionPayloadProofStore {
     /// Store a proof for an execution payload after validation
     /// This method validates the proof before storing it
     /// TODO: This will be called when proofs are received via gossip subnet
-    pub fn store_proof(&self, proof: ExecutionPayloadProof) -> Result<(), String> {
+    pub fn store_proof(&self, proof: ExecutionPayloadProof) -> Result<(), ExecutionPayloadProofError> {
         // Validate the proof before storing
         if !Self::validate_proof(&proof) {
-            return Err(format!(
-                "Invalid proof for block hash {:?}, proof ID {}: validation failed",
+            return Err(ExecutionPayloadProofError::validation_error(
+                proof.proof_id.id(),
                 proof.block_hash,
-                proof.proof_id.id()
+                "validation failed"
             ));
         }
 
@@ -401,7 +466,7 @@ impl ExecutionPayloadProofStore {
         payload: &ExecutionPayload<T>,
         execution_state_witness: &[u8],
         proof_id: ProofId,
-    ) -> Result<ExecutionPayloadProof, String> {
+    ) -> Result<ExecutionPayloadProof, ExecutionPayloadProofError> {
         let proof = Self::generate_dummy_proof(payload, execution_state_witness, proof_id);
         self.store_proof(proof.clone())?;
         Ok(proof)
