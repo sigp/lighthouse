@@ -137,17 +137,8 @@ async fn notify_new_payload<T: BeaconChainTypes>(
 
     let execution_block_hash = block.execution_payload()?.block_hash();
 
-    info!("New payload with hash {:?}", execution_block_hash);
-
-    // Generate proof for this payload if configured to do so
+    // Generate proof for this payload (even though it may not be your proposed block)
     if chain.config.generate_execution_proofs {
-        info!(
-            "Triggering proof generation for execution payload {:?}",
-            execution_block_hash
-        );
-
-        // We need to spawn the proof generation task with the block reference
-        // The task will check if it's a full payload and extract the data
         spawn_proof_generation_task_with_block(chain, block);
     }
 
@@ -157,19 +148,17 @@ async fn notify_new_payload<T: BeaconChainTypes>(
             .execution_payload_proof_store
             .proof_count_for_payload(&execution_block_hash);
 
-        // Check if we have enough proofs for this execution payload
+        // Eagerly heck if we have enough proofs for this execution payload
         if proof_count >= chain.config.stateless_min_proofs_required {
             let proofs = chain
                 .execution_payload_proof_store
                 .get_proofs(&execution_block_hash);
-            let proof_descriptions: Vec<String> = proofs.iter().map(|p| p.description()).collect();
 
             info!(
-                "Found {}/{} required proof(s) for execution payload {:?} ({}), marking as verified",
+                execution_block_hash = ?execution_block_hash,
                 proof_count,
-                chain.config.stateless_min_proofs_required,
-                execution_block_hash,
-                proof_descriptions.join(", ")
+                required_proofs = chain.config.stateless_min_proofs_required,
+                "Execution payload verified with proofs"
             );
             return Ok(PayloadVerificationStatus::Verified);
         } else {
@@ -620,7 +609,6 @@ fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
             return;
         }
     };
-
 
     // Spawn the proof generation task in the background
     // WARNING: No resource limits or task counting is performed here.
