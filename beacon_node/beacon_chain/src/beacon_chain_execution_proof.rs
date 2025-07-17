@@ -41,7 +41,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns true if the subnet is within our configured range
     pub fn should_generate_execution_proof_for_subnet(&self, subnet_id: u64) -> bool {
         // We generate proofs for all subnets we're subscribed to
-        subnet_id < self.max_execution_proof_subnets() && self.config.stateless_validation
+        subnet_id < self.max_execution_proof_subnets() && self.config.generate_execution_proofs
     }
 
     // ========================================================================
