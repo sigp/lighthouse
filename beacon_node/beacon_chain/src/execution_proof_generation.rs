@@ -4,6 +4,7 @@
 //! Currently implements dummy proof generation, but will be replaced with
 //! actual proof generation from zkVMs or other proof systems.
 
+use tracing::debug;
 use types::{
     execution_proof_subnet_id::ExecutionProofSubnetId, EthSpec, ExecutionPayload, ExecutionProof,
 };
@@ -30,7 +31,7 @@ pub async fn generate_proof<T: EthSpec>(
     use rand::{thread_rng, Rng};
     let delay_ms = thread_rng().gen_range(1000..=3000);
 
-    tracing::debug!(
+    debug!(
         execution_block_hash = ?execution_block_hash,
         subnet_id = *proof_id,
         delay_ms,

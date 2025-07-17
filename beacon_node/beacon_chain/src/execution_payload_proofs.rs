@@ -2,6 +2,7 @@ use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::Arc;
+use tracing::debug;
 use types::{
     execution_proof_subnet_id::ExecutionProofSubnetId, EthSpec, ExecutionBlockHash,
     ExecutionPayload, ExecutionProof, Hash256, Slot,
@@ -318,7 +319,7 @@ impl ExecutionPayloadProofStore {
 
         // Check if we already have this proof
         if let Some(existing_proof) = self.get_proof(&block_hash, proof_id) {
-            tracing::debug!(
+            debug!(
                 execution_block_hash = ?block_hash,
                 subnet_id = *proof_id,
                 "Proof already exists, skipping generation"
