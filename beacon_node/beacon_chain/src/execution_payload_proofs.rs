@@ -304,15 +304,28 @@ impl ExecutionPayloadProofStore {
         crate::execution_proof_generation::validate_proof(proof)
     }
 
-    /// Generate and store a proof for the given execution payload and proof ID
+    /// Get an existing proof or generate a new one for the given execution payload and proof ID
     ///
-    /// This is a convenience method that combines proof generation and storage
-    pub async fn generate_and_store_proof<T: EthSpec>(
+    /// This method first checks if a proof already exists. If it does, it returns the existing
+    /// proof. Otherwise, it generates a new proof and stores it before returning.
+    pub async fn get_or_generate_proof<T: EthSpec>(
         &self,
         payload: &ExecutionPayload<T>,
         execution_state_witness: &[u8],
         proof_id: ProofId,
     ) -> Result<ExecutionProof, ExecutionProofError> {
+        let block_hash = payload.block_hash();
+        
+        // Check if we already have this proof
+        if let Some(existing_proof) = self.get_proof(&block_hash, proof_id) {
+            tracing::debug!(
+                execution_block_hash = ?block_hash,
+                subnet_id = *proof_id,
+                "Proof already exists, skipping generation"
+            );
+            return Ok(existing_proof);
+        }
+        
         let proof = Self::generate_proof(payload, execution_state_witness, proof_id).await;
         self.store_proof(proof.clone())?;
         Ok(proof)

@@ -671,10 +671,10 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
                 }
             };
 
-            // Use the proof store method to generate and store the proof
+            // Use the proof store method to get or generate the proof
             match chain
                 .execution_payload_proof_store
-                .generate_and_store_proof(&payload, &witness, proof_id)
+                .get_or_generate_proof(&payload, &witness, proof_id)
                 .await
             {
                 Ok(_proof) => {
