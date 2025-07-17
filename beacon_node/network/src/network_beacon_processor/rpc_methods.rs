@@ -884,11 +884,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         let request_start_slot = Slot::from(req.start_slot);
+        // This variable may only change when the request_start_slot + req.count spans across the Fulu fork slot
+        let mut effective_count = req.count;
 
-        // Check if the request slot is after a Fulu slot; if so, return empty response
         if let Some(fulu_epoch) = self.chain.spec.fulu_fork_epoch {
             let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let request_end_slot = request_start_slot + req.count - 1;
 
+            // If the request_start_slot is at or after a Fulu slot, return empty response
             if request_start_slot >= fulu_start_slot {
                 debug!(
                     %peer_id,
@@ -898,6 +901,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "BlobsByRange request is at or after a Fulu slot, returning empty response"
                 );
                 return Ok(());
+            // For the case that the request slots spans across the Fulu fork slot
+            } else if request_start_slot < fulu_start_slot && request_end_slot >= fulu_start_slot {
+                effective_count = (fulu_start_slot - request_start_slot).as_u64();
+                debug!(
+                    %peer_id,
+                    %request_start_slot,
+                    %fulu_start_slot,
+                    requested_count = req.count,
+                    served_count = effective_count,
+                    "BlobsByRange request spans across Fulu fork, only serving blobs before Fulu slots"
+                )
             }
         }
 
@@ -937,7 +951,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         let block_roots =
-            self.get_block_roots_for_slot_range(req.start_slot, req.count, "BlobsByRange")?;
+            self.get_block_roots_for_slot_range(req.start_slot, effective_count, "BlobsByRange")?;
 
         let current_slot = self
             .chain
@@ -964,7 +978,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // Due to skip slots, blobs could be out of the range, we ensure they
                         // are in the range before sending
                         if blob_sidecar.slot() >= request_start_slot
-                            && blob_sidecar.slot() < request_start_slot + req.count
+                            && blob_sidecar.slot() < request_start_slot + effective_count
                         {
                             blobs_sent += 1;
                             self.send_network_message(NetworkMessage::SendResponse {
