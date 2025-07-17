@@ -9,8 +9,15 @@ default = ["sqlite", "legacy-arith"]
 # Allow saturating arithmetic on slots and epochs. Enabled by default, but deprecated.
 legacy-arith = []
 sqlite = ["dep:rusqlite"]
+arbitrary = [
+    "dep:arbitrary",
+    "bls/arbitrary",
+    "ethereum_ssz/arbitrary",
+    "milhouse/arbitrary",
+    "ssz_types/arbitrary",
+    "swap_or_not_shuffle/arbitrary",
+]
 arbitrary-fuzz = ["arbitrary"]
-arbitrary = ["dep:arbitrary", "swap_or_not_shuffle/arbitrary", "ssz_types/arbitrary", "milhouse/arbitrary", "bls/arbitrary", "ethereum_ssz/arbitrary"]
 portable = ["bls/supranational-portable"]
 
 [dependencies]
