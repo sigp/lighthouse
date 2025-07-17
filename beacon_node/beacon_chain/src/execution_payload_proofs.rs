@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
@@ -20,9 +20,7 @@ pub enum ExecutionPayloadProofError {
         reason: String,
     },
     /// Storage errors indicate internal issues and should not result in peer penalties
-    StorageError {
-        reason: String,
-    },
+    StorageError { reason: String },
 }
 
 impl fmt::Display for ExecutionPayloadProofError {
@@ -48,6 +46,7 @@ impl std::error::Error for ExecutionPayloadProofError {}
 
 impl ExecutionPayloadProofError {
     /// Check if this error should result in peer penalties
+    ///
     /// TODO: maybe remove this and put this in `process_gossip_execution_proof`
     pub fn should_penalize_peer(&self) -> bool {
         matches!(self, ExecutionPayloadProofError::ValidationError { .. })
@@ -76,26 +75,22 @@ impl ExecutionPayloadProofError {
 
 /// Identifier for different types of proofs that can be received for execution payloads
 /// Each proof ID will be received on a different gossip subnet
-/// The u64 value can be mapped to subnet numbers for easy routing
+///
 /// TODO: maybe just alias `ExecutionProofSubnetId`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ProofId(pub u64);
 
 impl ProofId {
-    /// Execution witness proof (subnet 0)
-    /// This is the standard execution payload witness proof
-    pub const EXECUTION_WITNESS: ProofId = ProofId(0);
-
-    /// Create a custom proof ID for specific zkVMs
-    /// Each zkVM (e.g., SP1, RISC-V, zkEVM) will have its own subnet and proof ID
-    /// For example:
-    /// - SP1 proofs: ProofId::custom(1).unwrap() → subnet 1
-    /// - RISC-V proofs: ProofId::custom(2).unwrap() → subnet 2  
-    /// - zkEVM proofs: ProofId::custom(3).unwrap() → subnet 3
+    /// Create a new proof ID for specific proof types
+    /// Each proof type (execution witness, SP1, RISC-V, zkEVM) has its own subnet ID:
+    /// - Execution witness proofs: ProofId::new(0).unwrap() → subnet 0
+    /// - SP1 proofs: ProofId::new(1).unwrap() → subnet 1
+    /// - RISC-V proofs: ProofId::new(2).unwrap() → subnet 2  
+    /// - zkEVM proofs: ProofId::new(3).unwrap() → subnet 3
     /// - etc.
     ///
     /// Returns an error if id >= MAX_EXECUTION_PROOF_SUBNETS
-    pub fn custom(id: u64) -> Result<Self, String> {
+    pub fn new(id: u64) -> Result<Self, String> {
         if id >= MAX_EXECUTION_PROOF_SUBNETS {
             return Err(format!(
                 "ProofId {} exceeds MAX_EXECUTION_PROOF_SUBNETS ({})",
@@ -105,9 +100,8 @@ impl ProofId {
         Ok(ProofId(id))
     }
 
-
     /// Get the gossip subnet ID for this proof type
-    /// Direct one-to-one mapping: ProofId IS the subnet ID
+    /// Direct one-to-one mapping: ProofId is the subnet ID
     pub fn subnet_id(&self) -> u64 {
         self.0
     }
@@ -135,7 +129,9 @@ impl ProofId {
     }
 }
 
-/// Represents a proof for an execution payload
+/// Represents a proof for an execution payload.
+/// If this proof verifies as true, it is equivalent to the ExecutionLayer
+/// specifying that the payload is valid.
 /// Multiple proof types can exist for a single execution payload
 #[derive(Debug, Clone)]
 pub struct ExecutionPayloadProof {
@@ -148,8 +144,6 @@ pub struct ExecutionPayloadProof {
     /// Opaque proof data - structure depends on proof_id and version
     /// This will contain cryptographic proofs received via gossip
     pub proof_data: Vec<u8>,
-    /// Timestamp when this proof was received/stored
-    pub timestamp: u64,
 }
 
 impl ExecutionPayloadProof {
@@ -165,14 +159,8 @@ impl ExecutionPayloadProof {
             proof_id,
             version,
             proof_data,
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
         }
     }
-
-
 
     /// Get a description of the proof including type and version
     pub fn description(&self) -> String {
@@ -217,6 +205,8 @@ pub struct ExecutionPayloadProofStore {
     /// This allows multiple proof types for the same execution payload
     /// TODO: Handle orphaned proofs - proofs that arrive for blocks we never imported
     proofs: Arc<RwLock<HashMap<(ExecutionBlockHash, ProofId), ExecutionPayloadProof>>>,
+    /// Tracks insertion order for LRU eviction
+    insertion_order: Arc<RwLock<VecDeque<(ExecutionBlockHash, ProofId)>>>,
     /// Queue of proofs waiting to be broadcast
     broadcast_queue: Arc<RwLock<Vec<(ExecutionBlockHash, ProofId)>>>,
     /// Reverse mapping: execution block hash -> beacon block roots waiting for proofs
@@ -247,6 +237,7 @@ impl ExecutionPayloadProofStore {
     pub fn new(max_proofs: usize) -> Self {
         Self {
             proofs: Arc::new(RwLock::new(HashMap::new())),
+            insertion_order: Arc::new(RwLock::new(VecDeque::new())),
             broadcast_queue: Arc::new(RwLock::new(Vec::new())),
             pending_blocks: Arc::new(RwLock::new(HashMap::new())),
             max_proofs,
@@ -306,7 +297,7 @@ impl ExecutionPayloadProofStore {
 
     /// Take all proofs from the broadcast queue
     /// This drains the queue and returns all pending proofs
-    /// 
+    ///
     /// Note: This is used for the BroadcastManager
     pub fn take_unqueued_proofs(&self) -> Vec<(ExecutionBlockHash, ProofId)> {
         let mut queue = self.broadcast_queue.write();
@@ -316,41 +307,45 @@ impl ExecutionPayloadProofStore {
     /// Store a proof for an execution payload after validation
     /// This method validates the proof before storing it
     /// TODO: This will be called when proofs are received via gossip subnet
-    pub fn store_proof(&self, proof: ExecutionPayloadProof) -> Result<(), ExecutionPayloadProofError> {
+    pub fn store_proof(
+        &self,
+        proof: ExecutionPayloadProof,
+    ) -> Result<(), ExecutionPayloadProofError> {
         // Validate the proof before storing
         if !Self::validate_proof(&proof) {
             return Err(ExecutionPayloadProofError::validation_error(
                 proof.proof_id.subnet_id(),
                 proof.block_hash,
-                "validation failed"
+                "validation failed",
             ));
         }
 
+        let key = (proof.block_hash, proof.proof_id);
+        
+        // Acquire both locks to maintain consistency
         let mut proofs = self.proofs.write();
+        let mut insertion_order = self.insertion_order.write();
 
         // Simple LRU eviction if we're at capacity
         if proofs.len() >= self.max_proofs {
-            // Remove the oldest proof
-            if let Some(oldest_key) = proofs
-                .iter()
-                .min_by_key(|(_, proof)| proof.timestamp)
-                .map(|(key, _)| *key)
-            {
+            // Remove the oldest proof (front of the queue)
+            if let Some(oldest_key) = insertion_order.pop_front() {
                 proofs.remove(&oldest_key);
             }
         }
 
-        let key = (proof.block_hash, proof.proof_id);
+        // Insert the new proof
         proofs.insert(key, proof);
+        insertion_order.push_back(key);
 
         // Add to broadcast queue
-        drop(proofs); // Release the proofs lock before acquiring broadcast_queue lock
+        drop(proofs); // Release the proofs lock
+        drop(insertion_order); // Release the insertion_order lock
         let mut queue = self.broadcast_queue.write();
         queue.push(key);
 
         Ok(())
     }
-
 
     /// Get the total number of stored proofs (across all proof types and payloads)
     pub fn len(&self) -> usize {
@@ -382,12 +377,7 @@ impl ExecutionPayloadProofStore {
     /// Clear all stored proofs
     pub fn clear(&self) {
         self.proofs.write().clear();
-    }
-
-    /// Remove proofs older than the given timestamp
-    pub fn prune_old_proofs(&self, cutoff_timestamp: u64) {
-        let mut proofs = self.proofs.write();
-        proofs.retain(|_, proof| proof.timestamp >= cutoff_timestamp);
+        self.insertion_order.write().clear();
     }
 
     /// Generate a dummy proof for testing purposes
@@ -408,15 +398,11 @@ impl ExecutionPayloadProofStore {
         // In a real implementation, this would use the execution_state_witness to generate
         // a cryptographic proof of the payload's validity
         let dummy_data = format!(
-            "dummy_proof_subnet_{}_block_{:?}_number_{}_witness_len_{}_timestamp_{}",
+            "dummy_proof_subnet_{}_block_{:?}_number_{}_witness_len_{}",
             proof_id.subnet_id(),
             execution_block_hash,
             block_number,
-            execution_state_witness.len(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
+            execution_state_witness.len()
         )
         .into_bytes();
 
@@ -873,42 +859,40 @@ mod tests {
         assert_eq!(store.unique_payload_count(), 0);
 
         // Store an execution witness proof for hash1
-        let proof1 =
-            ExecutionPayloadProof::new(hash1, ProofId::EXECUTION_WITNESS, 1, vec![1, 2, 3]);
+        let proof1 = ExecutionPayloadProof::new(hash1, ProofId::new(0).unwrap(), 1, vec![1, 2, 3]);
         store
             .store_proof(proof1.clone())
             .expect("valid proof should store successfully");
 
         assert!(store.has_valid_proof(&hash1));
-        assert!(store.has_valid_proof_for_id(&hash1, ProofId::EXECUTION_WITNESS));
-        assert!(!store.has_valid_proof_for_id(&hash1, ProofId::custom(1).unwrap()));
+        assert!(store.has_valid_proof_for_id(&hash1, ProofId::new(0).unwrap()));
+        assert!(!store.has_valid_proof_for_id(&hash1, ProofId::new(1).unwrap()));
         assert_eq!(store.len(), 1);
         assert_eq!(store.unique_payload_count(), 1);
         assert_eq!(store.proof_count_for_payload(&hash1), 1);
 
         // Store a custom zkVM proof for the same hash1
         let proof1_custom =
-            ExecutionPayloadProof::new(hash1, ProofId::custom(1).unwrap(), 1, vec![7, 8, 9]);
+            ExecutionPayloadProof::new(hash1, ProofId::new(1).unwrap(), 1, vec![7, 8, 9]);
         store
             .store_proof(proof1_custom)
             .expect("valid proof should store successfully");
 
         assert!(store.has_valid_proof(&hash1));
-        assert!(store.has_valid_proof_for_id(&hash1, ProofId::EXECUTION_WITNESS));
-        assert!(store.has_valid_proof_for_id(&hash1, ProofId::custom(1).unwrap()));
+        assert!(store.has_valid_proof_for_id(&hash1, ProofId::new(0).unwrap()));
+        assert!(store.has_valid_proof_for_id(&hash1, ProofId::new(1).unwrap()));
         assert_eq!(store.len(), 2);
         assert_eq!(store.unique_payload_count(), 1); // Still 1 unique payload
         assert_eq!(store.proof_count_for_payload(&hash1), 2);
 
         // Store a proof for hash2
-        let proof2 =
-            ExecutionPayloadProof::new(hash2, ProofId::custom(2).unwrap(), 1, vec![4, 5, 6]);
+        let proof2 = ExecutionPayloadProof::new(hash2, ProofId::new(2).unwrap(), 1, vec![4, 5, 6]);
         store
             .store_proof(proof2)
             .expect("valid proof should store successfully");
 
         assert!(store.has_valid_proof(&hash2));
-        assert!(store.has_valid_proof_for_id(&hash2, ProofId::custom(2).unwrap()));
+        assert!(store.has_valid_proof_for_id(&hash2, ProofId::new(2).unwrap()));
         assert_eq!(store.len(), 3);
         assert_eq!(store.unique_payload_count(), 2);
         assert_eq!(store.proof_count_for_payload(&hash2), 1);
@@ -925,19 +909,18 @@ mod tests {
 
         // Valid proof (non-empty data) should store successfully
         let valid_proof =
-            ExecutionPayloadProof::new(hash, ProofId::EXECUTION_WITNESS, 1, vec![1, 2, 3]);
+            ExecutionPayloadProof::new(hash, ProofId::new(0).unwrap(), 1, vec![1, 2, 3]);
         assert!(ExecutionPayloadProofStore::validate_proof(&valid_proof));
         assert!(store.store_proof(valid_proof).is_ok());
         assert!(store.has_valid_proof(&hash));
 
         // Invalid proof (empty data) should fail to store
-        let invalid_proof =
-            ExecutionPayloadProof::new(hash, ProofId::custom(1).unwrap(), 1, vec![]);
+        let invalid_proof = ExecutionPayloadProof::new(hash, ProofId::new(1).unwrap(), 1, vec![]);
         assert!(!ExecutionPayloadProofStore::validate_proof(&invalid_proof));
         assert!(store.store_proof(invalid_proof).is_err());
         // Should still only have the first proof
         assert_eq!(store.proof_count_for_payload(&hash), 1);
-        assert!(!store.has_valid_proof_for_id(&hash, ProofId::custom(1).unwrap()));
+        assert!(!store.has_valid_proof_for_id(&hash, ProofId::new(1).unwrap()));
     }
 
     #[test]
@@ -947,15 +930,10 @@ mod tests {
         let hash2 = ExecutionBlockHash::from(Hash256::random());
         let hash3 = ExecutionBlockHash::from(Hash256::random());
 
-        // Create proofs with manually set timestamps to ensure proper ordering
-        let mut proof1 = ExecutionPayloadProof::new(hash1, ProofId::EXECUTION_WITNESS, 1, vec![1]);
-        proof1.timestamp = 100; // Oldest
-
-        let mut proof2 = ExecutionPayloadProof::new(hash2, ProofId::custom(1).unwrap(), 1, vec![2]);
-        proof2.timestamp = 200; // Middle
-
-        let mut proof3 = ExecutionPayloadProof::new(hash3, ProofId::custom(2).unwrap(), 1, vec![3]);
-        proof3.timestamp = 300; // Newest
+        // Create proofs - insertion order will determine LRU eviction
+        let proof1 = ExecutionPayloadProof::new(hash1, ProofId::new(0).unwrap(), 1, vec![1]);
+        let proof2 = ExecutionPayloadProof::new(hash2, ProofId::new(1).unwrap(), 1, vec![2]);
+        let proof3 = ExecutionPayloadProof::new(hash3, ProofId::new(2).unwrap(), 1, vec![3]);
 
         // Store first proof
         store
@@ -992,7 +970,7 @@ mod tests {
         store
             .store_proof(ExecutionPayloadProof::new(
                 hash,
-                ProofId::EXECUTION_WITNESS,
+                ProofId::new(0).unwrap(),
                 1,
                 vec![1, 2, 3],
             ))
@@ -1000,7 +978,7 @@ mod tests {
         store
             .store_proof(ExecutionPayloadProof::new(
                 hash,
-                ProofId::custom(1).unwrap(),
+                ProofId::new(1).unwrap(),
                 1,
                 vec![4, 5, 6],
             ))
@@ -1008,17 +986,17 @@ mod tests {
         store
             .store_proof(ExecutionPayloadProof::new(
                 hash,
-                ProofId::custom(2).unwrap(),
+                ProofId::new(2).unwrap(),
                 1,
                 vec![7, 8, 9],
             ))
             .expect("valid proof should store successfully");
 
         // Should have all three proof types
-        assert!(store.has_valid_proof_for_id(&hash, ProofId::EXECUTION_WITNESS));
-        assert!(store.has_valid_proof_for_id(&hash, ProofId::custom(1).unwrap()));
-        assert!(store.has_valid_proof_for_id(&hash, ProofId::custom(2).unwrap()));
-        assert!(!store.has_valid_proof_for_id(&hash, ProofId::custom(3).unwrap()));
+        assert!(store.has_valid_proof_for_id(&hash, ProofId::new(0).unwrap()));
+        assert!(store.has_valid_proof_for_id(&hash, ProofId::new(1).unwrap()));
+        assert!(store.has_valid_proof_for_id(&hash, ProofId::new(2).unwrap()));
+        assert!(!store.has_valid_proof_for_id(&hash, ProofId::new(3).unwrap()));
 
         // Should have valid proof overall
         assert!(store.has_valid_proof(&hash));
@@ -1036,26 +1014,26 @@ mod tests {
     #[test]
     fn test_proof_id_methods() {
         // Test execution witness proof ID
-        assert_eq!(ProofId::EXECUTION_WITNESS.subnet_id(), 0);
-        assert_eq!(ProofId::EXECUTION_WITNESS.identifier(), "execution_witness");
+        assert_eq!(ProofId::new(0).unwrap().subnet_id(), 0);
+        assert_eq!(ProofId::new(0).unwrap().identifier(), "execution_witness");
         assert_eq!(
-            ProofId::EXECUTION_WITNESS.description(),
+            ProofId::new(0).unwrap().description(),
             "Execution witness proof"
         );
 
         // Test custom proof IDs (for different zkVMs)
-        let sp1_proof = ProofId::custom(1).unwrap();
+        let sp1_proof = ProofId::new(1).unwrap();
         assert_eq!(sp1_proof.subnet_id(), 1);
         assert_eq!(sp1_proof.identifier(), "custom");
         assert_eq!(sp1_proof.description(), "Custom proof type 1");
 
-        let risc_v_proof = ProofId::custom(2).unwrap();
+        let risc_v_proof = ProofId::new(2).unwrap();
         assert_eq!(risc_v_proof.subnet_id(), 2);
         assert_eq!(risc_v_proof.identifier(), "custom");
         assert_eq!(risc_v_proof.description(), "Custom proof type 2");
 
         // Test invalid proof ID (exceeds MAX_EXECUTION_PROOF_SUBNETS)
-        assert!(ProofId::custom(100).is_err());
+        assert!(ProofId::new(100).is_err());
     }
 
     #[test]
@@ -1063,8 +1041,7 @@ mod tests {
         let hash = ExecutionBlockHash::from(Hash256::random());
 
         // Test version 1 proof (supported)
-        let v1_proof =
-            ExecutionPayloadProof::new(hash, ProofId::EXECUTION_WITNESS, 1, vec![1, 2, 3]);
+        let v1_proof = ExecutionPayloadProof::new(hash, ProofId::new(0).unwrap(), 1, vec![1, 2, 3]);
         assert_eq!(v1_proof.version, 1);
         assert!(ExecutionPayloadProofStore::validate_proof(&v1_proof));
         assert_eq!(v1_proof.description(), "Execution witness proof v1");
@@ -1072,27 +1049,26 @@ mod tests {
 
         // Test explicit version constructor with custom proof ID
         let v1_explicit =
-            ExecutionPayloadProof::new(hash, ProofId::custom(1).unwrap(), 1, vec![4, 5, 6]);
+            ExecutionPayloadProof::new(hash, ProofId::new(1).unwrap(), 1, vec![4, 5, 6]);
         assert_eq!(v1_explicit.version, 1);
         assert!(ExecutionPayloadProofStore::validate_proof(&v1_explicit));
         assert_eq!(v1_explicit.description(), "Custom proof type 1 v1");
         assert_eq!(v1_explicit.identifier(), "custom_v1");
 
         // Test unsupported version
-        let v2_proof =
-            ExecutionPayloadProof::new(hash, ProofId::EXECUTION_WITNESS, 2, vec![7, 8, 9]);
+        let v2_proof = ExecutionPayloadProof::new(hash, ProofId::new(0).unwrap(), 2, vec![7, 8, 9]);
         assert_eq!(v2_proof.version, 2);
         assert!(!ExecutionPayloadProofStore::validate_proof(&v2_proof)); // Should fail validation for unknown version
         assert_eq!(v2_proof.description(), "Execution witness proof v2");
         assert_eq!(v2_proof.identifier(), "execution_witness_v2");
 
         // Test empty data with version 1 (should be invalid)
-        let empty_v1 = ExecutionPayloadProof::new(hash, ProofId::EXECUTION_WITNESS, 1, vec![]);
+        let empty_v1 = ExecutionPayloadProof::new(hash, ProofId::new(0).unwrap(), 1, vec![]);
         assert!(!ExecutionPayloadProofStore::validate_proof(&empty_v1));
 
         // Test custom proof ID (within valid range)
         let custom_proof =
-            ExecutionPayloadProof::new(hash, ProofId::custom(7).unwrap(), 1, vec![1, 2, 3]);
+            ExecutionPayloadProof::new(hash, ProofId::new(7).unwrap(), 1, vec![1, 2, 3]);
         assert_eq!(custom_proof.description(), "Custom proof type 7 v1");
         assert_eq!(custom_proof.identifier(), "custom_v1");
     }
@@ -1100,30 +1076,21 @@ mod tests {
     #[test]
     fn test_proof_subnet_mapping() {
         // Test direct one-to-one mapping
-        assert_eq!(ProofId::EXECUTION_WITNESS.subnet_id(), 0);
-        assert_eq!(ProofId::custom(1).unwrap().subnet_id(), 1);
-        assert_eq!(ProofId::custom(7).unwrap().subnet_id(), 7);
+        assert_eq!(ProofId::new(0).unwrap().subnet_id(), 0);
+        assert_eq!(ProofId::new(1).unwrap().subnet_id(), 1);
+        assert_eq!(ProofId::new(7).unwrap().subnet_id(), 7);
 
         // Test subnet topic generation
-        assert_eq!(
-            ProofId::EXECUTION_WITNESS.subnet_topic(),
-            "execution_proof_0"
-        );
-        assert_eq!(
-            ProofId::custom(1).unwrap().subnet_topic(),
-            "execution_proof_1"
-        );
-        assert_eq!(
-            ProofId::custom(7).unwrap().subnet_topic(),
-            "execution_proof_7"
-        );
+        assert_eq!(ProofId::new(0).unwrap().subnet_topic(), "execution_proof_0");
+        assert_eq!(ProofId::new(1).unwrap().subnet_topic(), "execution_proof_1");
+        assert_eq!(ProofId::new(7).unwrap().subnet_topic(), "execution_proof_7");
 
         // Test that ProofId and subnet_id are equivalent
         for id in 0..MAX_EXECUTION_PROOF_SUBNETS {
             let proof_id = if id == 0 {
-                ProofId::EXECUTION_WITNESS
+                ProofId::new(0).unwrap()
             } else {
-                ProofId::custom(id).unwrap()
+                ProofId::new(id).unwrap()
             };
             assert_eq!(proof_id.subnet_id(), id);
             assert_eq!(proof_id.subnet_id(), id);
@@ -1131,7 +1098,7 @@ mod tests {
         }
 
         // Test that high subnet IDs are rejected
-        assert!(ProofId::custom(100).is_err());
+        assert!(ProofId::new(100).is_err());
     }
 
     #[test]
@@ -1139,7 +1106,7 @@ mod tests {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec};
 
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(5).unwrap();
+        let proof_id = ProofId::new(5).unwrap();
 
         // Create a dummy payload for testing
         let payload = FullPayloadBellatrix::<MainnetEthSpec> {
@@ -1189,7 +1156,7 @@ mod tests {
 
         let store = ExecutionPayloadProofStore::new(10);
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(3).unwrap();
+        let proof_id = ProofId::new(3).unwrap();
 
         // Create a dummy payload for testing
         let payload = FullPayloadBellatrix::<MainnetEthSpec> {
@@ -1232,7 +1199,7 @@ mod tests {
         assert_eq!(store.proof_count_for_payload(&execution_block_hash), 1);
 
         // Generate another proof for the same payload with different proof ID
-        let proof_id_2 = ProofId::custom(7).unwrap();
+        let proof_id_2 = ProofId::new(7).unwrap();
         let exec_payload2 = ExecutionPayload::Bellatrix(payload.execution_payload);
         let result_2 =
             store.generate_and_store_dummy_proof(&exec_payload2, dummy_witness, proof_id_2);
@@ -1269,13 +1236,13 @@ mod tests {
 
         // Add one proof - still not enough
         let proof1 =
-            ExecutionPayloadProof::new(block_hash, ProofId::EXECUTION_WITNESS, 1, vec![1, 2, 3]);
+            ExecutionPayloadProof::new(block_hash, ProofId::new(0).unwrap(), 1, vec![1, 2, 3]);
         assert!(store.store_proof(proof1).is_ok());
         assert!(store.proof_count_for_payload(&block_hash) < min_proofs);
 
         // Add second proof - now it's proven
         let proof2 =
-            ExecutionPayloadProof::new(block_hash, ProofId::custom(1).unwrap(), 1, vec![4, 5, 6]);
+            ExecutionPayloadProof::new(block_hash, ProofId::new(1).unwrap(), 1, vec![4, 5, 6]);
         assert!(store.store_proof(proof2).is_ok());
         assert!(store.proof_count_for_payload(&block_hash) >= min_proofs);
 
@@ -1478,7 +1445,7 @@ mod tests {
 
         // Add one proof
         let proof1 =
-            ExecutionPayloadProof::new(exec_hash, ProofId::EXECUTION_WITNESS, 1, vec![1, 2, 3]);
+            ExecutionPayloadProof::new(exec_hash, ProofId::new(0).unwrap(), 1, vec![1, 2, 3]);
         assert!(store.store_proof(proof1).is_ok());
 
         // Sufficient for min=1, insufficient for min=2
@@ -1487,7 +1454,7 @@ mod tests {
 
         // Add second proof
         let proof2 =
-            ExecutionPayloadProof::new(exec_hash, ProofId::custom(1).unwrap(), 1, vec![4, 5, 6]);
+            ExecutionPayloadProof::new(exec_hash, ProofId::new(1).unwrap(), 1, vec![4, 5, 6]);
         assert!(store.store_proof(proof2).is_ok());
 
         // Now sufficient for min=2

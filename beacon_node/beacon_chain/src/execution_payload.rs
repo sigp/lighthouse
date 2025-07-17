@@ -764,7 +764,7 @@ mod tests {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec, Uint256};
 
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::EXECUTION_WITNESS;
+        let proof_id = ProofId::new(0).unwrap();
 
         // Create a dummy payload for testing
         let payload = FullPayloadBellatrix::<MainnetEthSpec> {
@@ -842,19 +842,19 @@ mod tests {
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
                 dummy_witness,
-                ProofId::EXECUTION_WITNESS,
+                ProofId::new(0).unwrap(),
             );
         let proof_1 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
                 dummy_witness,
-                ProofId::custom(1).unwrap(),
+                ProofId::new(1).unwrap(),
             );
         let proof_2 =
             crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
                 &exec_payload,
                 dummy_witness,
-                ProofId::custom(2).unwrap(),
+                ProofId::new(2).unwrap(),
             );
 
         // All proofs should be for the same block hash
@@ -886,7 +886,7 @@ mod tests {
 
         let store = crate::execution_payload_proofs::ExecutionPayloadProofStore::new(10);
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::EXECUTION_WITNESS;
+        let proof_id = ProofId::new(0).unwrap();
 
         // Create a dummy payload for testing
         let payload = FullPayloadBellatrix::<MainnetEthSpec> {

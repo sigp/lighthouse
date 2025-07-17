@@ -359,8 +359,8 @@ mod tests {
         let manager = ProofBroadcastManager::new();
         let block_hash1 = ExecutionBlockHash::from(Hash256::random());
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id1 = ProofId::custom(1).unwrap();
-        let proof_id2 = ProofId::custom(2).unwrap();
+        let proof_id1 = ProofId::new(1).unwrap();
+        let proof_id2 = ProofId::new(2).unwrap();
 
         // Queue some proofs
         manager.queue_proofs(vec![(block_hash1, proof_id1), (block_hash2, proof_id2)]);
@@ -393,7 +393,7 @@ mod tests {
         let block_hash1 = ExecutionBlockHash::from(Hash256::random());
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
         let block_hash3 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1).unwrap();
+        let proof_id = ProofId::new(1).unwrap();
 
         // Queue some proofs
         manager.queue_proofs(vec![
@@ -422,7 +422,7 @@ mod tests {
     fn test_proof_broadcast_manager_mark_methods() {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1).unwrap();
+        let proof_id = ProofId::new(1).unwrap();
 
         // Queue a proof
         manager.queue_proofs(vec![(block_hash, proof_id)]);
@@ -451,7 +451,7 @@ mod tests {
     fn test_proof_broadcast_manager_retry_logic() {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1).unwrap();
+        let proof_id = ProofId::new(1).unwrap();
 
         // Queue and fail multiple times
         manager.queue_proofs(vec![(block_hash, proof_id)]);
@@ -495,8 +495,8 @@ mod tests {
         let broadcast_manager = ProofBroadcastManager::new();
 
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1).unwrap();
-        let stored_proof = ExecutionPayloadProof::new_v1(block_hash, proof_id, vec![1, 2, 3, 4, 5]);
+        let proof_id = ProofId::new(1).unwrap();
+        let stored_proof = ExecutionPayloadProof::new(block_hash, proof_id, 1, vec![1, 2, 3, 4, 5]);
 
         // Broadcast the proof
         broadcast_single_proof::<E>(
@@ -546,8 +546,8 @@ mod tests {
         let broadcast_manager = ProofBroadcastManager::new();
 
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1).unwrap();
-        let stored_proof = ExecutionPayloadProof::new_v1(block_hash, proof_id, vec![1, 2, 3]);
+        let proof_id = ProofId::new(1).unwrap();
+        let stored_proof = ExecutionPayloadProof::new(block_hash, proof_id, 1, vec![1, 2, 3]);
 
         // Broadcast should handle the error gracefully
         broadcast_single_proof::<E>(
