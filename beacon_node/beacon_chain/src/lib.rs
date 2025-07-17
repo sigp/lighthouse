@@ -27,6 +27,7 @@ mod errors;
 pub mod events;
 pub mod execution_payload;
 pub mod execution_payload_proofs;
+pub mod execution_proof_generation;
 pub mod fetch_blobs;
 pub mod fork_choice_signal;
 pub mod fork_revert;
