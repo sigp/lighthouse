@@ -134,4 +134,134 @@ mod tests {
             ExecutionProof::new(hash, ExecutionProofSubnetId::new(0).unwrap(), 1, vec![]);
         assert!(!validate_proof(&empty_v1));
     }
+
+    #[test]
+    fn test_generate_proof_different_subnets() {
+        let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
+
+        // Create a dummy payload for testing
+        let payload = FullPayloadBellatrix::<MainnetEthSpec> {
+            execution_payload: ExecutionPayloadBellatrix::<MainnetEthSpec> {
+                parent_hash: ExecutionBlockHash::zero(),
+                fee_recipient: Default::default(),
+                state_root: Hash256::zero(),
+                receipts_root: Hash256::zero(),
+                logs_bloom: Default::default(),
+                prev_randao: Hash256::zero(),
+                block_number: 42,
+                gas_limit: 0,
+                gas_used: 0,
+                timestamp: 0,
+                extra_data: Default::default(),
+                base_fee_per_gas: Uint256::from(0u64),
+                block_hash: execution_block_hash,
+                transactions: Default::default(),
+            },
+        };
+
+        let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
+        let dummy_witness = b"test_witness_data";
+
+        let proof_0 = generate_proof(
+            &exec_payload,
+            dummy_witness,
+            ExecutionProofSubnetId::new(0).unwrap(),
+        );
+        let proof_1 = generate_proof(
+            &exec_payload,
+            dummy_witness,
+            ExecutionProofSubnetId::new(1).unwrap(),
+        );
+        let proof_2 = generate_proof(
+            &exec_payload,
+            dummy_witness,
+            ExecutionProofSubnetId::new(2).unwrap(),
+        );
+
+        // All proofs should be for the same block hash
+        assert_eq!(proof_0.block_hash, execution_block_hash);
+        assert_eq!(proof_1.block_hash, execution_block_hash);
+        assert_eq!(proof_2.block_hash, execution_block_hash);
+
+        // But should have different proof IDs and data
+        assert_eq!(*proof_0.subnet_id, 0);
+        assert_eq!(*proof_1.subnet_id, 1);
+        assert_eq!(*proof_2.subnet_id, 2);
+
+        // Proof data should be different for different subnets
+        assert_ne!(proof_0.proof_data, proof_1.proof_data);
+        assert_ne!(proof_1.proof_data, proof_2.proof_data);
+
+        let data_0 = String::from_utf8_lossy(&proof_0.proof_data);
+        let data_1 = String::from_utf8_lossy(&proof_1.proof_data);
+        let data_2 = String::from_utf8_lossy(&proof_2.proof_data);
+
+        assert!(data_0.contains("subnet_0"));
+        assert!(data_1.contains("subnet_1"));
+        assert!(data_2.contains("subnet_2"));
+    }
+
+    #[test]
+    fn test_generate_proof_deterministic() {
+        // Test that proof generation is deterministic - same input always produces same output
+        let execution_block_hash = ExecutionBlockHash::from(Hash256::from_low_u64_be(12345));
+        let proof_id = ExecutionProofSubnetId::new(3).unwrap();
+
+        // Create a specific payload with fixed values
+        let payload = FullPayloadBellatrix::<MainnetEthSpec> {
+            execution_payload: ExecutionPayloadBellatrix::<MainnetEthSpec> {
+                parent_hash: ExecutionBlockHash::from(Hash256::from_low_u64_be(111)),
+                fee_recipient: Default::default(),
+                state_root: Hash256::from_low_u64_be(222),
+                receipts_root: Hash256::from_low_u64_be(333),
+                logs_bloom: Default::default(),
+                prev_randao: Hash256::from_low_u64_be(444),
+                block_number: 555,
+                gas_limit: 30_000_000,
+                gas_used: 15_000_000,
+                timestamp: 1234567890,
+                extra_data: b"test_extra_data".to_vec().into(),
+                base_fee_per_gas: Uint256::from(7u64),
+                block_hash: execution_block_hash,
+                transactions: vec![b"tx1".to_vec().into(), b"tx2".to_vec().into()].into(),
+            },
+        };
+
+        let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
+        let witness_data = b"deterministic_witness_data";
+
+        // Generate proof multiple times with same input
+        let proof1 = generate_proof(&exec_payload, witness_data, proof_id);
+        let proof2 = generate_proof(&exec_payload, witness_data, proof_id);
+        let proof3 = generate_proof(&exec_payload, witness_data, proof_id);
+
+        // All proofs should be identical
+        assert_eq!(proof1.block_hash, proof2.block_hash);
+        assert_eq!(proof1.block_hash, proof3.block_hash);
+
+        assert_eq!(proof1.subnet_id, proof2.subnet_id);
+        assert_eq!(proof1.subnet_id, proof3.subnet_id);
+
+        assert_eq!(proof1.version, proof2.version);
+        assert_eq!(proof1.version, proof3.version);
+
+        // Most importantly, proof data should be identical
+        assert_eq!(proof1.proof_data, proof2.proof_data);
+        assert_eq!(proof1.proof_data, proof3.proof_data);
+
+        // Verify the content is as expected
+        let proof_str = String::from_utf8_lossy(&proof1.proof_data);
+        assert!(proof_str.contains("subnet_3"));
+        assert!(proof_str.contains("number_555"));
+        assert!(proof_str.contains("witness_len_26"));
+
+        // Now test that different inputs produce different proofs
+        let different_witness = b"different_witness_data";
+        let proof_different = generate_proof(&exec_payload, different_witness, proof_id);
+
+        // Same block hash and subnet, but different proof data
+        assert_eq!(proof_different.block_hash, proof1.block_hash);
+        assert_eq!(proof_different.subnet_id, proof1.subnet_id);
+        assert_ne!(proof_different.proof_data, proof1.proof_data);
+    }
 }
