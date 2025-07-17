@@ -992,7 +992,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_and_store_proof_method() {
+    async fn test_get_or_generate_proof_method() {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec};
 
         let store = ExecutionPayloadProofStore::new(10);
@@ -1027,7 +1027,7 @@ mod tests {
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload.clone());
         let dummy_witness = b"test_witness_data";
         let result = store
-            .generate_and_store_proof(&exec_payload, dummy_witness, proof_id)
+            .get_or_generate_proof(&exec_payload, dummy_witness, proof_id)
             .await;
         assert!(result.is_ok());
 
@@ -1045,7 +1045,7 @@ mod tests {
         let proof_id_2 = ExecutionProofSubnetId::new(7).unwrap();
         let exec_payload2 = ExecutionPayload::Bellatrix(payload.execution_payload);
         let result_2 = store
-            .generate_and_store_proof(&exec_payload2, dummy_witness, proof_id_2)
+            .get_or_generate_proof(&exec_payload2, dummy_witness, proof_id_2)
             .await;
         assert!(result_2.is_ok());
 
@@ -1054,6 +1054,21 @@ mod tests {
         assert_eq!(store.proof_count_for_payload(&execution_block_hash), 2);
         assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id));
         assert!(store.has_valid_proof_for_id(&execution_block_hash, proof_id_2));
+
+        // Test that get_or_generate_proof returns existing proof without regenerating
+        let result_3 = store
+            .get_or_generate_proof(&exec_payload, dummy_witness, proof_id)
+            .await;
+        assert!(result_3.is_ok());
+        let proof_3 = result_3.unwrap();
+
+        // Should be the same proof as before
+        assert_eq!(proof_3.block_hash, execution_block_hash);
+        assert_eq!(proof_3.subnet_id, proof_id);
+
+        // Store size should not change (still 2 proofs)
+        assert_eq!(store.len(), 2);
+        assert_eq!(store.proof_count_for_payload(&execution_block_hash), 2);
     }
 
     #[test]
