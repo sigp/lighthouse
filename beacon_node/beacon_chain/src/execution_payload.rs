@@ -163,7 +163,10 @@ async fn notify_new_payload<T: BeaconChainTypes>(
             return Ok(PayloadVerificationStatus::Verified);
         } else {
             // We don't have enough proofs, so we mark the block as optimistic,
-            // save it in the proof store and wait for proofs
+            // save it in the proof store and wait for proofs.
+            //
+            // In production, we would have some form of delayed execution
+            // instead of piggy-backing off of optimistic sync.
             let beacon_block_root = block.tree_hash_root();
             debug!(
                 beacon_block_root = ?beacon_block_root,
