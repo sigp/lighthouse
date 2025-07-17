@@ -185,6 +185,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Clean up pending blocks that have been finalized or are too old
     /// This should be called periodically to prevent memory leaks in the proof store
+    ///
+    /// This method in mainly here for the case that a block has been finalized
+    /// that did not have sufficient amount of proofs. This can happen while
+    /// proofs are not on the critical path and for reasons (prover killers),
+    /// take more than 2 epochs to generate.
     pub fn cleanup_finalized_pending_blocks(&self) -> usize {
         if !self.config.stateless_validation {
             return 0;
