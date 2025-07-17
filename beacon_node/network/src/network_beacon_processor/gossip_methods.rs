@@ -3202,7 +3202,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Note: `subnet_id_u64` was the subnet that the message was received on
         // while `execution_proof.subnet_id` was the subnet ID embedded in the proof
         // TODO: We could possibly remove the subnet ID being embedded in the execution proof
-        // TODO: Its really the ProofID, so we could change it to `execution_proof.proof_id` 
+        // TODO: Its really the ProofID, so we could change it to `execution_proof.proof_id`
         if subnet_id_u64 != *execution_proof.subnet_id {
             warn!(
                 %block_hash,
@@ -3231,7 +3231,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 error = %e,
                 "Failed to store execution proof"
             );
-            
+
             // Handle different error types appropriately
             if e.should_penalize_peer() {
                 // Validation errors should penalize the peer
@@ -3260,11 +3260,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle proven chain updates after successfully storing a proof
-    fn handle_proof_chain_update(
-        &self,
-        block_hash: types::ExecutionBlockHash,
-        subnet_id: u64,
-    ) {
+    fn handle_proof_chain_update(&self, block_hash: types::ExecutionBlockHash, subnet_id: u64) {
         match self
             .chain
             .re_evaluate_optimistic_blocks_with_proofs(block_hash)

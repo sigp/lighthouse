@@ -2824,14 +2824,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Log detailed summary when proven head changes
                 let finalized_checkpoint = head.finalized_checkpoint();
                 let finalized_slot = finalized_checkpoint.epoch.start_slot(slots_per_epoch);
-                
+
                 info!("PROOFCHAIN SUMMARY:");
                 info!(
                     "  Proven head: slot {} (epoch {})",
                     proven_slot.as_u64(),
                     proven_slot.epoch(slots_per_epoch).as_u64()
                 );
-                info!("  Proven chain depth: {} blocks", proven_status.proven_chain_depth);
+                info!(
+                    "  Proven chain depth: {} blocks",
+                    proven_status.proven_chain_depth
+                );
                 info!(
                     "  Optimistic head: slot {} (epoch {})",
                     head_slot.as_u64(),
@@ -2848,9 +2851,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         pf_slot.as_u64(),
                         pf_slot.epoch(slots_per_epoch).as_u64()
                     );
-                    
+
                     // Log when proven finalized changes
-                    static LAST_PROVEN_FINALIZED: std::sync::Mutex<Option<(Hash256, Slot)>> = std::sync::Mutex::new(None);
+                    static LAST_PROVEN_FINALIZED: std::sync::Mutex<Option<(Hash256, Slot)>> =
+                        std::sync::Mutex::new(None);
                     let mut last = LAST_PROVEN_FINALIZED.lock().unwrap();
                     if last.as_ref() != Some(&(pf_root, pf_slot)) {
                         info!(
@@ -2868,7 +2872,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "  Proof generation lag: {} slots",
                     head_slot.saturating_sub(proven_slot).as_u64()
                 );
-                info!("  Min proofs required: {}", self.config.stateless_min_proofs_required);
+                info!(
+                    "  Min proofs required: {}",
+                    self.config.stateless_min_proofs_required
+                );
             }
         } else {
             warn!("PROOFCHAIN: no proven head found - no blocks have sufficient proofs");
@@ -2938,18 +2945,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .start_slot(T::EthSpec::slots_per_epoch());
 
         // Remove pending blocks that are older than finalized slot
-        let removed_count = self
-            .execution_payload_proof_store
-            .cleanup_pending_blocks(|block_root| {
-                // Check if this block is older than finalized slot
-                // We need to look up the block to get its slot
-                if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
-                    block.slot() <= finalized_slot
-                } else {
-                    // If we can't find the block, it's likely been pruned, so remove it
-                    true
-                }
-            });
+        let removed_count =
+            self.execution_payload_proof_store
+                .cleanup_pending_blocks(|block_root| {
+                    // Check if this block is older than finalized slot
+                    // We need to look up the block to get its slot
+                    if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
+                        block.slot() <= finalized_slot
+                    } else {
+                        // If we can't find the block, it's likely been pruned, so remove it
+                        true
+                    }
+                });
 
         if removed_count > 0 {
             debug!(
@@ -2969,16 +2976,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return 0;
         }
 
-        let removed_count = self
-            .execution_payload_proof_store
-            .cleanup_pending_blocks(|block_root| {
-                if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
-                    block.slot() < cutoff_slot
-                } else {
-                    // If we can't find the block, remove it
-                    true
-                }
-            });
+        let removed_count =
+            self.execution_payload_proof_store
+                .cleanup_pending_blocks(|block_root| {
+                    if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
+                        block.slot() < cutoff_slot
+                    } else {
+                        // If we can't find the block, remove it
+                        true
+                    }
+                });
 
         if removed_count > 0 {
             info!(

@@ -146,9 +146,7 @@ impl ProofBroadcastManager {
             failed.remove(&key);
             warn!(
                 "Proof for block {:?} subnet {} exceeded retry limit ({} attempts), abandoning",
-                key.0,
-                *key.1,
-                max_attempts
+                key.0, *key.1, max_attempts
             );
         } else {
             // Still have retries left, re-add to queued
@@ -284,8 +282,7 @@ async fn broadcast_single_proof<E: EthSpec>(
             broadcast_manager.mark_success(execution_block_hash, proof_id);
             info!(
                 "STATELESS: Successfully BROADCAST execution proof for block {:?} on subnet {}",
-                execution_block_hash,
-                *proof_id
+                execution_block_hash, *proof_id
             );
         }
         Err(e) => {
@@ -293,9 +290,7 @@ async fn broadcast_single_proof<E: EthSpec>(
             broadcast_manager.mark_failed(execution_block_hash, proof_id, max_attempts);
             warn!(
                 "Failed to broadcast execution proof for block {:?} subnet {}: {}",
-                execution_block_hash,
-                *proof_id,
-                e
+                execution_block_hash, *proof_id, e
             );
         }
     }
@@ -304,8 +299,8 @@ async fn broadcast_single_proof<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use types::execution_proof_subnet_id::ExecutionProofSubnetId;
     use tokio::sync::mpsc;
+    use types::execution_proof_subnet_id::ExecutionProofSubnetId;
     use types::{ExecutionBlockHash, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;

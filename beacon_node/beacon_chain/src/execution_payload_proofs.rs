@@ -596,7 +596,6 @@ impl ExecutionPayloadProofStore {
         (proven_chain, proven_head_candidate)
     }
 
-
     /// Update the proven chain storage with new proven blocks
     /// Returns true if the proven head changed
     fn update_proven_storage(
@@ -621,7 +620,6 @@ impl ExecutionPayloadProofStore {
 
         head_changed
     }
-
 
     /// Update the proven canonical chain based on available proofs
     /// This method walks backwards from the optimistic head to find the longest proven chain
