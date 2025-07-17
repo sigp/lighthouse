@@ -286,7 +286,7 @@ impl ExecutionPayloadProofStore {
 
     /// Generate a proof for an execution payload
     /// TODO: can remove
-    fn generate_proof<T: EthSpec>(
+    async fn generate_proof<T: EthSpec>(
         payload: &ExecutionPayload<T>,
         execution_state_witness: &[u8],
         proof_id: ProofId,
@@ -296,6 +296,7 @@ impl ExecutionPayloadProofStore {
             execution_state_witness,
             proof_id,
         )
+        .await
     }
 
     /// Validate a proof
@@ -307,13 +308,13 @@ impl ExecutionPayloadProofStore {
     /// Generate and store a proof for the given execution payload and proof ID
     ///
     /// This is a convenience method that combines proof generation and storage
-    pub fn generate_and_store_proof<T: EthSpec>(
+    pub async fn generate_and_store_proof<T: EthSpec>(
         &self,
         payload: &ExecutionPayload<T>,
         execution_state_witness: &[u8],
         proof_id: ProofId,
     ) -> Result<ExecutionProof, ExecutionProofError> {
-        let proof = Self::generate_proof(payload, execution_state_witness, proof_id);
+        let proof = Self::generate_proof(payload, execution_state_witness, proof_id).await;
         self.store_proof(proof.clone())?;
         Ok(proof)
     }
@@ -1001,8 +1002,8 @@ mod tests {
         assert!(ExecutionProofSubnetId::new(100).is_err());
     }
 
-    #[test]
-    fn test_generate_and_store_proof_method() {
+    #[tokio::test]
+    async fn test_generate_and_store_proof_method() {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec};
 
         let store = ExecutionPayloadProofStore::new(10);
@@ -1036,7 +1037,9 @@ mod tests {
         // Generate and store a proof
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload.clone());
         let dummy_witness = b"test_witness_data";
-        let result = store.generate_and_store_proof(&exec_payload, dummy_witness, proof_id);
+        let result = store
+            .generate_and_store_proof(&exec_payload, dummy_witness, proof_id)
+            .await;
         assert!(result.is_ok());
 
         let proof = result.unwrap();
@@ -1052,7 +1055,9 @@ mod tests {
         // Generate another proof for the same payload with different proof ID
         let proof_id_2 = ExecutionProofSubnetId::new(7).unwrap();
         let exec_payload2 = ExecutionPayload::Bellatrix(payload.execution_payload);
-        let result_2 = store.generate_and_store_proof(&exec_payload2, dummy_witness, proof_id_2);
+        let result_2 = store
+            .generate_and_store_proof(&exec_payload2, dummy_witness, proof_id_2)
+            .await;
         assert!(result_2.is_ok());
 
         // Should have 2 proofs now

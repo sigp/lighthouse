@@ -660,14 +660,9 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
 ) -> Result<(), BlockProductionError> {
     let execution_block_hash = payload.block_hash();
 
-    // Add random delay between 1-3 seconds to simulate proof computation delays
-    use rand::{thread_rng, Rng};
-    let delay_ms = thread_rng().gen_range(1000..=3000);
-    tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-
     debug!(
-        "STATELESS: Waited {}ms before generating proofs for execution payload {:?}",
-        delay_ms, execution_block_hash
+        "STATELESS: Starting proof generation for execution payload {:?}",
+        execution_block_hash
     );
 
     // For real proof generation, we would:
@@ -675,40 +670,22 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
     // 2. Generate actual cryptographic proofs using payload + witness
     // For now, we generate dummy proofs with a simulated witness
 
-    // TODO: In production, fetch real witness from EL
-    // The execution state witness contains the state data needed to verify the execution payload
-    // It would be obtained from the EL via a method like debug_executionWitness
     // let witness = execution_layer.get_execution_witness(execution_block_hash).await?;
-    let dummy_witness = format!("dummy_witness_for_block_{:?}", execution_block_hash).into_bytes();
+    let witness = format!("dummy_witness_for_block_{:?}", execution_block_hash).into_bytes();
 
     // Get the subnets this node wants to generate proofs for
     let proof_subnets = chain.execution_proof_subnets();
 
     debug!(
-        "PROOFCHAIN {:?}: Generating {} dummy proofs on subnets {:?}",
+        "PROOFCHAIN {:?}: Generating {} proofs on subnets {:?}",
         execution_block_hash,
         proof_subnets.len(),
         proof_subnets
     );
 
     // Generate and store a proof for each subnet
-    for (index, subnet_id) in proof_subnets.iter().enumerate() {
+    for subnet_id in proof_subnets.iter() {
         if chain.should_generate_execution_proof_for_subnet(*subnet_id) {
-            // Add staggered delays between generating proofs for different subnets to show progression
-            // This helps visualize the proof accumulation in logs
-            let delay_ms = match index {
-                0 => 0,
-                1 => 5000,
-                2 => 10000,
-                3 => 15000,
-                4 => 20000,
-                _ => 25000,
-            };
-
-            if delay_ms > 0 {
-                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
-            }
-
             // Create ExecutionProofSubnetId from the u64 subnet_id
             let proof_id = match ExecutionProofSubnetId::new(*subnet_id) {
                 Ok(id) => id,
@@ -721,7 +698,8 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
             // Use the proof store method to generate and store the proof
             match chain
                 .execution_payload_proof_store
-                .generate_and_store_proof(&payload, &dummy_witness, proof_id)
+                .generate_and_store_proof(&payload, &witness, proof_id)
+                .await
             {
                 Ok(proof) => {
                     debug!(
