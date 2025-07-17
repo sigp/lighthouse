@@ -1469,7 +1469,7 @@ pub struct BlobParameters {
 
 // A wrapper around a vector of BlobParameters to ensure that the vector is reverse
 // sorted by epoch.
-#[derive(arbitrary::Arbitrary, Serialize, Debug, PartialEq, Clone)]
+#[derive(arbitrary::Arbitrary, Debug, PartialEq, Clone)]
 pub struct BlobSchedule(Vec<BlobParameters>);
 
 impl<'de> Deserialize<'de> for BlobSchedule {
@@ -1510,6 +1510,18 @@ impl BlobSchedule {
 
     pub fn as_vec(&self) -> &Vec<BlobParameters> {
         &self.0
+    }
+}
+
+impl Serialize for BlobSchedule {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut schedule = self.0.clone();
+        // reversing the list to get an ascending order
+        schedule.reverse();
+        schedule.serialize(serializer)
     }
 }
 
@@ -2620,6 +2632,19 @@ mod yaml_tests {
             default_max_blobs_per_block_electra()
         );
         assert_eq!(spec.max_blobs_per_block_within_fork(ForkName::Fulu), 20);
+
+        // Check that serialization is in ascending order
+        let yaml = serde_yaml::to_string(&spec.blob_schedule).expect("should serialize");
+
+        // Deserialize back to Vec<BlobParameters> to check order
+        let deserialized: Vec<BlobParameters> =
+            serde_yaml::from_str(&yaml).expect("should deserialize");
+
+        // Should be in ascending order by epoch
+        assert!(
+            deserialized.iter().map(|bp| bp.epoch.as_u64()).is_sorted(),
+            "BlobSchedule should serialize in ascending order by epoch"
+        );
     }
 
     #[test]
