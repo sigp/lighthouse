@@ -27,8 +27,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// In the future, this could be made more sophisticated to support:
     /// - Random assignment for better distribution
-    /// - Validator-based assignment for specific responsibilities
-    /// - Dynamic reassignment based on network conditions
     pub fn execution_proof_subnets(&self) -> Vec<u64> {
         (0..self.config.max_execution_proof_subnets).collect()
     }
@@ -39,18 +37,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Check if this node should generate execution proofs for the given subnet
+    ///
     /// Returns true if the subnet is within our configured range
     pub fn should_generate_execution_proof_for_subnet(&self, subnet_id: u64) -> bool {
-        // For now, we generate proofs for all subnets we're subscribed to
-        // In the future, this could be more sophisticated based on:
-        // - Validator duties and responsibilities
-        // - Network load balancing
-        // - Hardware capabilities
-        if self.config.stateless_validation {
-            subnet_id < self.config.max_execution_proof_subnets
-        } else {
-            false
-        }
+        // We generate proofs for all subnets we're subscribed to
+        subnet_id < self.max_execution_proof_subnets() && self.config.stateless_validation
     }
 
     // ========================================================================
