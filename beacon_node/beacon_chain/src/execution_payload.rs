@@ -721,7 +721,7 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
             // Use the proof store method to generate and store the proof
             match chain
                 .execution_payload_proof_store
-                .generate_and_store_dummy_proof(&payload, &dummy_witness, proof_id)
+                .generate_and_store_proof(&payload, &dummy_witness, proof_id)
             {
                 Ok(proof) => {
                     debug!(
@@ -767,7 +767,7 @@ mod tests {
     use types::Hash256;
 
     #[test]
-    fn test_generate_dummy_proof() {
+    fn test_generate_proof() {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec, Uint256};
 
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
@@ -796,7 +796,7 @@ mod tests {
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
         let dummy_witness = b"test_witness_data";
         let proof =
-            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_proof(
                 &exec_payload,
                 dummy_witness,
                 proof_id,
@@ -818,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_dummy_proof_different_subnets() {
+    fn test_generate_proof_different_subnets() {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec, Uint256};
 
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
@@ -846,19 +846,19 @@ mod tests {
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
         let dummy_witness = b"test_witness_data";
         let proof_0 =
-            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_proof(
                 &exec_payload,
                 dummy_witness,
                 ProofId::new(0).unwrap(),
             );
         let proof_1 =
-            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_proof(
                 &exec_payload,
                 dummy_witness,
                 ProofId::new(1).unwrap(),
             );
         let proof_2 =
-            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_dummy_proof(
+            crate::execution_payload_proofs::ExecutionPayloadProofStore::generate_proof(
                 &exec_payload,
                 dummy_witness,
                 ProofId::new(2).unwrap(),
@@ -888,7 +888,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_and_store_dummy_proof() {
+    fn test_generate_and_store_proof() {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec, Uint256};
 
         let store = crate::execution_payload_proofs::ExecutionPayloadProofStore::new(10);
@@ -918,7 +918,7 @@ mod tests {
         // Generate and store a proof
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
         let dummy_witness = b"test_witness_data";
-        let result = store.generate_and_store_dummy_proof(&exec_payload, dummy_witness, proof_id);
+        let result = store.generate_and_store_proof(&exec_payload, dummy_witness, proof_id);
         assert!(result.is_ok());
 
         let proof = result.unwrap();

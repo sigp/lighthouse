@@ -249,6 +249,7 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Get the number of unique payloads that have at least one proof
+    #[cfg(test)]
     pub fn unique_payload_count(&self) -> usize {
         let proofs = self.proofs.read();
         let unique_hashes: std::collections::HashSet<ExecutionBlockHash> =
@@ -257,6 +258,15 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Get the number of proofs for a specific execution block hash
+    ///
+    /// This method is essential for stateless validation to determine:
+    /// - Whether a block has received the minimum required number of proofs (e.g., 2 out of 3)
+    /// - If we should transition from optimistic to proven state for a block
+    /// - The exact proof count for logging and chain tracking purposes
+    ///
+    /// Multiple proof types can exist for a single execution payload (one per subnet),
+    /// and we need to count them to ensure sufficient independent validation before
+    /// considering the payload as proven.
     pub fn proof_count_for_payload(&self, block_hash: &ExecutionBlockHash) -> usize {
         let proofs = self.proofs.read();
         proofs
@@ -276,13 +286,15 @@ impl ExecutionPayloadProofStore {
         self.insertion_order.write().clear();
     }
 
-    /// Generate a dummy proof for testing purposes
-    /// TODO: Replace with actual proof generation from zkVMs or other proof systems
+    /// Generate a proof for an execution payload
+    ///
+    /// TODO: Currently generates dummy proofs. Will be replaced with actual proof generation
+    /// from zkVMs or other proof systems.
     ///
     /// This accepts the concrete ExecutionPayload<E> type which is what the EL expects
     /// and can be easily serialized for sending to external systems.
     /// The execution_state_witness would be obtained from the EL (e.g., via debug_executionWitness)
-    pub fn generate_dummy_proof<T: EthSpec>(
+    pub fn generate_proof<T: EthSpec>(
         payload: &ExecutionPayload<T>,
         execution_state_witness: &[u8],
         proof_id: ProofId,
@@ -305,15 +317,15 @@ impl ExecutionPayloadProofStore {
         ExecutionProof::new(execution_block_hash, proof_id, 1, dummy_data)
     }
 
-    /// Generate and store a dummy proof for the given execution payload and proof ID
+    /// Generate and store a proof for the given execution payload and proof ID
     /// This is a convenience method that combines proof generation and storage
-    pub fn generate_and_store_dummy_proof<T: EthSpec>(
+    pub fn generate_and_store_proof<T: EthSpec>(
         &self,
         payload: &ExecutionPayload<T>,
         execution_state_witness: &[u8],
         proof_id: ProofId,
     ) -> Result<ExecutionProof, ExecutionProofError> {
-        let proof = Self::generate_dummy_proof(payload, execution_state_witness, proof_id);
+        let proof = Self::generate_proof(payload, execution_state_witness, proof_id);
         self.store_proof(proof.clone())?;
         Ok(proof)
     }
@@ -993,7 +1005,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_dummy_proof_method() {
+    fn test_generate_proof_method() {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec};
 
         let execution_block_hash = ExecutionBlockHash::from(Hash256::random());
@@ -1021,7 +1033,7 @@ mod tests {
 
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
         let dummy_witness = b"test_witness_data";
-        let proof = ExecutionPayloadProofStore::generate_dummy_proof(
+        let proof = ExecutionPayloadProofStore::generate_proof(
             &exec_payload,
             dummy_witness,
             proof_id,
@@ -1042,7 +1054,7 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_and_store_dummy_proof_method() {
+    fn test_generate_and_store_proof_method() {
         use types::{ExecutionPayloadBellatrix, FullPayloadBellatrix, MainnetEthSpec};
 
         let store = ExecutionPayloadProofStore::new(10);
@@ -1076,7 +1088,7 @@ mod tests {
         // Generate and store a proof
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload.clone());
         let dummy_witness = b"test_witness_data";
-        let result = store.generate_and_store_dummy_proof(&exec_payload, dummy_witness, proof_id);
+        let result = store.generate_and_store_proof(&exec_payload, dummy_witness, proof_id);
         assert!(result.is_ok());
 
         let proof = result.unwrap();
@@ -1093,7 +1105,7 @@ mod tests {
         let proof_id_2 = ExecutionProofSubnetId::new(7).unwrap();
         let exec_payload2 = ExecutionPayload::Bellatrix(payload.execution_payload);
         let result_2 =
-            store.generate_and_store_dummy_proof(&exec_payload2, dummy_witness, proof_id_2);
+            store.generate_and_store_proof(&exec_payload2, dummy_witness, proof_id_2);
         assert!(result_2.is_ok());
 
         // Should have 2 proofs now
