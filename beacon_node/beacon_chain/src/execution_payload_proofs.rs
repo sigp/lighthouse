@@ -412,39 +412,35 @@ impl ExecutionPayloadProofStore {
     {
         use std::collections::HashSet;
 
-        // Collect all block roots to check
-        let blocks_to_check: Vec<Hash256> = {
-            let pending = self.pending_blocks.read();
-            // TODO: From a memory perspective, this is likely fine since its 32 byte values
-            pending.values().flatten().copied().collect()
-        };
+        // 1) Collect all unique block roots to check
+        let blocks_to_check: HashSet<Hash256> = self
+            .pending_blocks
+            .read()
+            .values()
+            .flatten()
+            .copied()
+            .collect();
 
-        // Determine which blocks should be removed using the callback
+        // 2) Evaluate predicate without holding locks
         let blocks_to_remove: HashSet<Hash256> = blocks_to_check
             .into_iter()
             .filter(|&block_root| should_remove(block_root))
             .collect();
 
-        // Remove the identified blocks
+        if blocks_to_remove.is_empty() {
+            return 0;
+        }
+
+        // 3) Remove identified blocks
         let mut pending = self.pending_blocks.write();
         let mut removed_count = 0;
-        let mut execution_hashes_to_remove = Vec::new();
 
-        for (execution_hash, blocks) in pending.iter_mut() {
+        pending.retain(|_, blocks| {
             let original_len = blocks.len();
-            blocks.retain(|&block_root| !blocks_to_remove.contains(&block_root));
+            blocks.retain(|block_root| !blocks_to_remove.contains(block_root));
             removed_count += original_len - blocks.len();
-
-            // Mark execution hash for removal if no blocks remain
-            if blocks.is_empty() {
-                execution_hashes_to_remove.push(*execution_hash);
-            }
-        }
-
-        // Remove empty execution hash entries
-        for execution_hash in execution_hashes_to_remove {
-            pending.remove(&execution_hash);
-        }
+            !blocks.is_empty()
+        });
 
         removed_count
     }
