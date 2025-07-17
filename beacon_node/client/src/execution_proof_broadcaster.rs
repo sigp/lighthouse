@@ -174,7 +174,7 @@ impl Default for ExecutionProofBroadcasterConfig {
         Self {
             broadcast_interval: Duration::from_secs(1), // Check every second
             max_broadcast_attempts: 3,                  // Try up to 3 times
-            retry_delay: Duration::from_secs(5),        // Wait 5 seconds between retries
+            retry_delay: Duration::from_secs(3),        // Wait 3 seconds between retries
         }
     }
 }
@@ -186,6 +186,7 @@ pub fn start_execution_proof_broadcaster_service<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
 ) {
+    // TODO: We use default config, but we could get it from cli
     let config = ExecutionProofBroadcasterConfig::default();
     let broadcast_manager = Arc::new(ProofBroadcastManager::new());
 
@@ -211,7 +212,7 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
     loop {
         interval.tick().await;
 
-        // Get new unqueued proofs from the store
+        // Get new unqueued proofs from the proof store
         let new_proofs = chain.execution_payload_proof_store.take_unqueued_proofs();
         if !new_proofs.is_empty() {
             debug!(
@@ -238,8 +239,7 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
                 .execution_payload_proof_store
                 .get_proof(&execution_block_hash, proof_id)
             {
-                broadcast_single_proof(
-                    &chain,
+                broadcast_single_proof::<T>(
                     &network_tx,
                     &broadcast_manager,
                     execution_block_hash,
@@ -258,7 +258,6 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
 
 /// Broadcast a single execution proof to the gossip network
 async fn broadcast_single_proof<T: BeaconChainTypes>(
-    _chain: &Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     broadcast_manager: &ProofBroadcastManager,
     execution_block_hash: ExecutionBlockHash,
@@ -325,7 +324,6 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
 mod tests {
     use super::*;
     use beacon_chain::execution_payload_proofs::ExecutionPayloadProof;
-    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use tokio::sync::mpsc;
     use types::{ExecutionBlockHash, Hash256, MainnetEthSpec};
 
@@ -488,13 +486,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_broadcast_single_proof_success() {
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .default_spec()
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .build();
-
-        let chain = Arc::new(harness.chain);
         let (network_tx, mut network_rx) = mpsc::unbounded_channel();
         let broadcast_manager = ProofBroadcastManager::new();
 
@@ -503,8 +494,7 @@ mod tests {
         let stored_proof = ExecutionPayloadProof::new_v1(block_hash, proof_id, vec![1, 2, 3, 4, 5]);
 
         // Broadcast the proof
-        broadcast_single_proof(
-            &chain,
+        broadcast_single_proof::<E>(
             &network_tx,
             &broadcast_manager,
             block_hash,
@@ -543,13 +533,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_broadcast_single_proof_network_error() {
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .default_spec()
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .build();
-
-        let chain = Arc::new(harness.chain);
         // Create a closed channel to simulate network error
         let (network_tx, _) = mpsc::unbounded_channel::<NetworkMessage<E>>();
         drop(network_tx);
@@ -562,8 +545,7 @@ mod tests {
         let stored_proof = ExecutionPayloadProof::new_v1(block_hash, proof_id, vec![1, 2, 3]);
 
         // Broadcast should handle the error gracefully
-        broadcast_single_proof(
-            &chain,
+        broadcast_single_proof::<E>(
             &network_tx_closed,
             &broadcast_manager,
             block_hash,
