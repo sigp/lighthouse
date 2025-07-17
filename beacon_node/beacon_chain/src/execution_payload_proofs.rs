@@ -392,12 +392,20 @@ impl ExecutionPayloadProofStore {
             .sum()
     }
 
-    /// Clean up pending blocks that have been finalized or are no longer needed
-    /// This should be called periodically to prevent memory leaks
+    /// Clean up pending blocks based on a provided predicate
+    ///
+    /// Note: This should be called periodically to prevent memory leaks
+    ///
+    /// Note: `take_pending_blocks` is called to remove blocks which have received
+    /// enough proofs. Whereas this method is periodically triggered to remove blocks
+    /// that will no longer receive proofs. This can be due to:
+    /// -  Them being on abandoned forks
+    /// -  They are too old (past the finalization slot) TODO: This shouldn't happen once proofs are a part of consensus
+    ///
     /// Uses a two-phase approach to avoid holding locks during callback execution
     /// TODO: Test edge case where we receive a lot of pending blocks and cannot
     /// TODO: finalize. Perhaps we can move to storage, when doing LRU evictions
-    pub fn cleanup_finalized_pending_blocks<F>(&self, should_remove: F) -> usize
+    pub fn cleanup_pending_blocks<F>(&self, should_remove: F) -> usize
     where
         F: Fn(Hash256) -> bool,
     {
@@ -438,7 +446,6 @@ impl ExecutionPayloadProofStore {
 
         removed_count
     }
-
 
     /// Get the current proven head (beacon block root and slot)
     /// Returns None if no proven head has been established yet
@@ -1206,7 +1213,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cleanup_finalized_pending_blocks() {
+    fn test_cleanup_pending_blocks() {
         let store = ExecutionPayloadProofStore::new(100);
 
         let exec_hash1 = ExecutionBlockHash::from(Hash256::random());
@@ -1221,8 +1228,8 @@ mod tests {
         store.register_pending_block(exec_hash2, beacon_root3);
 
         // Cleanup with a predicate that removes beacon_root1 and beacon_root2
-        let removed = store
-            .cleanup_finalized_pending_blocks(|root| root == beacon_root1 || root == beacon_root2);
+        let removed =
+            store.cleanup_pending_blocks(|root| root == beacon_root1 || root == beacon_root2);
 
         assert_eq!(removed, 2);
 
@@ -1249,7 +1256,7 @@ mod tests {
         store.register_pending_block(exec_hash2, new_block);
 
         // Cleanup old blocks
-        let removed = store.cleanup_finalized_pending_blocks(|root| root == old_block);
+        let removed = store.cleanup_pending_blocks(|root| root == old_block);
 
         assert_eq!(removed, 1);
 

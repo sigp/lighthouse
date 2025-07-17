@@ -2857,7 +2857,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Remove pending blocks that are older than finalized slot
         let removed_count = self
             .execution_payload_proof_store
-            .cleanup_finalized_pending_blocks(|block_root| {
+            .cleanup_pending_blocks(|block_root| {
                 // Check if this block is older than finalized slot
                 // We need to look up the block to get its slot
                 if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
@@ -2888,7 +2888,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let removed_count = self
             .execution_payload_proof_store
-            .cleanup_finalized_pending_blocks(|block_root| {
+            .cleanup_pending_blocks(|block_root| {
                 if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
                     block.slot() < cutoff_slot
                 } else {
