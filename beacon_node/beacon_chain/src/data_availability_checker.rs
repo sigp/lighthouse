@@ -71,6 +71,7 @@ pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 /// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
 /// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
+    complete_blob_backfill: bool,
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
@@ -109,6 +110,7 @@ impl<E: EthSpec> Debug for Availability<E> {
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
+        complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
@@ -122,6 +124,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             spec.clone(),
         )?;
         Ok(Self {
+            complete_blob_backfill,
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
@@ -486,9 +489,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
-        self.spec
-            .min_epoch_data_availability_boundary(current_epoch)
+        let fork_epoch = self.spec.deneb_fork_epoch?;
+
+        if self.complete_blob_backfill {
+            Some(fork_epoch)
+        } else {
+            let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
+            self.spec
+                .min_epoch_data_availability_boundary(current_epoch)
+        }
     }
 
     /// Returns true if the given epoch lies within the da boundary and false otherwise.

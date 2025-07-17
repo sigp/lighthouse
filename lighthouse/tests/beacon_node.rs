@@ -389,6 +389,21 @@ fn genesis_backfill_with_historic_flag() {
         .with_config(|config| assert!(config.chain.genesis_backfill));
 }
 
+#[test]
+fn complete_blob_backfill_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.complete_blob_backfill));
+}
+
+#[test]
+fn complete_blob_backfill_flag() {
+    CommandLineTest::new()
+        .flag("complete-blob-backfill", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.complete_blob_backfill));
+}
+
 // Tests for Eth1 flags.
 // DEPRECATED but should not crash
 #[test]
