@@ -194,7 +194,13 @@ impl ExecutionPayloadProofStore {
             proven_finalized: Arc::new(RwLock::new(None)),
         }
     }
+}
 
+// ============================================================================
+// Proof Management
+// ============================================================================
+
+impl ExecutionPayloadProofStore {
     /// Get all proofs for the given execution block hash
     pub fn get_proofs(&self, block_hash: &ExecutionBlockHash) -> Vec<ExecutionProof> {
         let proofs = self.proofs.read();
@@ -218,15 +224,6 @@ impl ExecutionPayloadProofStore {
     ) -> Option<ExecutionProof> {
         let proofs = self.proofs.read();
         proofs.get(&(*block_hash, proof_id)).cloned()
-    }
-
-    /// Take all proofs from the broadcast queue
-    /// This drains the queue and returns all pending proofs
-    ///
-    /// Note: This is used for the BroadcastManager
-    pub fn take_unqueued_proofs(&self) -> Vec<(ExecutionBlockHash, ProofId)> {
-        let mut queue = self.broadcast_queue.write();
-        std::mem::take(&mut *queue)
     }
 
     /// Store a proof for an execution payload
@@ -289,7 +286,7 @@ impl ExecutionPayloadProofStore {
 
     /// Generate a proof for an execution payload
     /// TODO: can remove
-    pub fn generate_proof<T: EthSpec>(
+    fn generate_proof<T: EthSpec>(
         payload: &ExecutionPayload<T>,
         execution_state_witness: &[u8],
         proof_id: ProofId,
@@ -303,7 +300,7 @@ impl ExecutionPayloadProofStore {
 
     /// Validate a proof
     /// TODO: can remove
-    pub fn validate_proof(proof: &ExecutionProof) -> bool {
+    fn validate_proof(proof: &ExecutionProof) -> bool {
         crate::execution_proof_generation::validate_proof(proof)
     }
 
@@ -320,7 +317,28 @@ impl ExecutionPayloadProofStore {
         self.store_proof(proof.clone())?;
         Ok(proof)
     }
+}
 
+// ============================================================================
+// Broadcasting
+// ============================================================================
+
+impl ExecutionPayloadProofStore {
+    /// Take all proofs from the broadcast queue
+    /// This drains the queue and returns all pending proofs
+    ///
+    /// Note: This is used for the BroadcastManager
+    pub fn take_unqueued_proofs(&self) -> Vec<(ExecutionBlockHash, ProofId)> {
+        let mut queue = self.broadcast_queue.write();
+        std::mem::take(&mut *queue)
+    }
+}
+
+// ============================================================================
+// Pending Block Management
+// ============================================================================
+
+impl ExecutionPayloadProofStore {
     /// Adds a beacon block to the list of blocks awaiting proofs for their execution payloads
     ///
     /// This is called when a block is imported optimistically.
@@ -344,7 +362,7 @@ impl ExecutionPayloadProofStore {
     /// Get beacon block roots that are pending proofs for the given execution block hash
     ///
     /// Returns empty vec if no blocks are pending
-    pub fn get_pending_blocks(&self, execution_block_hash: &ExecutionBlockHash) -> Vec<Hash256> {
+    fn get_pending_blocks(&self, execution_block_hash: &ExecutionBlockHash) -> Vec<Hash256> {
         self.pending_blocks
             .read()
             .get(execution_block_hash)
@@ -365,7 +383,7 @@ impl ExecutionPayloadProofStore {
 
     /// Remove a specific beacon block from the pending list
     /// This is useful when blocks are finalized or pruned
-    pub fn remove_pending_block(
+    fn remove_pending_block(
         &self,
         execution_block_hash: &ExecutionBlockHash,
         beacon_block_root: Hash256,
@@ -434,10 +452,16 @@ impl ExecutionPayloadProofStore {
 
         removed_count
     }
+}
 
+// ============================================================================
+// Chain Updates
+// ============================================================================
+
+impl ExecutionPayloadProofStore {
     /// Check if an execution payload has sufficient proofs to be considered proven
     /// This uses the `stateless_min_proofs_required` from the chain config
-    pub fn has_sufficient_proofs(
+    fn has_sufficient_proofs(
         &self,
         execution_block_hash: &ExecutionBlockHash,
         min_proofs_required: usize,
