@@ -451,25 +451,29 @@ impl ExecutionPayloadProofStore {
 
     /// Get the current proven head (beacon block root and slot)
     /// Returns None if no proven head has been established yet
-    pub fn get_proven_head(&self) -> Option<(Hash256, Slot)> {
+    #[cfg(test)]
+    fn get_proven_head(&self) -> Option<(Hash256, Slot)> {
         *self.proven_head.read()
     }
 
     /// Get the proven finalized checkpoint (beacon block root and slot)
     /// Returns None if no proven finalized checkpoint has been established yet
-    pub fn get_proven_finalized(&self) -> Option<(Hash256, Slot)> {
+    #[cfg(test)]
+    fn get_proven_finalized(&self) -> Option<(Hash256, Slot)> {
         *self.proven_finalized.read()
     }
 
     /// Check if a beacon block is part of the proven canonical chain
-    pub fn is_block_proven(&self, beacon_block_root: &Hash256) -> bool {
+    #[cfg(test)]
+    fn is_block_proven(&self, beacon_block_root: &Hash256) -> bool {
         self.proven_canonical_chain
             .read()
             .contains_key(beacon_block_root)
     }
 
     /// Get information about a proven block
-    pub fn get_proven_block_info(&self, beacon_block_root: &Hash256) -> Option<ProvenBlockInfo> {
+    #[cfg(test)]
+    fn get_proven_block_info(&self, beacon_block_root: &Hash256) -> Option<ProvenBlockInfo> {
         self.proven_canonical_chain
             .read()
             .get(beacon_block_root)
@@ -478,7 +482,8 @@ impl ExecutionPayloadProofStore {
 
     /// Get the entire proven canonical chain from finalized to head
     /// Returns a vector of proven blocks ordered from oldest to newest
-    pub fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
+    #[cfg(test)]
+    fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
         let chain = self.proven_canonical_chain.read();
         let mut blocks: Vec<ProvenBlockInfo> = chain.values().cloned().collect();
         // Sort by slot, oldest first
@@ -487,7 +492,8 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Get the depth of the proven chain (number of proven blocks)
-    pub fn get_proven_chain_depth(&self) -> usize {
+    #[cfg(test)]
+    fn get_proven_chain_depth(&self) -> usize {
         self.proven_canonical_chain.read().len()
     }
 
@@ -504,7 +510,17 @@ impl ExecutionPayloadProofStore {
 
     /// Update the proven canonical chain based on available proofs
     /// This method walks backwards from the optimistic head to find the longest proven chain
-    /// Note: This requires access to BeaconChain, so it's called from beacon_chain.rs
+    ///
+    ///  Note: This requires access to BeaconChain, so it's called from beacon_chain.rs
+    ///
+    /// Example:
+    ///
+    ///```text
+    ///   Genesis ← Block 1 ← Block 2 ← Block 3 ← Block 4 ← Block 5 (optimistic head)
+    ///             [proven]   [proven]   [proven]   [no proofs] [no proofs]
+    ///                                     ↑
+    ///                                proven_head
+    ///```
     /// TODO: Walking back each time is expensive, we can probably make this faster by
     /// TODO: having the proof store save intermediate information would help here, but don't want to
     /// TODO: make it complex (ie keeping track of different forks)
@@ -527,11 +543,12 @@ impl ExecutionPayloadProofStore {
             head_slot.as_u64()
         );
 
-        // Walk backwards from optimistic head to find longest proven chain
+        // Walk backwards from optimistic head to find the block at the highest slot which is proven
         let mut current = head_block_root;
         let mut proven_chain = Vec::new();
         let mut proven_head_candidate = None;
 
+        // Note: call `get_blinded_block` because we only need the header and not the transactions
         while let Ok(Some(block)) = chain.get_blinded_block(&current) {
             let beacon_block_root = block.canonical_root();
             let slot = block.slot();
@@ -542,6 +559,7 @@ impl ExecutionPayloadProofStore {
                 Ok(payload) => payload.block_hash(),
                 Err(_) => {
                     // Pre-merge block, stop here
+                    // TODO: should we just panic here?
                     break;
                 }
             };
@@ -556,6 +574,7 @@ impl ExecutionPayloadProofStore {
                     slot,
                     parent_root,
                     proof_count,
+                    // TODO: remove `proven_at` -- if we want to save when a block was proven at, this should be exactly when it was proven
                     proven_at: Instant::now(),
                 };
 
