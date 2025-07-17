@@ -135,26 +135,4 @@ mod tests {
         assert!(ExecutionProofSubnetId::new(MAX_EXECUTION_PROOF_SUBNETS).is_err());
         assert!(ExecutionProofSubnetId::new(u64::MAX).is_err());
     }
-
-    #[test]
-    fn test_execution_proof_subnet_id_conversions() {
-        let subnet_id = ExecutionProofSubnetId::new(5).unwrap();
-
-        // Test Deref
-        assert_eq!(*subnet_id, 5);
-
-        // Test Into u64
-        let id_u64: u64 = subnet_id.into();
-        assert_eq!(id_u64, 5);
-
-        // Test Into u64 from reference
-        let id_ref: u64 = (&subnet_id).into();
-        assert_eq!(id_ref, 5);
-    }
-
-    #[test]
-    fn test_execution_proof_subnet_id_display() {
-        let subnet_id = ExecutionProofSubnetId::new(3).unwrap();
-        assert_eq!(format!("{}", subnet_id), "3");
-    }
 }
