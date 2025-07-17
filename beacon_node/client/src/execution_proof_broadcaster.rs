@@ -9,81 +9,41 @@ use beacon_chain::execution_payload_proofs::ProofId;
 use beacon_chain::{parking_lot::RwLock, BeaconChain, BeaconChainTypes};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info, warn};
 use types::{ExecutionBlockHash, ExecutionProof, ExecutionProofSubnetId};
 
-/// Status of proof broadcasting to the network of a particular proof
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BroadcastStatus {
-    /// Proof has not been broadcasted yet
-    NotBroadcast,
-    /// Proof is currently being broadcasted
-    Broadcasting,
-    /// Proof has been successfully broadcasted
-    Broadcast,
-    /// Proof broadcasting failed
-    Failed,
-}
-
-
-/// Broadcast state for a specific execution proof
+/// Information about failed broadcast attempts
 #[derive(Debug, Clone)]
-struct ProofBroadcastState {
-    /// Current broadcast status of this proof
-    status: BroadcastStatus,
+struct FailedAttempt {
     /// Number of broadcast attempts made
     attempts: u32,
     /// Timestamp of the last broadcast attempt
-    last_attempt: Option<Duration>,
+    last_attempt: Instant,
 }
 
-impl ProofBroadcastState {
-    /// Create a new broadcast state
+impl FailedAttempt {
+    /// Create a new failed attempt record
     fn new() -> Self {
         Self {
-            status: BroadcastStatus::NotBroadcast,
-            attempts: 0,
-            last_attempt: None,
+            attempts: 1,
+            last_attempt: Instant::now(),
         }
     }
 
-    /// Check if this proof is ready to be broadcasted
-    fn is_ready_to_broadcast(&self) -> bool {
-        matches!(
-            self.status,
-            BroadcastStatus::NotBroadcast | BroadcastStatus::Failed
-        )
+    /// Check if this can be retried based on delay and max attempts
+    fn can_retry(&self, max_attempts: u32, retry_delay: Duration) -> bool {
+        self.attempts < max_attempts && self.last_attempt.elapsed() >= retry_delay
     }
 
-    /// Mark proof as currently being broadcast
-    fn mark_broadcasting(&mut self) {
-        self.status = BroadcastStatus::Broadcasting;
+    /// Increment attempt count and update timestamp
+    fn increment(&mut self) {
         self.attempts += 1;
-        self.last_attempt = Some(
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default(),
-        );
-    }
-
-    /// Mark proof as successfully broadcast
-    fn mark_broadcast_success(&mut self) {
-        self.status = BroadcastStatus::Broadcast;
-    }
-
-    /// Mark proof broadcast as failed
-    fn mark_broadcast_failed(&mut self) {
-        self.status = BroadcastStatus::Failed;
-    }
-
-    /// Check if broadcast should be retried (failed with attempts under limit)
-    fn should_retry_broadcast(&self, max_attempts: u32) -> bool {
-        matches!(self.status, BroadcastStatus::Failed) && self.attempts < max_attempts
+        self.last_attempt = Instant::now();
     }
 }
 
@@ -91,115 +51,86 @@ impl ProofBroadcastState {
 /// Manages broadcast state for execution proofs separately from proof storage
 #[derive(Debug)]
 struct ProofBroadcastManager {
-    /// Map from (execution block hash, proof ID) to broadcast state
-    broadcast_states: RwLock<HashMap<(ExecutionBlockHash, ProofId), ProofBroadcastState>>,
+    /// Proofs queued for broadcast (including retries)
+    queued: RwLock<HashSet<(ExecutionBlockHash, ProofId)>>,
+    /// Currently broadcasting
+    broadcasting: RwLock<HashSet<(ExecutionBlockHash, ProofId)>>,
+    /// Failed attempts for retry logic
+    failed: RwLock<HashMap<(ExecutionBlockHash, ProofId), FailedAttempt>>,
 }
 
 impl ProofBroadcastManager {
     /// Create a new broadcast manager
     fn new() -> Self {
         Self {
-            broadcast_states: RwLock::new(HashMap::new()),
+            queued: RwLock::new(HashSet::new()),
+            broadcasting: RwLock::new(HashSet::new()),
+            failed: RwLock::new(HashMap::new()),
         }
     }
 
-    /// Get broadcast state for a proof, creating a new one if it doesn't exist
-    fn get_or_create_state(
-        &self,
-        block_hash: ExecutionBlockHash,
-        proof_id: ProofId,
-    ) -> ProofBroadcastState {
-        let mut states = self.broadcast_states.write();
-        states
-            .entry((block_hash, proof_id))
-            .or_insert_with(ProofBroadcastState::new)
-            .clone()
-    }
-
-    /// Update broadcast state for a proof
-    fn update_state(
-        &self,
-        block_hash: ExecutionBlockHash,
-        proof_id: ProofId,
-        state: ProofBroadcastState,
-    ) {
-        let mut states = self.broadcast_states.write();
-        states.insert((block_hash, proof_id), state);
-    }
-
-    /// Mark a proof as being broadcasted
-    fn mark_broadcasting(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
-        let mut state = self.get_or_create_state(block_hash, proof_id);
-        state.mark_broadcasting();
-        self.update_state(block_hash, proof_id, state);
-    }
-
-    /// Mark a proof as successfully broadcast
-    fn mark_broadcast_success(
-        &self,
-        block_hash: ExecutionBlockHash,
-        proof_id: ProofId,
-    ) {
-        let mut state = self.get_or_create_state(block_hash, proof_id);
-        state.mark_broadcast_success();
-        self.update_state(block_hash, proof_id, state);
-    }
-
-    /// Mark a proof broadcast as failed
-    fn mark_broadcast_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
-        let mut state = self.get_or_create_state(block_hash, proof_id);
-        state.mark_broadcast_failed();
-        self.update_state(block_hash, proof_id, state);
-    }
-
-    /// Get all proofs ready for broadcast
-    fn get_proofs_ready_for_broadcast<T: BeaconChainTypes>(
-        &self,
-        chain: &Arc<BeaconChain<T>>,
-    ) -> Vec<(ExecutionBlockHash, ProofId)> {
-        let mut ready_proofs = Vec::new();
-
-        // Get all stored proofs
-        let stored_proofs = chain.execution_payload_proof_store.get_all_proofs();
-
-        for (block_hash, proof_id) in stored_proofs.keys() {
-            let state = self.get_or_create_state(*block_hash, *proof_id);
-            if state.is_ready_to_broadcast() {
-                ready_proofs.push((*block_hash, *proof_id));
-            }
+    /// Add new proofs to broadcast queue
+    fn queue_proofs(&self, proofs: Vec<(ExecutionBlockHash, ProofId)>) {
+        let mut queued = self.queued.write();
+        
+        for proof in proofs {
+            queued.insert(proof);
         }
-
-        ready_proofs
     }
 
-    /// Get proofs that should be retried
-    fn get_proofs_for_retry<T: BeaconChainTypes>(
-        &self,
-        chain: &Arc<BeaconChain<T>>,
-        max_attempts: u32,
-    ) -> Vec<(ExecutionBlockHash, ProofId)> {
-        let mut retry_proofs = Vec::new();
-
-        // Get all stored proofs
-        let stored_proofs = chain.execution_payload_proof_store.get_all_proofs();
-
-        for (block_hash, proof_id) in stored_proofs.keys() {
-            let state = self.get_or_create_state(*block_hash, *proof_id);
-            if state.should_retry_broadcast(max_attempts) {
-                retry_proofs.push((*block_hash, *proof_id));
-            }
-        }
-
-        retry_proofs
+    /// Get proofs ready to broadcast
+    fn get_ready_proofs(&self, max_attempts: u32, retry_delay: Duration) -> Vec<(ExecutionBlockHash, ProofId)> {
+        let queued = self.queued.read();
+        let broadcasting = self.broadcasting.read();
+        let failed = self.failed.read();
+        
+        queued.iter()
+            .filter(|p| !broadcasting.contains(p))
+            .filter(|p| {
+                // Check retry logic for failed proofs
+                if let Some(attempt) = failed.get(p) {
+                    attempt.can_retry(max_attempts, retry_delay)
+                } else {
+                    true // Not failed, ready to broadcast
+                }
+            })
+            .cloned()
+            .collect()
     }
 
-    /// Clean up old broadcast states for proofs that no longer exist
-    fn cleanup_old_states<T: BeaconChainTypes>(&self, chain: &Arc<BeaconChain<T>>) {
-        let stored_proofs = chain.execution_payload_proof_store.get_all_proofs();
-        let mut states = self.broadcast_states.write();
+    /// Mark proof as currently broadcasting
+    fn start_broadcast(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
+        let mut broadcasting = self.broadcasting.write();
+        broadcasting.insert((block_hash, proof_id));
+    }
 
-        // Remove broadcast states for proofs that no longer exist in storage
-        states.retain(|key, _| stored_proofs.contains_key(key));
+    /// Mark proof as successfully broadcast
+    fn mark_success(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
+        let key = (block_hash, proof_id);
+        
+        // Remove from all tracking
+        let mut queued = self.queued.write();
+        let mut broadcasting = self.broadcasting.write();
+        let mut failed = self.failed.write();
+        
+        queued.remove(&key);
+        broadcasting.remove(&key);
+        failed.remove(&key);
+    }
+
+    /// Mark proof broadcast as failed
+    fn mark_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
+        let key = (block_hash, proof_id);
+        
+        // Remove from broadcasting
+        let mut broadcasting = self.broadcasting.write();
+        broadcasting.remove(&key);
+        
+        // Update or create failed attempt record
+        let mut failed = self.failed.write();
+        failed.entry(key)
+            .and_modify(|attempt| attempt.increment())
+            .or_insert_with(FailedAttempt::new);
     }
 }
 
@@ -262,25 +193,30 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
     loop {
         interval.tick().await;
 
-        // Get proofs ready for initial broadcast
-        let ready_proofs = broadcast_manager.get_proofs_ready_for_broadcast(&chain);
+        // Get new unqueued proofs from the store
+        let new_proofs = chain.execution_payload_proof_store.take_unqueued_proofs();
+        if !new_proofs.is_empty() {
+            debug!(
+                "STATELESS_TRACE: Found {} new unqueued proofs",
+                new_proofs.len()
+            );
+            broadcast_manager.queue_proofs(new_proofs);
+        }
 
-        // Get proofs ready for retry
-        let retry_proofs =
-            broadcast_manager.get_proofs_for_retry(&chain, config.max_broadcast_attempts);
+        // Get proofs ready to broadcast (new and retries)
+        let ready_proofs = broadcast_manager.get_ready_proofs(
+            config.max_broadcast_attempts,
+            config.retry_delay,
+        );
 
-        let total_proofs = ready_proofs.len() + retry_proofs.len();
-
-        if total_proofs > 0 {
+        if !ready_proofs.is_empty() {
             info!(
-                "STATELESS_TRACE: Broadcaster found {} proofs to broadcast (ready: {}, retry: {})",
-                total_proofs,
-                ready_proofs.len(),
-                retry_proofs.len()
+                "STATELESS_TRACE: Broadcasting {} proofs",
+                ready_proofs.len()
             );
         }
 
-        // Broadcast ready proofs
+        // Broadcast each ready proof
         for (execution_block_hash, proof_id) in ready_proofs {
             if let Some(proof) = chain
                 .execution_payload_proof_store
@@ -295,53 +231,10 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
                     &proof,
                 )
                 .await;
+            } else {
+                // Proof was removed from store, remove from tracking
+                broadcast_manager.mark_success(execution_block_hash, proof_id);
             }
-        }
-
-        // Broadcast retry proofs (with delay if recently attempted)
-        for (execution_block_hash, proof_id) in retry_proofs {
-            if let Some(proof) = chain
-                .execution_payload_proof_store
-                .get_proof(&execution_block_hash, proof_id)
-            {
-                // Check if enough time has passed since last attempt
-                let broadcast_state =
-                    broadcast_manager.get_or_create_state(execution_block_hash, proof_id);
-                if let Some(last_attempt) = broadcast_state.last_attempt {
-                    let now = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default();
-
-                    if now.saturating_sub(last_attempt) < config.retry_delay {
-                        debug!(
-                            "Skipping retry for proof on subnet {} - not enough time since last attempt",
-                            proof_id.subnet_id()
-                        );
-                        continue;
-                    }
-                }
-
-                debug!(
-                    "Retrying broadcast for proof on subnet {} (attempt {})",
-                    proof_id.subnet_id(),
-                    broadcast_state.attempts + 1
-                );
-
-                broadcast_single_proof(
-                    &chain,
-                    &network_tx,
-                    &broadcast_manager,
-                    execution_block_hash,
-                    proof_id,
-                    &proof,
-                )
-                .await;
-            }
-        }
-
-        // Periodically clean up old broadcast states
-        if total_proofs == 0 {
-            broadcast_manager.cleanup_old_states(&chain);
         }
     }
 }
@@ -356,7 +249,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
     stored_proof: &beacon_chain::execution_payload_proofs::ExecutionPayloadProof,
 ) {
     // Mark as currently broadcasting
-    broadcast_manager.mark_broadcasting(execution_block_hash, proof_id);
+    broadcast_manager.start_broadcast(execution_block_hash, proof_id);
 
     // Create subnet ID, validating it's within bounds
     let subnet_id = match ExecutionProofSubnetId::new(proof_id.subnet_id()) {
@@ -367,7 +260,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
                 proof_id.subnet_id(),
                 e
             );
-            broadcast_manager.mark_broadcast_failed(execution_block_hash, proof_id);
+            broadcast_manager.mark_failed(execution_block_hash, proof_id);
             return;
         }
     };
@@ -392,7 +285,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
     }) {
         Ok(()) => {
             // Mark as successfully broadcast
-            broadcast_manager.mark_broadcast_success(execution_block_hash, proof_id);
+            broadcast_manager.mark_success(execution_block_hash, proof_id);
             info!(
                 "STATELESS: Successfully BROADCAST execution proof for block {:?} on subnet {}",
                 execution_block_hash,
@@ -401,7 +294,7 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
         }
         Err(e) => {
             // Mark as failed
-            broadcast_manager.mark_broadcast_failed(execution_block_hash, proof_id);
+            broadcast_manager.mark_failed(execution_block_hash, proof_id);
             warn!(
                 "Failed to broadcast execution proof for block {:?} subnet {}: {}",
                 execution_block_hash,
@@ -422,117 +315,94 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-
     #[test]
-    fn test_proof_broadcast_state_new() {
-        let state = ProofBroadcastState::new();
-        assert_eq!(state.status, BroadcastStatus::NotBroadcast);
-        assert_eq!(state.attempts, 0);
-        assert!(state.last_attempt.is_none());
+    fn test_failed_attempt_new() {
+        let attempt = FailedAttempt::new();
+        assert_eq!(attempt.attempts, 1);
+        assert!(attempt.last_attempt.elapsed() < Duration::from_secs(1));
     }
 
     #[test]
-    fn test_proof_broadcast_state_is_ready_to_broadcast() {
-        let mut state = ProofBroadcastState::new();
-        assert!(state.is_ready_to_broadcast());
-
-        state.status = BroadcastStatus::Broadcasting;
-        assert!(!state.is_ready_to_broadcast());
-
-        state.status = BroadcastStatus::Broadcast;
-        assert!(!state.is_ready_to_broadcast());
-
-        state.status = BroadcastStatus::Failed;
-        assert!(state.is_ready_to_broadcast());
+    fn test_failed_attempt_can_retry() {
+        let mut attempt = FailedAttempt::new();
+        
+        // Should be able to retry with attempts under limit
+        assert!(attempt.can_retry(3, Duration::from_secs(0)));
+        
+        // Increment attempts
+        attempt.increment();
+        assert_eq!(attempt.attempts, 2);
+        assert!(attempt.can_retry(3, Duration::from_secs(0)));
+        
+        // At limit
+        attempt.increment();
+        assert_eq!(attempt.attempts, 3);
+        assert!(!attempt.can_retry(3, Duration::from_secs(0)));
     }
 
     #[test]
-    fn test_proof_broadcast_state_mark_broadcasting() {
-        let mut state = ProofBroadcastState::new();
-        state.mark_broadcasting();
-        
-        assert_eq!(state.status, BroadcastStatus::Broadcasting);
-        assert_eq!(state.attempts, 1);
-        assert!(state.last_attempt.is_some());
-        
-        // Test multiple attempts
-        state.mark_broadcasting();
-        assert_eq!(state.attempts, 2);
-    }
-
-    #[test]
-    fn test_proof_broadcast_state_mark_success() {
-        let mut state = ProofBroadcastState::new();
-        state.mark_broadcast_success();
-        assert_eq!(state.status, BroadcastStatus::Broadcast);
-    }
-
-    #[test]
-    fn test_proof_broadcast_state_mark_failed() {
-        let mut state = ProofBroadcastState::new();
-        state.mark_broadcast_failed();
-        assert_eq!(state.status, BroadcastStatus::Failed);
-    }
-
-    #[test]
-    fn test_proof_broadcast_state_should_retry() {
-        let mut state = ProofBroadcastState::new();
-        let max_attempts = 3;
-        
-        // Not failed, shouldn't retry
-        assert!(!state.should_retry_broadcast(max_attempts));
-        
-        // Failed with 0 attempts
-        state.status = BroadcastStatus::Failed;
-        assert!(state.should_retry_broadcast(max_attempts));
-        
-        // Failed with attempts under limit
-        state.attempts = 2;
-        assert!(state.should_retry_broadcast(max_attempts));
-        
-        // Failed with attempts at limit
-        state.attempts = 3;
-        assert!(!state.should_retry_broadcast(max_attempts));
-        
-        // Failed with attempts over limit
-        state.attempts = 4;
-        assert!(!state.should_retry_broadcast(max_attempts));
-    }
-
-    #[test]
-    fn test_proof_broadcast_manager_get_or_create_state() {
+    fn test_proof_broadcast_manager_queue_proofs() {
         let manager = ProofBroadcastManager::new();
-        let block_hash = ExecutionBlockHash::from(Hash256::random());
+        let block_hash1 = ExecutionBlockHash::from(Hash256::random());
+        let block_hash2 = ExecutionBlockHash::from(Hash256::random());
+        let proof_id1 = ProofId::custom(1).unwrap();
+        let proof_id2 = ProofId::custom(2).unwrap();
+        
+        // Queue some proofs
+        manager.queue_proofs(vec![
+            (block_hash1, proof_id1),
+            (block_hash2, proof_id2),
+        ]);
+        
+        // Verify they're queued
+        {
+            let queued = manager.queued.read();
+            assert_eq!(queued.len(), 2);
+            assert!(queued.contains(&(block_hash1, proof_id1)));
+            assert!(queued.contains(&(block_hash2, proof_id2)));
+        }
+        
+        // Mark one as successful (removes from queue)
+        manager.mark_success(block_hash1, proof_id1);
+        
+        // Verify it was removed from queue
+        {
+            let queued = manager.queued.read();
+            assert_eq!(queued.len(), 1);
+            assert!(!queued.contains(&(block_hash1, proof_id1)));
+            assert!(queued.contains(&(block_hash2, proof_id2)));
+        }
+    }
+
+    #[test]
+    fn test_proof_broadcast_manager_get_ready_proofs() {
+        let manager = ProofBroadcastManager::new();
+        let block_hash1 = ExecutionBlockHash::from(Hash256::random());
+        let block_hash2 = ExecutionBlockHash::from(Hash256::random());
+        let block_hash3 = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(1).unwrap();
         
-        // First access creates new state
-        let state1 = manager.get_or_create_state(block_hash, proof_id);
-        assert_eq!(state1.status, BroadcastStatus::NotBroadcast);
-        assert_eq!(state1.attempts, 0);
+        // Queue some proofs
+        manager.queue_proofs(vec![
+            (block_hash1, proof_id),
+            (block_hash2, proof_id),
+            (block_hash3, proof_id),
+        ]);
         
-        // Second access returns existing state
-        let state2 = manager.get_or_create_state(block_hash, proof_id);
-        assert_eq!(state2.status, state1.status);
-        assert_eq!(state2.attempts, state1.attempts);
-    }
-
-    #[test]
-    fn test_proof_broadcast_manager_update_state() {
-        let manager = ProofBroadcastManager::new();
-        let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1).unwrap();
+        // Mark one as broadcasting
+        manager.start_broadcast(block_hash2, proof_id);
         
-        // Update with custom state
-        let mut custom_state = ProofBroadcastState::new();
-        custom_state.status = BroadcastStatus::Broadcast;
-        custom_state.attempts = 5;
+        // Mark one as failed but can retry
+        manager.mark_failed(block_hash3, proof_id);
         
-        manager.update_state(block_hash, proof_id, custom_state.clone());
+        // Get ready proofs
+        let ready = manager.get_ready_proofs(3, Duration::from_secs(0));
         
-        // Verify the update
-        let retrieved_state = manager.get_or_create_state(block_hash, proof_id);
-        assert_eq!(retrieved_state.status, BroadcastStatus::Broadcast);
-        assert_eq!(retrieved_state.attempts, 5);
+        // Should get the non-broadcasting one and the failed one (retry)
+        assert_eq!(ready.len(), 2);
+        assert!(ready.contains(&(block_hash1, proof_id)));
+        assert!(ready.contains(&(block_hash3, proof_id)));
+        assert!(!ready.contains(&(block_hash2, proof_id)));
     }
 
     #[test]
@@ -541,156 +411,58 @@ mod tests {
         let block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(1).unwrap();
         
-        // Test mark_broadcasting
-        manager.mark_broadcasting(block_hash, proof_id);
-        let state = manager.get_or_create_state(block_hash, proof_id);
-        assert_eq!(state.status, BroadcastStatus::Broadcasting);
-        assert_eq!(state.attempts, 1);
+        // Queue a proof
+        manager.queue_proofs(vec![(block_hash, proof_id)]);
         
-        // Test mark_broadcast_success
-        manager.mark_broadcast_success(block_hash, proof_id);
-        let state = manager.get_or_create_state(block_hash, proof_id);
-        assert_eq!(state.status, BroadcastStatus::Broadcast);
-        
-        // Test mark_broadcast_failed
-        let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        manager.mark_broadcast_failed(block_hash2, proof_id);
-        let state = manager.get_or_create_state(block_hash2, proof_id);
-        assert_eq!(state.status, BroadcastStatus::Failed);
-    }
-
-    #[tokio::test]
-    async fn test_proof_broadcast_manager_get_proofs_ready() {
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .default_spec()
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .build();
-        
-        let chain = Arc::new(harness.chain);
-        let manager = ProofBroadcastManager::new();
-        
-        // Add some test proofs to the store
-        let block_hash1 = ExecutionBlockHash::from(Hash256::random());
-        let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id1 = ProofId::custom(1).unwrap();
-        let proof_id2 = ProofId::custom(2).unwrap();
-        
-        // Store proofs
-        let proof1 = ExecutionPayloadProof::new_v1(
-            block_hash1,
-            proof_id1,
-            vec![1, 2, 3],
-        );
-        let proof2 = ExecutionPayloadProof::new_v1(
-            block_hash2,
-            proof_id2,
-            vec![4, 5, 6],
-        );
-        
-        assert!(chain.execution_payload_proof_store.store_proof(proof1).is_ok());
-        assert!(chain.execution_payload_proof_store.store_proof(proof2).is_ok());
-        
-        // Initially all proofs should be ready
-        let ready = manager.get_proofs_ready_for_broadcast(&chain);
-        assert_eq!(ready.len(), 2);
-        assert!(ready.contains(&(block_hash1, proof_id1)));
-        assert!(ready.contains(&(block_hash2, proof_id2)));
-        
-        // Mark one as broadcast
-        manager.mark_broadcast_success(block_hash1, proof_id1);
-        
-        // Now only one should be ready
-        let ready = manager.get_proofs_ready_for_broadcast(&chain);
-        assert_eq!(ready.len(), 1);
-        assert!(ready.contains(&(block_hash2, proof_id2)));
-    }
-
-    #[tokio::test]
-    async fn test_proof_broadcast_manager_get_proofs_for_retry() {
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .default_spec()
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .build();
-        
-        let chain = Arc::new(harness.chain);
-        let manager = ProofBroadcastManager::new();
-        let max_attempts = 3;
-        
-        // Add test proofs
-        let block_hash1 = ExecutionBlockHash::from(Hash256::random());
-        let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1).unwrap();
-        
-        // Store proofs
-        let proof1 = ExecutionPayloadProof::new_v1(block_hash1, proof_id, vec![1, 2, 3]);
-        let proof2 = ExecutionPayloadProof::new_v1(block_hash2, proof_id, vec![4, 5, 6]);
-        
-        assert!(chain.execution_payload_proof_store.store_proof(proof1).is_ok());
-        assert!(chain.execution_payload_proof_store.store_proof(proof2).is_ok());
-        
-        // Initially no proofs should need retry
-        let retry = manager.get_proofs_for_retry(&chain, max_attempts);
-        assert_eq!(retry.len(), 0);
-        
-        // Mark one as failed with attempts under limit
-        let mut state1 = ProofBroadcastState::new();
-        state1.status = BroadcastStatus::Failed;
-        state1.attempts = 2;
-        manager.update_state(block_hash1, proof_id, state1);
-        
-        // Mark another as failed but with attempts at limit
-        let mut state2 = ProofBroadcastState::new();
-        state2.status = BroadcastStatus::Failed;
-        state2.attempts = 3;
-        manager.update_state(block_hash2, proof_id, state2);
-        
-        // Only the first should be ready for retry
-        let retry = manager.get_proofs_for_retry(&chain, max_attempts);
-        assert_eq!(retry.len(), 1);
-        assert!(retry.contains(&(block_hash1, proof_id)));
-    }
-
-    #[tokio::test]
-    async fn test_proof_broadcast_manager_cleanup_old_states() {
-        let harness = BeaconChainHarness::<EphemeralHarnessType<E>>::builder(E::default())
-            .default_spec()
-            .deterministic_keypairs(1)
-            .fresh_ephemeral_store()
-            .build();
-        
-        let chain = Arc::new(harness.chain);
-        let manager = ProofBroadcastManager::new();
-        
-        // Add states for proofs that exist and don't exist
-        let block_hash1 = ExecutionBlockHash::from(Hash256::random());
-        let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::custom(1).unwrap();
-        
-        // Store only one proof
-        let proof1 = ExecutionPayloadProof::new_v1(block_hash1, proof_id, vec![1, 2, 3]);
-        assert!(chain.execution_payload_proof_store.store_proof(proof1).is_ok());
-        
-        // Create states for both
-        manager.mark_broadcasting(block_hash1, proof_id);
-        manager.mark_broadcasting(block_hash2, proof_id);
-        
-        // Verify both states exist
+        // Start broadcast
+        manager.start_broadcast(block_hash, proof_id);
         {
-            let states = manager.broadcast_states.read();
-            assert_eq!(states.len(), 2);
+            let broadcasting = manager.broadcasting.read();
+            assert!(broadcasting.contains(&(block_hash, proof_id)));
         }
         
-        // Cleanup should remove the state without a corresponding proof
-        manager.cleanup_old_states(&chain);
-        
+        // Mark as success
+        manager.mark_success(block_hash, proof_id);
         {
-            let states = manager.broadcast_states.read();
-            assert_eq!(states.len(), 1);
-            assert!(states.contains_key(&(block_hash1, proof_id)));
-            assert!(!states.contains_key(&(block_hash2, proof_id)));
+            let queued = manager.queued.read();
+            let broadcasting = manager.broadcasting.read();
+            let failed = manager.failed.read();
+            
+            assert!(!queued.contains(&(block_hash, proof_id)));
+            assert!(!broadcasting.contains(&(block_hash, proof_id)));
+            assert!(!failed.contains_key(&(block_hash, proof_id)));
         }
+    }
+
+    #[test]
+    fn test_proof_broadcast_manager_retry_logic() {
+        let manager = ProofBroadcastManager::new();
+        let block_hash = ExecutionBlockHash::from(Hash256::random());
+        let proof_id = ProofId::custom(1).unwrap();
+        
+        // Queue and fail multiple times
+        manager.queue_proofs(vec![(block_hash, proof_id)]);
+        
+        // First failure
+        manager.mark_failed(block_hash, proof_id);
+        {
+            let failed = manager.failed.read();
+            let attempt = failed.get(&(block_hash, proof_id)).unwrap();
+            assert_eq!(attempt.attempts, 1);
+        }
+        
+        // Second failure
+        manager.mark_failed(block_hash, proof_id);
+        {
+            let failed = manager.failed.read();
+            let attempt = failed.get(&(block_hash, proof_id)).unwrap();
+            assert_eq!(attempt.attempts, 2);
+        }
+        
+        // At max attempts (3), should not be in ready list
+        manager.mark_failed(block_hash, proof_id);
+        let ready = manager.get_ready_proofs(3, Duration::from_secs(0));
+        assert!(!ready.contains(&(block_hash, proof_id)));
     }
 
     #[test]
@@ -749,9 +521,13 @@ mod tests {
             panic!("Expected Publish message");
         }
         
-        // Verify the state was updated
-        let state = broadcast_manager.get_or_create_state(block_hash, proof_id);
-        assert_eq!(state.status, BroadcastStatus::Broadcast);
+        // Verify the proof was removed from tracking
+        {
+            let queued = broadcast_manager.queued.read();
+            let broadcasting = broadcast_manager.broadcasting.read();
+            assert!(!queued.contains(&(block_hash, proof_id)));
+            assert!(!broadcasting.contains(&(block_hash, proof_id)));
+        }
     }
 
     #[tokio::test]
@@ -788,8 +564,10 @@ mod tests {
             &stored_proof,
         ).await;
         
-        // Verify the state was marked as failed
-        let state = broadcast_manager.get_or_create_state(block_hash, proof_id);
-        assert_eq!(state.status, BroadcastStatus::Failed);
+        // Verify the proof was marked as failed
+        {
+            let failed = broadcast_manager.failed.read();
+            assert!(failed.contains_key(&(block_hash, proof_id)));
+        }
     }
 }
