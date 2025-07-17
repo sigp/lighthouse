@@ -262,7 +262,10 @@ pub(crate) fn create_whitelist_filter(
         }
         // Add execution proof subnets
         for id in 0..MAX_EXECUTION_PROOF_SUBNETS {
-            add(ExecutionProof(ExecutionProofSubnetId::new(id).expect("id is less than MAX_EXECUTION_PROOF_SUBNETS")));
+            add(ExecutionProof(
+                ExecutionProofSubnetId::new(id)
+                    .expect("id is less than MAX_EXECUTION_PROOF_SUBNETS"),
+            ));
         }
     }
     gossipsub::WhitelistSubscriptionFilter(possible_hashes)

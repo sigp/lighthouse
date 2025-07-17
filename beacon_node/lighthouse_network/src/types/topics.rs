@@ -99,9 +99,10 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
     // Subscribe to all execution proof subnets when stateless validation is enabled
     if opts.stateless_validation {
         for subnet_id in 0..MAX_EXECUTION_PROOF_SUBNETS {
-            topics.push(GossipKind::ExecutionProof(ExecutionProofSubnetId::new(
-                subnet_id,
-            ).expect("subnet_id is less than MAX_EXECUTION_PROOF_SUBNETS")));
+            topics.push(GossipKind::ExecutionProof(
+                ExecutionProofSubnetId::new(subnet_id)
+                    .expect("subnet_id is less than MAX_EXECUTION_PROOF_SUBNETS"),
+            ));
         }
     }
 

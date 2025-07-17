@@ -3232,9 +3232,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(()) => {
                 info!(
                     "PROOFCHAIN {}: proof type {} received on subnet {}",
-                    block_hash,
-                    proof_description,
-                    subnet_id_u64
+                    block_hash, proof_description, subnet_id_u64
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);

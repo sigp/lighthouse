@@ -2761,7 +2761,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .iter()
                 .map(|p| format!("{} on subnet {}", p.description(), p.proof_id.subnet_id()))
                 .collect();
-            
+
             debug!(
                 "PROOFCHAIN {}: {}. Proofs: {}/{} required",
                 execution_block_hash,
@@ -2774,9 +2774,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         info!(
             "PROOFCHAIN {}: minimum proofs reached ({}/{}), updating proven chain",
-            execution_block_hash,
-            proof_count,
-            self.config.stateless_min_proofs_required
+            execution_block_hash, proof_count, self.config.stateless_min_proofs_required
         );
 
         // Update the proven canonical chain based on available proofs
@@ -2797,7 +2795,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let pending_blocks_cleaned = self
             .execution_payload_proof_store
             .take_pending_blocks(&execution_block_hash);
-        
+
         if !pending_blocks_cleaned.is_empty() {
             debug!(
                 %execution_block_hash,

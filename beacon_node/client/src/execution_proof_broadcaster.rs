@@ -47,7 +47,6 @@ impl FailedAttempt {
     }
 }
 
-
 /// Manages broadcast state for execution proofs separately from proof storage
 #[derive(Debug)]
 struct ProofBroadcastManager {
@@ -72,19 +71,24 @@ impl ProofBroadcastManager {
     /// Add new proofs to broadcast queue
     fn queue_proofs(&self, proofs: Vec<(ExecutionBlockHash, ProofId)>) {
         let mut queued = self.queued.write();
-        
+
         for proof in proofs {
             queued.insert(proof);
         }
     }
 
     /// Get proofs ready to broadcast
-    fn get_ready_proofs(&self, max_attempts: u32, retry_delay: Duration) -> Vec<(ExecutionBlockHash, ProofId)> {
+    fn get_ready_proofs(
+        &self,
+        max_attempts: u32,
+        retry_delay: Duration,
+    ) -> Vec<(ExecutionBlockHash, ProofId)> {
         let queued = self.queued.read();
         let broadcasting = self.broadcasting.read();
         let failed = self.failed.read();
-        
-        queued.iter()
+
+        queued
+            .iter()
             .filter(|p| !broadcasting.contains(p))
             .filter(|p| {
                 // Check retry logic for failed proofs
@@ -101,11 +105,11 @@ impl ProofBroadcastManager {
     /// Mark proof as currently broadcasting
     fn start_broadcast(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
         let key = (block_hash, proof_id);
-        
+
         // Move from queued to broadcasting
         let mut queued = self.queued.write();
         let mut broadcasting = self.broadcasting.write();
-        
+
         queued.remove(&key);
         broadcasting.insert(key);
     }
@@ -113,10 +117,10 @@ impl ProofBroadcastManager {
     /// Mark proof as successfully broadcast
     fn mark_success(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
         let key = (block_hash, proof_id);
-        
+
         let mut broadcasting = self.broadcasting.write();
         broadcasting.remove(&key);
-        
+
         // Also remove from failed in case this was a retry
         let mut failed = self.failed.write();
         failed.remove(&key);
@@ -125,23 +129,26 @@ impl ProofBroadcastManager {
     /// Mark proof broadcast as failed
     fn mark_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId, max_attempts: u32) {
         let key = (block_hash, proof_id);
-        
+
         let mut broadcasting = self.broadcasting.write();
         broadcasting.remove(&key);
-        
+
         // Update or create failed attempt record
         let mut failed = self.failed.write();
-        let attempt = failed.entry(key)
+        let attempt = failed
+            .entry(key)
             .and_modify(|attempt| attempt.increment())
             .or_insert_with(FailedAttempt::new);
-        
+
         // Check if we've exceeded retry limit
         if attempt.attempts >= max_attempts {
             // Remove from failed tracking
             failed.remove(&key);
             warn!(
                 "Proof for block {:?} subnet {} exceeded retry limit ({} attempts), abandoning",
-                key.0, key.1.subnet_id(), max_attempts
+                key.0,
+                key.1.subnet_id(),
+                max_attempts
             );
         } else {
             // Still have retries left, re-add to queued
@@ -215,10 +222,8 @@ async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
         }
 
         // Get proofs ready to broadcast (new and retries)
-        let ready_proofs = broadcast_manager.get_ready_proofs(
-            config.max_broadcast_attempts,
-            config.retry_delay,
-        );
+        let ready_proofs =
+            broadcast_manager.get_ready_proofs(config.max_broadcast_attempts, config.retry_delay);
 
         if !ready_proofs.is_empty() {
             info!(
@@ -287,10 +292,8 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
     );
 
     // Create the gossip message
-    let pubsub_message = PubsubMessage::ExecutionProofMessage(Box::new((
-        subnet_id,
-        Arc::new(gossip_proof),
-    )));
+    let pubsub_message =
+        PubsubMessage::ExecutionProofMessage(Box::new((subnet_id, Arc::new(gossip_proof))));
 
     // Broadcast the proof
     match network_tx.send(NetworkMessage::Publish {
@@ -321,10 +324,10 @@ async fn broadcast_single_proof<T: BeaconChainTypes>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use beacon_chain::execution_payload_proofs::ExecutionPayloadProof;
-    use types::{ExecutionBlockHash, Hash256, MainnetEthSpec};
+    use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
     use tokio::sync::mpsc;
+    use types::{ExecutionBlockHash, Hash256, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -338,15 +341,15 @@ mod tests {
     #[test]
     fn test_failed_attempt_can_retry() {
         let mut attempt = FailedAttempt::new();
-        
+
         // Should be able to retry with attempts under limit
         assert!(attempt.can_retry(3, Duration::from_secs(0)));
-        
+
         // Increment attempts
         attempt.increment();
         assert_eq!(attempt.attempts, 2);
         assert!(attempt.can_retry(3, Duration::from_secs(0)));
-        
+
         // At limit
         attempt.increment();
         assert_eq!(attempt.attempts, 3);
@@ -360,13 +363,10 @@ mod tests {
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
         let proof_id1 = ProofId::custom(1).unwrap();
         let proof_id2 = ProofId::custom(2).unwrap();
-        
+
         // Queue some proofs
-        manager.queue_proofs(vec![
-            (block_hash1, proof_id1),
-            (block_hash2, proof_id2),
-        ]);
-        
+        manager.queue_proofs(vec![(block_hash1, proof_id1), (block_hash2, proof_id2)]);
+
         // Verify they're queued
         {
             let queued = manager.queued.read();
@@ -374,10 +374,10 @@ mod tests {
             assert!(queued.contains(&(block_hash1, proof_id1)));
             assert!(queued.contains(&(block_hash2, proof_id2)));
         }
-        
+
         // Mark one as successful (removes from queue)
         manager.mark_success(block_hash1, proof_id1);
-        
+
         // Verify it was removed from queue
         {
             let queued = manager.queued.read();
@@ -394,23 +394,23 @@ mod tests {
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
         let block_hash3 = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(1).unwrap();
-        
+
         // Queue some proofs
         manager.queue_proofs(vec![
             (block_hash1, proof_id),
             (block_hash2, proof_id),
             (block_hash3, proof_id),
         ]);
-        
+
         // Mark one as broadcasting
         manager.start_broadcast(block_hash2, proof_id);
-        
+
         // Mark one as failed but can retry
         manager.mark_failed(block_hash3, proof_id, 3);
-        
+
         // Get ready proofs
         let ready = manager.get_ready_proofs(3, Duration::from_secs(0));
-        
+
         // Should get the non-broadcasting one and the failed one (retry)
         assert_eq!(ready.len(), 2);
         assert!(ready.contains(&(block_hash1, proof_id)));
@@ -423,24 +423,24 @@ mod tests {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(1).unwrap();
-        
+
         // Queue a proof
         manager.queue_proofs(vec![(block_hash, proof_id)]);
-        
+
         // Start broadcast
         manager.start_broadcast(block_hash, proof_id);
         {
             let broadcasting = manager.broadcasting.read();
             assert!(broadcasting.contains(&(block_hash, proof_id)));
         }
-        
+
         // Mark as success
         manager.mark_success(block_hash, proof_id);
         {
             let queued = manager.queued.read();
             let broadcasting = manager.broadcasting.read();
             let failed = manager.failed.read();
-            
+
             assert!(!queued.contains(&(block_hash, proof_id)));
             assert!(!broadcasting.contains(&(block_hash, proof_id)));
             assert!(!failed.contains_key(&(block_hash, proof_id)));
@@ -452,10 +452,10 @@ mod tests {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(1).unwrap();
-        
+
         // Queue and fail multiple times
         manager.queue_proofs(vec![(block_hash, proof_id)]);
-        
+
         // First failure
         manager.mark_failed(block_hash, proof_id, 3);
         {
@@ -463,7 +463,7 @@ mod tests {
             let attempt = failed.get(&(block_hash, proof_id)).unwrap();
             assert_eq!(attempt.attempts, 1);
         }
-        
+
         // Second failure
         manager.mark_failed(block_hash, proof_id, 3);
         {
@@ -471,7 +471,7 @@ mod tests {
             let attempt = failed.get(&(block_hash, proof_id)).unwrap();
             assert_eq!(attempt.attempts, 2);
         }
-        
+
         // At max attempts (3), should not be in ready list
         manager.mark_failed(block_hash, proof_id, 3);
         let ready = manager.get_ready_proofs(3, Duration::from_secs(0));
@@ -493,19 +493,15 @@ mod tests {
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .build();
-        
+
         let chain = Arc::new(harness.chain);
         let (network_tx, mut network_rx) = mpsc::unbounded_channel();
         let broadcast_manager = ProofBroadcastManager::new();
-        
+
         let block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(1).unwrap();
-        let stored_proof = ExecutionPayloadProof::new_v1(
-            block_hash,
-            proof_id,
-            vec![1, 2, 3, 4, 5],
-        );
-        
+        let stored_proof = ExecutionPayloadProof::new_v1(block_hash, proof_id, vec![1, 2, 3, 4, 5]);
+
         // Broadcast the proof
         broadcast_single_proof(
             &chain,
@@ -515,12 +511,13 @@ mod tests {
             proof_id,
             &stored_proof,
             3, // max_attempts
-        ).await;
-        
+        )
+        .await;
+
         // Verify the network message was sent
         let msg = network_rx.recv().await;
         assert!(msg.is_some());
-        
+
         if let Some(NetworkMessage::Publish { messages }) = msg {
             assert_eq!(messages.len(), 1);
             if let PubsubMessage::ExecutionProofMessage(proof_box) = &messages[0] {
@@ -534,7 +531,7 @@ mod tests {
         } else {
             panic!("Expected Publish message");
         }
-        
+
         // Verify the proof was removed from tracking
         {
             let queued = broadcast_manager.queued.read();
@@ -551,23 +548,19 @@ mod tests {
             .deterministic_keypairs(1)
             .fresh_ephemeral_store()
             .build();
-        
+
         let chain = Arc::new(harness.chain);
         // Create a closed channel to simulate network error
         let (network_tx, _) = mpsc::unbounded_channel::<NetworkMessage<E>>();
         drop(network_tx);
         let (network_tx_closed, _) = mpsc::unbounded_channel::<NetworkMessage<E>>();
-        
+
         let broadcast_manager = ProofBroadcastManager::new();
-        
+
         let block_hash = ExecutionBlockHash::from(Hash256::random());
         let proof_id = ProofId::custom(1).unwrap();
-        let stored_proof = ExecutionPayloadProof::new_v1(
-            block_hash,
-            proof_id,
-            vec![1, 2, 3],
-        );
-        
+        let stored_proof = ExecutionPayloadProof::new_v1(block_hash, proof_id, vec![1, 2, 3]);
+
         // Broadcast should handle the error gracefully
         broadcast_single_proof(
             &chain,
@@ -577,8 +570,9 @@ mod tests {
             proof_id,
             &stored_proof,
             3, // max_attempts
-        ).await;
-        
+        )
+        .await;
+
         // Verify the proof was marked as failed
         {
             let failed = broadcast_manager.failed.read();

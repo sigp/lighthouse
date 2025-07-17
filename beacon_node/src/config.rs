@@ -1638,8 +1638,8 @@ fn purge_db(chain_db: PathBuf, freezer_db: PathBuf, blobs_db: PathBuf) -> Result
 // TODO: Probably remove these, they aren't present for other cli arguments
 #[cfg(test)]
 mod tests {
-    use client::config::Config;
     use clap::{arg, Command};
+    use client::config::Config;
     use std::str::FromStr;
 
     fn get_test_app() -> Command {
