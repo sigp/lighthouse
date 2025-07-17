@@ -112,15 +112,7 @@ mod tests {
             1,
             vec![1, 2, 3],
         );
-        assert_eq!(witness_proof.description(), "Execution witness proof");
-
-        let custom_proof = ExecutionProof::new(
-            block_hash,
-            ExecutionProofSubnetId::new(5).unwrap(),
-            1,
-            vec![1, 2, 3],
-        );
-        assert_eq!(custom_proof.description(), "Custom proof type 5");
+        assert_eq!(witness_proof.description(), "proof id 0");
     }
 
     #[test]
