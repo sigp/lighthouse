@@ -306,6 +306,8 @@ impl ExecutionPayloadProofStore {
 
     /// Take all proofs from the broadcast queue
     /// This drains the queue and returns all pending proofs
+    /// 
+    /// Note: This is used for the BroadcastManager
     pub fn take_unqueued_proofs(&self) -> Vec<(ExecutionBlockHash, ProofId)> {
         let mut queue = self.broadcast_queue.write();
         std::mem::take(&mut *queue)
@@ -618,7 +620,7 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Check if an execution payload has sufficient proofs to be considered proven
-    /// This uses the stateless_min_proofs_required from the chain config
+    /// This uses the `stateless_min_proofs_required` from the chain config
     pub fn has_sufficient_proofs(
         &self,
         execution_block_hash: &ExecutionBlockHash,
