@@ -5,7 +5,7 @@
 //! proofs generated asynchronously are eventually broadcast, even if they weren't
 //! ready during initial block production.
 
-use beacon_chain::execution_payload_proofs::ProofId;
+use beacon_chain::execution_proof_store::ProofId;
 use beacon_chain::{parking_lot::RwLock, BeaconChain, BeaconChainTypes};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;

@@ -436,7 +436,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Storage for execution payload proofs used in stateless validation.
     pub execution_payload_proof_store:
-        Arc<crate::execution_payload_proofs::ExecutionPayloadProofStore>,
+        Arc<crate::execution_proof_store::ExecutionPayloadProofStore>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
