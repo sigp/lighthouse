@@ -885,6 +885,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let request_start_slot = Slot::from(req.start_slot);
 
+        // Check if the request slot is after a Fulu slot; if so, return empty response
+        if let Some(fulu_epoch) = self.chain.spec.fulu_fork_epoch {
+            let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
+
+            if request_start_slot >= fulu_start_slot {
+                debug!(
+                    %peer_id,
+                    %request_start_slot,
+                    %fulu_start_slot,
+                    returned = 0,
+                    "BlobsByRange request is at or after a Fulu slot, returning empty response"
+                );
+                return Ok(());
+            }
+        }
+
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
             None => {
