@@ -160,28 +160,6 @@ impl ExecutionPayloadProofStore {
         }
     }
 
-    /// Check if we have any proof for the given execution block hash
-    /// Returns true if at least one proof type exists
-    ///
-    /// Note: all stored proofs are validated. We assume that proofs are added via `store_proofs`
-    pub fn has_valid_proof(&self, block_hash: &ExecutionBlockHash) -> bool {
-        let proofs = self.proofs.read();
-        proofs.keys().any(|(hash, _proof_id)| hash == block_hash)
-    }
-
-    /// Check if we have a proof for a specific proof ID and execution block hash
-    /// Returns true if the proof exists
-    ///
-    /// Note: all stored proofs are validated. We assume that proofs are added via `store_proofs`
-    pub fn has_valid_proof_for_id(
-        &self,
-        block_hash: &ExecutionBlockHash,
-        proof_id: ProofId,
-    ) -> bool {
-        let proofs = self.proofs.read();
-        proofs.contains_key(&(*block_hash, proof_id))
-    }
-
     /// Get all proofs for the given execution block hash
     pub fn get_proofs(&self, block_hash: &ExecutionBlockHash) -> Vec<ExecutionProof> {
         let proofs = self.proofs.read();
@@ -256,20 +234,6 @@ impl ExecutionPayloadProofStore {
         Ok(())
     }
 
-    /// Get the total number of stored proofs (across all proof types and payloads)
-    pub fn len(&self) -> usize {
-        self.proofs.read().len()
-    }
-
-    /// Get the number of unique payloads that have at least one proof
-    #[cfg(test)]
-    pub fn unique_payload_count(&self) -> usize {
-        let proofs = self.proofs.read();
-        let unique_hashes: std::collections::HashSet<ExecutionBlockHash> =
-            proofs.keys().map(|(hash, _proof_id)| *hash).collect();
-        unique_hashes.len()
-    }
-
     /// Get the number of proofs for a specific execution block hash
     ///
     /// This method is essential for stateless validation to determine:
@@ -288,18 +252,8 @@ impl ExecutionPayloadProofStore {
             .count()
     }
 
-    /// Check if the store is empty
-    pub fn is_empty(&self) -> bool {
-        self.proofs.read().is_empty()
-    }
-
-    /// Clear all stored proofs
-    pub fn clear(&self) {
-        self.proofs.write().clear();
-        self.insertion_order.write().clear();
-    }
-
     /// Generate a proof for an execution payload
+    /// TODO: can remove
     pub fn generate_proof<T: EthSpec>(
         payload: &ExecutionPayload<T>,
         execution_state_witness: &[u8],
@@ -313,11 +267,13 @@ impl ExecutionPayloadProofStore {
     }
 
     /// Validate a proof
+    /// TODO: can remove
     pub fn validate_proof(proof: &ExecutionProof) -> bool {
         crate::execution_proof_generation::validate_proof(proof)
     }
 
     /// Generate and store a proof for the given execution payload and proof ID
+    ///
     /// This is a convenience method that combines proof generation and storage
     pub fn generate_and_store_proof<T: EthSpec>(
         &self,
@@ -389,22 +345,6 @@ impl ExecutionPayloadProofStore {
         }
     }
 
-    /// Get the number of execution block hashes that have pending blocks
-    #[cfg(test)]
-    pub fn pending_execution_hashes_count(&self) -> usize {
-        self.pending_blocks.read().len()
-    }
-
-    /// Get the total number of pending beacon blocks across all execution hashes
-    #[cfg(test)]
-    pub fn total_pending_blocks_count(&self) -> usize {
-        self.pending_blocks
-            .read()
-            .values()
-            .map(|blocks| blocks.len())
-            .sum()
-    }
-
     /// Clean up pending blocks based on a provided predicate
     ///
     /// Note: This should be called periodically to prevent memory leaks
@@ -458,54 +398,6 @@ impl ExecutionPayloadProofStore {
         });
 
         removed_count
-    }
-
-    /// Get the current proven head (beacon block root and slot)
-    /// Returns None if no proven head has been established yet
-    #[cfg(test)]
-    fn get_proven_head(&self) -> Option<(Hash256, Slot)> {
-        *self.proven_head.read()
-    }
-
-    /// Get the proven finalized checkpoint (beacon block root and slot)
-    /// Returns None if no proven finalized checkpoint has been established yet
-    #[cfg(test)]
-    fn get_proven_finalized(&self) -> Option<(Hash256, Slot)> {
-        *self.proven_finalized.read()
-    }
-
-    /// Check if a beacon block is part of the proven canonical chain
-    #[cfg(test)]
-    fn is_block_proven(&self, beacon_block_root: &Hash256) -> bool {
-        self.proven_canonical_chain
-            .read()
-            .contains_key(beacon_block_root)
-    }
-
-    /// Get information about a proven block
-    #[cfg(test)]
-    fn get_proven_block_info(&self, beacon_block_root: &Hash256) -> Option<ProvenBlockInfo> {
-        self.proven_canonical_chain
-            .read()
-            .get(beacon_block_root)
-            .cloned()
-    }
-
-    /// Get the entire proven canonical chain from finalized to head
-    /// Returns a vector of proven blocks ordered from oldest to newest
-    #[cfg(test)]
-    fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
-        let chain = self.proven_canonical_chain.read();
-        let mut blocks: Vec<ProvenBlockInfo> = chain.values().cloned().collect();
-        // Sort by slot, oldest first
-        blocks.sort_by_key(|b| b.slot);
-        blocks
-    }
-
-    /// Get the depth of the proven chain (number of proven blocks)
-    #[cfg(test)]
-    fn get_proven_chain_depth(&self) -> usize {
-        self.proven_canonical_chain.read().len()
     }
 
     /// Check if an execution payload has sufficient proofs to be considered proven
@@ -711,6 +603,107 @@ impl ExecutionPayloadProofStore {
         if proven_finalized_candidate != *proven_finalized {
             *proven_finalized = proven_finalized_candidate;
         }
+    }
+}
+
+#[cfg(test)]
+impl ExecutionPayloadProofStore {
+    /// Get the total number of stored proofs (across all proof types and payloads)
+    fn len(&self) -> usize {
+        self.proofs.read().len()
+    }
+
+    /// Check if the store is empty
+    fn is_empty(&self) -> bool {
+        self.proofs.read().is_empty()
+    }
+
+    /// Clear all stored proofs
+    fn clear(&self) {
+        self.proofs.write().clear();
+        self.insertion_order.write().clear();
+    }
+
+    /// Check if we have any proof for the given execution block hash
+    /// Returns true if at least one proof type exists
+    ///
+    /// Note: all stored proofs are validated. We assume that proofs are added via `store_proofs`
+    fn has_valid_proof(&self, block_hash: &ExecutionBlockHash) -> bool {
+        let proofs = self.proofs.read();
+        proofs.keys().any(|(hash, _proof_id)| hash == block_hash)
+    }
+
+    /// Check if we have a proof for a specific proof ID and execution block hash
+    /// Returns true if the proof exists
+    ///
+    /// Note: all stored proofs are validated. We assume that proofs are added via `store_proofs`
+    fn has_valid_proof_for_id(&self, block_hash: &ExecutionBlockHash, proof_id: ProofId) -> bool {
+        let proofs = self.proofs.read();
+        proofs.contains_key(&(*block_hash, proof_id))
+    }
+
+    /// Get the number of unique payloads that have at least one proof
+    pub fn unique_payload_count(&self) -> usize {
+        let proofs = self.proofs.read();
+        let unique_hashes: std::collections::HashSet<ExecutionBlockHash> =
+            proofs.keys().map(|(hash, _proof_id)| *hash).collect();
+        unique_hashes.len()
+    }
+
+    /// Get the number of execution block hashes that have pending blocks
+    pub fn pending_execution_hashes_count(&self) -> usize {
+        self.pending_blocks.read().len()
+    }
+
+    /// Get the total number of pending beacon blocks across all execution hashes
+    pub fn total_pending_blocks_count(&self) -> usize {
+        self.pending_blocks
+            .read()
+            .values()
+            .map(|blocks| blocks.len())
+            .sum()
+    }
+
+    /// Get the current proven head (beacon block root and slot)
+    /// Returns None if no proven head has been established yet
+    fn get_proven_head(&self) -> Option<(Hash256, Slot)> {
+        *self.proven_head.read()
+    }
+
+    /// Get the proven finalized checkpoint (beacon block root and slot)
+    /// Returns None if no proven finalized checkpoint has been established yet
+    fn get_proven_finalized(&self) -> Option<(Hash256, Slot)> {
+        *self.proven_finalized.read()
+    }
+
+    /// Check if a beacon block is part of the proven canonical chain
+    fn is_block_proven(&self, beacon_block_root: &Hash256) -> bool {
+        self.proven_canonical_chain
+            .read()
+            .contains_key(beacon_block_root)
+    }
+
+    /// Get information about a proven block
+    fn get_proven_block_info(&self, beacon_block_root: &Hash256) -> Option<ProvenBlockInfo> {
+        self.proven_canonical_chain
+            .read()
+            .get(beacon_block_root)
+            .cloned()
+    }
+
+    /// Get the entire proven canonical chain from finalized to head
+    /// Returns a vector of proven blocks ordered from oldest to newest
+    fn get_proven_canonical_chain(&self) -> Vec<ProvenBlockInfo> {
+        let chain = self.proven_canonical_chain.read();
+        let mut blocks: Vec<ProvenBlockInfo> = chain.values().cloned().collect();
+        // Sort by slot, oldest first
+        blocks.sort_by_key(|b| b.slot);
+        blocks
+    }
+
+    /// Get the depth of the proven chain (number of proven blocks)
+    fn get_proven_chain_depth(&self) -> usize {
+        self.proven_canonical_chain.read().len()
     }
 }
 
