@@ -19,7 +19,7 @@ use types::{ExecutionBlockHash, ExecutionProof, ExecutionProofSubnetId};
 
 /// Status of proof broadcasting to the network of a particular proof
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BroadcastStatus {
+enum BroadcastStatus {
     /// Proof has not been broadcasted yet
     NotBroadcast,
     /// Proof is currently being broadcasted
@@ -30,26 +30,21 @@ pub enum BroadcastStatus {
     Failed,
 }
 
-impl Default for BroadcastStatus {
-    fn default() -> Self {
-        BroadcastStatus::NotBroadcast
-    }
-}
 
 /// Broadcast state for a specific execution proof
 #[derive(Debug, Clone)]
-pub struct ProofBroadcastState {
+struct ProofBroadcastState {
     /// Current broadcast status of this proof
-    pub status: BroadcastStatus,
+    status: BroadcastStatus,
     /// Number of broadcast attempts made
-    pub attempts: u32,
+    attempts: u32,
     /// Timestamp of the last broadcast attempt
-    pub last_attempt: Option<Duration>,
+    last_attempt: Option<Duration>,
 }
 
 impl ProofBroadcastState {
     /// Create a new broadcast state
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             status: BroadcastStatus::NotBroadcast,
             attempts: 0,
@@ -58,7 +53,7 @@ impl ProofBroadcastState {
     }
 
     /// Check if this proof is ready to be broadcasted
-    pub fn is_ready_to_broadcast(&self) -> bool {
+    fn is_ready_to_broadcast(&self) -> bool {
         matches!(
             self.status,
             BroadcastStatus::NotBroadcast | BroadcastStatus::Failed
@@ -66,7 +61,7 @@ impl ProofBroadcastState {
     }
 
     /// Mark proof as currently being broadcast
-    pub fn mark_broadcasting(&mut self) {
+    fn mark_broadcasting(&mut self) {
         self.status = BroadcastStatus::Broadcasting;
         self.attempts += 1;
         self.last_attempt = Some(
@@ -77,44 +72,39 @@ impl ProofBroadcastState {
     }
 
     /// Mark proof as successfully broadcast
-    pub fn mark_broadcast_success(&mut self) {
+    fn mark_broadcast_success(&mut self) {
         self.status = BroadcastStatus::Broadcast;
     }
 
     /// Mark proof broadcast as failed
-    pub fn mark_broadcast_failed(&mut self) {
+    fn mark_broadcast_failed(&mut self) {
         self.status = BroadcastStatus::Failed;
     }
 
     /// Check if broadcast should be retried (failed with attempts under limit)
-    pub fn should_retry_broadcast(&self, max_attempts: u32) -> bool {
+    fn should_retry_broadcast(&self, max_attempts: u32) -> bool {
         matches!(self.status, BroadcastStatus::Failed) && self.attempts < max_attempts
     }
 }
 
-impl Default for ProofBroadcastState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Manages broadcast state for execution proofs separately from proof storage
 #[derive(Debug)]
-pub struct ProofBroadcastManager {
+struct ProofBroadcastManager {
     /// Map from (execution block hash, proof ID) to broadcast state
     broadcast_states: RwLock<HashMap<(ExecutionBlockHash, ProofId), ProofBroadcastState>>,
 }
 
 impl ProofBroadcastManager {
     /// Create a new broadcast manager
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self {
             broadcast_states: RwLock::new(HashMap::new()),
         }
     }
 
     /// Get broadcast state for a proof, creating a new one if it doesn't exist
-    pub fn get_or_create_state(
+    fn get_or_create_state(
         &self,
         block_hash: ExecutionBlockHash,
         proof_id: ProofId,
@@ -127,7 +117,7 @@ impl ProofBroadcastManager {
     }
 
     /// Update broadcast state for a proof
-    pub fn update_state(
+    fn update_state(
         &self,
         block_hash: ExecutionBlockHash,
         proof_id: ProofId,
@@ -138,14 +128,14 @@ impl ProofBroadcastManager {
     }
 
     /// Mark a proof as being broadcasted
-    pub fn mark_broadcasting(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
+    fn mark_broadcasting(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
         let mut state = self.get_or_create_state(block_hash, proof_id);
         state.mark_broadcasting();
         self.update_state(block_hash, proof_id, state);
     }
 
     /// Mark a proof as successfully broadcast
-    pub fn mark_broadcast_success(
+    fn mark_broadcast_success(
         &self,
         block_hash: ExecutionBlockHash,
         proof_id: ProofId,
@@ -156,14 +146,14 @@ impl ProofBroadcastManager {
     }
 
     /// Mark a proof broadcast as failed
-    pub fn mark_broadcast_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
+    fn mark_broadcast_failed(&self, block_hash: ExecutionBlockHash, proof_id: ProofId) {
         let mut state = self.get_or_create_state(block_hash, proof_id);
         state.mark_broadcast_failed();
         self.update_state(block_hash, proof_id, state);
     }
 
     /// Get all proofs ready for broadcast
-    pub fn get_proofs_ready_for_broadcast<T: BeaconChainTypes>(
+    fn get_proofs_ready_for_broadcast<T: BeaconChainTypes>(
         &self,
         chain: &Arc<BeaconChain<T>>,
     ) -> Vec<(ExecutionBlockHash, ProofId)> {
@@ -183,7 +173,7 @@ impl ProofBroadcastManager {
     }
 
     /// Get proofs that should be retried
-    pub fn get_proofs_for_retry<T: BeaconChainTypes>(
+    fn get_proofs_for_retry<T: BeaconChainTypes>(
         &self,
         chain: &Arc<BeaconChain<T>>,
         max_attempts: u32,
@@ -204,7 +194,7 @@ impl ProofBroadcastManager {
     }
 
     /// Clean up old broadcast states for proofs that no longer exist
-    pub fn cleanup_old_states<T: BeaconChainTypes>(&self, chain: &Arc<BeaconChain<T>>) {
+    fn cleanup_old_states<T: BeaconChainTypes>(&self, chain: &Arc<BeaconChain<T>>) {
         let stored_proofs = chain.execution_payload_proof_store.get_all_proofs();
         let mut states = self.broadcast_states.write();
 
@@ -214,14 +204,14 @@ impl ProofBroadcastManager {
 }
 
 /// Configuration for the execution proof broadcaster
-#[derive(Debug, Clone)]
-pub struct ExecutionProofBroadcasterConfig {
+#[derive(Debug)]
+struct ExecutionProofBroadcasterConfig {
     /// How often to check for unbroadcast proofs
-    pub broadcast_interval: Duration,
+    broadcast_interval: Duration,
     /// Maximum number of broadcast attempts per proof
-    pub max_broadcast_attempts: u32,
+    max_broadcast_attempts: u32,
     /// Delay between retries for failed broadcasts
-    pub retry_delay: Duration,
+    retry_delay: Duration,
 }
 
 impl Default for ExecutionProofBroadcasterConfig {
@@ -259,7 +249,7 @@ pub fn start_execution_proof_broadcaster_service<T: BeaconChainTypes>(
 }
 
 /// Background task that periodically broadcasts unbroadcast execution proofs
-pub async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
+async fn execution_proof_broadcaster_task<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
     config: ExecutionProofBroadcasterConfig,
@@ -432,10 +422,6 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-    #[test]
-    fn test_broadcast_status_default() {
-        assert_eq!(BroadcastStatus::default(), BroadcastStatus::NotBroadcast);
-    }
 
     #[test]
     fn test_proof_broadcast_state_new() {
