@@ -633,7 +633,7 @@ impl ExecutionPayloadProofStore {
     /// Note: This requires access to BeaconChain, so it's called from beacon_chain.rs
     /// TODO: Walking back each time is expensive, we can probably make this faster by
     /// TODO: having the proof store save intermediate information would help here, but don't want to
-    /// TODO: make it compelx (ie keeping track of different forks)
+    /// TODO: make it complex (ie keeping track of different forks)
     pub fn update_proven_chain<T: crate::BeaconChainTypes>(
         &self,
         chain: &crate::BeaconChain<T>,
