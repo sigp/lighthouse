@@ -3291,9 +3291,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         block_hash, subnet_id
                     );
                 }
-
-                // In dual-view architecture, fork choice remains optimistic
-                // The proven chain is tracked separately and doesn't trigger head recomputation
             }
             Err(e) => {
                 warn!(
