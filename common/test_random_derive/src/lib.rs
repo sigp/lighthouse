@@ -27,7 +27,7 @@ pub fn test_random_derive(input: TokenStream) -> TokenStream {
     let mut quotes = vec![];
     for field in &struct_data.fields {
         match &field.ident {
-            Some(ref ident) => {
+            Some(ident) => {
                 if should_use_default(field) {
                     quotes.push(quote! {
                         #ident: <_>::default(),

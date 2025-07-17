@@ -113,7 +113,7 @@ impl MerkleTree {
             Zero(_) => {
                 *self = MerkleTree::create(&[elem], depth);
             }
-            Node(ref mut hash, ref mut left, ref mut right) => {
+            Node(hash, left, right) => {
                 let left: &mut MerkleTree = &mut *left;
                 let right: &mut MerkleTree = &mut *right;
                 match (&*left, &*right) {

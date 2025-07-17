@@ -10,7 +10,6 @@ use crate::{
 };
 pub use blst::min_pk as blst_core;
 use blst::{blst_scalar, BLST_ERROR};
-use rand::Rng;
 
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 pub const RAND_BITS: usize = 64;
@@ -285,7 +284,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
 impl TSecretKey<blst_core::Signature, blst_core::PublicKey> for blst_core::SecretKey {
     fn random() -> Self {
         let rng = &mut rand::thread_rng();
-        let ikm: [u8; 32] = rng.gen();
+        let ikm: [u8; 32] = rng.random();
 
         Self::key_gen(&ikm, &[]).unwrap()
     }
