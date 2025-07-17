@@ -216,34 +216,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         removed_count
     }
 
-    /// Clean up pending blocks older than a specific slot
-    /// This is a more aggressive cleanup that can be called during sync or maintenance
-    pub fn cleanup_pending_blocks_older_than(&self, cutoff_slot: Slot) -> usize {
-        if !self.config.stateless_validation {
-            return 0;
-        }
-
-        let removed_count =
-            self.execution_payload_proof_store
-                .cleanup_pending_blocks(|block_root| {
-                    if let Ok(Some(block)) = self.get_blinded_block(&block_root) {
-                        block.slot() < cutoff_slot
-                    } else {
-                        // If we can't find the block, remove it
-                        true
-                    }
-                });
-
-        if removed_count > 0 {
-            info!(
-                cutoff_slot = %cutoff_slot,
-                removed_count,
-                "Cleaned up pending blocks older than slot from proof store"
-            );
-        }
-
-        removed_count
-    }
 
     // ========================================================================
     // Logging and Monitoring
