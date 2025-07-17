@@ -11,7 +11,6 @@ use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
-    execution_payload_proofs::{ExecutionPayloadProof, ProofId},
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -3220,20 +3219,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         }
 
-        // Convert ExecutionProof to ExecutionPayloadProof for storage
-        let execution_payload_proof = ExecutionPayloadProof::new(
-            execution_proof.block_hash,
-            // TODO: Check that this is infallible, ie `subnet_id_u64` is validated
-            ProofId(subnet_id_u64),
-            execution_proof.version,
-            execution_proof.proof_data.clone(),
-        );
-
         // Store the proof in the execution payload proof store
         if let Err(e) = self
             .chain
             .execution_payload_proof_store
-            .store_proof(execution_payload_proof)
+            .store_proof(execution_proof.as_ref().clone())
         {
             warn!(
                 %block_hash,

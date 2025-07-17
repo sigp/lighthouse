@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, info, warn};
-use types::{EthSpec, ExecutionBlockHash, ExecutionProof, ExecutionProofSubnetId};
+use types::{EthSpec, ExecutionBlockHash, ExecutionProof};
 
 /// Information about failed broadcast attempts
 #[derive(Debug, Clone)]
@@ -147,7 +147,7 @@ impl ProofBroadcastManager {
             warn!(
                 "Proof for block {:?} subnet {} exceeded retry limit ({} attempts), abandoning",
                 key.0,
-                key.1.subnet_id(),
+                *key.1,
                 max_attempts
             );
         } else {
@@ -262,37 +262,18 @@ async fn broadcast_single_proof<E: EthSpec>(
     broadcast_manager: &ProofBroadcastManager,
     execution_block_hash: ExecutionBlockHash,
     proof_id: ProofId,
-    stored_proof: &beacon_chain::execution_payload_proofs::ExecutionPayloadProof,
+    stored_proof: &ExecutionProof,
     max_attempts: u32,
 ) {
     // Mark as currently broadcasting
     broadcast_manager.start_broadcast(execution_block_hash, proof_id);
 
-    // Create subnet ID, validating it's within bounds
-    let subnet_id = match ExecutionProofSubnetId::new(proof_id.subnet_id()) {
-        Ok(id) => id,
-        Err(e) => {
-            warn!(
-                "Invalid subnet ID {} for proof: {}",
-                proof_id.subnet_id(),
-                e
-            );
-            broadcast_manager.mark_failed(execution_block_hash, proof_id, max_attempts);
-            return;
-        }
-    };
-
-    // Convert ExecutionPayloadProof to ExecutionProof (gossip format)
-    let gossip_proof = ExecutionProof::new(
-        execution_block_hash,
-        subnet_id,
-        stored_proof.version,
-        stored_proof.proof_data.clone(),
-    );
+    // Use the stored proof directly (already in ExecutionProof format)
+    let gossip_proof = stored_proof.clone();
 
     // Create the gossip message
     let pubsub_message =
-        PubsubMessage::ExecutionProofMessage(Box::new((subnet_id, Arc::new(gossip_proof))));
+        PubsubMessage::ExecutionProofMessage(Box::new((proof_id, Arc::new(gossip_proof))));
 
     // Broadcast the proof
     match network_tx.send(NetworkMessage::Publish {
@@ -304,7 +285,7 @@ async fn broadcast_single_proof<E: EthSpec>(
             info!(
                 "STATELESS: Successfully BROADCAST execution proof for block {:?} on subnet {}",
                 execution_block_hash,
-                proof_id.subnet_id()
+                *proof_id
             );
         }
         Err(e) => {
@@ -313,7 +294,7 @@ async fn broadcast_single_proof<E: EthSpec>(
             warn!(
                 "Failed to broadcast execution proof for block {:?} subnet {}: {}",
                 execution_block_hash,
-                proof_id.subnet_id(),
+                *proof_id,
                 e
             );
         }
@@ -323,7 +304,7 @@ async fn broadcast_single_proof<E: EthSpec>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use beacon_chain::execution_payload_proofs::ExecutionPayloadProof;
+    use types::execution_proof_subnet_id::ExecutionProofSubnetId;
     use tokio::sync::mpsc;
     use types::{ExecutionBlockHash, Hash256, MainnetEthSpec};
 
@@ -359,8 +340,8 @@ mod tests {
         let manager = ProofBroadcastManager::new();
         let block_hash1 = ExecutionBlockHash::from(Hash256::random());
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id1 = ProofId::new(1).unwrap();
-        let proof_id2 = ProofId::new(2).unwrap();
+        let proof_id1 = ExecutionProofSubnetId::new(1).unwrap();
+        let proof_id2 = ExecutionProofSubnetId::new(2).unwrap();
 
         // Queue some proofs
         manager.queue_proofs(vec![(block_hash1, proof_id1), (block_hash2, proof_id2)]);
@@ -393,7 +374,7 @@ mod tests {
         let block_hash1 = ExecutionBlockHash::from(Hash256::random());
         let block_hash2 = ExecutionBlockHash::from(Hash256::random());
         let block_hash3 = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::new(1).unwrap();
+        let proof_id = ExecutionProofSubnetId::new(1).unwrap();
 
         // Queue some proofs
         manager.queue_proofs(vec![
@@ -422,7 +403,7 @@ mod tests {
     fn test_proof_broadcast_manager_mark_methods() {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::new(1).unwrap();
+        let proof_id = ExecutionProofSubnetId::new(1).unwrap();
 
         // Queue a proof
         manager.queue_proofs(vec![(block_hash, proof_id)]);
@@ -451,7 +432,7 @@ mod tests {
     fn test_proof_broadcast_manager_retry_logic() {
         let manager = ProofBroadcastManager::new();
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::new(1).unwrap();
+        let proof_id = ExecutionProofSubnetId::new(1).unwrap();
 
         // Queue and fail multiple times
         manager.queue_proofs(vec![(block_hash, proof_id)]);
@@ -495,8 +476,8 @@ mod tests {
         let broadcast_manager = ProofBroadcastManager::new();
 
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::new(1).unwrap();
-        let stored_proof = ExecutionPayloadProof::new(block_hash, proof_id, 1, vec![1, 2, 3, 4, 5]);
+        let proof_id = ExecutionProofSubnetId::new(1).unwrap();
+        let stored_proof = ExecutionProof::new(block_hash, proof_id, 1, vec![1, 2, 3, 4, 5]);
 
         // Broadcast the proof
         broadcast_single_proof::<E>(
@@ -546,8 +527,8 @@ mod tests {
         let broadcast_manager = ProofBroadcastManager::new();
 
         let block_hash = ExecutionBlockHash::from(Hash256::random());
-        let proof_id = ProofId::new(1).unwrap();
-        let stored_proof = ExecutionPayloadProof::new(block_hash, proof_id, 1, vec![1, 2, 3]);
+        let proof_id = ExecutionProofSubnetId::new(1).unwrap();
+        let stored_proof = ExecutionProof::new(block_hash, proof_id, 1, vec![1, 2, 3]);
 
         // Broadcast should handle the error gracefully
         broadcast_single_proof::<E>(

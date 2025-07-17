@@ -5,25 +5,20 @@ use crate::ExecutionBlockHash;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
-/// A simplified execution proof message for gossip subnet distribution.
-/// This is a lighter version of ExecutionPayloadProof for network transmission.
+/// Represents a proof for an execution payload.
+/// If this proof verifies as true, it is equivalent to the ExecutionLayer
+/// specifying that the payload is valid.
+/// Multiple proof types can exist for a single execution payload
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct ExecutionProof {
     /// The execution block hash this proof attests to
     pub block_hash: ExecutionBlockHash,
-    /// The subnet ID where this proof was received/should be sent
-    ///
-    /// TODO: This is not strictly needed. Its useful because there is a
-    /// TODO: conversion from SubnetId to ProofID. We could encode the ProofID
-    /// TODO: into the `proof_data`.
+    /// The subnet ID where this proof was received/should be sent (maps to gossip subnet)
     pub subnet_id: ExecutionProofSubnetId,
-    /// Version of the proof format.
-    /// TODO: This is currently always set to `1` by `new_v1`
-    /// TODO: but we want to have a proper way to set this and or
-    /// TODO: decide, if this should be explicitly set in lighthouse.
+    /// Version of the proof format - allows for one subnet to upgrade their proof without all needing to
     pub version: u32,
     /// Opaque proof data - structure depends on subnet_id and version
-    /// This contains cryptographic proofs from zkVMs or other proof systems
+    /// This will contain cryptographic proofs received via gossip
     pub proof_data: Vec<u8>,
 }
 
@@ -45,14 +40,17 @@ impl ExecutionProof {
 
     /// Get a description of the proof type based on subnet_id
     pub fn description(&self) -> String {
-        match *self.subnet_id {
-            0 => "Execution witness proof".to_string(),
-            _ => format!("Custom proof type {}", *self.subnet_id),
-        }
+        format!("proof id {}", *self.subnet_id)
     }
 
     /// Check if this proof version is supported
     pub fn is_version_supported(&self) -> bool {
+        // TODO: We want each subnet to be able to update
+        // TODO: their version independently, for now it just supports 1
+        // TODO: Think of the best structure to use here, noting that there
+        // TODO: could be quite a lot of subnets, if we consider the different
+        // TODO: zkVM and EL combos. So maybe the versioning comes from the
+        // TODO: middleware that verifies proofs.
         matches!(self.version, 1)
     }
 

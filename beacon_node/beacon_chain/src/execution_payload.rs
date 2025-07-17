@@ -709,7 +709,14 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
                 tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
             }
 
-            let proof_id = crate::execution_payload_proofs::ProofId(*subnet_id);
+            // Create ExecutionProofSubnetId from the u64 subnet_id
+            let proof_id = match ExecutionProofSubnetId::new(*subnet_id) {
+                Ok(id) => id,
+                Err(e) => {
+                    debug!("Invalid subnet ID {}: {}", subnet_id, e);
+                    continue;
+                }
+            };
 
             // Use the proof store method to generate and store the proof
             match chain
@@ -796,7 +803,7 @@ mod tests {
             );
 
         assert_eq!(proof.block_hash, execution_block_hash);
-        assert_eq!(proof.proof_id, proof_id);
+        assert_eq!(proof.subnet_id, proof_id);
         assert_eq!(proof.version, 1);
         assert!(!proof.proof_data.is_empty());
         assert!(
@@ -863,9 +870,9 @@ mod tests {
         assert_eq!(proof_2.block_hash, execution_block_hash);
 
         // But should have different proof IDs and data
-        assert_eq!(proof_0.proof_id.subnet_id(), 0);
-        assert_eq!(proof_1.proof_id.subnet_id(), 1);
-        assert_eq!(proof_2.proof_id.subnet_id(), 2);
+        assert_eq!(*proof_0.subnet_id, 0);
+        assert_eq!(*proof_1.subnet_id, 1);
+        assert_eq!(*proof_2.subnet_id, 2);
 
         // Proof data should be different for different subnets
         assert_ne!(proof_0.proof_data, proof_1.proof_data);
@@ -916,7 +923,7 @@ mod tests {
 
         let proof = result.unwrap();
         assert_eq!(proof.block_hash, execution_block_hash);
-        assert_eq!(proof.proof_id, proof_id);
+        assert_eq!(proof.subnet_id, proof_id);
 
         // Verify it's stored in the store
         assert!(store.has_valid_proof(&execution_block_hash));

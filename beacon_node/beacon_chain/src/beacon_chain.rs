@@ -2759,7 +2759,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Get proof descriptions with their subnet IDs for better logging
             let proof_details: Vec<String> = available_proofs
                 .iter()
-                .map(|p| format!("{} on subnet {}", p.description(), p.proof_id.subnet_id()))
+                .map(|p| format!("{} on subnet {}", p.description(), *p.subnet_id))
                 .collect();
 
             debug!(
