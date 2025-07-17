@@ -9090,7 +9090,6 @@ dependencies = [
  "criterion",
  "db-key",
  "directory",
- "dotenvy",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "itertools 0.10.5",
