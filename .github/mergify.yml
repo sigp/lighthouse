@@ -1,8 +1,10 @@
 pull_request_rules:
   - name: Ask to resolve conflict
     conditions:
+      - -closed
       - conflict
       - -author=dependabot[bot]
+      - label=ready-for-review
       - or:
           - -draft # Don't report conflicts on regular draft.
           - and: # Do report conflicts on draft that are scheduled for the next major release.
@@ -12,6 +14,64 @@ pull_request_rules:
       comment:
         message: This pull request has merge conflicts. Could you please resolve them
           @{{author}}? 🙏
+      label:
+        add:
+          - waiting-on-author
+        remove:
+          - ready-for-review
+
+  - name: Ask to resolve CI failures
+    conditions:
+      - -closed
+      - label=ready-for-review
+      - or:
+          - check-skipped=test-suite-success
+          - check-skipped=local-testnet-success
+          - check-failure=test-suite-success
+          - check-failure=local-testnet-success
+    actions:
+      comment:
+        message: Some required checks have failed. Could you please take a look @{{author}}? 🙏
+      label:
+        add:
+          - waiting-on-author
+        remove:
+          - ready-for-review
+
+  - name: Update labels when PR is unblocked
+    conditions:
+      - -closed
+      - -draft
+      - label=waiting-on-author
+      - -conflict
+      # Unfortunately, it doesn't look like there's an easy way to check for PRs pending
+      # CI workflows approvals.
+      - check-success=test-suite-success
+      - check-success=local-testnet-success
+      # Update the label only if there are no more change requests from any reviewers and no unresolved threads.
+      # This rule ensures that a PR with passing CI can be marked as `waiting-on-author`.
+      - "#changes-requested-reviews-by = 0"
+      - "#review-threads-unresolved = 0"
+    actions:
+      label:
+        remove:
+          - waiting-on-author
+        add:
+          - ready-for-review
+
+  - name: Close stale pull request after 30 days of inactivity
+    conditions:
+      - -closed
+      - label=waiting-on-author
+      - updated-at<=30 days ago
+    actions:
+      close:
+        message: >
+          Hi @{{author}}, this pull request has been closed automatically due to 30 days of inactivity.
+          If you’d like to continue working on it, feel free to reopen at any time.
+      label:
+        add:
+          - stale
 
   - name: Approve trivial maintainer PRs
     conditions:

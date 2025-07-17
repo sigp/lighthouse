@@ -89,6 +89,7 @@ pub enum BatchOperationOutcome {
     Failed { blacklist: bool },
 }
 
+#[derive(Debug)]
 pub enum BatchProcessingResult {
     Success,
     FaultyFailure,
@@ -364,7 +365,6 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         }
     }
 
-    #[must_use = "Batch may have failed"]
     pub fn processing_completed(
         &mut self,
         procesing_result: BatchProcessingResult,
