@@ -448,14 +448,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// the batch.
     pub fn retry_columns_by_range(
         &mut self,
-        request_id: Id,
+        id: Id,
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
         request: BlocksByRangeRequest,
         failed_columns: &HashSet<ColumnIndex>,
     ) -> Result<(), String> {
         let Some(requester) = self.components_by_range_requests.keys().find_map(|r| {
-            if r.id == request_id {
+            if r.id == id {
                 Some(r.requester)
             } else {
                 None
@@ -468,6 +468,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         debug!(
             ?failed_columns,
+            ?id,
+            ?requester,
             "Retrying only failed column requests from other peers"
         );
 
@@ -483,7 +485,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Reuse the id for the request that received partially correct responses
         let id = ComponentsByRangeRequestId {
-            id: request_id,
+            id: id,
             requester,
         };
 
@@ -694,18 +696,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             match range_block_component {
                 RangeBlockComponent::Block(req_id, resp) => resp.and_then(|(blocks, _)| {
                     request.add_blocks(req_id, blocks).map_err(|e| {
-                        RpcResponseError::BlockComponentCouplingError(CouplingError {
-                            msg: e,
-                            column_and_peer: None,
-                        })
+                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
+                            e,
+                        ))
                     })
                 }),
                 RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|(blobs, _)| {
                     request.add_blobs(req_id, blobs).map_err(|e| {
-                        RpcResponseError::BlockComponentCouplingError(CouplingError {
-                            msg: e,
-                            column_and_peer: None,
-                        })
+                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
+                            e,
+                        ))
                     })
                 }),
                 RangeBlockComponent::CustodyColumns(req_id, resp) => {
@@ -713,10 +713,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         request
                             .add_custody_columns(req_id, custody_columns)
                             .map_err(|e| {
-                                RpcResponseError::BlockComponentCouplingError(CouplingError {
-                                    msg: e,
-                                    column_and_peer: None,
-                                })
+                                RpcResponseError::BlockComponentCouplingError(
+                                    CouplingError::InternalError(e),
+                                )
                             })
                     })
                 }

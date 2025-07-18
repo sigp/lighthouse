@@ -827,33 +827,32 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
-            if let RpcResponseError::BlockComponentCouplingError(CouplingError {
-                column_and_peer,
-                msg,
+            if let RpcResponseError::BlockComponentCouplingError(CouplingError::PeerFailure {
+                error,
+                faulty_peers,
+                action,
             }) = &err
             {
-                debug!(?batch_id, msg, "Block components coupling error");
+                debug!(?batch_id, error, "Block components coupling error");
                 // Note: we don't fail the batch here because a `CouplingError` is
                 // recoverable by requesting from other honest peers.
-                if let Some((column_and_peer, action)) = column_and_peer {
-                    let mut failed_columns = HashSet::new();
-                    let mut failed_peers = HashSet::new();
-                    for (column, peer) in column_and_peer {
-                        failed_columns.insert(*column);
-                        failed_peers.insert(*peer);
-                    }
-                    for peer in failed_peers.iter() {
-                        network.report_peer(*peer, *action, "failed to return columns");
-                    }
-
-                    return self.retry_partial_batch(
-                        network,
-                        batch_id,
-                        request_id,
-                        failed_columns,
-                        failed_peers,
-                    );
+                let mut failed_columns = HashSet::new();
+                let mut failed_peers = HashSet::new();
+                for (column, peer) in faulty_peers {
+                    failed_columns.insert(*column);
+                    failed_peers.insert(*peer);
                 }
+                for peer in failed_peers.iter() {
+                    network.report_peer(*peer, *action, "failed to return columns");
+                }
+
+                return self.retry_partial_batch(
+                    network,
+                    batch_id,
+                    request_id,
+                    failed_columns,
+                    failed_peers,
+                );
             }
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
