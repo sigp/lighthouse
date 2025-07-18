@@ -701,7 +701,6 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
 fn extract_execution_payload<E: EthSpec>(
     block: BeaconBlockRef<'_, E, FullPayload<E>>,
 ) -> Result<ExecutionPayload<E>, BeaconStateError> {
-    // Extract ExecutionPayload using the FullPayload's execution_payload field
     let payload_ref = block.body().execution_payload()?;
     Ok(match payload_ref {
         FullPayloadRef::Bellatrix(payload) => {
