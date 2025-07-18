@@ -3209,8 +3209,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         //
         // Note: `subnet_id_u64` was the subnet that the message was received on
         // while `execution_proof.subnet_id` was the subnet ID embedded in the proof
-        // TODO: We could possibly remove the subnet ID being embedded in the execution proof
-        // TODO: Its really the ProofID, so we could change it to `execution_proof.proof_id`
         if subnet_id_u64 != *execution_proof.subnet_id {
             warn!(
                 %block_hash,
