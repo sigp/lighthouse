@@ -484,10 +484,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|e| format!("{:?}", e))?;
 
         // Reuse the id for the request that received partially correct responses
-        let id = ComponentsByRangeRequestId {
-            id: id,
-            requester,
-        };
+        let id = ComponentsByRangeRequestId { id: id, requester };
 
         let data_column_requests = columns_by_range_peers_to_request
             .into_iter()

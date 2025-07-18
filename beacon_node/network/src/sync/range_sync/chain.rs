@@ -917,7 +917,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, &self.peers)
+                .synced_peers_for_epoch(batch_id, Some(&self.peers))
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -1097,11 +1097,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .sampling_subnets()
                 .iter()
                 .all(|subnet_id| {
-                    let peer_count = network
-                        .network_globals()
+                    let peer_db = network.network_globals().peers.read();
+                    let peer_count = self
                         .peers
-                        .read()
-                        .good_range_sync_custody_subnet_peer(*subnet_id, &self.peers)
+                        .iter()
+                        .filter(|peer| {
+                            peer_db.is_good_range_sync_custody_subnet_peer(*subnet_id, peer)
+                        })
                         .count();
                     peer_count > 0
                 });
