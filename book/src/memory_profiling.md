@@ -46,6 +46,6 @@ Generate a visualization:
 jeprof --svg $(which lighthouse) /home/ubuntu/prof.dump > profile.svg
 ```
 
-Open `profile.svg` in a browser to inspect memory hotspots.
+Open `profile.svg` in a browser to inspect memory usage.
 
 > **Important:** Symbol resolution will fail if the path to `lighthouse` doesn't exactly match how it was invoked. Stick to `$(which lighthouse)` if that's how the binary was executed.
