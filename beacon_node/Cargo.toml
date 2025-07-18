@@ -41,7 +41,7 @@ strum = { workspace = true }
 task_executor = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
-unused_port = { workspace = true }
+network_utils = { workspace = true }
 
 [dev-dependencies]
 node_test_rig = { path = "../testing/node_test_rig" }

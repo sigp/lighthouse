@@ -25,4 +25,4 @@ task_executor = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
-unused_port = { workspace = true }
+network_utils = { workspace = true }

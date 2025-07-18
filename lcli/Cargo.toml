@@ -30,6 +30,7 @@ ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
 hex = { workspace = true }
 lighthouse_network = { workspace = true }
+network_utils = { workspace = true }
 lighthouse_version = { workspace = true }
 log = { workspace = true }
 malloc_utils = { workspace = true }

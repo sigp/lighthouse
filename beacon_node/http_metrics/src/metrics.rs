@@ -37,7 +37,7 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
         store::scrape_for_metrics(db_path, freezer_db_path);
     }
 
-    lighthouse_network::scrape_discovery_metrics();
+    network_utils::discovery_metrics::scrape_discovery_metrics();
 
     health_metrics::metrics::scrape_health_metrics();
 

@@ -1,7 +1,5 @@
 //! Implementation of Lighthouse's peer management system.
 
-use crate::discovery::enr_ext::EnrExt;
-use crate::discovery::peer_id_to_node_id;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RpcErrorResponse};
 use crate::service::TARGET_SUBNET_PEERS;
 use crate::{metrics, Gossipsub, NetworkGlobals, PeerId, Subnet, SubnetDiscovery};
@@ -26,6 +24,7 @@ pub mod peerdb;
 
 use crate::peer_manager::peerdb::client::ClientKind;
 use libp2p::multiaddr;
+use network_utils::enr_ext::{peer_id_to_node_id, EnrExt};
 pub use peerdb::peer_info::{
     ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo,
 };
@@ -34,6 +33,7 @@ pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::net::IpAddr;
 use strum::IntoEnumIterator;
+use network_utils::discovery_metrics;
 use types::data_column_custody_group::{
     compute_subnets_from_custody_group, get_custody_groups, CustodyIndex,
 };
@@ -1418,16 +1418,16 @@ impl<E: EthSpec> PeerManager<E> {
 
         // Set ipv4 nat_open metric flag if threshold of peercount is met, unset if below threshold
         if inbound_ipv4_peers_connected >= LIBP2P_NAT_OPEN_THRESHOLD {
-            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv4"], 1);
+            metrics::set_gauge_vec(&discovery_metrics::NAT_OPEN, &["libp2p_ipv4"], 1);
         } else {
-            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv4"], 0);
+            metrics::set_gauge_vec(&discovery_metrics::NAT_OPEN, &["libp2p_ipv4"], 0);
         }
 
         // Set ipv6 nat_open metric flag if threshold of peercount is met, unset if below threshold
         if inbound_ipv6_peers_connected >= LIBP2P_NAT_OPEN_THRESHOLD {
-            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv6"], 1);
+            metrics::set_gauge_vec(&discovery_metrics::NAT_OPEN, &["libp2p_ipv6"], 1);
         } else {
-            metrics::set_gauge_vec(&metrics::NAT_OPEN, &["libp2p_ipv6"], 0);
+            metrics::set_gauge_vec(&discovery_metrics::NAT_OPEN, &["libp2p_ipv6"], 0);
         }
 
         // PEERS_CONNECTED
