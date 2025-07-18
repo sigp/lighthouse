@@ -1744,7 +1744,6 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
     #[serde(default = "BlobSchedule::default")]
-    #[serde(skip_serializing_if = "BlobSchedule::is_empty")]
     blob_schedule: BlobSchedule,
     #[serde(default = "default_validator_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
