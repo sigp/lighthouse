@@ -417,15 +417,12 @@ impl TestRig {
         }
     }
 
-    pub fn enqueue_blobs_by_range_request(&self, count: u64) {
+    pub fn enqueue_blobs_by_range_request(&self, start_slot: u64, count: u64) {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
                 InboundRequestId::new_unchecked(42, 24),
-                BlobsByRangeRequest {
-                    start_slot: 0,
-                    count,
-                },
+                BlobsByRangeRequest { start_slot, count },
             )
             .unwrap();
     }
@@ -1325,8 +1322,9 @@ async fn test_blobs_by_range() {
         return;
     };
     let mut rig = TestRig::new(64).await;
+    let start_slot = 0;
     let slot_count = 32;
-    rig.enqueue_blobs_by_range_request(slot_count);
+    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
 
     let mut blob_count = 0;
     for slot in 0..slot_count {
@@ -1344,6 +1342,100 @@ async fn test_blobs_by_range() {
             .unwrap_or(0);
     }
     let mut actual_count = 0;
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_range_post_fulu_should_returns_empty() {
+    // Only test for Fulu fork
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+    let mut rig = TestRig::new(64).await;
+    let start_slot = 0;
+    let slot_count = 32;
+    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    // Post-Fulu should return 0 blobs
+    assert_eq!(0, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_range_spans_fulu_fork() {
+    // Only test for Electra & Fulu fork transition
+    if test_spec::<E>().electra_fork_epoch.is_none() {
+        return;
+    };
+    let mut spec = test_spec::<E>();
+    spec.fulu_fork_epoch = Some(Epoch::new(1));
+
+    let mut rig = TestRig::new_parametric(64, BeaconProcessorConfig::default(), spec).await;
+
+    let start_slot = 16;
+    // This will span from epoch 0 (Electra) to epoch 1 (Fulu)
+    let slot_count = 32;
+
+    println!("Deneb fork epoch is: {:?}", rig.chain.spec.deneb_fork_epoch);
+    println!(
+        "Electra fork epoch is: {:?}",
+        rig.chain.spec.electra_fork_epoch
+    );
+    println!("Fulu fork epoch is: {:?}", rig.chain.spec.fulu_fork_epoch);
+
+    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
+
+    let mut blob_count = 0;
+    for slot in start_slot..slot_count {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap();
+        blob_count += root
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+    }
+
+    let mut actual_count = 0;
+
     while let Some(next) = rig.network_rx.recv().await {
         if let NetworkMessage::SendResponse {
             peer_id: _,
