@@ -58,6 +58,7 @@ fi
 
 if ! command -v yq &> /dev/null; then
     echo "yq not found. Please install yq and try again."
+    exit 1
 fi
 
 if [ "$BUILDER_PROPOSALS" = true ]; then
