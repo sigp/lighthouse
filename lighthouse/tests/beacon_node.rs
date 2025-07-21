@@ -2763,6 +2763,21 @@ fn beacon_node_backend_override() {
 }
 
 #[test]
+#[cfg(feature = "postgres")]
+fn beacon_node_backend_postgres() {
+    CommandLineTest::new()
+        .flag("beacon-node-backend", Some("postgres"))
+        .flag("postgres-url", Some("postgres://user:pass@localhost/db"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.backend, BeaconNodeBackend::Postgres);
+            assert_eq!(config.store.postgres_config.as_ref().unwrap().url,
+            "postgres://user:pass@localhost/db"
+            );
+        });
+}
+
+#[test]
 fn block_publishing_delay_for_testing() {
     CommandLineTest::new()
         .flag("delay-block-publishing", Some("2.5"))
