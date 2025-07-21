@@ -289,7 +289,7 @@ panic = "abort"
 codegen-units = 1
 overflow-checks = true
 
-[profile.heaptrack]
+[profile.release-debug]
 inherits = "release"
 debug = true
 
