@@ -677,6 +677,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(columns_to_request_by_peer)
     }
 
+    /// Remove the range request before attempting a retry.
+    pub(crate) fn remove_range_request_by_id(&mut self, id: Id) {
+        if let Some(request_id) = self
+            .components_by_range_requests
+            .keys()
+            .find(|r| r.id == id)
+        {
+            let request_id = ComponentsByRangeRequestId {
+                id,
+                requester: request_id.requester,
+            };
+            self.components_by_range_requests.remove(&request_id);
+        };
+    }
+
     /// Received a blocks by range or blobs by range response for a request that couples blocks '
     /// and blobs.
     pub fn range_block_component_response(
@@ -727,21 +742,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         if let Some(blocks_result) = entry.get_mut().responses(&self.chain.spec) {
-            match blocks_result.as_ref() {
-                Ok(_) => {
-                    // remove the entry only if it coupled successfully with
-                    // no errors
-                    entry.remove();
-                }
-                Err(&CouplingError {
-                    msg: _,
-                    column_and_peer: None,
-                }) => {
-                    // remove the entry only if the coupling error has no columns specified, as the
-                    // entire batch will be retried
-                    entry.remove();
-                }
-                _ => {}
+            if blocks_result.is_ok() {
+                // remove the entry only if it coupled successfully with
+                // no errors
+                entry.remove();
             }
             // If the request is finished, dequeue everything
             Some(blocks_result.map_err(RpcResponseError::BlockComponentCouplingError))

@@ -885,6 +885,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     failing_batch: batch_id,
                 });
             }
+            // FIXME: hack to remove range request before a retry
+            network.remove_range_request_by_id(request_id);
             self.send_batch(network, batch_id)
         } else {
             debug!(
