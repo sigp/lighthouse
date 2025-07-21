@@ -227,7 +227,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             if let Some(ValidatorDefinition {
                 signing_definition:
                     SigningDefinition::LocalKeystore {
-                        voting_keystore_password: ref mut old_passwd,
+                        voting_keystore_password: old_passwd,
                         ..
                     },
                 ..

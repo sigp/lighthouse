@@ -65,8 +65,8 @@ impl KeyCache {
     }
 
     pub fn init_crypto() -> Crypto {
-        let salt = rand::thread_rng().random::<[u8; SALT_SIZE]>();
-        let iv = rand::thread_rng().random::<[u8; IV_SIZE]>().to_vec().into();
+        let salt = rand::rng().random::<[u8; SALT_SIZE]>();
+        let iv = rand::rng().random::<[u8; IV_SIZE]>().to_vec().into();
 
         let kdf = default_kdf(salt.to_vec());
         let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv });

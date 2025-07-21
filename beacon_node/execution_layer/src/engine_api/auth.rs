@@ -46,7 +46,7 @@ impl JwtKey {
 
     /// Generate a random secret.
     pub fn random() -> Self {
-        Self(rand::thread_rng().random::<[u8; JWT_SECRET_LENGTH]>())
+        Self(rand::rng().random::<[u8; JWT_SECRET_LENGTH]>())
     }
 
     /// Returns a reference to the underlying byte array.

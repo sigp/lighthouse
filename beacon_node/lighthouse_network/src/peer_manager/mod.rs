@@ -1141,7 +1141,7 @@ impl<E: EthSpec> PeerManager<E> {
                     if !peers_on_subnet.is_empty() {
                         // Order the peers by the number of subnets they are long-lived
                         // subscribed too, shuffle equal peers.
-                        peers_on_subnet.shuffle(&mut rand::thread_rng());
+                        peers_on_subnet.shuffle(&mut rand::rng());
                         peers_on_subnet.sort_by_key(|(_, info)| info.long_lived_subnet_count());
 
                         // Try and find a candidate peer to remove from the subnet.

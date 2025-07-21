@@ -162,7 +162,7 @@ impl InitializedValidator {
     pub fn keystore_lockfile(&self) -> Option<MappedMutexGuard<'_, Lockfile>> {
         match self.signing_method.as_ref() {
             SigningMethod::LocalKeystore {
-                ref voting_keystore_lockfile,
+                voting_keystore_lockfile,
                 ..
             } => MutexGuard::try_map(voting_keystore_lockfile.lock(), |option_lockfile| {
                 option_lockfile.as_mut()
@@ -1415,7 +1415,7 @@ impl InitializedValidators {
         for def in self.definitions.as_mut_slice() {
             match &mut def.signing_definition {
                 SigningDefinition::LocalKeystore {
-                    ref mut voting_keystore_password,
+                    voting_keystore_password,
                     ..
                 } => {
                     if let Some(password) = voting_keystore_password.take() {
