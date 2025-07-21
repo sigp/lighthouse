@@ -1,4 +1,4 @@
-use crate::beacon_block_body::{format_kzg_commitments, BLOB_KZG_COMMITMENTS_INDEX};
+use crate::beacon_block_body::{BLOB_KZG_COMMITMENTS_INDEX, format_kzg_commitments};
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;

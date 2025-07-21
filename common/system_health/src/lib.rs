@@ -1,4 +1,4 @@
-use lighthouse_network::{types::SyncState, NetworkGlobals};
+use lighthouse_network::{NetworkGlobals, types::SyncState};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

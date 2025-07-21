@@ -4,10 +4,10 @@ use crate::interchange::{
 };
 use crate::signed_attestation::InvalidAttestation;
 use crate::signed_block::InvalidBlock;
-use crate::{signing_root_from_row, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot};
+use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot, signing_root_from_row};
 use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
@@ -1218,9 +1218,10 @@ mod tests {
             assert_eq!(db.conn_pool.max_size(), POOL_SIZE);
             assert_eq!(db.conn_pool.connection_timeout(), CONNECTION_TIMEOUT);
             let conn = db.conn_pool.get().unwrap();
-            assert!(conn
-                .pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
-                .unwrap());
+            assert!(
+                conn.pragma_query_value(None, "foreign_keys", |row| { row.get::<_, bool>(0) })
+                    .unwrap()
+            );
             assert_eq!(
                 conn.pragma_query_value(None, "locking_mode", |row| { row.get::<_, String>(0) })
                     .unwrap()

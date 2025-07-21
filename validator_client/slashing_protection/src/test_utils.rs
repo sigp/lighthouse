@@ -1,6 +1,6 @@
 use crate::*;
-use tempfile::{tempdir, TempDir};
-use types::{test_utils::generate_deterministic_keypair, AttestationData, BeaconBlockHeader};
+use tempfile::{TempDir, tempdir};
+use types::{AttestationData, BeaconBlockHeader, test_utils::generate_deterministic_keypair};
 
 pub const DEFAULT_VALIDATOR_INDEX: usize = 0;
 pub const DEFAULT_DOMAIN: Hash256 = Hash256::ZERO;
@@ -135,10 +135,12 @@ fn roundtrip_database(dir: &TempDir, db: &SlashingDatabase, is_empty: bool) {
         .export_all_interchange_info(DEFAULT_GENESIS_VALIDATORS_ROOT)
         .unwrap();
 
-    assert!(exported
-        .minify()
-        .unwrap()
-        .equiv(&reexported.minify().unwrap()));
+    assert!(
+        exported
+            .minify()
+            .unwrap()
+            .equiv(&reexported.minify().unwrap())
+    );
     assert_eq!(is_empty, exported.is_empty());
 }
 

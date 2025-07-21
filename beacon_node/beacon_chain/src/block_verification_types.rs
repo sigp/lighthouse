@@ -1,7 +1,7 @@
 use crate::data_availability_checker::AvailabilityCheckError;
 pub use crate::data_availability_checker::{AvailableBlock, MaybeAvailableBlock};
 use crate::data_column_verification::{CustodyDataColumn, CustodyDataColumnList};
-use crate::{get_block_root, PayloadVerificationOutcome};
+use crate::{PayloadVerificationOutcome, get_block_root};
 use derivative::Derivative;
 use state_processing::ConsensusContext;
 use std::fmt::{Debug, Formatter};

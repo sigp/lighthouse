@@ -34,12 +34,12 @@
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
-    beacon_chain::{BeaconForkChoice, BeaconStore, OverrideForkchoiceUpdate, FORK_CHOICE_DB_KEY},
+    BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
+    beacon_chain::{BeaconForkChoice, BeaconStore, FORK_CHOICE_DB_KEY, OverrideForkchoiceUpdate},
     block_times_cache::BlockTimesCache,
     events::ServerSentEventHandler,
     metrics,
     validator_monitor::{get_slot_delay_ms, timestamp_now},
-    BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{
@@ -53,7 +53,7 @@ use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{iter::StateRootsIterator, KeyValueStore, KeyValueStoreOp, StoreItem};
+use store::{KeyValueStore, KeyValueStoreOp, StoreItem, iter::StateRootsIterator};
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::{debug, error, info, warn};
 use types::*;

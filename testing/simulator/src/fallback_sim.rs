@@ -1,5 +1,5 @@
 use crate::local_network::LocalNetworkParams;
-use crate::{checks, LocalNetwork};
+use crate::{LocalNetwork, checks};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
@@ -7,8 +7,9 @@ use environment::tracing_common;
 use futures::prelude::*;
 use logging::build_workspace_filter;
 use node_test_rig::{
+    ValidatorFiles,
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_validator_config, ValidatorFiles,
+    testing_validator_config,
 };
 use rayon::prelude::*;
 use std::cmp::max;
@@ -18,7 +19,7 @@ use std::time::Duration;
 use tokio::time::sleep;
 use tracing::Level;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{Epoch, EthSpec, MinimalEthSpec};
 const END_EPOCH: u64 = 16;
 const GENESIS_DELAY: u64 = 38;

@@ -3,10 +3,10 @@
 
 use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
 pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest};
+use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
 use super::range_sync::ByRangeRequestType;
-use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 #[cfg(test)]
@@ -45,7 +45,7 @@ use std::time::Duration;
 #[cfg(test)]
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, span, warn, Level};
+use tracing::{Level, debug, error, span, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
@@ -797,7 +797,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             BlockProcessStatus::ExecutionValidated { .. } => {
                 return Ok(LookupRequestResult::NoRequestNeeded(
                     "block execution validated",
-                ))
+                ));
             }
         }
 

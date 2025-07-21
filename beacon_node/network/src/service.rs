@@ -1,31 +1,31 @@
+use crate::NetworkConfig;
 use crate::metrics;
 use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
-use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::BeaconProcessorSend;
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 
-use lighthouse_network::rpc::methods::RpcResponse;
+use lighthouse_network::Enr;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
+use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
-use lighthouse_network::Enr;
-use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
-    rpc::{GoodbyeReason, RpcErrorResponse},
     Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
+    rpc::{GoodbyeReason, RpcErrorResponse},
 };
+use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};
 use lighthouse_network::{
-    service::api_types::AppRequestId,
-    types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
+    service::api_types::AppRequestId,
+    types::{GossipEncoding, GossipTopic, core_topics_to_subscribe},
 };
 use logging::crit;
 use std::collections::BTreeSet;
@@ -35,7 +35,7 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use tracing::{debug, error, info, info_span, trace, warn, Instrument};
+use tracing::{Instrument, debug, error, info, info_span, trace, warn};
 use types::{
     EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
     ValidatorSubscription,

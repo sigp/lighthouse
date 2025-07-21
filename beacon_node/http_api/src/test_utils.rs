@@ -1,7 +1,7 @@
 use crate::{Config, Context};
 use beacon_chain::{
-    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
+    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
 };
 use beacon_processor::{
     BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
@@ -10,14 +10,14 @@ use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::rpc::methods::MetaDataV3;
 use lighthouse_network::{
+    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
     discv5::enr::CombinedKey,
     libp2p::swarm::{
-        behaviour::{ConnectionEstablished, FromSwarm},
         ConnectionId, NetworkBehaviour,
+        behaviour::{ConnectionEstablished, FromSwarm},
     },
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
-    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
 use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;

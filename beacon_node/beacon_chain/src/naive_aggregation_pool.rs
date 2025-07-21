@@ -581,9 +581,9 @@ mod tests {
     use store::BitVector;
     use tree_hash::TreeHash;
     use types::{
-        test_utils::{generate_deterministic_keypair, test_random_instance},
         Attestation, AttestationBase, AttestationElectra, FixedBytesExtended, Fork, Hash256,
         SyncCommitteeMessage,
+        test_utils::{generate_deterministic_keypair, test_random_instance},
     };
 
     type E = types::MainnetEthSpec;

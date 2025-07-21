@@ -1,8 +1,8 @@
 //! This module provides an implementation of `tracing_subscriber::layer::Layer` that optionally writes to a channel if
 //! there are subscribers to a HTTP SSE stream.
 
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::broadcast::Sender;
 use tracing::field::{Field, Visit};
@@ -73,9 +73,11 @@ impl TracingEventVisitor {
         let mut log_entry = serde_json::Map::new();
         log_entry.insert(
             "time".to_string(),
-            json!(chrono::Local::now()
-                .format("%b %d %H:%M:%S%.3f")
-                .to_string()),
+            json!(
+                chrono::Local::now()
+                    .format("%b %d %H:%M:%S%.3f")
+                    .to_string()
+            ),
         );
         log_entry.insert("level".to_string(), json!(metadata.level().to_string()));
         log_entry.insert("target".to_string(), json!(metadata.target()));

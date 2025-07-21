@@ -8,10 +8,10 @@
 //! A) `JEMALLOC_SYS_WITH_MALLOC_CONF` at compile-time.
 //! B) `_RJEM_MALLOC_CONF` at runtime.
 use metrics::{
-    set_gauge, set_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec, IntGauge, IntGaugeVec,
+    IntGauge, IntGaugeVec, set_gauge, set_gauge_vec, try_create_int_gauge, try_create_int_gauge_vec,
 };
 use std::sync::LazyLock;
-use tikv_jemalloc_ctl::{arenas, epoch, raw, stats, Access, AsName, Error};
+use tikv_jemalloc_ctl::{Access, AsName, Error, arenas, epoch, raw, stats};
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;

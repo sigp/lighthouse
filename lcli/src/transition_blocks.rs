@@ -68,15 +68,15 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{
-    types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
+    types::{BlockId, StateId},
 };
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    block_signature_verifier::BlockSignatureVerifier, per_block_processing, AllCaches,
-    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    AllCaches, BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
+    block_signature_verifier::BlockSignatureVerifier, per_block_processing,
 };
 use std::borrow::Cow;
 use std::fs::File;
@@ -184,7 +184,7 @@ pub fn run<E: EthSpec>(
             return Err(
                 "must supply *both* --pre-state-path and --block-path *or* only --beacon-url"
                     .into(),
-            )
+            );
         }
     };
 

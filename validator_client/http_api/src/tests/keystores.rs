@@ -9,11 +9,11 @@ use eth2::lighthouse_vc::{
 };
 use itertools::Itertools;
 use lighthouse_validator_store::DEFAULT_GAS_LIMIT;
-use rand::{rngs::SmallRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::SmallRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
-use types::{attestation::AttestationBase, Address};
+use types::{Address, attestation::AttestationBase};
 use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
 
@@ -1124,11 +1124,14 @@ async fn generic_migration_test(
             delete_indices.len()
         );
         for &i in &delete_indices {
-            assert!(delete_res
-                .slashing_protection
-                .data
-                .iter()
-                .any(|interchange_data| interchange_data.pubkey == keystore_pubkey(&keystores[i])));
+            assert!(
+                delete_res
+                    .slashing_protection
+                    .data
+                    .iter()
+                    .any(|interchange_data| interchange_data.pubkey
+                        == keystore_pubkey(&keystores[i]))
+            );
         }
 
         // Filter slashing protection according to `slashing_protection_indices`.

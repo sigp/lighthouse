@@ -5,10 +5,10 @@ use crate::per_block_processing::errors::{
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
-use crate::{per_block_processing, BlockReplayError, BlockReplayer};
+use crate::{BlockReplayError, BlockReplayer, per_block_processing};
 use crate::{
-    per_block_processing::{process_operations, verify_exit::verify_exit},
     BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, VerifySignatures,
+    per_block_processing::{process_operations, verify_exit::verify_exit},
 };
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use ssz_types::Bitfield;

@@ -1,12 +1,12 @@
 #![cfg(feature = "mdbx")]
 
 use crate::{
+    Config, Error,
     config::MEGABYTE,
     database::{
         interface::{Key, OpenDatabases, Value},
         *,
     },
-    Config, Error,
 };
 use mdbx::{DatabaseFlags, Geometry, WriteFlags};
 use std::borrow::Cow;

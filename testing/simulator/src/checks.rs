@@ -312,7 +312,9 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             .signature_slot();
         let signature_slot_distance = slot - signature_slot;
         if signature_slot_distance > light_client_update_slot_tolerance {
-            return Err(format!("Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"));
+            return Err(format!(
+                "Existing optimistic update too old: signature slot {signature_slot}, current slot {slot:?}"
+            ));
         }
 
         // Verify light client finality update. `signature_slot_distance` should be 1 in the ideal scenario.

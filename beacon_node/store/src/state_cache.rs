@@ -1,7 +1,7 @@
 use crate::hdiff::HDiffBuffer;
 use crate::{
-    metrics::{self, HOT_METRIC},
     Error,
+    metrics::{self, HOT_METRIC},
 };
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};

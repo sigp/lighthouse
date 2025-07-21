@@ -1,7 +1,7 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::SignatureBytes;
 use eth2::{BeaconNodeHttpClient, StatusCode};
-use graffiti_file::{determine_graffiti, GraffitiFile};
+use graffiti_file::{GraffitiFile, determine_graffiti};
 use logging::crit;
 use slot_clock::SlotClock;
 use std::fmt::Debug;
@@ -353,7 +353,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 return Err(BlockError::Recoverable(format!(
                     "Unable to sign block: {:?}",
                     e
-                )))
+                )));
             }
         };
 
@@ -422,7 +422,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 return Err(BlockError::Recoverable(format!(
                     "Unable to produce randao reveal signature: {:?}",
                     e
-                )))
+                )));
             }
         };
 

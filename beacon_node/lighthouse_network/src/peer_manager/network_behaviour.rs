@@ -4,21 +4,21 @@ use std::net::IpAddr;
 use std::task::{Context, Poll};
 
 use futures::StreamExt;
-use libp2p::core::transport::PortUse;
 use libp2p::core::ConnectedPoint;
+use libp2p::core::transport::PortUse;
 use libp2p::identity::PeerId;
 use libp2p::multiaddr::Protocol;
 use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm};
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
 use libp2p::swarm::{ConnectionDenied, ConnectionId, NetworkBehaviour, ToSwarm};
-pub use metrics::{set_gauge_vec, NAT_OPEN};
+pub use metrics::{NAT_OPEN, set_gauge_vec};
 use tracing::{debug, error, trace};
 use types::EthSpec;
 
 use crate::discovery::enr_ext::EnrExt;
 use crate::types::SyncState;
-use crate::{metrics, ClearDialError};
+use crate::{ClearDialError, metrics};
 
 use super::{ConnectingType, PeerManager, PeerManagerEvent};
 
@@ -172,7 +172,7 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
             _ => {
                 return Err(ConnectionDenied::new(format!(
                     "Connection to peer rejected: invalid multiaddr: {remote_addr}"
-                )))
+                )));
             }
         };
 

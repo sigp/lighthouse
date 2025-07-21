@@ -87,9 +87,9 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL: LazyLock<Result<IntGaugeVe
 pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-        "beacon_processor_reprocessing_queue_expired_attestations",
-        "Number of queued attestations which have expired before a matching block has been found."
-    )
+            "beacon_processor_reprocessing_queue_expired_attestations",
+            "Number of queued attestations which have expired before a matching block has been found.",
+        )
     });
 pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
@@ -116,7 +116,7 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES: LazyL
 > = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_processor_reprocessing_queue_expired_optimistic_updates",
-        "Number of queued light client optimistic updates which have expired before a matching block has been found."
+        "Number of queued light client optimistic updates which have expired before a matching block has been found.",
     )
 });
 pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES: LazyLock<
@@ -124,7 +124,7 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_OPTIMISTIC_UPDATES: LazyL
 > = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_processor_reprocessing_queue_matched_optimistic_updates",
-        "Number of queued light client optimistic updates where a matching block has been imported."
+        "Number of queued light client optimistic updates where a matching block has been imported.",
     )
 });
 

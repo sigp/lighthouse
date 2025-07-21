@@ -1,19 +1,19 @@
 use crate::attestation_verification::{
-    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
     Error as AttestationError, VerifiedAggregatedAttestation, VerifiedAttestation,
-    VerifiedUnaggregatedAttestation,
+    VerifiedUnaggregatedAttestation, batch_verify_aggregated_attestations,
+    batch_verify_unaggregated_attestations,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
+    BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
-    signature_verify_chain_segment, verify_header_signature, BlockError, ExecutionPendingBlock,
-    GossipVerifiedBlock, IntoExecutionPendingBlock,
+    signature_verify_chain_segment, verify_header_signature,
 };
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
@@ -28,7 +28,7 @@ use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataC
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
+use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::graffiti_calculator::GraffitiCalculator;
@@ -65,13 +65,13 @@ use crate::sync_committee_verification::{
 };
 use crate::validator_custody::CustodyContextSsz;
 use crate::validator_monitor::{
-    get_slot_delay_ms, timestamp_now, ValidatorMonitor,
-    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
+    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
+    timestamp_now,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
-    BeaconSnapshot, CachedHead,
+    AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
+    CachedHead, kzg_utils, metrics,
 };
 use eth2::types::{
     EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
@@ -85,8 +85,8 @@ use fork_choice::{
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
-use itertools::process_results;
 use itertools::Itertools;
+use itertools::process_results;
 use kzg::Kzg;
 use logging::crit;
 use operation_pool::{
@@ -100,16 +100,16 @@ use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
+    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
     common::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
-        errors::AttestationValidationError, get_expected_withdrawals,
-        verify_attestation_for_block_inclusion, VerifySignatures,
+        VerifySignatures, errors::AttestationValidationError, get_expected_withdrawals,
+        verify_attestation_for_block_inclusion,
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -1993,7 +1993,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(Error::HeadBlockNotFullyVerified {
                     beacon_block_root,
                     execution_status,
-                })
+                });
             }
             None => return Err(Error::HeadMissingFromForkChoice(beacon_block_root)),
         };
@@ -2862,7 +2862,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return ChainSegmentResult::Failed {
                     imported_blocks,
                     error: BlockError::BeaconChainError(error.into()),
-                }
+                };
             }
         };
 

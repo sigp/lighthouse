@@ -1,9 +1,9 @@
 use crate::{
+    Hash256,
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_aggregate_signature::{GenericAggregateSignature, TAggregateSignature},
     generic_public_key::{GenericPublicKey, TPublicKey},
     generic_signature::{GenericSignature, TSignature},
-    Hash256,
 };
 use std::borrow::Cow;
 use std::marker::PhantomData;

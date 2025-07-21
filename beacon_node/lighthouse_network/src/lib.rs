@@ -15,7 +15,7 @@ pub mod types;
 use libp2p::swarm::DialError;
 pub use listen_addr::*;
 
-use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::str::FromStr;
 
 /// Wrapper over a libp2p `PeerId` which implements `Serialize` and `Deserialize`
@@ -111,14 +111,14 @@ pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;
 pub use gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p;
-pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
-pub use libp2p::{multiaddr, Multiaddr};
+pub use libp2p::{Multiaddr, multiaddr};
+pub use libp2p::{PeerId, Swarm, core::ConnectedPoint};
 pub use metrics::scrape_discovery_metrics;
 pub use peer_manager::{
+    ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
+    peerdb::PeerDB,
     peerdb::client::Client,
     peerdb::score::{PeerAction, ReportSource},
-    peerdb::PeerDB,
-    ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
 };
 // pub use service::{load_private_key, Context, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
 pub use service::api_types::Response;

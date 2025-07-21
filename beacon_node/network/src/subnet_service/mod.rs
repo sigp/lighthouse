@@ -13,7 +13,7 @@ use tokio::time::Instant;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::HashSetDelay;
 use futures::prelude::*;
-use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
+use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery, discv5::enr::NodeId};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, instrument, warn};
 use types::{

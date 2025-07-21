@@ -1,11 +1,11 @@
-use crate::sync::manager::BlockProcessType;
 use crate::sync::SamplingId;
+use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_column_verification::{observe_gossip_data_column, GossipDataColumnError};
+use beacon_chain::data_column_verification::{GossipDataColumnError, observe_gossip_data_column};
 use beacon_chain::fetch_blobs::{
-    fetch_and_process_engine_blobs, EngineGetBlobsOutput, FetchEngineBlobError,
+    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
 };
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
@@ -15,14 +15,14 @@ use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
 };
+use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
     LightClientUpdatesByRangeRequest,
 };
-use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::{
-    rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
+    rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
 use rand::prelude::SliceRandom;
 use std::path::PathBuf;
@@ -30,7 +30,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, trace, warn, Instrument};
+use tracing::{Instrument, debug, error, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;

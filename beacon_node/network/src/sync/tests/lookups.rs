@@ -1,13 +1,13 @@
+use crate::NetworkMessage;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::sync::block_lookups::{
     BlockLookupSummary, PARENT_DEPTH_TOLERANCE, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
 };
 use crate::sync::{
+    SamplingId, SyncMessage,
     manager::{BlockProcessType, BlockProcessingResult, SyncManager},
     peer_sampling::SamplingConfig,
-    SamplingId, SyncMessage,
 };
-use crate::NetworkMessage;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,36 +16,36 @@ use super::*;
 use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
+    AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
+    PayloadVerificationOutcome, PayloadVerificationStatus,
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
     data_availability_checker::Availability,
     test_utils::{
-        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-        BeaconChainHarness, EphemeralHarnessType, NumBlobs,
+        BeaconChainHarness, EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
+        generate_rand_block_and_data_columns, test_spec,
     },
     validator_monitor::timestamp_now,
-    AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
-    PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
 use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
+    NetworkConfig, NetworkGlobals, PeerId,
     rpc::{RPCError, RequestType, RpcErrorResponse},
     service::api_types::{
         AppRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
         SamplingRequester, SingleLookupReqId, SyncRequestId,
     },
     types::SyncState,
-    NetworkConfig, NetworkGlobals, PeerId,
 };
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    data_column_sidecar::ColumnIndex,
-    test_utils::{SeedableRng, TestRandom, XorShiftRng},
     BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
     Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    data_column_sidecar::ColumnIndex,
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -269,10 +269,11 @@ impl TestRig {
     }
 
     fn expect_active_sampling(&mut self, block_root: &Hash256) {
-        assert!(self
-            .sync_manager
-            .active_sampling_requests()
-            .contains(block_root));
+        assert!(
+            self.sync_manager
+                .active_sampling_requests()
+                .contains(block_root)
+        );
     }
 
     fn expect_clean_finished_sampling(&mut self) {

@@ -2,10 +2,10 @@ use beacon_chain::{
     block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
 };
 use lighthouse_network::{
+    PeerAction, PeerId,
     service::api_types::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     },
-    PeerAction, PeerId,
 };
 use std::{collections::HashMap, sync::Arc};
 use types::{
@@ -420,18 +420,18 @@ impl<I: PartialEq + std::fmt::Display, T> ByRangeRequest<I, T> {
 mod tests {
     use super::RangeBlockComponentsRequest;
     use beacon_chain::test_utils::{
-        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec, NumBlobs,
+        NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
     };
     use lighthouse_network::{
+        PeerId,
         service::api_types::{
             BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
             DataColumnsByRangeRequestId, Id, RangeRequestId,
         },
-        PeerId,
     };
     use rand::SeedableRng;
     use std::sync::Arc;
-    use types::{test_utils::XorShiftRng, Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock};
+    use types::{Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock, test_utils::XorShiftRng};
 
     fn components_id() -> ComponentsByRangeRequestId {
         ComponentsByRangeRequestId {

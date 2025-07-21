@@ -33,8 +33,8 @@ pub fn json<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T,), Error =
 }
 
 // Add a json_no_body function to handle the case when no body is provided in the HTTP request
-pub fn json_no_body<T: DeserializeOwned + Default + Send>(
-) -> impl Filter<Extract = (T,), Error = Rejection> + Copy {
+pub fn json_no_body<T: DeserializeOwned + Default + Send>()
+-> impl Filter<Extract = (T,), Error = Rejection> + Copy {
     warp::header::optional::<String>(CONTENT_TYPE_HEADER)
         .and(warp::body::bytes())
         .and_then(|header: Option<String>, bytes: Bytes| async move {

@@ -6,7 +6,7 @@ use crate::cases::ssz_static::{check_serialization, check_tree_hash};
 use crate::decode::{context_yaml_decode_file, log_file_access, snappy_decode_file};
 use context_deserialize::ContextDeserialize;
 use context_deserialize_derive::context_deserialize;
-use serde::{de::Error as SerdeError, Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, de::Error as SerdeError};
 use ssz_derive::{Decode, Encode};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;

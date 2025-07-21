@@ -11,8 +11,8 @@ pub mod key_cache;
 use account_utils::{
     read_password, read_password_from_user, read_password_string,
     validator_definitions::{
-        self, SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
-        CONFIG_FILENAME,
+        self, CONFIG_FILENAME, SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
+        Web3SignerDefinition,
     },
 };
 use eth2_keystore::Keystore;

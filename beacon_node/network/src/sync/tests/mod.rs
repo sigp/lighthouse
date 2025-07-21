@@ -1,7 +1,7 @@
+use crate::NetworkMessage;
+use crate::sync::SyncMessage;
 use crate::sync::manager::SyncManager;
 use crate::sync::range_sync::RangeSyncType;
-use crate::sync::SyncMessage;
-use crate::NetworkMessage;
 use beacon_chain::builder::Witness;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use beacon_processor::WorkEvent;

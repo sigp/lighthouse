@@ -2,8 +2,8 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{
-    types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
     BeaconNodeHttpClient, Error, SensitiveUrl, Timeouts,
+    types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
 };
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;

@@ -1,10 +1,10 @@
 use crate::common::{
-    base::{get_base_reward, SqrtTotalActiveBalance},
+    base::{SqrtTotalActiveBalance, get_base_reward},
     decrease_balance, increase_balance,
 };
 use crate::per_epoch_processing::{
-    base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
     Delta, Error,
+    base::{TotalBalances, ValidatorStatus, ValidatorStatuses},
 };
 use safe_arith::SafeArith;
 use types::{BeaconState, ChainSpec, EthSpec};

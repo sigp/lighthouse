@@ -55,10 +55,9 @@ use std::time::Duration;
 
 use prometheus::core::{Atomic, GenericGauge, GenericGaugeVec};
 pub use prometheus::{
-    exponential_buckets, linear_buckets,
+    DEFAULT_BUCKETS, Encoder, Gauge, GaugeVec, Histogram, HistogramTimer, HistogramVec, IntCounter,
+    IntCounterVec, IntGauge, IntGaugeVec, Result, TextEncoder, exponential_buckets, linear_buckets,
     proto::{Metric, MetricFamily, MetricType},
-    Encoder, Gauge, GaugeVec, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
-    IntGauge, IntGaugeVec, Result, TextEncoder, DEFAULT_BUCKETS,
 };
 
 /// Collect all the metrics for reporting.

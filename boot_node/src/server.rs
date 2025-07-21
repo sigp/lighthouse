@@ -5,8 +5,8 @@ use crate::config::BootNodeConfigSerialization;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
-    discv5::{self, enr::NodeId, Discv5},
     EnrExt, Eth2Enr,
+    discv5::{self, Discv5, enr::NodeId},
 };
 use tracing::{info, warn};
 use types::EthSpec;

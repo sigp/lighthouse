@@ -20,15 +20,15 @@
 //! or consider a lookup complete. These caches are read from the `SyncNetworkContext` and its state
 //! returned to this module as `LookupRequestResult` variants.
 
-use self::parent_chain::{compute_parent_chains, NodeChain};
+use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, BlockProcessingResult, SLOT_IMPORT_TOLERANCE};
 use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
+use crate::sync::SyncMessage;
 use crate::sync::block_lookups::common::ResponseType;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
-use crate::sync::SyncMessage;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,

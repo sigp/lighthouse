@@ -1,11 +1,11 @@
-use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
+use crate::blob_verification::{GossipVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext};
+use crate::{BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext, metrics};
 use kzg::Kzg;
 use slot_clock::SlotClock;
 use std::fmt;
@@ -14,7 +14,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tracing::{debug, error, info_span, Instrument};
+use tracing::{Instrument, debug, error, info_span};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
@@ -26,8 +26,8 @@ mod overflow_lru_cache;
 mod state_lru_cache;
 
 use crate::data_column_verification::{
-    verify_kzg_for_data_column_list_with_scoring, CustodyDataColumn, GossipVerifiedDataColumn,
-    KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+    CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
+    KzgVerifiedDataColumn, verify_kzg_for_data_column_list_with_scoring,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,

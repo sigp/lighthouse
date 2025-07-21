@@ -1,9 +1,9 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
-use crate::{metrics, BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainTypes, metrics};
 use itertools::Itertools;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
-    signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
+    signature_sets::{Error as SignatureSetError, block_proposal_signature_set_from_parts},
 };
 use std::borrow::Cow;
 use std::iter;

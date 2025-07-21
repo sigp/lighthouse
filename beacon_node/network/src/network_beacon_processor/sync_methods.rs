@@ -1,21 +1,21 @@
 use crate::metrics::{self, register_process_result_metrics};
-use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
 use crate::sync::{
-    manager::{BlockProcessType, SyncMessage},
     ChainId,
+    manager::{BlockProcessType, SyncMessage},
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::data_column_verification::verify_kzg_for_data_column_list;
 use beacon_chain::{
-    validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainTypes,
-    BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
+    HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
 };
 use beacon_processor::{
-    work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
     AsyncFn, BlockingFn, DuplicateCache,
+    work_reprocessing_queue::{QueuedRpcBlock, ReprocessQueueMessage},
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
@@ -631,7 +631,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             peer_action: Some(PeerAction::LowToleranceError),
                             message: format!("Failed to check block availability : {:?}", e),
                         }),
-                    )
+                    );
                 }
             },
         };

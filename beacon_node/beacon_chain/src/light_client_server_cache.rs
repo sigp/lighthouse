@@ -1,5 +1,5 @@
 use crate::errors::BeaconChainError;
-use crate::{metrics, BeaconChainTypes, BeaconStore};
+use crate::{BeaconChainTypes, BeaconStore, metrics};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use ssz::Decode;
@@ -465,9 +465,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
 
         if sync_committee_period > finalized_period {
-            return Err(BeaconChainError::LightClientBootstrapError(
-                format!("The blocks sync committee period {sync_committee_period} is greater than the current finalized period {finalized_period}"),
-            ));
+            return Err(BeaconChainError::LightClientBootstrapError(format!(
+                "The blocks sync committee period {sync_committee_period} is greater than the current finalized period {finalized_period}"
+            )));
         }
 
         let Some(current_sync_committee) = store.get_sync_committee(sync_committee_period)? else {

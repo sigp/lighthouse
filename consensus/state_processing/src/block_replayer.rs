@@ -1,7 +1,7 @@
 use crate::{
-    per_block_processing, per_epoch_processing::EpochProcessingSummary, per_slot_processing,
     BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
+    VerifyBlockRoot, per_block_processing, per_epoch_processing::EpochProcessingSummary,
+    per_slot_processing,
 };
 use itertools::Itertools;
 use std::iter::Peekable;

@@ -23,8 +23,8 @@ use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use std::collections::{
-    btree_map::{BTreeMap, Entry},
     HashSet,
+    btree_map::{BTreeMap, Entry},
 };
 use std::sync::Arc;
 use tracing::{debug, error, info, instrument, warn};
@@ -485,7 +485,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             Err(e) => {
                 return self
                     .fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
-                    .map(|_| ProcessResult::Successful)
+                    .map(|_| ProcessResult::Successful);
             }
             Ok(v) => v,
         };
@@ -956,7 +956,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                 self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?
                             }
                             Ok(BatchOperationOutcome::Continue) => {
-                                return self.send_batch(network, batch_id)
+                                return self.send_batch(network, batch_id);
                             }
                         }
                     }
@@ -1176,8 +1176,8 @@ mod tests {
     use beacon_chain::test_utils::BeaconChainHarness;
     use bls::Hash256;
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
-    use rand::prelude::StdRng;
     use rand::SeedableRng;
+    use rand::prelude::StdRng;
     use types::MinimalEthSpec;
 
     #[test]

@@ -1,5 +1,5 @@
 use beacon_chain::{
-    validator_monitor::HISTORIC_EPOCHS, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes, validator_monitor::HISTORIC_EPOCHS,
 };
 use eth2::types::{Epoch, ValidatorStatus};
 use serde::{Deserialize, Serialize};

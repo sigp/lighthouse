@@ -1,7 +1,7 @@
 use beacon_chain::block_verification_types::RpcBlock;
+use lighthouse_network::PeerId;
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_network::PeerId;
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};

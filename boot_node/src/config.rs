@@ -2,10 +2,11 @@ use beacon_node::{get_data_dir, set_network_config};
 use bytes::Bytes;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
-use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
+use lighthouse_network::discv5::{self, Enr, enr::CombinedKey};
 use lighthouse_network::{
+    CombinedKeyExt, NetworkConfig,
     discovery::{load_enr_from_disk, use_or_load_enr},
-    load_private_key, CombinedKeyExt, NetworkConfig,
+    load_private_key,
 };
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -60,9 +61,9 @@ impl<E: EthSpec> BootNodeConfig<E> {
             if network_config.enr_udp4_port.is_none() {
                 network_config.enr_udp4_port =
                     Some(network_config.enr_udp4_port.unwrap_or(
-                        listening_addr_v4.disc_port.try_into().map_err(|_| {
-                            "boot node enr-udp-port not set and listening port is zero"
-                        })?,
+                        listening_addr_v4.disc_port.try_into().map_err(
+                            |_| "boot node enr-udp-port not set and listening port is zero",
+                        )?,
                     ))
             }
         };
@@ -71,9 +72,9 @@ impl<E: EthSpec> BootNodeConfig<E> {
             if network_config.enr_udp6_port.is_none() {
                 network_config.enr_udp6_port =
                     Some(network_config.enr_udp6_port.unwrap_or(
-                        listening_addr_v6.disc_port.try_into().map_err(|_| {
-                            "boot node enr-udp-port not set and listening port is zero"
-                        })?,
+                        listening_addr_v6.disc_port.try_into().map_err(
+                            |_| "boot node enr-udp-port not set and listening port is zero",
+                        )?,
                     ))
             }
         };

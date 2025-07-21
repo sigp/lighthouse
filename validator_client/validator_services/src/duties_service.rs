@@ -7,26 +7,26 @@
 //! block production.
 
 use crate::block_service::BlockServiceNotification;
-use crate::sync::poll_sync_committee_duties;
 use crate::sync::SyncDutiesMap;
+use crate::sync::poll_sync_committee_duties;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use eth2::types::{
     AttesterData, BeaconCommitteeSubscription, DutiesResponse, ProposerData, StateId, ValidatorId,
 };
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use parking_lot::RwLock;
 use safe_arith::{ArithError, SafeArith};
 use slot_clock::SlotClock;
 use std::cmp::min;
-use std::collections::{hash_map, BTreeMap, HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::{BTreeMap, HashMap, HashSet, hash_map};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::{sync::mpsc::Sender, time::sleep};
 use tracing::{debug, error, info, warn};
 use types::{ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes, SelectionProof, Slot};
-use validator_metrics::{get_int_gauge, set_int_gauge, ATTESTATION_DUTY};
+use validator_metrics::{ATTESTATION_DUTY, get_int_gauge, set_int_gauge};
 use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, ValidatorStore};
 
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.

@@ -603,8 +603,8 @@ mod test {
     use std::future;
     use std::time::Duration;
     use types::{
-        test_utils::{SeedableRng, TestRandom, XorShiftRng},
         MainnetEthSpec,
+        test_utils::{SeedableRng, TestRandom, XorShiftRng},
     };
     use validator_store::DoppelgangerStatus;
 

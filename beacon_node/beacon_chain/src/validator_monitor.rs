@@ -12,7 +12,7 @@ use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::common::get_attestation_participation_flag_indices;
 use state_processing::per_epoch_processing::{
-    errors::EpochProcessingError, EpochProcessingSummary,
+    EpochProcessingSummary, errors::EpochProcessingError,
 };
 use std::collections::{HashMap, HashSet};
 use std::io;

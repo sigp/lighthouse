@@ -1,5 +1,7 @@
+use crate::ChainConfig;
+use crate::CustodyContext;
 use crate::beacon_chain::{
-    CanonicalHead, LightClientProducerEvent, BEACON_CHAIN_DB_KEY, OP_POOL_DB_KEY,
+    BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::data_availability_checker::DataAvailabilityChecker;
@@ -15,8 +17,6 @@ use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::ChainConfig;
-use crate::CustodyContext;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
@@ -32,7 +32,7 @@ use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::{per_slot_processing, AllCaches};
+use state_processing::{AllCaches, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1051,7 +1051,9 @@ where
                     error = ?e,
                     "Weak subjectivity checkpoint verification failed on startup!"
                 );
-                crit!("You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
+                crit!(
+                    "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network."
+                );
                 return Err(format!("Weak subjectivity verification failed: {:?}", e));
             }
         }
@@ -1198,13 +1200,13 @@ fn build_data_columns_from_blobs<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{get_kzg, EphemeralHarnessType};
+    use crate::test_utils::{EphemeralHarnessType, get_kzg};
     use ethereum_hashing::hash;
     use genesis::{
-        generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
+        DEFAULT_ETH1_BLOCK_HASH, generate_deterministic_keypairs, interop_genesis_state,
     };
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use ssz::Encode;
     use std::time::Duration;
     use store::config::StoreConfig;

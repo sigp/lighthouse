@@ -3,10 +3,10 @@ use crate::summaries_dag::{DAGStateSummary, Error as SummariesDagError, StateSum
 use parking_lot::Mutex;
 use std::collections::HashSet;
 use std::mem;
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use store::hot_cold_store::{migrate_database, HotColdDBError};
+use store::hot_cold_store::{HotColdDBError, migrate_database};
 use store::{Error, ItemStore, Split, StoreOp};
 pub use store::{HotColdDB, MemoryStore};
 use tracing::{debug, error, info, warn};

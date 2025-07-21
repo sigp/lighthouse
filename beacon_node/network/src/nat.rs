@@ -3,8 +3,8 @@
 //! Currently supported strategies:
 //! - UPnP
 
-use anyhow::{bail, Context, Error};
-use igd_next::{aio::tokio as igd, PortMappingProtocol};
+use anyhow::{Context, Error, bail};
+use igd_next::{PortMappingProtocol, aio::tokio as igd};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tokio::time::sleep;

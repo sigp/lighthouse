@@ -1,10 +1,10 @@
 use bls::PublicKeyBytes;
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use rand::Rng;
 use ssz::Decode;
 use store::{
-    hdiff::{HDiff, HDiffBuffer},
     StoreConfig,
+    hdiff::{HDiff, HDiffBuffer},
 };
 use types::{BeaconState, Epoch, Eth1Data, EthSpec, MainnetEthSpec as E, Validator};
 
@@ -80,7 +80,7 @@ fn bench_against_states(
 fn rand_validator(mut rng: impl Rng) -> Validator {
     let mut pubkey = [0u8; 48];
     rng.fill_bytes(&mut pubkey);
-    let withdrawal_credentials: [u8; 32] = rng.gen();
+    let withdrawal_credentials: [u8; 32] = rng.random();
 
     Validator {
         pubkey: PublicKeyBytes::from_ssz_bytes(&pubkey).unwrap(),

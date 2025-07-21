@@ -1,17 +1,17 @@
 use crate::wallet::create::PASSWORD_FLAG;
 use account_utils::validator_definitions::SigningDefinition;
 use account_utils::{
+    STDIN_INPUTS_FLAG,
     eth2_keystore::Keystore,
     read_password_from_user,
     validator_definitions::{
-        recursively_find_voting_keystores, PasswordStorage, ValidatorDefinition,
-        ValidatorDefinitions, CONFIG_FILENAME,
+        CONFIG_FILENAME, PasswordStorage, ValidatorDefinition, ValidatorDefinitions,
+        recursively_find_voting_keystores,
     },
-    STDIN_INPUTS_FLAG,
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
@@ -133,7 +133,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             return Err(format!(
                 "Must supply either --{} or --{}",
                 KEYSTORE_FLAG, DIR_FLAG
-            ))
+            ));
         }
     };
 

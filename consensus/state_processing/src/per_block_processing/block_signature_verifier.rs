@@ -3,7 +3,7 @@
 use super::signature_sets::{Error as SignatureSetError, *};
 use crate::per_block_processing::errors::{AttestationInvalid, BlockOperationError};
 use crate::{ConsensusContext, ContextError};
-use bls::{verify_signature_sets, PublicKey, PublicKeyBytes, SignatureSet};
+use bls::{PublicKey, PublicKeyBytes, SignatureSet, verify_signature_sets};
 use std::borrow::Cow;
 use types::{
     AbstractExecPayload, BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256,

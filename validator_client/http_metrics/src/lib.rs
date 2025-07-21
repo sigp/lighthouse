@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 use types::EthSpec;
 use validator_services::duties_service::DutiesService;
-use warp::{http::Response, Filter};
+use warp::{Filter, http::Response};
 
 #[derive(Debug)]
 pub enum Error {

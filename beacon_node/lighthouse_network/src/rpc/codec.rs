@@ -1,8 +1,8 @@
+use crate::rpc::RequestType;
 use crate::rpc::methods::*;
 use crate::rpc::protocol::{
-    Encoding, ProtocolId, RPCError, SupportedProtocol, ERROR_TYPE_MAX, ERROR_TYPE_MIN,
+    ERROR_TYPE_MAX, ERROR_TYPE_MIN, Encoding, ProtocolId, RPCError, SupportedProtocol,
 };
-use crate::rpc::RequestType;
 use libp2p::bytes::BufMut;
 use libp2p::bytes::BytesMut;
 use snap::read::FrameDecoder;
@@ -902,10 +902,10 @@ mod tests {
     use crate::rpc::protocol::*;
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
-        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell, BeaconBlock, BeaconBlockAltair,
-        BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader, DataColumnsByRootIdentifier,
-        EmptyBlock, Epoch, FixedBytesExtended, FullPayload, KzgCommitment, KzgProof, Signature,
-        SignedBeaconBlockHeader, Slot,
+        BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
+        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FixedBytesExtended, FullPayload,
+        KzgCommitment, KzgProof, Signature, SignedBeaconBlockHeader, Slot,
+        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -1903,13 +1903,15 @@ mod tests {
             .unwrap(),
         );
 
-        assert!(decode_response(
-            SupportedProtocol::MetaDataV2,
-            &mut encoded_bytes,
-            ForkName::Altair,
-            &chain_spec,
-        )
-        .is_err());
+        assert!(
+            decode_response(
+                SupportedProtocol::MetaDataV2,
+                &mut encoded_bytes,
+                ForkName::Altair,
+                &chain_spec,
+            )
+            .is_err()
+        );
 
         // Sending context bytes which do not correspond to any fork should return an error
         let mut encoded_bytes = encode_response(

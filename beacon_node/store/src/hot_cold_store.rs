@@ -6,19 +6,19 @@ use crate::historic_state_cache::HistoricStateCache;
 use crate::iter::{BlockRootsIterator, ParentRootBlockIterator, RootsIterator};
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    AnchorInfo, BlobInfo, CompactionTimestamp, DataColumnInfo, SchemaVersion, ANCHOR_INFO_KEY,
-    ANCHOR_UNINITIALIZED, BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY,
-    CURRENT_SCHEMA_VERSION, DATA_COLUMN_INFO_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
-    STATE_UPPER_LIMIT_NO_RETAIN,
+    ANCHOR_INFO_KEY, ANCHOR_UNINITIALIZED, AnchorInfo, BLOB_INFO_KEY, BlobInfo,
+    COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, CompactionTimestamp,
+    DATA_COLUMN_INFO_KEY, DataColumnInfo, SCHEMA_VERSION_KEY, SPLIT_KEY,
+    STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion,
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
-    get_data_column_key,
+    BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, StoreItem,
+    StoreOp, get_data_column_key,
     metrics::{self, COLD_METRIC, HOT_METRIC},
-    parse_data_column_key, BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error, ItemStore,
-    KeyValueStoreOp, StoreItem, StoreOp,
+    parse_data_column_key,
 };
-use itertools::{process_results, Itertools};
+use itertools::{Itertools, process_results};
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
@@ -26,10 +26,10 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    block_replayer::PreSlotHook, AllCaches, BlockProcessingError, BlockReplayer,
-    SlotProcessingError,
+    AllCaches, BlockProcessingError, BlockReplayer, SlotProcessingError,
+    block_replayer::PreSlotHook,
 };
-use std::cmp::{min, Ordering};
+use std::cmp::{Ordering, min};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::marker::PhantomData;

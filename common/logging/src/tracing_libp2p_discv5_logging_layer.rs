@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
-use tracing_subscriber::{layer::Context, Layer};
+use tracing_subscriber::{Layer, layer::Context};
 
 pub struct Libp2pDiscv5TracingLayer {
     pub libp2p_non_blocking_writer: NonBlocking,

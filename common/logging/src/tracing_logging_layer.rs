@@ -5,13 +5,13 @@ use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
+use tracing::Subscriber;
 use tracing::field::Field;
 use tracing::span::Id;
-use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 const FIXED_MESSAGE_WIDTH: usize = 44;
 const ALIGNED_LEVEL_WIDTH: usize = 5;

@@ -7,28 +7,28 @@
 use crate::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use crate::payload_cache::PayloadCache;
 use arc_swap::ArcSwapOption;
-use auth::{strip_prefix, Auth, JwtKey};
+use auth::{Auth, JwtKey, strip_prefix};
 pub use block_hash::calculate_execution_block_hash;
 use builder_client::BuilderHttpClient;
 pub use engine_api::EngineCapabilities;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
-pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
+pub use engine_api::{http, http::HttpJsonRpc, http::deposit_methods};
 use engines::{Engine, EngineError};
 pub use engines::{EngineState, ForkchoiceState};
-use eth2::types::{builder_bid::SignedBuilderBid, ForkVersionedResponse};
 use eth2::types::{BlobsBundle, FullPayloadContents};
+use eth2::types::{ForkVersionedResponse, builder_bid::SignedBuilderBid};
 use ethers_core::types::Transaction as EthersTransaction;
 use fixed_bytes::UintExtended;
 use fork_choice::ForkchoiceUpdateParameters;
 use logging::crit;
 use lru::LruCache;
-use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
+use payload_status::process_payload_status;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
 use std::future::Future;
 use std::io::Write;
@@ -2221,12 +2221,13 @@ mod test {
         let (mock, block_hash) = MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .produce_forked_pow_block();
-        assert!(mock
-            .el
-            .is_valid_terminal_pow_block_hash(block_hash, &mock.spec)
-            .await
-            .unwrap()
-            .unwrap());
+        assert!(
+            mock.el
+                .is_valid_terminal_pow_block_hash(block_hash, &mock.spec)
+                .await
+                .unwrap()
+                .unwrap()
+        );
     }
 
     #[tokio::test]

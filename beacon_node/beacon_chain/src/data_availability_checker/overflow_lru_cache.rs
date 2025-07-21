@@ -1,5 +1,7 @@
-use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
 use super::AvailableBlockData;
+use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
+use crate::BeaconChainTypes;
+use crate::CustodyContext;
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
@@ -7,8 +9,6 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
-use crate::BeaconChainTypes;
-use crate::CustodyContext;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::cmp::Ordering;
@@ -710,8 +710,8 @@ mod test {
     use logging::create_test_tracing_subscriber;
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
-    use store::{database::interface::BeaconNodeBackend, HotColdDB, ItemStore, StoreConfig};
-    use tempfile::{tempdir, TempDir};
+    use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
+    use tempfile::{TempDir, tempdir};
     use tracing::info;
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
@@ -886,10 +886,10 @@ mod test {
     where
         E: EthSpec,
         T: BeaconChainTypes<
-            HotStore = BeaconNodeBackend<E>,
-            ColdStore = BeaconNodeBackend<E>,
-            EthSpec = E,
-        >,
+                HotStore = BeaconNodeBackend<E>,
+                ColdStore = BeaconNodeBackend<E>,
+                EthSpec = E,
+            >,
     {
         create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
@@ -1155,13 +1155,13 @@ mod test {
 #[cfg(test)]
 mod pending_components_tests {
     use super::*;
-    use crate::block_verification_types::BlockImportData;
-    use crate::test_utils::{generate_rand_block_and_blobs, test_spec, NumBlobs};
     use crate::PayloadVerificationOutcome;
+    use crate::block_verification_types::BlockImportData;
+    use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
     use types::{

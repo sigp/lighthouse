@@ -7,17 +7,17 @@ use clap::FromArgMatches;
 use clap::Subcommand;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::{
-    flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config, FLAG_HEADER,
+    FLAG_HEADER, flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config,
 };
 use cli::LighthouseSubcommands;
-use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default};
 use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
-use logging::{build_workspace_filter, crit, MetricsLayer};
+use logging::{MetricsLayer, build_workspace_filter, crit};
 use malloc_utils::configure_memory_allocator;
 use std::backtrace::Backtrace;
 use std::io::IsTerminal;
@@ -25,8 +25,8 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{info, warn, Level};
-use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing::{Level, info, warn};
+use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 

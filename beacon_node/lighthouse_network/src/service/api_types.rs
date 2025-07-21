@@ -298,7 +298,10 @@ mod tests {
                 sampling_request_id: SamplingRequestId(101),
             }),
         };
-        assert_eq!(format!("{id}"), "123/Sampling/101/ImportedBlock/0x0000000000000000000000000000000000000000000000000000000000000000");
+        assert_eq!(
+            format!("{id}"),
+            "123/Sampling/101/ImportedBlock/0x0000000000000000000000000000000000000000000000000000000000000000"
+        );
     }
 
     #[test]

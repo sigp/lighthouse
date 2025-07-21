@@ -1,15 +1,15 @@
 use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{
-    beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, AbstractExecPayload, BeaconBlockHeader,
-    BeaconStateError, Blob, ChainSpec, Epoch, EthSpec, FixedVector, ForkName, Hash256, KzgProofs,
-    RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
-    VariableList,
+    AbstractExecPayload, BeaconBlockHeader, BeaconStateError, Blob, ChainSpec, Epoch, EthSpec,
+    FixedVector, ForkName, Hash256, KzgProofs, RuntimeFixedVector, RuntimeVariableList,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot, VariableList,
+    beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX,
 };
 use bls::Signature;
 use derivative::Derivative;
-use kzg::{Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT};
-use merkle_proof::{merkle_root_from_branch, verify_merkle_proof, MerkleTreeError};
+use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Blob as KzgBlob, Kzg, KzgCommitment, KzgProof};
+use merkle_proof::{MerkleTreeError, merkle_root_from_branch, verify_merkle_proof};
 use rand::Rng;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};

@@ -1,16 +1,16 @@
-use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
+use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
-use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
-use beacon_chain::block_verification_types::RpcBlock;
+use crate::sync::{BatchOperationOutcome, BatchProcessResult, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
+use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
-use std::collections::{btree_map::Entry, BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use strum::IntoStaticStr;
 use tracing::{debug, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
@@ -964,10 +964,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                 return Err(RemoveChain::ChainFailed {
                                     blacklist,
                                     failing_batch: batch_id,
-                                })
+                                });
                             }
                             BatchOperationOutcome::Continue => {
-                                return self.send_batch(network, batch_id)
+                                return self.send_batch(network, batch_id);
                             }
                         }
                     }

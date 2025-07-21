@@ -13,11 +13,11 @@ use lighthouse_network::service::api_types::{
 use lighthouse_network::{PeerAction, PeerId};
 use rand::{seq::SliceRandom, thread_rng};
 use std::{
-    collections::hash_map::Entry, collections::HashMap, marker::PhantomData, sync::Arc,
+    collections::HashMap, collections::hash_map::Entry, marker::PhantomData, sync::Arc,
     time::Duration,
 };
 use tracing::{debug, error, instrument, warn};
-use types::{data_column_sidecar::ColumnIndex, ChainSpec, DataColumnSidecar, Hash256};
+use types::{ChainSpec, DataColumnSidecar, Hash256, data_column_sidecar::ColumnIndex};
 
 pub type SamplingResult = Result<(), SamplingError>;
 

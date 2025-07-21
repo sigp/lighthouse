@@ -1,19 +1,19 @@
 use super::{
+    BehaviourAction, MAX_CONCURRENT_REQUESTS, Protocol, RPCSend, ReqId, RequestType,
     config::OutboundRateLimiterConfig,
     rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
-    BehaviourAction, Protocol, RPCSend, ReqId, RequestType, MAX_CONCURRENT_REQUESTS,
 };
 use crate::rpc::rate_limiter::RateLimiterItem;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
-    collections::{hash_map::Entry, HashMap, VecDeque},
+    collections::{HashMap, VecDeque, hash_map::Entry},
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
 
 use futures::FutureExt;
-use libp2p::{swarm::NotifyHandler, PeerId};
+use libp2p::{PeerId, swarm::NotifyHandler};
 use logging::crit;
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
@@ -511,13 +511,17 @@ mod tests {
         }
 
         assert!(limiter.active_requests.contains_key(&peer1));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer1, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer1, Protocol::Ping))
+        );
         assert!(limiter.active_requests.contains_key(&peer2));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer2, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer2, Protocol::Ping))
+        );
 
         // Check that the limiter returns the IDs of pending requests and that the IDs are ordered correctly.
         let mut failed_requests = limiter.peer_disconnected(peer1);
@@ -533,13 +537,17 @@ mod tests {
 
         // Check that peer1’s active and delayed requests have been removed.
         assert!(!limiter.active_requests.contains_key(&peer1));
-        assert!(!limiter
-            .delayed_requests
-            .contains_key(&(peer1, Protocol::Ping)));
+        assert!(
+            !limiter
+                .delayed_requests
+                .contains_key(&(peer1, Protocol::Ping))
+        );
 
         assert!(limiter.active_requests.contains_key(&peer2));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer2, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer2, Protocol::Ping))
+        );
     }
 }

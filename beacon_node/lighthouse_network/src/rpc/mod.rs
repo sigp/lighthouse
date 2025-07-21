@@ -5,13 +5,13 @@
 //! syncing.
 
 use handler::RPCHandler;
+use libp2p::PeerId;
 use libp2p::core::transport::PortUse;
 use libp2p::swarm::{
-    handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
-    ToSwarm,
+    CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm,
+    handler::ConnectionHandler,
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
-use libp2p::PeerId;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;

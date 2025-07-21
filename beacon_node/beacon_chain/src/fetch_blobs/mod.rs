@@ -21,12 +21,12 @@ use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::ProposalKey;
 use crate::observed_data_sidecars::DoNotObserve;
 use crate::{
-    metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
-    BlockError,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
+    metrics,
 };
-use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
 use execution_layer::Error as ExecutionLayerError;
-use metrics::{inc_counter, TryExt};
+use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use metrics::{TryExt, inc_counter};
 #[cfg(test)]
 use mockall_double::double;
 use ssz_types::FixedVector;

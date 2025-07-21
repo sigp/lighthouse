@@ -1,7 +1,7 @@
 //! Identifies each shard by an integer identifier.
 use crate::SingleAttestation;
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, EthSpec, Slot};
-use alloy_primitives::{bytes::Buf, U256};
+use alloy_primitives::{U256, bytes::Buf};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};

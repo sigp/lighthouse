@@ -15,16 +15,16 @@
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
 };
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, sleep_until, Instant};
+use tokio::time::{Instant, sleep, sleep_until};
 use tracing::{debug, error, warn};
 use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
 

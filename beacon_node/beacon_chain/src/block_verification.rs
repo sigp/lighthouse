@@ -54,16 +54,17 @@ use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
-    validate_execution_payload_for_gossip, validate_merge_block, AllowOptimisticImport,
-    NotifyExecutionLayer, PayloadNotifier,
+    AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
+    validate_execution_payload_for_gossip, validate_merge_block,
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
+    BeaconChain, BeaconChainError, BeaconChainTypes,
     beacon_chain::{BeaconForkChoice, ForkChoiceError},
-    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    metrics,
 };
 use derivative::Derivative;
 use eth2::types::{BlockGossip, EventKind};
@@ -78,11 +79,11 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
+    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
+    VerifyBlockRoot,
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
-    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -94,10 +95,10 @@ use strum::AsRefStr;
 use task_executor::JoinHandle;
 use tracing::{debug, error};
 use types::{
-    data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
-    BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
-    Hash256, InconsistentFork, KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
+    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
+    PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    data_column_sidecar::DataColumnSidecarError,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -1035,7 +1036,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 return Err(BlockError::Slashable);
             }
             SeenBlock::Duplicate => {
-                return Err(BlockError::DuplicateImportStatusUnknown(block_root))
+                return Err(BlockError::DuplicateImportStatusUnknown(block_root));
             }
             SeenBlock::UniqueNonSlashable => {}
         };

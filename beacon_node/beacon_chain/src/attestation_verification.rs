@@ -35,11 +35,10 @@
 mod batch;
 
 use crate::{
-    metrics,
+    BeaconChain, BeaconChainError, BeaconChainTypes, metrics,
     observed_aggregates::{ObserveOutcome, ObservedAttestationKey},
     observed_attesters::Error as ObservedAttestersError,
     single_attestation::single_attestation_to_attestation,
-    BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
 use itertools::Itertools;
@@ -601,7 +600,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                 return Err(SignatureNotChecked(
                     signed_aggregate.message().aggregate(),
                     e,
-                ))
+                ));
             }
         };
 
@@ -677,7 +676,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
                 return Err(SignatureNotChecked(
                     signed_aggregate.message().aggregate(),
                     e,
-                ))
+                ));
             }
         };
         Ok(IndexedAggregatedAttestation {

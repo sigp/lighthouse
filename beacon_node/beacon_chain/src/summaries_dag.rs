@@ -1,7 +1,7 @@
 use itertools::Itertools;
 use std::{
     cmp::Ordering,
-    collections::{btree_map::Entry, BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, btree_map::Entry},
 };
 use store::HotStateSummary;
 use types::{Hash256, Slot};
@@ -88,7 +88,7 @@ impl StateSummariesDAG {
                         block_root: summary.latest_block_root,
                         existing_state_summary: (summary.slot, state_root).into(),
                         new_state_summary: (*existing.key(), existing.get().0),
-                    })
+                    });
                 }
             }
 
@@ -136,7 +136,7 @@ impl StateSummariesDAG {
                         block_root: summary.latest_block_root,
                         existing_state_summary: (summary.slot, *state_root).into(),
                         new_state_summary: (*existing.key(), *existing.get().0),
-                    })
+                    });
                 }
             }
         }
@@ -288,7 +288,7 @@ impl StateSummariesDAG {
                         ancestor_slot,
                         state_root,
                         state_slot: summary.slot,
-                    })
+                    });
                 }
                 Ordering::Equal => {
                     return Ok(state_root);

@@ -1,6 +1,6 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
-use crate::{type_name, FeatureName};
+use crate::{FeatureName, type_name};
 use context_deserialize::ContextDeserialize;
 use derivative::Derivative;
 use std::fs::{self, DirEntry};

@@ -1,6 +1,6 @@
 use crate::chunked_vector::{
-    load_variable_list_from_db, load_vector_from_db, BlockRootsChunked, HistoricalRoots,
-    HistoricalSummaries, RandaoMixes, StateRootsChunked,
+    BlockRootsChunked, HistoricalRoots, HistoricalSummaries, RandaoMixes, StateRootsChunked,
+    load_variable_list_from_db, load_vector_from_db,
 };
 use crate::{DBColumn, Error, KeyValueStore, KeyValueStoreOp};
 use ssz::{Decode, DecodeError, Encode};

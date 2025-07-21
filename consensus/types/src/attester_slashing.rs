@@ -2,8 +2,8 @@ use crate::context_deserialize;
 use crate::indexed_attestation::{
     IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
 };
-use crate::{test_utils::TestRandom, EthSpec};
 use crate::{ContextDeserialize, ForkName};
+use crate::{EthSpec, test_utils::TestRandom};
 use derivative::Derivative;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize};

@@ -1,4 +1,4 @@
-use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
+use crate::application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;

@@ -14,16 +14,16 @@ use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
-    service::api_types::{AppRequestId, SyncRequestId},
     MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
+    service::api_types::{AppRequestId, SyncRequestId},
 };
-use logging::crit;
 use logging::TimeLatch;
+use logging::crit;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, info_span, trace, warn, Instrument};
+use tracing::{Instrument, debug, error, info_span, trace, warn};
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.

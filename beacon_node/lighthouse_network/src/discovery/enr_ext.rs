@@ -3,7 +3,7 @@
 use crate::{Enr, Multiaddr, PeerId};
 use discv5::enr::{CombinedKey, CombinedPublicKey};
 use libp2p::core::multiaddr::Protocol;
-use libp2p::identity::{ed25519, secp256k1, KeyType, Keypair, PublicKey};
+use libp2p::identity::{KeyType, Keypair, PublicKey, ed25519, secp256k1};
 use tiny_keccak::{Hasher, Keccak};
 
 pub const QUIC_ENR_KEY: &str = "quic";

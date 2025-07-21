@@ -1,17 +1,17 @@
 use crate::{
+    KeyType, ValidatorPath,
     json_wallet::{
         Aes128Ctr, ChecksumModule, Cipher, CipherModule, Crypto, EmptyMap, EmptyString, JsonWallet,
         Kdf, KdfModule, Sha256Checksum, TypeField, Version,
     },
-    KeyType, ValidatorPath,
 };
 pub use bip39::{Mnemonic, Seed as Bip39Seed};
 pub use eth2_key_derivation::{DerivedKey, DerivedKeyError};
-use eth2_keystore::{
-    decrypt, default_kdf, encrypt, keypair_from_secret, Keystore, KeystoreBuilder, IV_SIZE,
-    SALT_SIZE,
-};
 pub use eth2_keystore::{Error as KeystoreError, PlainText};
+use eth2_keystore::{
+    IV_SIZE, Keystore, KeystoreBuilder, SALT_SIZE, decrypt, default_kdf, encrypt,
+    keypair_from_secret,
+};
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};

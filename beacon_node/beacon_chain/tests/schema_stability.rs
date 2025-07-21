@@ -1,19 +1,19 @@
 use beacon_chain::{
+    ChainConfig,
     persisted_beacon_chain::PersistedBeaconChain,
     persisted_custody::PersistedCustody,
-    test_utils::{test_spec, BeaconChainHarness, DiskHarnessType},
-    ChainConfig,
+    test_utils::{BeaconChainHarness, DiskHarnessType, test_spec},
 };
 use logging::create_test_tracing_subscriber;
 use operation_pool::PersistedOperationPool;
 use ssz::Encode;
 use std::sync::{Arc, LazyLock};
 use store::{
-    database::interface::BeaconNodeBackend, hot_cold_store::Split, metadata::DataColumnInfo,
-    DBColumn, HotColdDB, StoreConfig, StoreItem,
+    DBColumn, HotColdDB, StoreConfig, StoreItem, database::interface::BeaconNodeBackend,
+    hot_cold_store::Split, metadata::DataColumnInfo,
 };
 use strum::IntoEnumIterator;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::{ChainSpec, Hash256, Keypair, MainnetEthSpec};
 
 type E = MainnetEthSpec;

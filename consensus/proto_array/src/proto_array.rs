@@ -1,8 +1,8 @@
 use crate::error::InvalidBestNodeInfo;
-use crate::{error::Error, Block, ExecutionStatus, JustifiedBalances};
+use crate::{Block, ExecutionStatus, JustifiedBalances, error::Error};
 use serde::{Deserialize, Serialize};
-use ssz::four_byte_option_impl;
 use ssz::Encode;
+use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
@@ -428,7 +428,7 @@ impl ProtoArray {
                     return Err(Error::InvalidAncestorOfValidPayload {
                         ancestor_block_root: node.root,
                         ancestor_payload_block_hash,
-                    })
+                    });
                 }
             };
 
@@ -537,7 +537,7 @@ impl ProtoArray {
                         return Err(Error::ValidExecutionStatusBecameInvalid {
                             block_root: node.root,
                             payload_block_hash: *hash,
-                        })
+                        });
                     }
                     ExecutionStatus::Optimistic(hash) => {
                         invalidated_indices.insert(index);
@@ -601,7 +601,7 @@ impl ProtoArray {
                             return Err(Error::ValidExecutionStatusBecameInvalid {
                                 block_root: node.root,
                                 payload_block_hash: *hash,
-                            })
+                            });
                         }
                         ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
                             node.execution_status = ExecutionStatus::Invalid(*hash)
@@ -609,7 +609,7 @@ impl ProtoArray {
                         ExecutionStatus::Irrelevant(_) => {
                             return Err(Error::IrrelevantDescendant {
                                 block_root: node.root,
-                            })
+                            });
                         }
                     }
 

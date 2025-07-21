@@ -3,10 +3,10 @@
 use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::{
-    test_utils::{
-        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
-    },
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
+    },
 };
 use beacon_chain::{
     BeaconSnapshot, BlockError, ChainConfig, ChainSegmentResult, IntoExecutionPendingBlock,
@@ -15,9 +15,10 @@ use beacon_chain::{
 use logging::create_test_tracing_subscriber;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
+    BlockProcessingError, ConsensusContext, VerifyBlockRoot,
     common::{attesting_indices_base, attesting_indices_electra},
-    per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
+    per_block_processing::{BlockSignatureStrategy, per_block_processing},
+    per_slot_processing,
 };
 use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
@@ -1214,7 +1215,12 @@ async fn block_gossip_verification() {
     // Check to ensure that we registered this is a valid block from this proposer.
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
+            unwrap_err(
+                harness
+                    .chain
+                    .verify_block_for_gossip(Arc::new(block.clone()))
+                    .await
+            ),
             BlockError::DuplicateImportStatusUnknown(_),
         ),
         "should register any valid signature against the proposer, even if the block failed later verification"
@@ -1432,24 +1438,30 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
             // Check the correct beacon cache is populated
-            assert!(harness
-                .chain
-                .observed_block_attesters
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if block attester was observed"));
-            assert!(!harness
-                .chain
-                .observed_gossip_attesters
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if gossip attester was observed"));
-            assert!(!harness
-                .chain
-                .observed_aggregators
-                .read()
-                .validator_has_been_observed(epoch, index)
-                .expect("should check if gossip aggregator was observed"));
+            assert!(
+                harness
+                    .chain
+                    .observed_block_attesters
+                    .read()
+                    .validator_has_been_observed(epoch, index)
+                    .expect("should check if block attester was observed")
+            );
+            assert!(
+                !harness
+                    .chain
+                    .observed_gossip_attesters
+                    .read()
+                    .validator_has_been_observed(epoch, index)
+                    .expect("should check if gossip attester was observed")
+            );
+            assert!(
+                !harness
+                    .chain
+                    .observed_aggregators
+                    .read()
+                    .validator_has_been_observed(epoch, index)
+                    .expect("should check if gossip aggregator was observed")
+            );
         }
     }
 }
