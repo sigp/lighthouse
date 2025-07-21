@@ -136,14 +136,14 @@ impl TaskExecutor {
     /// Spawn a task to monitor the completion of another task.
     ///
     /// If the other task exits by panicking, then the monitor task will shut down the executor.
-    #[instrument(parent = None, name = "task_executor", skip_all)]
+    #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     fn spawn_monitor<R: Send>(
-        mut shutdown_sender: Sender<ShutdownReason>,
-        handle: Option<Handle>,
+        &self,
         task_handle: impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static,
         name: &'static str,
     ) {
-        if let Some(handle) = handle {
+        let mut shutdown_sender = self.shutdown_sender();
+        if let Some(handle) = self.handle() {
             let fut = async move {
                 let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
                 if let Err(join_error) = task_handle.await {
@@ -178,7 +178,7 @@ impl TaskExecutor {
     #[instrument(parent = None, fields(service = self.service_name), name = "task_executor", skip_all)]
     pub fn spawn(&self, task: impl Future<Output = ()> + Send + 'static, name: &'static str) {
         if let Some(task_handle) = self.spawn_handle(task, name) {
-            Self::spawn_monitor(self.shutdown_sender(), self.handle(), task_handle, name);
+            self.spawn_monitor(task_handle, name)
         }
     }
 
@@ -225,11 +225,8 @@ impl TaskExecutor {
     where
         F: FnOnce() + Send + 'static,
     {
-        let shutdown_sender = self.shutdown_sender();
-        let handle = self.handle();
-
         if let Some(task_handle) = self.spawn_blocking_handle(task, name) {
-            Self::spawn_monitor(shutdown_sender, handle, task_handle, name);
+            self.spawn_monitor(task_handle, name)
         }
     }
 
