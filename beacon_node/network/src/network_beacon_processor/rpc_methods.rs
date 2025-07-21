@@ -279,10 +279,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .collect::<Vec<_>>();
         let mut send_blob_count = 0;
 
+        let fulu_start_slot = self
+            .chain
+            .spec
+            .fulu_fork_epoch
+            .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
+
         let mut blob_list_results = HashMap::new();
         for id in request.blob_ids.as_slice() {
+            let BlobIdentifier {
+                block_root: root,
+                index,
+            } = id;
+
             // First attempt to get the blobs from the RPC cache.
             if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
+                // Check if the blob requested is from a Fulu slot, if so, skip the current blob id and proceed to the next
+                if let Some(fulu_slot) = fulu_start_slot {
+                    if blob.slot() >= fulu_slot {
+                        debug!(
+                            %peer_id,
+                            request_root = %root,
+                            blob_slot = %blob.slot(),
+                            %fulu_slot,
+                            "BlobsByRoot request is at or after Fulu slot, returning empty response"
+                        );
+                        continue;
+                    }
+                }
+
                 self.send_response(
                     peer_id,
                     inbound_request_id,
@@ -290,11 +315,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 send_blob_count += 1;
             } else {
-                let BlobIdentifier {
-                    block_root: root,
-                    index,
-                } = id;
-
                 let blob_list_result = match blob_list_results.entry(root) {
                     Entry::Vacant(entry) => {
                         entry.insert(self.chain.get_blobs_checking_early_attester_cache(root))
@@ -306,6 +326,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Ok(blobs_sidecar_list) => {
                         'inner: for blob_sidecar in blobs_sidecar_list.iter() {
                             if blob_sidecar.index == *index {
+                                // Same logic as above to check for Fulu slot
+                                if let Some(fulu_slot) = fulu_start_slot {
+                                    if blob_sidecar.slot() >= fulu_slot {
+                                        debug!(
+                                            %peer_id,
+                                            request_root = %root,
+                                            blob_slot = %blob_sidecar.slot(),
+                                            %fulu_slot,
+                                            "BlobsByRoot request is at or after Fulu slot, returning empty response"
+                                        );
+                                        break 'inner;
+                                    }
+                                }
+
                                 self.send_response(
                                     peer_id,
                                     inbound_request_id,
