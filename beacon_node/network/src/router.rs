@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, info_span, trace, warn, Instrument};
+use tracing::{debug, error, trace, warn};
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
@@ -132,7 +132,6 @@ impl<T: BeaconChainTypes> Router<T> {
                 debug!("Network message router started");
                 UnboundedReceiverStream::new(handler_recv)
                     .for_each(move |msg| future::ready(handler.handle_message(msg)))
-                    .instrument(info_span!("", service = "router"))
                     .await;
             },
             "router",
