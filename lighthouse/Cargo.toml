@@ -73,11 +73,11 @@ unused_port = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 
-[target.'cfg(not(any(target_os = "windows", features = "heaptrack")))'.dependencies]
-malloc_utils = { workspace = true, features = ["jemalloc"] }
-
 [target.'cfg(any(target_os = "windows", features = "heaptrack"))'.dependencies]
 malloc_utils = { workspace = true }
+
+[target.'cfg(not(any(target_os = "windows", features = "heaptrack")))'.dependencies]
+malloc_utils = { workspace = true, features = ["jemalloc"] }
 
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }
