@@ -1,5 +1,5 @@
 //! Hierarchical diff implementation.
-use crate::{metrics, DBColumn, StoreConfig, StoreItem};
+use crate::{DBColumn, StoreConfig, StoreItem, metrics};
 use bls::PublicKeyBytes;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
@@ -809,7 +809,7 @@ impl StorageStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{rngs::SmallRng, thread_rng, Rng, SeedableRng};
+    use rand::{Rng, SeedableRng, rngs::SmallRng, thread_rng};
 
     #[test]
     fn default_storage_strategy() {
@@ -932,7 +932,7 @@ mod tests {
     fn rand_validator(mut rng: impl Rng) -> Validator {
         let mut pubkey = [0u8; 48];
         rng.fill_bytes(&mut pubkey);
-        let withdrawal_credentials: [u8; 32] = rng.gen();
+        let withdrawal_credentials: [u8; 32] = rng.random();
 
         Validator {
             pubkey: PublicKeyBytes::from_ssz_bytes(&pubkey).unwrap(),

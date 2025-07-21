@@ -10,7 +10,7 @@ use crate::{
 };
 pub use blst::min_pk as blst_core;
 use blst::{blst_scalar, BLST_ERROR};
-
+use rand::Rng;
 pub const DST: &[u8] = b"BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_";
 pub const RAND_BITS: usize = 64;
 
@@ -42,7 +42,7 @@ pub fn verify_signature_sets<'a>(
         return false;
     }
 
-    let rng = &mut rand::thread_rng();
+    let rng = &mut rand::rng();
 
     let mut rands: Vec<blst_scalar> = Vec::with_capacity(sets.len());
     let mut msgs_refs = Vec::with_capacity(sets.len());
@@ -54,7 +54,7 @@ pub fn verify_signature_sets<'a>(
         let mut vals = [0u64; 4];
         while vals[0] == 0 {
             // Do not use zero
-            vals[0] = rng.gen();
+            vals[0] = rng.random();
         }
         let mut rand_i = std::mem::MaybeUninit::<blst_scalar>::uninit();
 
@@ -283,7 +283,7 @@ impl TAggregateSignature<blst_core::PublicKey, BlstAggregatePublicKey, blst_core
 
 impl TSecretKey<blst_core::Signature, blst_core::PublicKey> for blst_core::SecretKey {
     fn random() -> Self {
-        let rng = &mut rand::thread_rng();
+        let rng = &mut rand::rng();
         let ikm: [u8; 32] = rng.random();
 
         Self::key_gen(&ikm, &[]).unwrap()

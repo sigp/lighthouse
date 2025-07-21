@@ -90,8 +90,8 @@ impl<'a> WalletBuilder<'a> {
         } else if seed.is_empty() {
             Err(Error::EmptySeed)
         } else {
-            let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
-            let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
+            let salt = rand::rng().random::<[u8; SALT_SIZE]>();
+            let iv = rand::rng().random::<[u8; IV_SIZE]>().to_vec().into();
 
             Ok(Self {
                 seed: seed.to_vec().into(),

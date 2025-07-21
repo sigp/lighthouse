@@ -1,11 +1,11 @@
 use crate::{
+    JustifiedBalances,
     error::Error,
     proto_array::{
-        calculate_committee_fraction, InvalidationOperation, Iter, ProposerBoost, ProtoArray,
-        ProtoNode,
+        InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+        calculate_committee_fraction,
     },
     ssz_container::SszContainer,
-    JustifiedBalances,
 };
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -864,7 +864,7 @@ impl ProtoArrayForkChoice {
     pub fn iter_block_roots(
         &self,
         block_root: &Hash256,
-    ) -> impl Iterator<Item = (Hash256, Slot)> + use<'_> {
+    ) -> impl Iterator<Item = (Hash256, Slot)> + '_ {
         self.proto_array.iter_block_roots(block_root)
     }
 

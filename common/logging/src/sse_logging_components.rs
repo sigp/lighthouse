@@ -49,7 +49,7 @@ impl<S: Subscriber> Layer<S> for SSELoggingComponents {
             if error_type.eq_ignore_ascii_case("crit") {
                 log_entry["level"] = json!("CRIT");
 
-                if let Some(Value::Object(ref mut map)) = log_entry.get_mut("fields") {
+                if let Some(Value::Object(map)) = log_entry.get_mut("fields") {
                     map.remove("error_type");
                 }
             }

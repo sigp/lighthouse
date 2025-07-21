@@ -114,8 +114,10 @@ pub fn scrape_jemalloc_metrics_fallible() -> Result<(), Error> {
 }
 
 unsafe fn set_stats_gauge(metric: &metrics::Result<IntGaugeVec>, arena: u32, stat: &str) {
-    if let Ok(val) = raw::read::<usize>(stat.as_bytes()) {
-        set_gauge_vec(metric, &[&format!("arena_{arena}")], val as i64);
+    unsafe {
+        if let Ok(val) = raw::read::<usize>(stat.as_bytes()) {
+            set_gauge_vec(metric, &[&format!("arena_{arena}")], val as i64);
+        }
     }
 }
 

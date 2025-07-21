@@ -103,8 +103,8 @@ impl<'a> KeystoreBuilder<'a> {
         if password.is_empty() {
             Err(Error::EmptyPassword)
         } else {
-            let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
-            let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
+            let salt = rand::rng().random::<[u8; SALT_SIZE]>();
+            let iv = rand::rng().random::<[u8; IV_SIZE]>().to_vec().into();
 
             Ok(Self {
                 keypair,
