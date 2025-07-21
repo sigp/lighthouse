@@ -727,10 +727,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         if let Some(blocks_result) = entry.get_mut().responses(&self.chain.spec) {
-            if blocks_result.is_ok() {
-                // remove the entry only if it coupled successfully with
-                // no errors
-                entry.remove();
+            match blocks_result.as_ref() {
+                Ok(_) => {
+                    // remove the entry only if it coupled successfully with
+                    // no errors
+                    entry.remove();
+                }
+                Err(&CouplingError {
+                    msg: _,
+                    column_and_peer: None,
+                }) => {
+                    // remove the entry only if the coupling error has no columns specified, as the
+                    // entire batch will be retried
+                    entry.remove();
+                }
+                _ => {}
             }
             // If the request is finished, dequeue everything
             Some(blocks_result.map_err(RpcResponseError::BlockComponentCouplingError))

@@ -80,7 +80,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// request for some columns.
     pub fn reinsert_failed_column_requests(
         &mut self,
-        failed_column_requests: Vec<(DataColumnsByRangeRequestId, Vec<u64>)>,
+        failed_column_requests: Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
     ) -> Result<(), String> {
         match &mut self.block_data_request {
             RangeBlockDataRequest::DataColumns {
@@ -195,6 +195,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     spec,
                 );
 
+                // FIXME: If a peer provided _some_ useful columns but not all, do we end up
+                // removing the entire requests, including the useful columns? These columns won't
+                // be in the error and may not be retried?
                 if let Err(err) = &resp {
                     if let Some((peers, _)) = &err.column_and_peer {
                         for (_, peer) in peers.iter() {
@@ -300,6 +303,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 .insert(index, column)
                 .is_some()
             {
+                // FIXME: we could probably ignore and continue? instead of failing the whole batch?
                 return Err(CouplingError {
                     msg: format!("Repeated column block_root {block_root:?} index {index}"),
                     column_and_peer: None,
