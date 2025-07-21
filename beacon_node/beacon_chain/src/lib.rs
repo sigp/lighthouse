@@ -32,6 +32,7 @@ pub mod fork_revert;
 pub mod fulu_readiness;
 pub mod graffiti_calculator;
 pub mod historical_blocks;
+pub mod historical_data_columns;
 pub mod kzg_utils;
 pub mod light_client_finality_update_verification;
 pub mod light_client_optimistic_update_verification;
