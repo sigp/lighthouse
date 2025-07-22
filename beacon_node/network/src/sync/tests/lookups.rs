@@ -583,39 +583,6 @@ impl TestRig {
         })
     }
 
-    fn return_empty_sampling_requests(&mut self, ids: DCByRootIds) {
-        for id in ids {
-            self.log(&format!("return empty data column for {id:?}"));
-            self.return_empty_sampling_request(id)
-        }
-    }
-
-    fn return_empty_sampling_request(&mut self, (sync_request_id, _): DCByRootId) {
-        let peer_id = PeerId::random();
-        // Send stream termination
-        self.send_sync_message(SyncMessage::RpcDataColumn {
-            sync_request_id,
-            peer_id,
-            data_column: None,
-            seen_timestamp: timestamp_now(),
-        });
-    }
-
-    fn sampling_requests_failed(
-        &mut self,
-        sampling_ids: DCByRootIds,
-        peer_id: PeerId,
-        error: RPCError,
-    ) {
-        for (sync_request_id, _) in sampling_ids {
-            self.send_sync_message(SyncMessage::RpcError {
-                peer_id,
-                sync_request_id,
-                error: error.clone(),
-            })
-        }
-    }
-
     fn complete_valid_block_request(
         &mut self,
         id: SingleLookupReqId,
@@ -972,6 +939,7 @@ impl TestRig {
         .unwrap_or_else(|e| panic!("Expected RPC custody column work: {e}"))
     }
 
+    #[allow(dead_code)]
     fn expect_no_work_event(&mut self) {
         self.drain_processor_rx();
         assert!(self.network_rx_queue.is_empty());
@@ -1964,9 +1932,6 @@ fn custody_lookup_happy_path() {
 // - Respond with bad data
 // - Respond with stream terminator
 //   ^ The stream terminator should be ignored and not close the next retry
-
-// TODO(das): Test error early a sampling request and it getting drop + then receiving responses
-// from pending requests.
 
 mod deneb_only {
     use super::*;
