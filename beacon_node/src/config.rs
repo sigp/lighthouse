@@ -837,7 +837,7 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.genesis_backfill = true;
     }
 
-    client_config.chain.genesis_backfill = cli_args.get_flag("complete-blob-backfill");
+    client_config.chain.complete_blob_backfill = cli_args.get_flag("complete-blob-backfill");
 
     // Backfill sync rate-limiting
     client_config.beacon_processor.enable_backfill_rate_limiting =
