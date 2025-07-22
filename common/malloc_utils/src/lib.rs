@@ -24,7 +24,7 @@
 //! detecting `glibc` are best-effort. If this crate throws errors about undefined external
 //! functions, then try to compile with the `not_glibc_interface` module.
 
-#[cfg(all(target_os = "linux", not(target_env = "musl"), feature = "sysmalloc"))]
+#[cfg(all(feature = "sysmalloc", target_os = "linux", not(target_env = "musl")))]
 pub mod glibc;
 
 #[cfg(all(unix, not(feature = "sysmalloc")))]
@@ -33,7 +33,7 @@ pub mod jemalloc;
 pub use interface::*;
 
 // Glibc malloc is the default on non-musl Linux if the sysmalloc feature is enabled.
-#[cfg(all(target_os = "linux", not(target_env = "musl"), feature = "sysmalloc"))]
+#[cfg(all(feature = "sysmalloc", target_os = "linux", not(target_env = "musl")))]
 mod interface {
     pub use crate::glibc::configure_glibc_malloc as configure_memory_allocator;
     pub use crate::glibc::scrape_mallinfo_metrics as scrape_allocator_metrics;
@@ -61,9 +61,9 @@ mod interface {
     }
 }
 
-#[cfg(all(
-    any(not(target_os = "linux"), target_env = "musl"),
-    feature = "sysmalloc"
+#[cfg(any(
+    not(unix),
+    all(feature = "sysmalloc", any(not(target_os = "linux"), target_env = "musl"))
 ))]
 mod interface {
     #[allow(dead_code, clippy::unnecessary_wraps)]
