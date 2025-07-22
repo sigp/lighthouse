@@ -24,29 +24,27 @@
 //! detecting `glibc` are best-effort. If this crate throws errors about undefined external
 //! functions, then try to compile with the `not_glibc_interface` module.
 
-#[cfg(all(
-    target_os = "linux",
-    not(target_env = "musl"),
-    not(feature = "jemalloc")
-))]
+#[cfg(all(target_os = "linux", not(target_env = "musl"), feature = "sysmalloc"))]
 pub mod glibc;
 
-#[cfg(feature = "jemalloc")]
+#[cfg(all(unix, not(feature = "sysmalloc")))]
 pub mod jemalloc;
 
 pub use interface::*;
 
-#[cfg(all(
-    target_os = "linux",
-    not(target_env = "musl"),
-    not(feature = "jemalloc")
-))]
+// Glibc malloc is the default on non-musl Linux if the sysmalloc feature is enabled.
+#[cfg(all(target_os = "linux", not(target_env = "musl"), feature = "sysmalloc"))]
 mod interface {
     pub use crate::glibc::configure_glibc_malloc as configure_memory_allocator;
     pub use crate::glibc::scrape_mallinfo_metrics as scrape_allocator_metrics;
+
+    pub fn allocator_name() -> String {
+        "glibc".to_string()
+    }
 }
 
-#[cfg(feature = "jemalloc")]
+// Jemalloc is the default on UNIX (including musl) unless the sysmalloc feature is enabled.
+#[cfg(all(unix, not(feature = "sysmalloc")))]
 mod interface {
     #[allow(dead_code)]
     pub fn configure_memory_allocator() -> Result<(), String> {
@@ -54,11 +52,18 @@ mod interface {
     }
 
     pub use crate::jemalloc::scrape_jemalloc_metrics as scrape_allocator_metrics;
+
+    pub fn allocator_name() -> String {
+        match crate::jemalloc::page_size() {
+            Ok(page_size) => format!("jemalloc ({}K)", page_size / 1024),
+            Err(e) => format!("jemalloc (error: {e:?})"),
+        }
+    }
 }
 
 #[cfg(all(
     any(not(target_os = "linux"), target_env = "musl"),
-    not(feature = "jemalloc")
+    feature = "sysmalloc"
 ))]
 mod interface {
     #[allow(dead_code, clippy::unnecessary_wraps)]
@@ -68,4 +73,8 @@ mod interface {
 
     #[allow(dead_code)]
     pub fn scrape_allocator_metrics() {}
+
+    pub fn allocator_name() -> String {
+        "system".to_string()
+    }
 }
