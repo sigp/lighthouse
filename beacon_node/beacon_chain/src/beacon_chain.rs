@@ -70,7 +70,7 @@ use crate::validator_monitor::{
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
+    metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
 use eth2::types::{
@@ -5748,8 +5748,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (mut block, _) = block.deconstruct();
         *block.state_root_mut() = state_root;
 
-        let blobs_verification_timer =
-            metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
         let blob_items = match maybe_blobs_and_proofs {
             Some((blobs, proofs)) => {
                 let expected_kzg_commitments =
@@ -5768,36 +5766,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )));
                 }
 
-                let kzg_proofs = Vec::from(proofs);
-
-                let kzg = self.kzg.as_ref();
-                if self
-                    .spec
-                    .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
-                {
-                    kzg_utils::validate_blobs_and_cell_proofs::<T::EthSpec>(
-                        kzg,
-                        blobs.iter().collect(),
-                        &kzg_proofs,
-                        expected_kzg_commitments,
-                    )
-                    .map_err(BlockProductionError::KzgError)?;
-                } else {
-                    kzg_utils::validate_blobs::<T::EthSpec>(
-                        kzg,
-                        expected_kzg_commitments,
-                        blobs.iter().collect(),
-                        &kzg_proofs,
-                    )
-                    .map_err(BlockProductionError::KzgError)?;
-                }
-
-                Some((kzg_proofs.into(), blobs))
+                Some((proofs, blobs))
             }
             None => None,
         };
-
-        drop(blobs_verification_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
