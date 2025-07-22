@@ -5,13 +5,9 @@ version = "7.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
-[package.metadata.cargo-udeps.ignore]
-normal = ["malloc_utils"]
-
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
-jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
 account_utils = { workspace = true }
@@ -32,7 +28,6 @@ hex = { workspace = true }
 lighthouse_network = { workspace = true }
 lighthouse_version = { workspace = true }
 log = { workspace = true }
-malloc_utils = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
