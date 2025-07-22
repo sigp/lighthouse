@@ -67,7 +67,7 @@ members = [
     "database_manager",
     "lcli",
     "lighthouse",
-    "lighthouse/environment",
+    "lighthouse/environment", "metrics_dashboard_generator",
     "slasher",
     "slasher/service",
     "testing/ef_tests",
