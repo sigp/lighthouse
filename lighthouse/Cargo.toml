@@ -35,8 +35,10 @@ beacon-node-leveldb = ["store/leveldb"]
 beacon-node-redb = ["store/redb"]
 # Supports console subscriber for debugging
 console-subscriber = ["console-subscriber/default"]
+# Turns off jemalloc so that heaptrack may be used to analyse memory usage.
+heaptrack = []
 
-# Deprecated. This is now enabled by default on non windows targets.
+# Deprecated. This is now enabled by default on non windows targets (unless heaptrack is enabled).
 jemalloc = []
 
 [dependencies]
@@ -71,11 +73,11 @@ unused_port = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-malloc_utils = { workspace = true, features = ["jemalloc"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
+[target.'cfg(any(target_os = "windows", features = "heaptrack"))'.dependencies]
 malloc_utils = { workspace = true }
+
+[target.'cfg(not(any(target_os = "windows", features = "heaptrack")))'.dependencies]
+malloc_utils = { workspace = true, features = ["jemalloc"] }
 
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }
