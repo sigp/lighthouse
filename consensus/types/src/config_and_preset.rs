@@ -106,8 +106,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
     let hex_string = |value: &[u8]| format!("0x{}", hex::encode(value)).into();
     let u32_hex = |v: u32| hex_string(&v.to_le_bytes());
     let u8_hex = |v: u8| hex_string(&v.to_le_bytes());
-    
-    let mut fields = hashmap! {
+    hashmap! {
         "bls_withdrawal_prefix".to_uppercase() => u8_hex(spec.bls_withdrawal_prefix_byte),
         "eth1_address_withdrawal_prefix".to_uppercase() => u8_hex(spec.eth1_address_withdrawal_prefix_byte),
         "domain_beacon_proposer".to_uppercase() => u32_hex(spec.domain_beacon_proposer),
@@ -135,16 +134,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
         "compounding_withdrawal_prefix".to_uppercase() => u8_hex(spec.compounding_withdrawal_prefix_byte),
         "unset_deposit_requests_start_index".to_uppercase() => spec.unset_deposit_requests_start_index.to_string().into(),
         "full_exit_request_amount".to_uppercase() => spec.full_exit_request_amount.to_string().into(),
-    };
-    
-    // Only include BLOB_SCHEDULE if FULU_FORK_EPOCH is not FAR_FUTURE_EPOCH
-    if spec.fulu_fork_epoch.is_some_and(|fulu_fork_epoch| fulu_fork_epoch != spec.far_future_epoch) {
-        if let Ok(blob_schedule_json) = serde_json::to_value(&spec.blob_schedule) {
-            fields.insert("BLOB_SCHEDULE".to_string(), blob_schedule_json);
-        }
     }
-    
-    fields
 }
 
 #[cfg(test)]
