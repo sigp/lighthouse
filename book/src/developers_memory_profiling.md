@@ -40,6 +40,13 @@ curl -X POST http://localhost:5052/lighthouse/malloc/prof_dump -H "Content-Type:
 
 ## 4. Analyze with `jeprof`
 
+Install `jeprof` and dependencies
+
+```bash
+sudo apt update
+sudo apt install libjemalloc-dev graphviz
+```
+
 Generate a visualization:
 
 ```bash
