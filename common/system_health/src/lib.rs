@@ -1,10 +1,10 @@
 use lighthouse_network::{types::SyncState, NetworkGlobals};
+use network_utils::discovery_metrics;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use sysinfo::{CpuExt, DiskExt, NetworkExt, NetworksExt, System, SystemExt};
-use network_utils::discovery_metrics;
 use types::EthSpec;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -220,33 +220,21 @@ impl NatState {
 
 /// Observes if NAT traversal is possible.
 pub fn observe_nat() -> NatState {
-    let discv5_ipv4 = metrics::get_int_gauge(
-        &discovery_metrics::NAT_OPEN,
-        &["discv5_ipv4"],
-    )
-    .map(|g| g.get() == 1)
-    .unwrap_or_default();
+    let discv5_ipv4 = metrics::get_int_gauge(&discovery_metrics::NAT_OPEN, &["discv5_ipv4"])
+        .map(|g| g.get() == 1)
+        .unwrap_or_default();
 
-    let discv5_ipv6 = metrics::get_int_gauge(
-        &discovery_metrics::NAT_OPEN,
-        &["discv5_ipv6"],
-    )
-    .map(|g| g.get() == 1)
-    .unwrap_or_default();
+    let discv5_ipv6 = metrics::get_int_gauge(&discovery_metrics::NAT_OPEN, &["discv5_ipv6"])
+        .map(|g| g.get() == 1)
+        .unwrap_or_default();
 
-    let libp2p_ipv4 = metrics::get_int_gauge(
-        &discovery_metrics::NAT_OPEN,
-        &["libp2p_ipv4"],
-    )
-    .map(|g| g.get() == 1)
-    .unwrap_or_default();
+    let libp2p_ipv4 = metrics::get_int_gauge(&discovery_metrics::NAT_OPEN, &["libp2p_ipv4"])
+        .map(|g| g.get() == 1)
+        .unwrap_or_default();
 
-    let libp2p_ipv6 = metrics::get_int_gauge(
-        &discovery_metrics::NAT_OPEN,
-        &["libp2p_ipv6"],
-    )
-    .map(|g| g.get() == 1)
-    .unwrap_or_default();
+    let libp2p_ipv6 = metrics::get_int_gauge(&discovery_metrics::NAT_OPEN, &["libp2p_ipv6"])
+        .map(|g| g.get() == 1)
+        .unwrap_or_default();
 
     NatState {
         discv5_ipv4,

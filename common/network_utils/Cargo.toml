@@ -13,6 +13,5 @@ parking_lot = { workspace = true }
 serde = { workspace = true }
 tiny-keccak = { version = "2", features = ["keccak"] }
 
-
 [dev-dependencies]
 hex = { workspace = true }

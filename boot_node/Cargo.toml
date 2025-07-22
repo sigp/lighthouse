@@ -10,12 +10,12 @@ bytes = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
 eth2_network_config = { workspace = true }
-network_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 hex = { workspace = true }
 lighthouse_network = { workspace = true }
 log = { workspace = true }
 logging = { workspace = true }
+network_utils = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

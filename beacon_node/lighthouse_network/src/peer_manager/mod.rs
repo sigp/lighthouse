@@ -24,6 +24,7 @@ pub mod peerdb;
 
 use crate::peer_manager::peerdb::client::ClientKind;
 use libp2p::multiaddr;
+use network_utils::discovery_metrics;
 use network_utils::enr_ext::{peer_id_to_node_id, EnrExt};
 pub use peerdb::peer_info::{
     ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo,
@@ -33,7 +34,6 @@ pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::net::IpAddr;
 use strum::IntoEnumIterator;
-use network_utils::discovery_metrics;
 use types::data_column_custody_group::{
     compute_subnets_from_custody_group, get_custody_groups, CustodyIndex,
 };

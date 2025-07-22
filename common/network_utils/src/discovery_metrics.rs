@@ -1,5 +1,5 @@
-use std::sync::LazyLock;
 use metrics::*;
+use std::sync::LazyLock;
 
 pub static NAT_OPEN: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {
     try_create_int_gauge_vec(

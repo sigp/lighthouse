@@ -32,6 +32,7 @@ pub use libp2p::{
 };
 use logging::crit;
 use lru::LruCache;
+use network_utils::discovery_metrics;
 use ssz::Encode;
 use std::num::NonZeroUsize;
 use std::{
@@ -45,7 +46,6 @@ use std::{
 };
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
-use network_utils::discovery_metrics;
 use types::{ChainSpec, EnrForkId, EthSpec};
 
 mod subnet_predicate;
@@ -687,7 +687,10 @@ impl<E: EthSpec> Discovery<E> {
                 min_ttl,
                 retries,
             });
-            metrics::set_gauge(&discovery_metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+            metrics::set_gauge(
+                &discovery_metrics::DISCOVERY_QUEUE,
+                self.queued_queries.len() as i64,
+            );
         }
     }
 
@@ -722,7 +725,10 @@ impl<E: EthSpec> Discovery<E> {
             }
         }
         // Update the queue metric
-        metrics::set_gauge(&discovery_metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+        metrics::set_gauge(
+            &discovery_metrics::DISCOVERY_QUEUE,
+            self.queued_queries.len() as i64,
+        );
         processed
     }
 
