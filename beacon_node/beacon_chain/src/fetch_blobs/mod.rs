@@ -311,6 +311,9 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         return Ok(None);
     }
 
+    // Up until this point we have not observed the data columns in the gossip cache, which allows
+    // them to arrive independently while this function is running. In publish_fn we will observe
+    // them and then publish any columns that had not already been observed.
     publish_fn(EngineGetBlobsOutput::CustodyColumns(
         custody_columns_to_import.clone(),
     ));
