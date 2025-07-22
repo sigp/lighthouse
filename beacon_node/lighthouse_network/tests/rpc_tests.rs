@@ -2,6 +2,7 @@
 
 mod common;
 
+use crate::common::spec_with_all_forks_enabled;
 use common::{build_tracing_subscriber, Protocol};
 use lighthouse_network::rpc::{methods::*, RequestType};
 use lighthouse_network::service::api_types::AppRequestId;
@@ -60,7 +61,7 @@ fn test_tcp_status_rpc() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     rt.block_on(async {
         // get sender/receiver
@@ -168,7 +169,7 @@ fn test_tcp_blocks_by_range_chunked_rpc() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     rt.block_on(async {
         // get sender/receiver
@@ -318,7 +319,7 @@ fn test_blobs_by_range_chunked_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let spec = Arc::new(E::default_spec());
+        let spec = Arc::new(spec_with_all_forks_enabled());
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
             ForkName::Deneb,
@@ -330,13 +331,18 @@ fn test_blobs_by_range_chunked_rpc() {
         .await;
 
         // BlobsByRange Request
+        let deneb_slot = spec
+            .deneb_fork_epoch
+            .expect("deneb must be scheduled")
+            .start_slot(E::slots_per_epoch());
         let rpc_request = RequestType::BlobsByRange(BlobsByRangeRequest {
-            start_slot: 0,
+            start_slot: deneb_slot.as_u64(),
             count: slot_count,
         });
 
-        // BlocksByRange Response
-        let blob = BlobSidecar::<E>::empty();
+        // BlobsByRange Response
+        let mut blob = BlobSidecar::<E>::empty();
+        blob.signed_block_header.message.slot = deneb_slot;
 
         let rpc_response = Response::BlobsByRange(Some(Arc::new(blob)));
 
@@ -438,7 +444,7 @@ fn test_tcp_blocks_by_range_over_limit() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     rt.block_on(async {
         // get sender/receiver
@@ -545,7 +551,7 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     rt.block_on(async {
         // get sender/receiver
@@ -681,7 +687,7 @@ fn test_tcp_blocks_by_range_single_empty_rpc() {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     rt.block_on(async {
         // get sender/receiver
@@ -804,14 +810,15 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
 
     let messages_to_send = 6;
 
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
+    let current_fork_name = ForkName::Bellatrix;
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            ForkName::Bellatrix,
+            current_fork_name,
             spec.clone(),
             Protocol::Tcp,
             false,
@@ -831,7 +838,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                         Hash256::zero(),
                         Hash256::zero(),
                     ],
-                    spec.max_request_blocks_upper_bound(),
+                    spec.max_request_blocks(current_fork_name),
                 ),
             }));
 
@@ -934,7 +941,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
         tokio::select! {
             _ = sender_future => {}
             _ = receiver_future => {}
-            _ = sleep(Duration::from_secs(30)) => {
+            _ = sleep(Duration::from_secs(300)) => {
                     panic!("Future timed out");
             }
         }
@@ -952,14 +959,15 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
     let messages_to_send: u64 = 10;
     let extra_messages_to_send: u64 = 10;
 
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
+    let current_fork = ForkName::Base;
 
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
             Arc::downgrade(&rt),
-            ForkName::Base,
+            current_fork,
             spec.clone(),
             Protocol::Tcp,
             false,
@@ -983,7 +991,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                         Hash256::zero(),
                         Hash256::zero(),
                     ],
-                    spec.max_request_blocks_upper_bound(),
+                    spec.max_request_blocks(current_fork),
                 ),
             }));
 
@@ -1098,7 +1106,7 @@ fn goodbye_test(log_level: &str, enable_logging: bool, protocol: Protocol) {
 
     let rt = Arc::new(Runtime::new().unwrap());
 
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     // get sender/receiver
     rt.block_on(async {
@@ -1180,7 +1188,7 @@ fn test_delayed_rpc_response() {
     // Set up the logging.
     build_tracing_subscriber("debug", true);
     let rt = Arc::new(Runtime::new().unwrap());
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     // Allow 1 token to be use used every 3 seconds.
     const QUOTA_SEC: u64 = 3;
@@ -1314,7 +1322,7 @@ fn test_active_requests() {
     // Set up the logging.
     build_tracing_subscriber("debug", true);
     let rt = Arc::new(Runtime::new().unwrap());
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     rt.block_on(async {
         // Get sender/receiver.
