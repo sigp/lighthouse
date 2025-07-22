@@ -9,12 +9,14 @@ use operation_pool::PersistedOperationPool;
 use ssz::Encode;
 use std::sync::{Arc, LazyLock};
 use store::{
-    database::interface::BeaconNodeBackend, hot_cold_store::Split, metadata::DataColumnInfo,
+    database::interface::BeaconNodeBackend,
+    hot_cold_store::Split,
+    metadata::{DataColumnCustodyInfo, DataColumnInfo},
     DBColumn, HotColdDB, StoreConfig, StoreItem,
 };
 use strum::IntoEnumIterator;
 use tempfile::{tempdir, TempDir};
-use types::{ChainSpec, Hash256, Keypair, MainnetEthSpec};
+use types::{ChainSpec, Hash256, Keypair, MainnetEthSpec, Slot};
 
 type E = MainnetEthSpec;
 type Store<E> = Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>;
@@ -84,11 +86,13 @@ async fn schema_stability() {
 
     chain.persist_op_pool().unwrap();
     chain.persist_custody_context().unwrap();
+    insert_data_column_custody_info(&store, &harness.spec);
 
     check_db_columns();
     check_metadata_sizes(&store);
     check_op_pool(&store);
     check_custody_context(&store, &harness.spec);
+    check_custody_info(&store, &harness.spec);
     check_persisted_chain(&store);
 
     // Not covered here:
@@ -100,11 +104,19 @@ async fn schema_stability() {
 fn check_db_columns() {
     let current_columns: Vec<&'static str> = DBColumn::iter().map(|c| c.as_str()).collect();
     let expected_columns = vec![
-        "bma", "blk", "blb", "bdc", "ste", "hsd", "hsn", "bsn", "bsd", "bss", "bs3", "bcs", "bst",
-        "exp", "bch", "opo", "etc", "frk", "pkc", "brp", "bsx", "bsr", "bbx", "bbr", "bhr", "brm",
-        "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
+        "bma", "blk", "blb", "bdc", "bdi", "ste", "hsd", "hsn", "bsn", "bsd", "bss", "bs3", "bcs",
+        "bst", "exp", "bch", "opo", "etc", "frk", "pkc", "brp", "bsx", "bsr", "bbx", "bbr", "bhr",
+        "brm", "dht", "cus", "otb", "bhs", "olc", "lcu", "scb", "scm", "dmy",
     ];
     assert_eq!(expected_columns, current_columns);
+}
+
+fn insert_data_column_custody_info(store: &Store<E>, spec: &ChainSpec) {
+    if spec.is_peer_das_scheduled() {
+        store
+            .put_data_column_custody_info(Some(Slot::new(0)))
+            .unwrap();
+    }
 }
 
 /// Check the SSZ sizes of known on-disk metadata.
@@ -122,6 +134,7 @@ fn check_metadata_sizes(store: &Store<E>) {
         }
     );
     assert_eq!(DataColumnInfo::default().ssz_bytes_len(), 5);
+    assert_eq!(DataColumnCustodyInfo::default().ssz_bytes_len(), 5);
 }
 
 fn check_op_pool(store: &Store<E>) {
@@ -140,6 +153,15 @@ fn check_custody_context(store: &Store<E>, spec: &ChainSpec) {
         assert_eq!(custody_context_opt.unwrap().as_store_bytes().len(), 13);
     } else {
         assert!(custody_context_opt.is_none());
+    }
+}
+
+fn check_custody_info(store: &Store<E>, spec: &ChainSpec) {
+    let data_column_custody_info = store.get_data_column_custody_info().unwrap();
+    if spec.is_peer_das_scheduled() {
+        assert_eq!(data_column_custody_info.unwrap().as_ssz_bytes().len(), 13);
+    } else {
+        assert!(data_column_custody_info.is_none());
     }
 }
 

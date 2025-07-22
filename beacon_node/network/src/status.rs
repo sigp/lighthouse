@@ -29,8 +29,22 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
         finalized_checkpoint.root = Hash256::zero();
     }
 
-    let earliest_available_slot = beacon_chain.store.get_anchor_info().oldest_block_slot;
+    // NOTE: We are making an assumption that `get_data_column_custody_info` wont fail.
+    let earliest_available_data_column_slot = beacon_chain
+        .store
+        .get_data_column_custody_info()
+        .ok()
+        .flatten()
+        .and_then(|info| info.earliest_data_column_slot);
 
+    // If data_column_custody_info.earliest_data_column_slot is `None`,
+    // no recent cgc changes have occurred and no cgc backfill is in progress.
+    let earliest_available_slot =
+        if let Some(earliest_available_data_column_slot) = earliest_available_data_column_slot {
+            earliest_available_data_column_slot
+        } else {
+            beacon_chain.store.get_anchor_info().oldest_block_slot
+        };
     StatusMessage::V2(StatusMessageV2 {
         fork_digest,
         finalized_root: finalized_checkpoint.root,

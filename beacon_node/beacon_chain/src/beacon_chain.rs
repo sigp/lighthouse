@@ -6807,6 +6807,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|duration| (next_digest_epoch, duration))
     }
 
+    /// Update data column custody info with the slot at which cgc was changed.
+    pub fn update_data_column_custody_info(&self, slot: Option<Slot>) {
+        self.store
+            .put_data_column_custody_info(slot)
+            .unwrap_or_else(
+                |e| tracing::error!(error = ?e, "Failed to update data column custody info"),
+            );
+    }
+
     /// This method serves to get a sense of the current chain health. It is used in block proposal
     /// to determine whether we should outsource payload production duties.
     ///
