@@ -20,7 +20,7 @@ use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use gossipsub::MessageAcceptance;
 use itertools::Itertools;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest, MetaDataV3};
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::{
     discv5::enr::{self, CombinedKey},
@@ -34,11 +34,12 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
-    DataColumnSubnetId, Epoch, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    DataColumnSubnetId, Epoch, Hash256, MainnetEthSpec, ProposerSlashing, RuntimeVariableList,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot,
+    SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -423,6 +424,16 @@ impl TestRig {
                 PeerId::random(),
                 InboundRequestId::new_unchecked(42, 24),
                 BlobsByRangeRequest { start_slot, count },
+            )
+            .unwrap();
+    }
+
+    pub fn enqueue_blobs_by_root_request(&self, blob_ids: RuntimeVariableList<BlobIdentifier>) {
+        self.network_beacon_processor
+            .send_blobs_by_roots_request(
+                PeerId::random(),
+                InboundRequestId::new_unchecked(42, 24),
+                BlobsByRootRequest { blob_ids },
             )
             .unwrap();
     }
@@ -1362,7 +1373,7 @@ async fn test_blobs_by_range() {
 }
 
 #[tokio::test]
-async fn test_blobs_by_range_post_fulu_should_returns_empty() {
+async fn test_blobs_by_range_post_fulu_should_return_empty() {
     // Only test for Fulu fork
     if test_spec::<E>().fulu_fork_epoch.is_none() {
         return;
@@ -1409,13 +1420,6 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     // This will span from epoch 0 (Electra) to epoch 1 (Fulu)
     let slot_count = 32;
 
-    println!("Deneb fork epoch is: {:?}", rig.chain.spec.deneb_fork_epoch);
-    println!(
-        "Electra fork epoch is: {:?}",
-        rig.chain.spec.electra_fork_epoch
-    );
-    println!("Fulu fork epoch is: {:?}", rig.chain.spec.fulu_fork_epoch);
-
     rig.enqueue_blobs_by_range_request(start_slot, slot_count);
 
     let mut blob_count = 0;
@@ -1453,4 +1457,51 @@ async fn test_blobs_by_range_spans_fulu_fork() {
         }
     }
     assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_root_post_fulu_should_return_empty() {
+    // Only test for Fulu fork
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+
+    // Get the block root of a sample slot, e.g., slot 1
+    let block_root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+
+    let blob_ids = vec![BlobIdentifier {
+        block_root,
+        index: 0,
+    }];
+
+    let blob_ids_list = RuntimeVariableList::new(blob_ids, 1).unwrap();
+
+    rig.enqueue_blobs_by_root_request(blob_ids_list);
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRoot(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    // Post-Fulu should return 0 blobs
+    assert_eq!(0, actual_count);
 }
