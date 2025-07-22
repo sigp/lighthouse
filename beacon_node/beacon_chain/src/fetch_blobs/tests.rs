@@ -250,7 +250,6 @@ mod get_blobs_v2 {
 
 mod get_blobs_v1 {
     use super::*;
-    use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
     use crate::block_verification_types::AsBlock;
     use std::collections::HashSet;
 
@@ -427,7 +426,7 @@ mod get_blobs_v1 {
             .returning(|_| None);
         mock_adapter
             .expect_blobs_known_for_proposal()
-            .returning(|_, _| Some(all_blob_indices.clone()));
+            .returning(move |_, _| Some(all_blob_indices.clone()));
 
         // **WHEN**: Trigger `fetch_blobs` on the block
         let custody_columns = hashset![0, 1, 2];
