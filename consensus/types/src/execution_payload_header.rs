@@ -21,11 +21,14 @@ use tree_hash_derive::TreeHash;
             TreeHash,
             TestRandom,
             Derivative,
-            arbitrary::Arbitrary
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
         context_deserialize(ForkName),
     ),
     ref_attributes(
@@ -36,12 +39,14 @@ use tree_hash_derive::TreeHash;
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     map_ref_into(ExecutionPayloadHeader)
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(bound = "E: EthSpec", untagged)]
-#[arbitrary(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct ExecutionPayloadHeader<E: EthSpec> {
