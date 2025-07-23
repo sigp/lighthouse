@@ -288,7 +288,7 @@ impl TaskExecutor {
         &self,
         task: F,
         name: &'static str,
-    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>>>
+    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -375,7 +375,7 @@ impl TaskExecutor {
 
     /// Returns a future that completes when `async-channel::Sender` is dropped or () is sent,
     /// which translates to the exit signal being triggered.
-    pub fn exit(&self) -> impl Future<Output = ()> {
+    pub fn exit(&self) -> impl Future<Output = ()> + 'static {
         let exit = self.exit.clone();
         async move {
             let _ = exit.recv().await;
