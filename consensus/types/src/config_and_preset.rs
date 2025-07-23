@@ -43,7 +43,6 @@ pub struct ConfigAndPreset {
 }
 
 impl ConfigAndPreset {
-    // DEPRECATED: the `fork_name` argument is never used, we should remove it.
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
         let config = Config::from_chain_spec::<E>(spec);
         let base_preset = BasePreset::from_chain_spec::<E>(spec);
@@ -53,8 +52,11 @@ impl ConfigAndPreset {
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
+        // The latest stable fork is used if the `fork_name` is not specified.
+        let latest_stable_fork = ForkName::latest_stable();
+
         if spec.fulu_fork_epoch.is_some()
-            || fork_name.is_none()
+            || latest_stable_fork == ForkName::Fulu
             || fork_name == Some(ForkName::Fulu)
         {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
@@ -72,7 +74,7 @@ impl ConfigAndPreset {
                 extra_fields,
             })
         } else if spec.electra_fork_epoch.is_some()
-            || fork_name.is_none()
+            || latest_stable_fork == ForkName::Electra
             || fork_name == Some(ForkName::Electra)
         {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);

@@ -2616,12 +2616,18 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = self
-            .client
-            .get_config_spec::<ConfigAndPresetFulu>()
-            .await
-            .map(|res| ConfigAndPreset::Fulu(res.data))
-            .unwrap();
+        let result = if self.chain.spec.fulu_fork_epoch.is_some() {
+            self.client
+                .get_config_spec::<ConfigAndPresetFulu>()
+                .await
+                .map(|res| ConfigAndPreset::Fulu(res.data))
+        } else {
+            self.client
+                .get_config_spec::<ConfigAndPresetElectra>()
+                .await
+                .map(|res| ConfigAndPreset::Electra(res.data))
+        }
+        .unwrap();
         let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
 
         assert_eq!(result, expected);
