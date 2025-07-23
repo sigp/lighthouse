@@ -2,9 +2,7 @@ use crate::utils::is_ascii_control;
 
 use chrono::prelude::*;
 use serde_json::{Map, Value};
-use std::collections::HashMap;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
 use tracing::field::Field;
 use tracing::span::Id;
 use tracing::Subscriber;
@@ -23,7 +21,6 @@ pub struct LoggingLayer {
     pub log_color: bool,
     pub log_format: Option<String>,
     pub extra_info: bool,
-    span_fields: Arc<Mutex<HashMap<Id, SpanData>>>,
 }
 
 impl LoggingLayer {
@@ -43,7 +40,6 @@ impl LoggingLayer {
             log_color,
             log_format,
             extra_info,
-            span_fields: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -52,23 +48,20 @@ impl<S> Layer<S> for LoggingLayer
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
-    fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, id: &Id, _ctx: Context<S>) {
-        let metadata = attrs.metadata();
-        let span_name = metadata.name();
-
-        let mut visitor = SpanFieldsExtractor::default();
+    fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, id: &Id, ctx: Context<S>) {
+        let mut visitor = FieldVisitor::new();
         attrs.record(&mut visitor);
 
-        let span_data = SpanData {
-            name: span_name.to_string(),
-            fields: visitor.fields,
-        };
+        if let Some(span) = ctx.span(id) {
+            let mut extensions = span.extensions_mut();
 
-        let mut span_fields = match self.span_fields.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        span_fields.insert(id.clone(), span_data);
+            let span_data = SpanData {
+                name: attrs.metadata().name().to_string(),
+                fields: visitor.fields,
+            };
+
+            extensions.replace(span_data);
+        }
     }
 
     fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<S>) {
@@ -82,12 +75,18 @@ where
 
         let mut writer = self.non_blocking_writer.clone();
 
-        let mut visitor = LogMessageExtractor {
-            message: String::new(),
-            fields: Vec::new(),
-            is_crit: false,
-        };
+        let mut visitor = FieldVisitor::new();
+
         event.record(&mut visitor);
+
+        let mut span_data = Vec::new();
+        if let Some(scope) = ctx.event_scope(event) {
+            for span in scope.from_root() {
+                if let Some(data) = span.extensions().get::<SpanData>() {
+                    span_data.extend(data.fields.clone());
+                }
+            }
+        }
 
         // Remove ascii control codes from message.
         // All following formatting and logs components are predetermined or known.
@@ -145,23 +144,13 @@ where
         };
 
         if self.log_format.as_deref() == Some("JSON") {
-            build_log_json(
-                &visitor,
-                plain_level_str,
-                meta,
-                &ctx,
-                &self.span_fields,
-                event,
-                &mut writer,
-            );
+            build_log_json(&visitor, plain_level_str, meta, &span_data, &mut writer);
         } else {
             build_log_text(
                 &visitor,
                 plain_level_str,
                 &timestamp,
-                &ctx,
-                &self.span_fields,
-                event,
+                &span_data,
                 &location,
                 color_level_str,
                 self.log_color,
@@ -171,79 +160,65 @@ where
     }
 }
 
-struct SpanData {
-    name: String,
-    fields: Vec<(String, String)>,
+#[derive(Clone, Debug)]
+pub struct SpanData {
+    pub name: String,
+    pub fields: Vec<(String, String)>,
 }
 
-#[derive(Default)]
-struct SpanFieldsExtractor {
-    fields: Vec<(String, String)>,
-}
-
-impl tracing_core::field::Visit for SpanFieldsExtractor {
-    fn record_str(&mut self, field: &Field, value: &str) {
-        self.fields
-            .push((field.name().to_string(), format!("\"{}\"", value)));
-    }
-
-    fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-        self.fields
-            .push((field.name().to_string(), format!("{:?}", value)));
-    }
-
-    fn record_i64(&mut self, field: &Field, value: i64) {
-        self.fields
-            .push((field.name().to_string(), value.to_string()));
-    }
-
-    fn record_u64(&mut self, field: &Field, value: u64) {
-        self.fields
-            .push((field.name().to_string(), value.to_string()));
-    }
-
-    fn record_bool(&mut self, field: &Field, value: bool) {
-        self.fields
-            .push((field.name().to_string(), value.to_string()));
-    }
-}
-
-struct LogMessageExtractor {
+struct FieldVisitor {
     message: String,
     fields: Vec<(String, String)>,
     is_crit: bool,
 }
 
-impl tracing_core::field::Visit for LogMessageExtractor {
+impl FieldVisitor {
+    fn new() -> Self {
+        FieldVisitor {
+            message: String::new(),
+            fields: Vec::new(),
+            is_crit: false,
+        }
+    }
+}
+
+impl tracing_core::field::Visit for FieldVisitor {
     fn record_str(&mut self, field: &Field, value: &str) {
-        if field.name() == "message" {
-            if self.message.is_empty() {
-                self.message = value.to_string();
-            } else {
-                self.fields
-                    .push(("msg_id".to_string(), format!("\"{}\"", value)));
+        match field.name() {
+            "message" => {
+                if self.message.is_empty() {
+                    self.message = value.to_string();
+                } else {
+                    self.fields
+                        .push(("msg_id".to_string(), format!("\"{}\"", value)));
+                }
             }
-        } else if field.name() == "error_type" && value == "crit" {
-            self.is_crit = true;
-        } else {
-            self.fields
-                .push((field.name().to_string(), format!("\"{}\"", value)));
+            "error_type" if value == "crit" => {
+                self.is_crit = true;
+            }
+            _ => {
+                self.fields
+                    .push((field.name().to_string(), format!("\"{}\"", value)));
+            }
         }
     }
 
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            if self.message.is_empty() {
-                self.message = format!("{:?}", value);
-            } else {
-                self.fields
-                    .push(("msg_id".to_string(), format!("{:?}", value)));
+        let string_value = format!("{:?}", value);
+        match field.name() {
+            "message" => {
+                if self.message.is_empty() {
+                    self.message = string_value;
+                } else {
+                    self.fields.push(("msg_id".to_string(), string_value));
+                }
             }
-        } else if field.name() == "error_type" && format!("{:?}", value) == "\"crit\"" {
-            self.is_crit = true;
-        } else {
-            self.fields
-                .push((field.name().to_string(), format!("{:?}", value)));
+            "error_type" if string_value == "\"crit\"" => {
+                self.is_crit = true;
+            }
+            _ => {
+                self.fields.push((field.name().to_string(), string_value));
+            }
         }
     }
 
@@ -263,17 +238,13 @@ impl tracing_core::field::Visit for LogMessageExtractor {
     }
 }
 
-fn build_log_json<'a, S>(
-    visitor: &LogMessageExtractor,
+fn build_log_json(
+    visitor: &FieldVisitor,
     plain_level_str: &str,
     meta: &tracing::Metadata<'_>,
-    ctx: &Context<'_, S>,
-    span_fields: &Arc<Mutex<HashMap<Id, SpanData>>>,
-    event: &tracing::Event<'_>,
+    span_fields: &[(String, String)],
     writer: &mut impl Write,
-) where
-    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
-{
+) {
     let utc_timestamp = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
     let mut log_map = Map::new();
 
@@ -302,19 +273,9 @@ fn build_log_json<'a, S>(
         log_map.insert(key, parsed_val);
     }
 
-    if let Some(scope) = ctx.event_scope(event) {
-        let guard = span_fields.lock().ok();
-        if let Some(span_map) = guard {
-            for span in scope {
-                let id = span.id();
-                if let Some(span_data) = span_map.get(&id) {
-                    for (key, val) in &span_data.fields {
-                        let parsed_span_val = parse_field(val);
-                        log_map.insert(key.clone(), parsed_span_val);
-                    }
-                }
-            }
-        }
+    for (key, val) in span_fields {
+        let parsed_span_val = parse_field(val);
+        log_map.insert(key.clone(), parsed_span_val);
     }
 
     let json_obj = Value::Object(log_map);
@@ -326,48 +287,33 @@ fn build_log_json<'a, S>(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_log_text<'a, S>(
-    visitor: &LogMessageExtractor,
+fn build_log_text(
+    visitor: &FieldVisitor,
     plain_level_str: &str,
     timestamp: &str,
-    ctx: &Context<'_, S>,
-    span_fields: &Arc<Mutex<HashMap<Id, SpanData>>>,
-    event: &tracing::Event<'_>,
+    span_fields: &[(String, String)],
     location: &str,
     color_level_str: &str,
     use_color: bool,
     writer: &mut impl Write,
-) where
-    S: Subscriber + for<'lookup> LookupSpan<'lookup>,
-{
+) {
     let bold_start = "\x1b[1m";
     let bold_end = "\x1b[0m";
-    let mut collected_span_fields = Vec::new();
-
-    if let Some(scope) = ctx.event_scope(event) {
-        for span in scope {
-            let id = span.id();
-            let span_fields_map = span_fields.lock().unwrap();
-            if let Some(span_data) = span_fields_map.get(&id) {
-                collected_span_fields.push((span_data.name.clone(), span_data.fields.clone()));
-            }
-        }
-    }
 
     let mut formatted_spans = String::new();
-    for (_, fields) in collected_span_fields.iter().rev() {
-        for (i, (field_name, field_value)) in fields.iter().enumerate() {
-            if i > 0 && !visitor.fields.is_empty() {
-                formatted_spans.push_str(", ");
-            }
-            if use_color {
-                formatted_spans.push_str(&format!(
-                    "{}{}{}: {}",
-                    bold_start, field_name, bold_end, field_value
-                ));
-            } else {
-                formatted_spans.push_str(&format!("{}: {}", field_name, field_value));
-            }
+    for (i, (field_name, field_value)) in span_fields.iter().rev().enumerate() {
+        if use_color {
+            formatted_spans.push_str(&format!(
+                "{}{}{}: {}",
+                bold_start, field_name, bold_end, field_value
+            ));
+        } else {
+            formatted_spans.push_str(&format!("{}: {}", field_name, field_value));
+        }
+
+        // Check if this is not the last span.
+        if i != span_fields.len() - 1 {
+            formatted_spans.push_str(", ");
         }
     }
 
@@ -419,7 +365,8 @@ fn build_log_text<'a, S>(
         } else {
             formatted_fields.push_str(&format!("{}: {}", field_name, field_value));
         }
-        if i == visitor.fields.len() - 1 && !collected_span_fields.is_empty() {
+        // Check if this is the last field and that we are also adding spans.
+        if i == visitor.fields.len() - 1 && !span_fields.is_empty() {
             formatted_fields.push(',');
         }
     }
@@ -454,4 +401,141 @@ fn parse_field(val: &str) -> Value {
         val
     };
     serde_json::from_str(cleaned).unwrap_or(Value::String(cleaned.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::tracing_logging_layer::{build_log_text, FieldVisitor};
+    use std::io::Write;
+
+    struct Buffer {
+        data: Vec<u8>,
+    }
+
+    impl Buffer {
+        fn new() -> Self {
+            Buffer { data: Vec::new() }
+        }
+
+        fn into_string(self) -> String {
+            String::from_utf8(self.data).unwrap()
+        }
+    }
+
+    impl Write for Buffer {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.data.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_build_log_text_single_log_field() {
+        let log_fields = vec![("field_name".to_string(), "field_value".to_string())];
+        let span_fields = vec![];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name: field_value \n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_multiple_log_fields() {
+        let log_fields = vec![
+            ("field_name1".to_string(), "field_value1".to_string()),
+            ("field_name2".to_string(), "field_value2".to_string()),
+        ];
+        let span_fields = vec![];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name1: field_value1, field_name2: field_value2 \n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_log_field_and_span() {
+        let log_fields = vec![("field_name".to_string(), "field_value".to_string())];
+        let span_fields = vec![(
+            "span_field_name".to_string(),
+            "span_field_value".to_string(),
+        )];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name: field_value, span_field_name: span_field_value\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_single_span() {
+        let log_fields = vec![];
+        let span_fields = vec![(
+            "span_field_name".to_string(),
+            "span_field_value".to_string(),
+        )];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name: span_field_value\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_multiple_spans() {
+        let log_fields = vec![];
+        let span_fields = vec![
+            (
+                "span_field_name1".to_string(),
+                "span_field_value1".to_string(),
+            ),
+            (
+                "span_field_name2".to_string(),
+                "span_field_value2".to_string(),
+            ),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name2: span_field_value2, span_field_name1: span_field_value1\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_multiple_span_fields() {
+        let log_fields = vec![];
+        let span_fields = vec![
+            (
+                "span_field_name1-1".to_string(),
+                "span_field_value1-1".to_string(),
+            ),
+            (
+                "span_field_name1-2".to_string(),
+                "span_field_value1-2".to_string(),
+            ),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name1-2: span_field_value1-2, span_field_name1-1: span_field_value1-1\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    fn test_build_log_text(
+        log_fields: Vec<(String, String)>,
+        span_fields: Vec<(String, String)>,
+        expected: &str,
+    ) {
+        let visitor = FieldVisitor {
+            message: "test message".to_string(),
+            fields: log_fields,
+            is_crit: false,
+        };
+        let plain_level_str = "INFO";
+        let timestamp = "Jan 1 08:00:00.000";
+        let location = "";
+        let color_level_str = "\x1b[32mINFO\x1b[0m";
+        let use_color = false;
+        let mut writer = Buffer::new();
+
+        build_log_text(
+            &visitor,
+            plain_level_str,
+            timestamp,
+            &span_fields,
+            location,
+            color_level_str,
+            use_color,
+            &mut writer,
+        );
+
+        assert_eq!(expected, &writer.into_string());
+    }
 }

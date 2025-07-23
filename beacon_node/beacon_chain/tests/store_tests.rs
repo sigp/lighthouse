@@ -3157,7 +3157,11 @@ async fn schema_downgrade_to_min_version(
         )
         .await;
 
-    let min_version = SchemaVersion(22);
+    let min_version = if spec.is_fulu_scheduled() {
+        SchemaVersion(27)
+    } else {
+        SchemaVersion(22)
+    };
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
