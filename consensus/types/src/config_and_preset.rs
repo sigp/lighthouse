@@ -144,7 +144,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::{Epoch, MainnetEthSpec};
     use std::fs::File;
     use tempfile::NamedTempFile;
 
@@ -156,7 +156,9 @@ mod test {
             .write(true)
             .open(tmp_file.as_ref())
             .expect("error opening file");
-        let mainnet_spec = ChainSpec::mainnet();
+        let mut mainnet_spec = ChainSpec::mainnet();
+        // setting fulu_fork_epoch because we are roundtripping a fulu config
+        mainnet_spec.fulu_fork_epoch = Some(Epoch::new(42));
         let mut yamlconfig =
             ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec, None);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
