@@ -4,7 +4,7 @@ use crate::sync::block_lookups::{
     BlockLookupSummary, PARENT_DEPTH_TOLERANCE, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
 };
 use crate::sync::{
-    SamplingId, SyncMessage, SyncMessage,
+    SyncMessage,
     manager::{BlockProcessType, BlockProcessingResult, SyncManager},
 };
 use std::sync::Arc;

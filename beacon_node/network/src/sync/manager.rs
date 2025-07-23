@@ -69,7 +69,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{Instrument, debug, error, info, info_span, trace, warn};
+use tracing::{Instrument, debug, error, info, info_span, trace};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };

@@ -3,6 +3,7 @@ use crate::utils::is_ascii_control;
 use chrono::prelude::*;
 use serde_json::{Map, Value};
 use std::io::Write;
+use tracing::Subscriber;
 use tracing::field::Field;
 use tracing::span::Id;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
