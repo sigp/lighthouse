@@ -8,6 +8,7 @@ use beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
 };
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
@@ -26,8 +27,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
-    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, ExecutionBlockHash, Hash256,
-    IndexedAttestation, KzgProof, ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
+    BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecarList,
+    ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProposerPreparationData,
+    SignedBeaconBlock, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -91,14 +93,14 @@ impl From<PayloadStatus> for PayloadStatusV1 {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<TBlock, TBlobs, TAttestation, TAttesterSlashing, TPowBlock> {
+pub enum Step<TBlock, TBlobs, TColumns, TAttestation, TAttesterSlashing, TPowBlock> {
     Tick {
         tick: u64,
     },
     ValidBlock {
         block: TBlock,
     },
-    MaybeValidBlock {
+    MaybeValidBlockAndBlobs {
         block: TBlock,
         blobs: Option<TBlobs>,
         proofs: Option<Vec<KzgProof>>,
@@ -120,6 +122,11 @@ pub enum Step<TBlock, TBlobs, TAttestation, TAttesterSlashing, TPowBlock> {
     Checks {
         checks: Box<Checks>,
     },
+    MaybeValidBlockAndColumns {
+        block: TBlock,
+        columns: Option<TColumns>,
+        valid: bool,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -136,7 +143,14 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub anchor_block: BeaconBlock<E>,
     #[allow(clippy::type_complexity)]
     pub steps: Vec<
-        Step<SignedBeaconBlock<E>, BlobsList<E>, Attestation<E>, AttesterSlashing<E>, PowBlock>,
+        Step<
+            SignedBeaconBlock<E>,
+            BlobsList<E>,
+            DataColumnSidecarList<E>,
+            Attestation<E>,
+            AttesterSlashing<E>,
+            PowBlock,
+        >,
     >,
 }
 
@@ -150,7 +164,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, String, String, String>> =
+        let steps: Vec<Step<String, String, Vec<String>, String, String, String>> =
             yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
@@ -163,7 +177,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     })
                     .map(|block| Step::ValidBlock { block })
                 }
-                Step::MaybeValidBlock {
+                Step::MaybeValidBlockAndBlobs {
                     block,
                     blobs,
                     proofs,
@@ -176,7 +190,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     let blobs = blobs
                         .map(|blobs| ssz_decode_file(&path.join(format!("{blobs}.ssz_snappy"))))
                         .transpose()?;
-                    Ok(Step::MaybeValidBlock {
+                    Ok(Step::MaybeValidBlockAndBlobs {
                         block,
                         blobs,
                         proofs,
@@ -223,6 +237,31 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                     payload_status,
                 }),
                 Step::Checks { checks } => Ok(Step::Checks { checks }),
+                Step::MaybeValidBlockAndColumns {
+                    block,
+                    columns,
+                    valid,
+                } => {
+                    let block =
+                        ssz_decode_file_with(&path.join(format!("{block}.ssz_snappy")), |bytes| {
+                            SignedBeaconBlock::from_ssz_bytes(bytes, spec)
+                        })?;
+                    let columns = columns
+                        .map(|columns_vec| {
+                            columns_vec
+                                .into_iter()
+                                .map(|column| {
+                                    ssz_decode_file(&path.join(format!("{column}.ssz_snappy")))
+                                })
+                                .collect::<Result<Vec<_>, _>>()
+                        })
+                        .transpose()?;
+                    Ok(Step::MaybeValidBlockAndColumns {
+                        block,
+                        columns,
+                        valid,
+                    })
+                }
             })
             .collect::<Result<_, _>>()?;
         let anchor_state = ssz_decode_state(&path.join("anchor_state.ssz_snappy"), spec)?;
@@ -263,14 +302,19 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
             match step {
                 Step::Tick { tick } => tester.set_tick(*tick),
                 Step::ValidBlock { block } => {
-                    tester.process_block(block.clone(), None, None, true)?
+                    tester.process_block_and_blobs(block.clone(), None, None, true)?
                 }
-                Step::MaybeValidBlock {
+                Step::MaybeValidBlockAndBlobs {
                     block,
                     blobs,
                     proofs,
                     valid,
-                } => tester.process_block(block.clone(), blobs.clone(), proofs.clone(), *valid)?,
+                } => tester.process_block_and_blobs(
+                    block.clone(),
+                    blobs.clone(),
+                    proofs.clone(),
+                    *valid,
+                )?,
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::AttesterSlashing { attester_slashing } => {
                     tester.process_attester_slashing(attester_slashing.to_ref())
@@ -344,6 +388,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         tester.check_expected_proposer_head(*expected_proposer_head)?;
                     }
                 }
+
+                Step::MaybeValidBlockAndColumns {
+                    block,
+                    columns,
+                    valid,
+                } => {
+                    tester.process_block_and_columns(block.clone(), columns.clone(), *valid)?;
+                }
             }
         }
 
@@ -384,6 +436,7 @@ impl<E: EthSpec> Tester<E> {
             .genesis_state_ephemeral_store(case.anchor_state.clone())
             .mock_execution_layer()
             .recalculate_fork_times_with_genesis(0)
+            .import_all_data_columns(true)
             .mock_execution_layer_all_payloads_valid()
             .build();
 
@@ -454,7 +507,66 @@ impl<E: EthSpec> Tester<E> {
             .unwrap();
     }
 
-    pub fn process_block(
+    pub fn process_block_and_columns(
+        &self,
+        block: SignedBeaconBlock<E>,
+        columns: Option<DataColumnSidecarList<E>>,
+        valid: bool,
+    ) -> Result<(), Error> {
+        let block_root = block.canonical_root();
+        let mut data_column_success = true;
+
+        if let Some(columns) = columns.clone() {
+            let gossip_verified_data_columns = columns
+                .into_iter()
+                .map(|column| {
+                    GossipVerifiedDataColumn::new(column.clone(), column.index, &self.harness.chain)
+                        .unwrap_or_else(|_| {
+                            data_column_success = false;
+                            GossipVerifiedDataColumn::__new_for_testing(column)
+                        })
+                })
+                .collect();
+
+            let result = self.block_on_dangerous(
+                self.harness
+                    .chain
+                    .process_gossip_data_columns(gossip_verified_data_columns, || Ok(())),
+            )?;
+            if valid {
+                assert!(result.is_ok());
+            }
+        };
+
+        let block = Arc::new(block);
+        let result: Result<Result<Hash256, ()>, _> = self
+            .block_on_dangerous(self.harness.chain.process_block(
+                block_root,
+                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
+                NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
+            ))?
+            .map(|avail: AvailabilityProcessingStatus| avail.try_into());
+        let success = data_column_success && result.as_ref().is_ok_and(|inner| inner.is_ok());
+        if success != valid {
+            return Err(Error::DidntFail(format!(
+                "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
+                block_root,
+                result.is_ok(),
+                valid,
+                result
+            )));
+        }
+
+        if !valid && columns.is_none() {
+            self.apply_invalid_block(&block)?;
+        }
+
+        Ok(())
+    }
+
+    pub fn process_block_and_blobs(
         &self,
         block: SignedBeaconBlock<E>,
         blobs: Option<BlobsList<E>>,
@@ -537,66 +649,73 @@ impl<E: EthSpec> Tester<E> {
             )));
         }
 
-        // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
-        // that the block is being rejected by `on_block`, not just some upstream block processing
-        // function. When blobs exist, we don't do this.
         if !valid && blobs.is_none() {
-            // A missing parent block whilst `valid == false` means the test should pass.
-            if let Some(parent_block) = self
+            self.apply_invalid_block(&block)?;
+        }
+
+        Ok(())
+    }
+
+    // Apply invalid blocks directly against the fork choice `on_block` function. This ensures
+    // that the block is being rejected by `on_block`, not just some upstream block processing
+    // function. When data columns or blobs exist, we don't do this.
+    fn apply_invalid_block(&self, block: &Arc<SignedBeaconBlock<E>>) -> Result<(), Error> {
+        let block_root = block.canonical_root();
+        // A missing parent block whilst `valid == false` means the test should pass.
+        if let Some(parent_block) = self
+            .harness
+            .chain
+            .get_blinded_block(&block.parent_root())
+            .unwrap()
+        {
+            let parent_state_root = parent_block.state_root();
+
+            let mut state = self
                 .harness
                 .chain
-                .get_blinded_block(&block.parent_root())
-                .unwrap()
-            {
-                let parent_state_root = parent_block.state_root();
-
-                let mut state = self
-                    .harness
-                    .chain
-                    .get_state(
-                        &parent_state_root,
-                        Some(parent_block.slot()),
-                        CACHE_STATE_IN_TESTS,
-                    )
-                    .unwrap()
-                    .unwrap();
-
-                complete_state_advance(
-                    &mut state,
-                    Some(parent_state_root),
-                    block.slot(),
-                    &self.harness.chain.spec,
+                .get_state(
+                    &parent_state_root,
+                    Some(parent_block.slot()),
+                    CACHE_STATE_IN_TESTS,
                 )
+                .unwrap()
                 .unwrap();
 
-                let block_delay = self
-                    .harness
-                    .chain
-                    .slot_clock
-                    .seconds_from_current_slot_start()
-                    .unwrap();
+            complete_state_advance(
+                &mut state,
+                Some(parent_state_root),
+                block.slot(),
+                &self.harness.chain.spec,
+            )
+            .unwrap();
 
-                let result = self
-                    .harness
-                    .chain
-                    .canonical_head
-                    .fork_choice_write_lock()
-                    .on_block(
-                        self.harness.chain.slot().unwrap(),
-                        block.message(),
-                        block_root,
-                        block_delay,
-                        &state,
-                        PayloadVerificationStatus::Irrelevant,
-                        &self.harness.chain.spec,
-                    );
+            let block_delay = self
+                .harness
+                .chain
+                .slot_clock
+                .seconds_from_current_slot_start()
+                .unwrap();
 
-                if result.is_ok() {
-                    return Err(Error::DidntFail(format!(
-                        "block with root {} should fail on_block",
-                        block_root,
-                    )));
-                }
+            let result = self
+                .harness
+                .chain
+                .canonical_head
+                .fork_choice_write_lock()
+                .on_block(
+                    self.harness.chain.slot().unwrap(),
+                    block.message(),
+                    block_root,
+                    block_delay,
+                    &state,
+                    PayloadVerificationStatus::Irrelevant,
+                    &self.harness.chain.spec,
+                );
+
+            if result.is_ok() {
+                return Err(Error::DidntFail(format!(
+                    "block with root {} should fail on_block",
+                    block_root,
+                )));
             }
         }
 
