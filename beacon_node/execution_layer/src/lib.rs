@@ -1893,7 +1893,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         block_root: Hash256,
         block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<FullPayloadContents<E>, Error> {
+    ) -> Result<Option<FullPayloadContents<E>>, Error> {
         debug!(?block_root, "Sending block to builder");
 
         if let Some(builder) = self.builder() {
@@ -1915,13 +1915,13 @@ impl<E: EthSpec> ExecutionLayer<E> {
                             .post_builder_blinded_blocks(block)
                             .await
                             .map_err(Error::Builder)
-                            .map(|d| d.data)
+                            .map(|d| d.map(|resp| resp.data))
                     }
                 })
                 .await;
 
             match &payload_result {
-                Ok(unblinded_response) => {
+                Ok(Some(unblinded_response)) => {
                     metrics::inc_counter_vec(
                         &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
                         &[metrics::SUCCESS],
@@ -1935,6 +1935,13 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         parent_hash = ?payload.parent_hash(),
                         "Builder successfully revealed payload"
                     )
+                }
+                Ok(None) => {
+                    info!(
+                        relay_response_ms = duration.as_millis(),
+                        ?block_root,
+                        "Builder returned a successful response"
+                    );
                 }
                 Err(e) => {
                     metrics::inc_counter_vec(
