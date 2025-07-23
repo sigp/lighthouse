@@ -8,8 +8,13 @@ edition = { workspace = true }
 # compile the jemalloc dependency, but avoid using it if the `sysmalloc` feature is set or it
 # is unsupported by the target platform (Windows).
 [features]
-default = []
+default = ["jemalloc"]
 mallinfo2 = []
+# The jemalloc feature enables the compilation of jemalloc dependencies. Jemalloc is also the
+# default allocator, unless `sysmalloc` is set.
+#
+# It should be turned off on Windows.
+jemalloc = ["tikv-jemalloc-ctl", "tikv-jemallocator"]
 jemalloc-profiling = ["tikv-jemallocator/profiling"]
 # Force the use of system malloc (or glibc) rather than jemalloc.
 # This is a no-op on Windows where jemalloc is always disabled.
@@ -19,14 +24,14 @@ sysmalloc = []
 libc = "0.2.79"
 metrics = { workspace = true }
 parking_lot = { workspace = true }
-tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
+tikv-jemalloc-ctl = { version = "0.6.0", optional = true, features = ["stats"] }
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
-tikv-jemallocator = { version = "0.6.0", features = ["stats"] }
+tikv-jemallocator = { version = "0.6.0", optional = true, features = ["stats"] }
 
 # Jemalloc's background_threads feature requires Linux (pthreads).
 [target.'cfg(target_os = "linux")'.dependencies]
-tikv-jemallocator = { version = "0.6.0", features = [
+tikv-jemallocator = { version = "0.6.0", optional = true, features = [
     "stats",
     "background_threads",
 ] }

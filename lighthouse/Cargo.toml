@@ -56,7 +56,6 @@ ethereum_hashing = { workspace = true }
 futures = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-malloc_utils = { workspace = true }
 metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -70,6 +69,12 @@ types = { workspace = true }
 unused_port = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+malloc_utils = { workspace = true, default-features = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+malloc_utils = { workspace = true, default-features = false }
 
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }
