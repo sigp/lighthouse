@@ -79,15 +79,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("enable-sampling")
-                .long("enable-sampling")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .help("Enable peer sampling on data columns. Disabled by default.")
-                .hide(true)
-                .display_order(0)
-        )
-        .arg(
             Arg::new("blob-publication-batches")
                 .long("blob-publication-batches")
                 .action(ArgAction::Set)

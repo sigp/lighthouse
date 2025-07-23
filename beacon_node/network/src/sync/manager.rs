@@ -38,7 +38,6 @@ use super::block_lookups::BlockLookups;
 use super::network_context::{
     CustodyByRootResult, RangeBlockComponent, RangeRequestId, RpcEvent, SyncNetworkContext,
 };
-use super::peer_sampling::{Sampling, SamplingConfig, SamplingResult};
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
@@ -58,7 +57,7 @@ use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
-    SamplingId, SamplingRequester, SingleLookupReqId, SyncRequestId,
+    SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -69,13 +68,10 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, info_span, trace, warn, Instrument};
+use tracing::{debug, error, info, info_span, trace, Instrument};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
-
-#[cfg(test)]
-use types::ColumnIndex;
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -146,10 +142,6 @@ pub enum SyncMessage<E: EthSpec> {
     /// manager to attempt to find the block matching the unknown hash.
     UnknownBlockHashFromAttestation(PeerId, Hash256),
 
-    /// Request to start sampling a block. Caller should ensure that block has data before sending
-    /// the request.
-    SampleBlock(Hash256, Slot),
-
     /// A peer has disconnected.
     Disconnect(PeerId),
 
@@ -170,12 +162,6 @@ pub enum SyncMessage<E: EthSpec> {
     BlockComponentProcessed {
         process_type: BlockProcessType,
         result: BlockProcessingResult,
-    },
-
-    /// Sample data column verified
-    SampleVerified {
-        id: SamplingId,
-        result: Result<(), String>,
     },
 
     /// A block from gossip has completed processing,
@@ -248,8 +234,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// may forward us thousands of a attestations, each one triggering an individual event. Only
     /// one event is useful, the rest generating log noise and wasted cycles
     notified_unknown_roots: LRUTimeCache<(PeerId, Hash256)>,
-
-    sampling: Sampling<T>,
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -274,7 +258,6 @@ pub fn spawn<T: BeaconChainTypes>(
         network_send,
         beacon_processor,
         sync_recv,
-        SamplingConfig::Default,
         fork_context,
     );
 
@@ -296,7 +279,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
-        sampling_config: SamplingConfig,
         fork_context: Arc<ForkContext>,
     ) -> Self {
         let network_globals = beacon_processor.network_globals.clone();
@@ -315,7 +297,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
             )),
-            sampling: Sampling::new(sampling_config),
         }
     }
 
@@ -358,20 +339,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     #[cfg(test)]
     pub(crate) fn insert_failed_chain(&mut self, block_root: Hash256) {
         self.block_lookups.insert_failed_chain(block_root);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn active_sampling_requests(&self) -> Vec<Hash256> {
-        self.sampling.active_sampling_requests()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn get_sampling_request_status(
-        &self,
-        block_root: Hash256,
-        index: &ColumnIndex,
-    ) -> Option<super::peer_sampling::Status> {
-        self.sampling.get_request_status(block_root, index)
     }
 
     #[cfg(test)]
@@ -853,15 +820,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.handle_unknown_block_root(peer_id, block_root);
                 }
             }
-            SyncMessage::SampleBlock(block_root, block_slot) => {
-                debug!(%block_root, slot = %block_slot, "Received SampleBlock message");
-                if let Some((requester, result)) = self
-                    .sampling
-                    .on_new_sample_request(block_root, &mut self.network)
-                {
-                    self.on_sampling_result(requester, result)
-                }
-            }
             SyncMessage::Disconnect(peer_id) => {
                 debug!(%peer_id, "Received disconnected message");
                 self.peer_disconnect(&peer_id);
@@ -911,14 +869,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             },
-            SyncMessage::SampleVerified { id, result } => {
-                if let Some((requester, result)) =
-                    self.sampling
-                        .on_sample_verified(id, result, &mut self.network)
-                {
-                    self.on_sampling_result(requester, result)
-                }
-            }
         }
     }
 
@@ -1175,14 +1125,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .on_data_columns_by_root_response(req_id, peer_id, data_column)
         {
             match req_id.requester {
-                DataColumnsByRootRequester::Sampling(id) => {
-                    if let Some((requester, result)) =
-                        self.sampling
-                            .on_sample_downloaded(id, peer_id, resp, &mut self.network)
-                    {
-                        self.on_sampling_result(requester, result)
-                    }
-                }
                 DataColumnsByRootRequester::Custody(custody_id) => {
                     if let Some(result) = self
                         .network
@@ -1254,31 +1196,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 response,
                 &mut self.network,
             );
-    }
-
-    fn on_sampling_result(&mut self, requester: SamplingRequester, result: SamplingResult) {
-        match requester {
-            SamplingRequester::ImportedBlock(block_root) => {
-                debug!(%block_root, ?result, "Sampling result");
-
-                match result {
-                    Ok(_) => {
-                        // Notify the fork-choice of a successful sampling result to mark the block
-                        // branch as safe.
-                        if let Err(e) = self
-                            .network
-                            .beacon_processor()
-                            .send_sampling_completed(block_root)
-                        {
-                            warn!(?block_root, reason = ?e, "Error sending sampling result");
-                        }
-                    }
-                    Err(e) => {
-                        warn!(?block_root, reason = ?e, "Sampling failed");
-                    }
-                }
-            }
-        }
     }
 
     /// Handles receiving a response for a range sync request that should have both blocks and

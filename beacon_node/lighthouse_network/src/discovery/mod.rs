@@ -1235,6 +1235,7 @@ mod tests {
             &enr_key,
             &config,
             &EnrForkId::default(),
+            None,
             next_fork_digest,
             &spec,
         )
