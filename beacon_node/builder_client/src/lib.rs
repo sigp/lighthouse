@@ -292,21 +292,6 @@ impl BuilderHttpClient {
         Ok(())
     }
 
-    pub async fn post_builder_blinded_blocks_ssz<E: EthSpec>(
-        &self,
-        blinded_block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<Option<FullPayloadContents<E>>, Error> {
-        if blinded_block.fork_name_unchecked().fulu_enabled() {
-            self.post_builder_blinded_blocks_v2_ssz(blinded_block)
-                .await
-                .map(|_| None)
-        } else {
-            self.post_builder_blinded_blocks_v1_ssz(blinded_block)
-                .await
-                .map(Some)
-        }
-    }
-
     /// `POST /eth/v1/builder/blinded_blocks` with SSZ serialized request body
     pub async fn post_builder_blinded_blocks_v1_ssz<E: EthSpec>(
         &self,
@@ -402,19 +387,6 @@ impl BuilderHttpClient {
         } else {
             // ACCEPTED is the only valid status code response
             Err(Error::StatusCode(result.status()))
-        }
-    }
-
-    pub async fn post_builder_blinded_blocks<E: EthSpec>(
-        &self,
-        blinded_block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<Option<ForkVersionedResponse<FullPayloadContents<E>>>, Error> {
-        if blinded_block.fork_name_unchecked().fulu_enabled() {
-            self.post_builder_blinded_blocks_v2(blinded_block)
-                .await
-                .map(|_| None)
-        } else {
-            self.post_builder_blinded_blocks_v1(blinded_block).await.map(Some)
         }
     }
 
