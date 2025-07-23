@@ -228,23 +228,25 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             .into_iter()
             .flatten()
             .filter(|data_column| sampling_columns_indices.contains(&data_column.index()))
-            .collect();
+            .collect::<Vec<_>>();
 
-        // Importing the columns could trigger block import and network publication in the case
-        // where the block was already seen on gossip.
-        if let Err(e) =
-            Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn)).await
-        {
-            let msg = format!("Invalid data column: {e}");
-            return if let BroadcastValidation::Gossip = validation_level {
-                Err(warp_utils::reject::broadcast_without_import(msg))
-            } else {
-                error!(
-                    reason = &msg,
-                    "Invalid data column during block publication"
-                );
-                Err(warp_utils::reject::custom_bad_request(msg))
-            };
+        if !sampling_columns.is_empty() {
+            // Importing the columns could trigger block import and network publication in the case
+            // where the block was already seen on gossip.
+            if let Err(e) =
+                Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn)).await
+            {
+                let msg = format!("Invalid data column: {e}");
+                return if let BroadcastValidation::Gossip = validation_level {
+                    Err(warp_utils::reject::broadcast_without_import(msg))
+                } else {
+                    error!(
+                        reason = &msg,
+                        "Invalid data column during block publication"
+                    );
+                    Err(warp_utils::reject::custom_bad_request(msg))
+                };
+            }
         }
     }
 

@@ -14,7 +14,7 @@ mod tests;
 
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_verification_types::AsBlock;
-use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
@@ -311,6 +311,9 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         return Ok(None);
     }
 
+    // Up until this point we have not observed the data columns in the gossip cache, which allows
+    // them to arrive independently while this function is running. In publish_fn we will observe
+    // them and then publish any columns that had not already been observed.
     publish_fn(EngineGetBlobsOutput::CustodyColumns(
         custody_columns_to_import.clone(),
     ));
@@ -358,17 +361,24 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 // `DataAvailabilityChecker` requires a strict match on custody columns count to
                 // consider a block available.
                 let mut custody_columns = data_columns_result
-                    .map(|mut data_columns| {
-                        data_columns.retain(|col| custody_columns_indices.contains(&col.index));
+                    .map(|data_columns| {
                         data_columns
+                            .into_iter()
+                            .filter(|col| custody_columns_indices.contains(&col.index))
+                            .map(|col| {
+                                KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                                    KzgVerifiedDataColumn::from_execution_verified(col),
+                                )
+                            })
+                            .collect::<Vec<_>>()
                     })
                     .map_err(FetchEngineBlobError::DataColumnSidecarError)?;
 
                 // Only consider columns that are not already observed on gossip.
-                if let Some(observed_columns) = chain_adapter_cloned.known_for_proposal(
+                if let Some(observed_columns) = chain_adapter_cloned.data_column_known_for_proposal(
                     ProposalKey::new(block.message().proposer_index(), block.slot()),
                 ) {
-                    custody_columns.retain(|col| !observed_columns.contains(&col.index));
+                    custody_columns.retain(|col| !observed_columns.contains(&col.index()));
                     if custody_columns.is_empty() {
                         return Ok(vec![]);
                     }
@@ -378,26 +388,13 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 if let Some(known_columns) =
                     chain_adapter_cloned.cached_data_column_indexes(&block_root)
                 {
-                    custody_columns.retain(|col| !known_columns.contains(&col.index));
+                    custody_columns.retain(|col| !known_columns.contains(&col.index()));
                     if custody_columns.is_empty() {
                         return Ok(vec![]);
                     }
                 }
 
-                // KZG verify data columns before publishing. This prevents blobs with invalid
-                // KZG proofs from the EL making it into the data availability checker. We do not
-                // immediately add these blobs to the observed blobs/columns cache because we want
-                // to allow blobs/columns to arrive on gossip and be accepted (and propagated) while
-                // we are waiting to publish. Just before publishing we will observe the blobs/columns
-                // and only proceed with publishing if they are not yet seen.
-                let verified = chain_adapter_cloned
-                    .verify_data_columns_kzg(custody_columns)
-                    .map_err(FetchEngineBlobError::KzgError)?;
-
-                Ok(verified
-                    .into_iter()
-                    .map(KzgVerifiedCustodyDataColumn::from_asserted_custody)
-                    .collect())
+                Ok(custody_columns)
             },
             "compute_custody_columns_to_import",
         )

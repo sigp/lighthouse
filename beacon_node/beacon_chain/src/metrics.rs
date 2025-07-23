@@ -1829,15 +1829,6 @@ pub static KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>>
             )
         });
 
-pub static BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
-    || {
-        try_create_histogram(
-            "beacon_block_production_blobs_verification_seconds",
-            "Time taken to verify blobs against commitments and creating BlobSidecar objects in block production",
-        )
-    },
-);
-
 /*
  * Data Availability cache metrics
  */

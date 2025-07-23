@@ -71,7 +71,7 @@ use crate::validator_monitor::{
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
-    CachedHead, kzg_utils, metrics,
+    CachedHead, metrics,
 };
 use eth2::types::{
     EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
@@ -2959,16 +2959,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ChainSegmentResult::Successful { imported_blocks }
     }
 
-    /// Updates fork-choice node into a permanent `available` state so it can become a viable head.
-    /// Only completed sampling results are received. Blocks are unavailable by default and should
-    /// be pruned on finalization, on a timeout or by a max count.
-    pub async fn process_sampling_completed(self: &Arc<Self>, block_root: Hash256) {
-        // TODO(das): update fork-choice, act on sampling result, adjust log level
-        // NOTE: It is possible that sampling complets before block is imported into fork choice,
-        // in that case we may need to update availability cache.
-        info!(%block_root, "Sampling completed");
-    }
-
     /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the
     /// gossip network. The block is not imported into the chain, it is just partially verified.
     ///
@@ -5748,8 +5738,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (mut block, _) = block.deconstruct();
         *block.state_root_mut() = state_root;
 
-        let blobs_verification_timer =
-            metrics::start_timer(&metrics::BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES);
         let blob_items = match maybe_blobs_and_proofs {
             Some((blobs, proofs)) => {
                 let expected_kzg_commitments =
@@ -5768,36 +5756,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     )));
                 }
 
-                let kzg_proofs = Vec::from(proofs);
-
-                let kzg = self.kzg.as_ref();
-                if self
-                    .spec
-                    .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
-                {
-                    kzg_utils::validate_blobs_and_cell_proofs::<T::EthSpec>(
-                        kzg,
-                        blobs.iter().collect(),
-                        &kzg_proofs,
-                        expected_kzg_commitments,
-                    )
-                    .map_err(BlockProductionError::KzgError)?;
-                } else {
-                    kzg_utils::validate_blobs::<T::EthSpec>(
-                        kzg,
-                        expected_kzg_commitments,
-                        blobs.iter().collect(),
-                        &kzg_proofs,
-                    )
-                    .map_err(BlockProductionError::KzgError)?;
-                }
-
-                Some((kzg_proofs.into(), blobs))
+                Some((proofs, blobs))
             }
             None => None,
         };
-
-        drop(blobs_verification_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
 
@@ -6835,6 +6797,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|duration| (next_digest_epoch, duration))
     }
 
+    /// Update data column custody info with the slot at which cgc was changed.
+    pub fn update_data_column_custody_info(&self, slot: Option<Slot>) {
+        self.store
+            .put_data_column_custody_info(slot)
+            .unwrap_or_else(
+                |e| tracing::error!(error = ?e, "Failed to update data column custody info"),
+            );
+    }
+
     /// This method serves to get a sense of the current chain health. It is used in block proposal
     /// to determine whether we should outsource payload production duties.
     ///
@@ -7060,15 +7031,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn should_fetch_custody_columns(&self, block_epoch: Epoch) -> bool {
         self.da_check_required_for_epoch(block_epoch)
             && self.spec.is_peer_das_enabled_for_epoch(block_epoch)
-    }
-
-    /// Returns true if we should issue a sampling request for this block
-    /// TODO(das): check if the block is still within the da_window
-    pub fn should_sample_slot(&self, slot: Slot) -> bool {
-        self.config.enable_sampling
-            && self
-                .spec
-                .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     /// Gets the `LightClientBootstrap` object for a requested block root.

@@ -3760,7 +3760,6 @@ pub fn serve<T: BeaconChainTypes>(
                                 .to_string(),
                         ));
                     }
-
                     Ok(())
                 })
             },
@@ -3845,6 +3844,12 @@ pub fn serve<T: BeaconChainTypes>(
                             current_slot,
                             &chain.spec,
                         ) {
+                            chain.update_data_column_custody_info(Some(
+                                cgc_change
+                                    .effective_epoch
+                                    .start_slot(T::EthSpec::slots_per_epoch()),
+                            ));
+
                             network_tx.send(NetworkMessage::CustodyCountChanged {
                                 new_custody_group_count: cgc_change.new_custody_group_count,
                                 sampling_count: cgc_change.sampling_count,

@@ -266,6 +266,12 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
+    /// Mark a data column as KZG verified. Caller must ONLY use this on columns constructed
+    /// from EL blobs.
+    pub fn from_execution_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
+        Self { data: data_column }
+    }
+
     /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
     pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
         Self { data: data_column }

@@ -3,6 +3,7 @@ mod migration_schema_v23;
 mod migration_schema_v24;
 mod migration_schema_v25;
 mod migration_schema_v26;
+mod migration_schema_v27;
 
 use crate::beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
@@ -66,6 +67,17 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         (SchemaVersion(26), SchemaVersion(25)) => {
             let ops = migration_schema_v26::downgrade_from_v26::<T>(db.clone())?;
             db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(26), SchemaVersion(27)) => {
+            // This migration updates the blobs db. The schema version
+            // is bumped inside upgrade_to_v27.
+            migration_schema_v27::upgrade_to_v27::<T>(db.clone())
+        }
+        (SchemaVersion(27), SchemaVersion(26)) => {
+            // Downgrading is essentially a no-op and is only possible
+            // if peer das isn't scheduled.
+            migration_schema_v27::downgrade_from_v27::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, vec![])
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {

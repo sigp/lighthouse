@@ -197,18 +197,21 @@ impl<E: EthSpec> Network<E> {
             .fork_context
             .next_fork_digest()
             .unwrap_or_else(|| ctx.fork_context.current_fork_digest());
+
+        let advertised_cgc = config
+            .advertise_false_custody_group_count
+            .unwrap_or(custody_group_count);
         let enr = crate::discovery::enr::build_or_load_enr::<E>(
             local_keypair.clone(),
             &config,
             &ctx.enr_fork_id,
+            Some(advertised_cgc),
             next_fork_digest,
             &ctx.chain_spec,
         )?;
 
         // Construct the metadata
-        let advertised_cgc = config
-            .advertise_false_custody_group_count
-            .unwrap_or(custody_group_count);
+
         let meta_data = utils::load_or_build_metadata(&config.network_dir, advertised_cgc);
         let seq_number = *meta_data.seq_number();
         let globals = NetworkGlobals::new(
