@@ -1470,7 +1470,14 @@ pub struct BlobParameters {
 // A wrapper around a vector of BlobParameters to ensure that the vector is reverse
 // sorted by epoch.
 #[derive(arbitrary::Arbitrary, Debug, PartialEq, Clone)]
-pub struct BlobSchedule(Vec<BlobParameters>);
+pub struct BlobSchedule {
+    schedule: Vec<BlobParameters>,
+    // This is a hack to prevent the blob schedule being serialized on the /eth/v1/config/spec
+    // endpoint prior to the Fulu fork being scheduled.
+    //
+    // We can remove this once Fulu is live on mainnet.
+    skip_serializing: bool,
+}
 
 impl<'de> Deserialize<'de> for BlobSchedule {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -1486,30 +1493,48 @@ impl BlobSchedule {
     pub fn new(mut vec: Vec<BlobParameters>) -> Self {
         // reverse sort by epoch
         vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
-        Self(vec)
+        Self {
+            schedule: vec,
+            skip_serializing: false,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.schedule.is_empty()
+    }
+
+    pub fn skip_serializing(&self) -> bool {
+        self.skip_serializing
+    }
+
+    pub fn set_skip_serializing(&mut self) {
+        self.skip_serializing = true;
     }
 
     pub fn max_blobs_for_epoch(&self, epoch: Epoch) -> Option<u64> {
-        self.0
+        self.schedule
             .iter()
             .find(|entry| epoch >= entry.epoch)
             .map(|entry| entry.max_blobs_per_block)
     }
 
     pub fn blob_parameters_for_epoch(&self, epoch: Epoch) -> Option<BlobParameters> {
-        self.0.iter().find(|entry| epoch >= entry.epoch).cloned()
+        self.schedule
+            .iter()
+            .find(|entry| epoch >= entry.epoch)
+            .cloned()
     }
 
     pub const fn default() -> Self {
-        Self(vec![])
+        // TODO(EIP-7892): think about what the default should be
+        Self {
+            schedule: vec![],
+            skip_serializing: false,
+        }
     }
 
     pub fn as_vec(&self) -> &Vec<BlobParameters> {
-        &self.0
+        &self.schedule
     }
 }
 
@@ -1518,7 +1543,7 @@ impl Serialize for BlobSchedule {
     where
         S: Serializer,
     {
-        let mut schedule = self.0.clone();
+        let mut schedule = self.schedule.clone();
         // reversing the list to get an ascending order
         schedule.reverse();
         schedule.serialize(serializer)
@@ -1530,7 +1555,7 @@ impl<'a> IntoIterator for &'a BlobSchedule {
     type IntoIter = std::slice::Iter<'a, BlobParameters>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+        self.schedule.iter()
     }
 }
 
@@ -1539,7 +1564,7 @@ impl IntoIterator for BlobSchedule {
     type IntoIter = std::vec::IntoIter<BlobParameters>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.schedule.into_iter()
     }
 }
 
@@ -1744,8 +1769,8 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
     #[serde(default = "BlobSchedule::default")]
-    #[serde(skip_serializing_if = "BlobSchedule::is_empty")]
-    blob_schedule: BlobSchedule,
+    #[serde(skip_serializing_if = "BlobSchedule::skip_serializing")]
+    pub blob_schedule: BlobSchedule,
     #[serde(default = "default_validator_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     validator_custody_requirement: u64,

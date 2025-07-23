@@ -43,15 +43,19 @@ pub struct ConfigAndPreset {
 }
 
 impl ConfigAndPreset {
-    // DEPRECATED: the `fork_name` argument is never used, we should remove it.
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
-        let config = Config::from_chain_spec::<E>(spec);
+        let mut config = Config::from_chain_spec::<E>(spec);
         let base_preset = BasePreset::from_chain_spec::<E>(spec);
         let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
         let bellatrix_preset = BellatrixPreset::from_chain_spec::<E>(spec);
         let capella_preset = CapellaPreset::from_chain_spec::<E>(spec);
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
+
+        // Remove blob schedule for backwards-compatibility.
+        if spec.fulu_fork_epoch.is_none() {
+            config.blob_schedule.set_skip_serializing();
+        }
 
         if spec.fulu_fork_epoch.is_some()
             || fork_name.is_none()
