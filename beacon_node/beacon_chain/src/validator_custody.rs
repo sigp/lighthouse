@@ -248,7 +248,7 @@ impl CustodyContext {
     ///
     /// See also: [`Self::num_of_custody_groups_to_sample`].
     fn custody_group_count_at_epoch(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> u64 {
-        let custody_group_count = if self.current_is_supernode {
+        if self.current_is_supernode {
             spec.number_of_custody_groups
         } else if let Some(epoch) = epoch_opt {
             self.validator_registrations
@@ -257,8 +257,7 @@ impl CustodyContext {
                 .unwrap_or(spec.custody_requirement)
         } else {
             self.custody_group_count_at_head(spec)
-        };
-        custody_group_count
+        }
     }
 
     /// Returns the count of custody groups this node must _sample_ for a block at `epoch` to import.

@@ -93,7 +93,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 if let Some(index) = syncing_head_ids
                     .iter()
                     .enumerate()
-                    .find(|(_, &chain_id)| &chain_id == id)
+                    .find(|&(_, &chain_id)| &chain_id == id)
                     .map(|(i, _)| i)
                 {
                     // a syncing head chain was removed

@@ -647,11 +647,11 @@ mod tests {
 
     fn unset_attestation_bit(a: &mut Attestation<E>, i: usize) {
         match a {
-            Attestation::Base(ref mut att) => att
+            Attestation::Base(att) => att
                 .aggregation_bits
                 .set(i, false)
                 .expect("should unset aggregation bit"),
-            Attestation::Electra(ref mut att) => att
+            Attestation::Electra(att) => att
                 .aggregation_bits
                 .set(i, false)
                 .expect("should unset aggregation bit"),

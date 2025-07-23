@@ -809,7 +809,7 @@ impl StorageStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rand::{Rng, SeedableRng, rngs::SmallRng, thread_rng};
+    use rand::{Rng, SeedableRng, rng, rngs::SmallRng};
 
     #[test]
     fn default_storage_strategy() {
@@ -914,7 +914,7 @@ mod tests {
     fn compressed_validators_diff() {
         assert_eq!(<ValidatorDiffEntry as Decode>::ssz_fixed_len(), 129);
 
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let config = &StoreConfig::default();
         let xs = (0..10)
             .map(|_| rand_validator(&mut rng))

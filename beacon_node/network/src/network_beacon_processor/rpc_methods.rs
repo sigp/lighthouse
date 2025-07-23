@@ -700,7 +700,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(e) => {
                     if matches!(
                         e,
-                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
                         if matches!(**boxed_error, execution_layer::Error::EngineError(_))
                     ) {
                         warn!(

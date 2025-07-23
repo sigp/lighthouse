@@ -354,10 +354,9 @@ fn do_transition<E: EthSpec>(
     let mut ctxt = if let Some(ctxt) = saved_ctxt {
         ctxt.clone()
     } else {
-        let ctxt = ConsensusContext::new(pre_state.slot())
+        ConsensusContext::new(pre_state.slot())
             .set_current_block_root(block_root)
-            .set_proposer_index(block.message().proposer_index());
-        ctxt
+            .set_proposer_index(block.message().proposer_index())
     };
 
     if !config.no_signature_verification {

@@ -163,7 +163,7 @@ impl EpochSummary {
     /// - It is `None`.
     /// - `new` is greater than its current value.
     fn update_if_lt<T: Ord>(current: &mut Option<T>, new: T) {
-        if let Some(ref mut current) = current {
+        if let Some(current) = current {
             if new < *current {
                 *current = new
             }

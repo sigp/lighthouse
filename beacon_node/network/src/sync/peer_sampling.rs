@@ -11,7 +11,7 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, SamplingId, SamplingRequestId, SamplingRequester,
 };
 use lighthouse_network::{PeerAction, PeerId};
-use rand::{seq::SliceRandom, thread_rng};
+use rand::{rng, seq::SliceRandom};
 use std::{
     collections::HashMap, collections::hash_map::Entry, marker::PhantomData, sync::Arc,
     time::Duration,
@@ -243,7 +243,7 @@ impl<T: BeaconChainTypes> ActiveSamplingRequest<T> {
         // Select ahead of time the full list of to-sample columns
         let mut column_shuffle =
             (0..spec.number_of_columns as ColumnIndex).collect::<Vec<ColumnIndex>>();
-        let mut rng = thread_rng();
+        let mut rng = rng();
         column_shuffle.shuffle(&mut rng);
 
         Self {
@@ -611,8 +611,7 @@ mod request {
     use crate::sync::network_context::SyncNetworkContext;
     use beacon_chain::BeaconChainTypes;
     use lighthouse_network::PeerId;
-    use rand::seq::SliceRandom;
-    use rand::thread_rng;
+    use rand::rng;
     use std::collections::HashSet;
     use types::data_column_sidecar::ColumnIndex;
 
@@ -684,7 +683,7 @@ mod request {
 
             peer_ids.retain(|peer_id| !self.peers_dont_have.contains(peer_id));
 
-            if let Some(peer_id) = peer_ids.choose(&mut thread_rng()) {
+            if let Some(peer_id) = peer_ids.choose(&mut rng()) {
                 Some(*peer_id)
             } else {
                 self.status = Status::NoPeers;

@@ -79,7 +79,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     let slashing_protection_status =
         if let Some(InterchangeJsonStr(slashing_protection)) = request.slashing_protection {
             // Warn for missing slashing protection.
-            for KeystoreJsonStr(ref keystore) in &request.keystores {
+            for KeystoreJsonStr(keystore) in &request.keystores {
                 if let Some(public_key) = keystore.public_key() {
                     let pubkey_bytes = public_key.compress();
                     if !slashing_protection

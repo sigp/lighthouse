@@ -113,7 +113,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     ) -> Result<(), String> {
         match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => Err("received blobs but expected no data".to_owned()),
-            RangeBlockDataRequest::Blobs(ref mut req) => req.finish(req_id, blobs),
+            RangeBlockDataRequest::Blobs(req) => req.finish(req_id, blobs),
             RangeBlockDataRequest::DataColumns { .. } => {
                 Err("received blobs but expected data columns".to_owned())
             }
@@ -132,9 +132,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::Blobs(_) => {
                 Err("received data columns but expected blobs".to_owned())
             }
-            RangeBlockDataRequest::DataColumns {
-                ref mut requests, ..
-            } => {
+            RangeBlockDataRequest::DataColumns { requests, .. } => {
                 let req = requests
                     .get_mut(&req_id)
                     .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
