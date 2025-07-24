@@ -2,6 +2,7 @@ use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
+use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
@@ -1472,13 +1473,15 @@ pub struct BlobParameters {
 // A wrapper around a vector of BlobParameters to ensure that the vector is reverse
 // sorted by epoch.
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Derivative, Clone)]
+#[derivative(PartialEq)]
 pub struct BlobSchedule {
     schedule: Vec<BlobParameters>,
     // This is a hack to prevent the blob schedule being serialized on the /eth/v1/config/spec
     // endpoint prior to the Fulu fork being scheduled.
     //
     // We can remove this once Fulu is live on mainnet.
+    #[derivative(PartialEq = "ignore")]
     skip_serializing: bool,
 }
 
