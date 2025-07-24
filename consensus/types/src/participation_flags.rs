@@ -7,7 +7,7 @@ use tree_hash::{PackedEncoding, TreeHash, TreeHashType};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize, TestRandom)]
 #[serde(transparent)]
-#[derive(arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ParticipationFlags {
     #[serde(with = "serde_utils::quoted_u8")]
     bits: u8,

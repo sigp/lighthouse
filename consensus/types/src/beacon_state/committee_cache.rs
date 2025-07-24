@@ -374,6 +374,7 @@ where
     active
 }
 
+#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for CommitteeCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())

@@ -28,14 +28,17 @@ use self::indexed_attestation::IndexedAttestationBase;
             TreeHash,
             TestRandom,
             Derivative,
-            arbitrary::Arbitrary
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")),
         serde(
             bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
             deny_unknown_fields
         ),
-        arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
+        )
     ),
     ref_attributes(
         derive(Debug, PartialEq, TreeHash),
@@ -44,13 +47,15 @@ use self::indexed_attestation::IndexedAttestationBase;
     map_ref_into(BeaconBlockBodyRef, BeaconBlock),
     map_ref_mut_into(BeaconBlockBodyRefMut)
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
 )]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
-#[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
