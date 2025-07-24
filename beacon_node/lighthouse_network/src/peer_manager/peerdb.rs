@@ -254,7 +254,7 @@ impl<E: EthSpec> PeerDB<E> {
     /// If `earliest_available_slot` info is not available, then return peer anyway assuming it has the
     /// required data.
     ///
-    /// If `allowed_peers` is `Some`, then filters only for those peers.
+    /// If `allowed_peers` is `Some`, then filters for the epoch only for those peers.
     pub fn synced_peers_for_epoch<'a>(
         &'a self,
         epoch: Epoch,

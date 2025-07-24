@@ -224,9 +224,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     .network_globals
                     .peers
                     .read()
-                    .synced_peers()
+                    .synced_peers_for_epoch(self.to_be_downloaded, None)
                     .next()
                     .is_some()
+                    // backfill can't progress if we do not have peers in the required subnets post peerdas.
+                    && self.good_peers_on_sampling_subnets(self.to_be_downloaded, network)
                 {
                     // If there are peers to resume with, begin the resume.
                     debug!(start_epoch = ?self.current_start, awaiting_batches = self.batches.len(), processing_target = ?self.processing_target, "Resuming backfill sync");
@@ -931,6 +933,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<(), BackFillError> {
+        if matches!(self.state(), BackFillState::Paused) {
+            return Err(BackFillError::Paused);
+        }
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             debug!(?batch_id, "Sending backfill batch");
             let synced_peers = self
@@ -1173,6 +1178,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
     /// Checks all sampling column subnets for peers. Returns `true` if there is at least one peer in
     /// every sampling column subnet.
+    ///
+    /// Returns `true` if peerdas isn't enabled for the epoch.
     fn good_peers_on_sampling_subnets(
         &self,
         epoch: Epoch,

@@ -723,9 +723,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         if let Some(blocks_result) = entry.get_mut().responses(&self.chain.spec) {
-            if blocks_result.is_ok() {
+            if matches!(blocks_result, Err(CouplingError::PeerFailure { .. })) {
+                debug!(
+                    entry=?entry.key(),
+                    "Peer failed to return columns"
+                );
+            } else {
                 // remove the entry only if it coupled successfully with
-                // no errors
+                // or if its an internal error
                 entry.remove();
             }
             // If the request is finished, dequeue everything
