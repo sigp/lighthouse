@@ -17,6 +17,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
+    attempt: usize,
 }
 
 enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
@@ -40,13 +41,15 @@ enum RangeBlockDataRequest<E: EthSpec> {
 
 #[derive(Debug)]
 pub(crate) enum CouplingError {
-    InternalError(#[allow(dead_code)] String),
+    InternalError(String),
     /// The peer we requested the data from was faulty/malicious
     PeerFailure {
         error: String,
         faulty_peers: Vec<(ColumnIndex, PeerId)>,
         action: PeerAction,
     },
+    /// The batch exceeded the max retries
+    ExceededMaxRetries(Vec<PeerId>, PeerAction),
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -78,7 +81,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Self {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
+            attempt: 0,
         }
+    }
+
+    pub fn attempt(&self) -> usize {
+        self.attempt
     }
 
     /// Modifies `self` by inserting a new `DataColumnsByRangeRequestId` for a formerly failed
@@ -156,7 +164,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             return None;
         };
 
-        match &mut self.block_data_request {
+        let resp = match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => {
                 Some(Self::responses_with_blobs(blocks.to_vec(), vec![], spec))
             }
@@ -215,7 +223,11 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 Some(resp)
             }
-        }
+        };
+
+        // Increment the attempt once this function returns the response or errors
+        self.attempt += 1;
+        resp
     }
 
     fn responses_with_blobs(

@@ -827,32 +827,47 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
-            if let RpcResponseError::BlockComponentCouplingError(CouplingError::PeerFailure {
-                error,
-                faulty_peers,
-                action,
-            }) = &err
-            {
-                debug!(?batch_id, error, "Block components coupling error");
-                // Note: we don't fail the batch here because a `CouplingError` is
-                // recoverable by requesting from other honest peers.
-                let mut failed_columns = HashSet::new();
-                let mut failed_peers = HashSet::new();
-                for (column, peer) in faulty_peers {
-                    failed_columns.insert(*column);
-                    failed_peers.insert(*peer);
-                }
-                for peer in failed_peers.iter() {
-                    network.report_peer(*peer, *action, "failed to return columns");
-                }
+            if let RpcResponseError::BlockComponentCouplingError(coupling_error) = &err {
+                match coupling_error {
+                    CouplingError::PeerFailure {
+                        error,
+                        faulty_peers,
+                        action,
+                    } => {
+                        debug!(?batch_id, error, "Block components coupling error");
+                        // Note: we don't fail the batch here because a `CouplingError` is
+                        // recoverable by requesting from other honest peers.
+                        let mut failed_columns = HashSet::new();
+                        let mut failed_peers = HashSet::new();
+                        for (column, peer) in faulty_peers {
+                            failed_columns.insert(*column);
+                            failed_peers.insert(*peer);
+                        }
+                        for peer in failed_peers.iter() {
+                            network.report_peer(*peer, *action, "failed to return columns");
+                        }
 
-                return self.retry_partial_batch(
-                    network,
-                    batch_id,
-                    request_id,
-                    failed_columns,
-                    failed_peers,
-                );
+                        return self.retry_partial_batch(
+                            network,
+                            batch_id,
+                            request_id,
+                            failed_columns,
+                            failed_peers,
+                        );
+                    }
+                    CouplingError::ExceededMaxRetries(peers, action) => {
+                        for peer in peers.iter() {
+                            network.report_peer(
+                                *peer,
+                                *action,
+                                "failed to return columns, exceeded retry attempts",
+                            );
+                        }
+                    }
+                    CouplingError::InternalError(msg) => {
+                        debug!(?batch_id, msg, "Block components coupling internal error");
+                    }
+                }
             }
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
