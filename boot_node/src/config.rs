@@ -5,8 +5,9 @@ use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
 use lighthouse_network::{
     discovery::{load_enr_from_disk, use_or_load_enr},
-    load_private_key, CombinedKeyExt, NetworkConfig,
+    load_private_key, NetworkConfig,
 };
+use network_utils::enr_ext::CombinedKeyExt;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};

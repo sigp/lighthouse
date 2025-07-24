@@ -955,6 +955,7 @@ dependencies = [
  "hyper 1.6.0",
  "lighthouse_network",
  "monitoring_api",
+ "network_utils",
  "node_test_rig",
  "sensitive_url",
  "serde_json",
@@ -964,7 +965,6 @@ dependencies = [
  "task_executor",
  "tracing",
  "types",
- "unused_port",
 ]
 
 [[package]]
@@ -1224,6 +1224,7 @@ dependencies = [
  "lighthouse_network",
  "log",
  "logging",
+ "network_utils",
  "serde",
  "tokio",
  "tracing",
@@ -3287,6 +3288,7 @@ dependencies = [
  "futures",
  "hex",
  "logging",
+ "network_utils",
  "reqwest",
  "sensitive_url",
  "serde_json",
@@ -3294,7 +3296,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "types",
- "unused_port",
 ]
 
 [[package]]
@@ -4292,6 +4293,7 @@ dependencies = [
  "lru",
  "metrics",
  "network",
+ "network_utils",
  "operation_pool",
  "parking_lot 0.12.3",
  "proto_array",
@@ -4326,6 +4328,7 @@ dependencies = [
  "logging",
  "malloc_utils",
  "metrics",
+ "network_utils",
  "reqwest",
  "serde",
  "slot_clock",
@@ -5071,6 +5074,7 @@ dependencies = [
  "lighthouse_version",
  "log",
  "malloc_utils",
+ "network_utils",
  "rayon",
  "serde",
  "serde_json",
@@ -5637,6 +5641,7 @@ dependencies = [
  "logging",
  "malloc_utils",
  "metrics",
+ "network_utils",
  "sensitive_url",
  "serde",
  "serde_json",
@@ -5649,7 +5654,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "types",
- "unused_port",
  "validator_client",
  "validator_dir",
  "validator_manager",
@@ -5685,6 +5689,7 @@ dependencies = [
  "lru",
  "lru_cache",
  "metrics",
+ "network_utils",
  "parking_lot 0.12.3",
  "prometheus-client",
  "quickcheck",
@@ -5700,7 +5705,6 @@ dependencies = [
  "superstruct",
  "task_executor",
  "tempfile",
- "tiny-keccak",
  "tokio",
  "tokio-io-timeout",
  "tokio-util",
@@ -5708,7 +5712,6 @@ dependencies = [
  "tracing-subscriber",
  "types",
  "unsigned-varint 0.8.0",
- "unused_port",
 ]
 
 [[package]]
@@ -6398,6 +6401,21 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "types",
+]
+
+[[package]]
+name = "network_utils"
+version = "0.1.0"
+dependencies = [
+ "discv5",
+ "hex",
+ "libp2p-identity",
+ "lru_cache",
+ "metrics",
+ "multiaddr",
+ "parking_lot 0.12.3",
+ "serde",
+ "tiny-keccak",
 ]
 
 [[package]]
@@ -9077,6 +9095,8 @@ name = "system_health"
 version = "0.1.0"
 dependencies = [
  "lighthouse_network",
+ "metrics",
+ "network_utils",
  "parking_lot 0.12.3",
  "serde",
  "sysinfo",
@@ -9884,14 +9904,6 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
-name = "unused_port"
-version = "0.1.0"
-dependencies = [
- "lru_cache",
- "parking_lot 0.12.3",
-]
 
 [[package]]
 name = "url"

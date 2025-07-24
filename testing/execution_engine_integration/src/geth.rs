@@ -1,11 +1,11 @@
 use crate::build_utils;
 use crate::execution_engine::GenericExecutionEngine;
 use crate::genesis_json::geth_genesis_json;
+use network_utils::unused_port::unused_tcp4_port;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use std::{env, fs};
 use tempfile::TempDir;
-use unused_port::unused_tcp4_port;
 
 const GETH_BRANCH: &str = "master";
 const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";

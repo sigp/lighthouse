@@ -6,14 +6,12 @@ mod config;
 pub mod service;
 
 pub mod discovery;
-pub mod listen_addr;
 pub mod metrics;
 pub mod peer_manager;
 pub mod rpc;
 pub mod types;
 
 use libp2p::swarm::DialError;
-pub use listen_addr::*;
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
@@ -107,13 +105,12 @@ pub use crate::types::{
 pub use prometheus_client;
 
 pub use config::Config as NetworkConfig;
-pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
+pub use discovery::Eth2Enr;
 pub use discv5;
 pub use gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p;
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
-pub use metrics::scrape_discovery_metrics;
 pub use peer_manager::{
     peerdb::client::Client,
     peerdb::score::{PeerAction, ReportSource},

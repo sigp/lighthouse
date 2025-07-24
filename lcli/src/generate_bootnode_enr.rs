@@ -1,9 +1,10 @@
 use clap::ArgMatches;
 use lighthouse_network::{
-    discovery::{build_enr, CombinedKey, CombinedKeyExt, ENR_FILENAME},
+    discovery::{build_enr, CombinedKey, ENR_FILENAME},
     libp2p::identity::secp256k1,
     NetworkConfig, NETWORK_KEY_FILENAME,
 };
+use network_utils::enr_ext::CombinedKeyExt;
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs, net::Ipv4Addr};

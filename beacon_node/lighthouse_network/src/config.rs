@@ -1,4 +1,3 @@
-use crate::listen_addr::{ListenAddr, ListenAddress};
 use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
@@ -7,6 +6,7 @@ use directory::{
 };
 use libp2p::Multiaddr;
 use local_ip_address::local_ipv6;
+use network_utils::listen_addr::{ListenAddr, ListenAddress};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
