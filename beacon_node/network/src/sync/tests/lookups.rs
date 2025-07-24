@@ -104,6 +104,7 @@ impl TestRig {
         let spec = chain.spec.clone();
 
         // deterministic seed
+        let rng_08 = <rand_chacha_08::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
 
         init_tracing();
@@ -114,6 +115,7 @@ impl TestRig {
             network_rx,
             network_rx_queue: vec![],
             sync_rx,
+            rng_08,
             rng,
             network_globals: beacon_processor.network_globals.clone(),
             sync_manager: SyncManager::new(
@@ -348,7 +350,7 @@ impl TestRig {
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
-        k256::ecdsa::SigningKey::random(&mut self.rng).into()
+        k256::ecdsa::SigningKey::random(&mut self.rng_08).into()
     }
 
     pub fn new_connected_peers_for_peerdas(&mut self) {

@@ -1176,8 +1176,8 @@ mod tests {
     use beacon_chain::test_utils::BeaconChainHarness;
     use bls::Hash256;
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
-    use rand::SeedableRng;
-    use rand::prelude::StdRng;
+    use rand_08::SeedableRng;
+    use rand_08::prelude::StdRng;
     use types::MinimalEthSpec;
 
     #[test]
