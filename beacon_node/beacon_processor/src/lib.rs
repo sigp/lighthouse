@@ -627,7 +627,7 @@ impl<E: EthSpec> fmt::Debug for Work<E> {
     }
 }
 
-#[derive(IntoStaticStr, PartialEq, Eq, Debug)]
+#[derive(IntoStaticStr, PartialEq, Eq, Debug, Clone)]
 #[strum(serialize_all = "snake_case")]
 pub enum WorkType {
     GossipAttestation,
@@ -734,7 +734,7 @@ impl<E: EthSpec> Work<E> {
 /// Unifies all the messages processed by the `BeaconProcessor`.
 enum InboundEvent<E: EthSpec> {
     /// A worker has completed a task and is free.
-    WorkerIdle,
+    WorkerIdle(WorkType),
     /// There is new work to be done.
     WorkEvent(WorkEvent<E>),
     /// A work event that was queued for re-processing has become ready.
@@ -747,7 +747,7 @@ enum InboundEvent<E: EthSpec> {
 /// control (specifically in the ordering of event processing).
 struct InboundEvents<E: EthSpec> {
     /// Used by workers when they finish a task.
-    idle_rx: mpsc::Receiver<()>,
+    idle_rx: mpsc::Receiver<WorkType>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
     event_rx: mpsc::Receiver<WorkEvent<E>>,
     /// Used internally for queuing work ready to be re-processed.
@@ -761,8 +761,8 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
         // Always check for idle workers before anything else. This allows us to ensure that a big
         // stream of new events doesn't suppress the processing of existing events.
         match self.idle_rx.poll_recv(cx) {
-            Poll::Ready(Some(())) => {
-                return Poll::Ready(Some(InboundEvent::WorkerIdle));
+            Poll::Ready(Some(work_type)) => {
+                return Poll::Ready(Some(InboundEvent::WorkerIdle(work_type)));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -829,7 +829,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         queue_lengths: BeaconProcessorQueueLengths,
     ) -> Result<(), String> {
         // Used by workers to communicate that they are finished a task.
-        let (idle_tx, idle_rx) = mpsc::channel::<()>(MAX_IDLE_QUEUE_LEN);
+        let (idle_tx, idle_rx) = mpsc::channel::<WorkType>(MAX_IDLE_QUEUE_LEN);
 
         // Using LIFO queues for attestations since validator profits rely upon getting fresh
         // attestations into blocks. Additionally, later attestations contain more information than
@@ -931,8 +931,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
             loop {
                 let work_event = match inbound_events.next().await {
-                    Some(InboundEvent::WorkerIdle) => {
-                        self.current_workers = self.current_workers.saturating_sub(1);
+                    Some(InboundEvent::WorkerIdle(work_type)) => {
+                        let threads_freed = match work_type {
+                            WorkType::ColumnReconstruction => 4,
+                            _ => 1,
+                        };
+                        self.current_workers = self.current_workers.saturating_sub(threads_freed);
                         None
                     }
                     Some(InboundEvent::WorkEvent(event)) if enable_backfill_rate_limiting => {
@@ -1007,6 +1011,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 }
 
                 let can_spawn = self.current_workers < self.config.max_workers;
+                let can_spawn_extra_threads = self.current_workers < self.config.max_workers + 4;
                 let drop_during_sync = work_event
                     .as_ref()
                     .is_some_and(|event| event.drop_during_sync);
@@ -1245,7 +1250,30 @@ impl<E: EthSpec> BeaconProcessor<E> {
 
                         if let Some(work_event) = work_event {
                             let work_type = work_event.to_type();
-                            self.spawn_worker(work_event, idle_tx);
+                            let thread_count = match work_type {
+                                WorkType::ColumnReconstruction => 4,
+                                _ => 1,
+                            };
+                            self.spawn_worker(work_event, idle_tx, thread_count);
+                            Some(work_type)
+                        } else {
+                            None
+                        }
+                    }
+                    None if can_spawn_extra_threads => {
+                        let work_event: Option<Work<E>> =
+                            if let Some(item) = column_reconstruction_queue.pop() {
+                                Some(item)
+                            } else {
+                                None
+                            };
+                        if let Some(work_event) = work_event {
+                            let work_type = work_event.to_type();
+                            let thread_count = match work_type {
+                                WorkType::ColumnReconstruction => 4,
+                                _ => 1,
+                            };
+                            self.spawn_worker(work_event, idle_tx, thread_count);
                             Some(work_type)
                         } else {
                             None
@@ -1293,7 +1321,20 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     )
                                 }
                             }
-                            _ if can_spawn => self.spawn_worker(work, idle_tx),
+                            _ if can_spawn => {
+                                let thread_count = match work.to_type() {
+                                    WorkType::ColumnReconstruction => 4,
+                                    _ => 1,
+                                };
+                                self.spawn_worker(work, idle_tx, thread_count);
+                            }
+                            _ if can_spawn_extra_threads => {
+                                let thread_count = match work.to_type() {
+                                    WorkType::ColumnReconstruction => 4,
+                                    _ => 1,
+                                };
+                                self.spawn_worker(work, idle_tx, thread_count)
+                            }
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
@@ -1486,7 +1527,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
     /// Spawns a blocking worker thread to process some `Work`.
     ///
     /// Sends an message on `idle_tx` when the work is complete and the task is stopping.
-    fn spawn_worker(&mut self, work: Work<E>, idle_tx: mpsc::Sender<()>) {
+    fn spawn_worker(
+        &mut self,
+        work: Work<E>,
+        idle_tx: mpsc::Sender<WorkType>,
+        thread_count: usize,
+    ) {
         let work_id = work.str_id();
         let worker_timer =
             metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work_id]);
@@ -1502,11 +1548,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
         // As such, this instantiation should happen as early in the function as possible.
         let send_idle_on_drop = SendOnDrop {
             tx: idle_tx,
+            work_type: work.to_type(),
             _worker_timer: worker_timer,
         };
 
         let worker_id = self.current_workers;
-        self.current_workers = self.current_workers.saturating_add(1);
+        self.current_workers = self.current_workers.saturating_add(thread_count);
 
         let executor = self.executor.clone();
 
@@ -1655,14 +1702,16 @@ impl TaskSpawner {
 ///
 /// https://doc.rust-lang.org/std/ops/trait.Drop.html#panics
 pub struct SendOnDrop {
-    tx: mpsc::Sender<()>,
+    tx: mpsc::Sender<WorkType>,
+    work_type: WorkType,
     // The field is unused, but it's here to ensure the timer is dropped once the task has finished.
     _worker_timer: Option<metrics::HistogramTimer>,
 }
 
 impl Drop for SendOnDrop {
     fn drop(&mut self) {
-        if let Err(e) = self.tx.try_send(()) {
+        let work_type = self.work_type.clone();
+        if let Err(e) = self.tx.try_send(work_type) {
             warn!(
                 msg = "did not free worker, shutdown may be underway",
                 error = %e,
