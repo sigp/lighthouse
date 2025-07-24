@@ -11,14 +11,12 @@ use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
     GoodbyeReason, HandlerErr, InboundRequestId, NetworkParams, Protocol, RPCError, RPCMessage,
-    RPCReceived, RequestType, ResponseTermination, RpcErrorResponse, RpcResponse,
-    RpcSuccessResponse, RPC,
+    RPCReceived, RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse, RPC,
 };
 use crate::types::{
     all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
     GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery,
 };
-use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use api_types::{AppRequestId, Response};
@@ -34,12 +32,13 @@ use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
 use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{identify, PeerId, SwarmBuilder};
 use logging::crit;
+use network_utils::enr_ext::EnrExt;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
 };
@@ -177,6 +176,7 @@ impl<E: EthSpec> Network<E> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         mut ctx: ServiceContext<'_>,
+        custody_group_count: u64,
     ) -> Result<(Self, Arc<NetworkGlobals<E>>), String> {
         let config = ctx.config.clone();
         trace!("Libp2p Service starting");
@@ -193,19 +193,26 @@ impl<E: EthSpec> Network<E> {
 
         // set up a collection of variables accessible outside of the network crate
         // Create an ENR or load from disk if appropriate
+        let next_fork_digest = ctx
+            .fork_context
+            .next_fork_digest()
+            .unwrap_or_else(|| ctx.fork_context.current_fork_digest());
+
+        let advertised_cgc = config
+            .advertise_false_custody_group_count
+            .unwrap_or(custody_group_count);
         let enr = crate::discovery::enr::build_or_load_enr::<E>(
             local_keypair.clone(),
             &config,
             &ctx.enr_fork_id,
+            Some(advertised_cgc),
+            next_fork_digest,
             &ctx.chain_spec,
         )?;
 
         // Construct the metadata
-        let custody_group_count = ctx.chain_spec.is_peer_das_scheduled().then(|| {
-            ctx.chain_spec
-                .custody_group_count(config.subscribe_all_data_column_subnets)
-        });
-        let meta_data = utils::load_or_build_metadata(&config.network_dir, custody_group_count);
+
+        let meta_data = utils::load_or_build_metadata(&config.network_dir, advertised_cgc);
         let seq_number = *meta_data.seq_number();
         let globals = NetworkGlobals::new(
             enr,
@@ -281,27 +288,26 @@ impl<E: EthSpec> Network<E> {
             // Set up a scoring update interval
             let update_gossipsub_scores = tokio::time::interval(params.decay_interval);
 
-            let current_and_future_forks = ForkName::list_all().into_iter().filter_map(|fork| {
-                if fork >= ctx.fork_context.current_fork() {
-                    ctx.fork_context
-                        .to_context_bytes(fork)
-                        .map(|fork_digest| (fork, fork_digest))
-                } else {
-                    None
-                }
-            });
+            let current_digest_epoch = ctx.fork_context.current_fork_epoch();
+            let current_and_future_digests =
+                ctx.chain_spec
+                    .all_digest_epochs()
+                    .filter_map(|digest_epoch| {
+                        if digest_epoch >= current_digest_epoch {
+                            Some((digest_epoch, ctx.fork_context.context_bytes(digest_epoch)))
+                        } else {
+                            None
+                        }
+                    });
 
-            let all_topics_for_forks = current_and_future_forks
-                .map(|(fork, fork_digest)| {
+            let all_topics_for_digests = current_and_future_digests
+                .map(|(epoch, digest)| {
+                    let fork = ctx.chain_spec.fork_name_at_epoch(epoch);
                     all_topics_at_fork::<E>(fork, &ctx.chain_spec)
                         .into_iter()
                         .map(|topic| {
-                            Topic::new(GossipTopic::new(
-                                topic,
-                                GossipEncoding::default(),
-                                fork_digest,
-                            ))
-                            .into()
+                            Topic::new(GossipTopic::new(topic, GossipEncoding::default(), digest))
+                                .into()
                         })
                         .collect::<Vec<TopicHash>>()
                 })
@@ -309,7 +315,7 @@ impl<E: EthSpec> Network<E> {
 
             // For simplicity find the fork with the most individual topics and assume all forks
             // have the same topic count
-            let max_topics_at_any_fork = all_topics_for_forks
+            let max_topics_at_any_fork = all_topics_for_digests
                 .iter()
                 .map(|topics| topics.len())
                 .max()
@@ -360,7 +366,7 @@ impl<E: EthSpec> Network<E> {
             // If we are using metrics, then register which topics we want to make sure to keep
             // track of
             if ctx.libp2p_registry.is_some() {
-                for topics in all_topics_for_forks {
+                for topics in all_topics_for_digests {
                     gossipsub.register_topics_for_metrics(topics);
                 }
             }
@@ -885,6 +891,23 @@ impl<E: EthSpec> Network<E> {
         }
     }
 
+    /// Subscribe to all data columns determined by the cgc.
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    pub fn subscribe_new_data_column_subnets(&mut self, custody_column_count: u64) {
+        self.network_globals
+            .update_data_column_subnets(custody_column_count);
+
+        for column in self.network_globals.sampling_subnets() {
+            let kind = GossipKind::DataColumnSidecar(column);
+            self.subscribe_kind(kind);
+        }
+    }
+
     /// Returns the scoring parameters for a topic if set.
     #[instrument(parent = None,
         level = "trace",
@@ -1129,35 +1152,22 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip_all
     )]
-    pub fn send_response(
+    pub fn send_response<T: Into<RpcResponse<E>>>(
         &mut self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        response: Response<E>,
+        response: T,
     ) {
-        self.eth2_rpc_mut()
-            .send_response(peer_id, inbound_request_id, response.into())
-    }
-
-    /// Inform the peer that their request produced an error.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p"),
-        name = "libp2p",
-        skip_all
-    )]
-    pub fn send_error_response(
-        &mut self,
-        peer_id: PeerId,
-        inbound_request_id: InboundRequestId,
-        error: RpcErrorResponse,
-        reason: String,
-    ) {
-        self.eth2_rpc_mut().send_response(
-            peer_id,
-            inbound_request_id,
-            RpcResponse::Error(error, reason.into()),
-        )
+        if let Err(response) = self
+            .eth2_rpc_mut()
+            .send_response(inbound_request_id, response.into())
+        {
+            if self.network_globals.peers.read().is_connected(&peer_id) {
+                error!(%peer_id, ?inbound_request_id, %response,
+                    "Request not found in RPC active requests"
+                );
+            }
+        }
     }
 
     /* Peer management functions */
@@ -1254,6 +1264,21 @@ impl<E: EthSpec> Network<E> {
         self.update_metadata_bitfields();
     }
 
+    /// Updates the cgc value in the ENR.
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    pub fn update_enr_cgc(&mut self, new_custody_group_count: u64) {
+        if let Err(e) = self.discovery_mut().update_enr_cgc(new_custody_group_count) {
+            crit!(error = e, "Could not update cgc in ENR");
+        }
+        // update the local meta data which informs our peers of the update during PINGS
+        self.update_metadata_cgc(new_custody_group_count);
+    }
+
     /// Attempts to discover new peers for a given subnet. The `min_ttl` gives the time at which we
     /// would like to retain the peers for.
     #[instrument(parent = None,
@@ -1329,6 +1354,12 @@ impl<E: EthSpec> Network<E> {
         self.enr_fork_id = enr_fork_id;
     }
 
+    pub fn update_nfd(&mut self, nfd: [u8; 4]) {
+        if let Err(e) = self.discovery_mut().update_enr_nfd(nfd) {
+            crit!(error = e, "Could not update nfd in ENR");
+        }
+    }
+
     /* Private internal functions */
 
     /// Updates the current meta data of the node to match the local ENR.
@@ -1358,6 +1389,28 @@ impl<E: EthSpec> Network<E> {
         *meta_data_w.attnets_mut() = local_attnets;
         if let Ok(syncnets) = meta_data_w.syncnets_mut() {
             *syncnets = local_syncnets;
+        }
+        let seq_number = *meta_data_w.seq_number();
+        let meta_data = meta_data_w.clone();
+
+        drop(meta_data_w);
+        self.eth2_rpc_mut().update_seq_number(seq_number);
+        // Save the updated metadata to disk
+        utils::save_metadata_to_disk(&self.network_dir, meta_data);
+    }
+
+    #[instrument(parent = None,
+        level = "trace",
+        fields(service = "libp2p"),
+        name = "libp2p",
+        skip_all
+    )]
+    fn update_metadata_cgc(&mut self, custody_group_count: u64) {
+        let mut meta_data_w = self.network_globals.local_metadata.write();
+
+        *meta_data_w.seq_number_mut() += 1;
+        if let Ok(cgc) = meta_data_w.custody_group_count_mut() {
+            *cgc = custody_group_count;
         }
         let seq_number = *meta_data_w.seq_number();
         let meta_data = meta_data_w.clone();
@@ -1406,19 +1459,6 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip_all
     )]
-    fn send_meta_data_response(
-        &mut self,
-        _req: MetadataRequest<E>,
-        inbound_request_id: InboundRequestId,
-        peer_id: PeerId,
-    ) {
-        let metadata = self.network_globals.local_metadata.read().clone();
-        // The encoder is responsible for sending the negotiated version of the metadata
-        let event = RpcResponse::Success(RpcSuccessResponse::MetaData(Arc::new(metadata)));
-        self.eth2_rpc_mut()
-            .send_response(peer_id, inbound_request_id, event);
-    }
-
     // RPC Propagation methods
     /// Queues the response to be sent upwards as long at it was requested outside the Behaviour.
     #[must_use = "return the response"]
@@ -1706,9 +1746,13 @@ impl<E: EthSpec> Network<E> {
                         self.peer_manager_mut().ping_request(&peer_id, ping.data);
                         None
                     }
-                    RequestType::MetaData(req) => {
+                    RequestType::MetaData(_req) => {
                         // send the requested meta-data
-                        self.send_meta_data_response(req, inbound_request_id, peer_id);
+                        let metadata = self.network_globals.local_metadata.read().clone();
+                        // The encoder is responsible for sending the negotiated version of the metadata
+                        let response =
+                            RpcResponse::Success(RpcSuccessResponse::MetaData(Arc::new(metadata)));
+                        self.send_response(peer_id, inbound_request_id, response);
                         None
                     }
                     RequestType::Goodbye(reason) => {

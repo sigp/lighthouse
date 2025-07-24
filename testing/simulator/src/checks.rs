@@ -303,7 +303,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
         }
 
         // Verify light client optimistic update. `signature_slot_distance` should be 1 in the ideal scenario.
-        let signature_slot = *client
+        let signature_slot = client
             .get_beacon_light_client_optimistic_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?
@@ -332,7 +332,7 @@ pub(crate) async fn verify_light_client_updates<E: EthSpec>(
             }
             continue;
         }
-        let signature_slot = *client
+        let signature_slot = client
             .get_beacon_light_client_finality_update::<E>()
             .await
             .map_err(|e| format!("Error while getting light client updates: {:?}", e))?

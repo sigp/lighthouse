@@ -28,7 +28,7 @@ use std::{
 use tokio::time::{sleep, Sleep};
 use tokio_util::time::{delay_queue, DelayQueue};
 use tracing::{debug, trace};
-use types::{EthSpec, ForkContext};
+use types::{EthSpec, ForkContext, Slot};
 
 /// The number of times to retry an outbound upgrade in the case of IO errors.
 const IO_ERROR_RETRIES: u8 = 3;
@@ -377,7 +377,7 @@ where
         ConnectionHandlerEvent<Self::OutboundProtocol, Self::OutboundOpenInfo, Self::ToBehaviour>,
     > {
         if let Some(waker) = &self.waker {
-            if waker.will_wake(cx.waker()) {
+            if !waker.will_wake(cx.waker()) {
                 self.waker = Some(cx.waker().clone());
             }
         } else {
@@ -912,7 +912,7 @@ where
         }
 
         let (req, substream) = substream;
-        let current_fork = self.fork_context.current_fork();
+        let current_fork = self.fork_context.current_fork_name();
         let spec = &self.fork_context.spec;
 
         match &req {
@@ -932,9 +932,8 @@ where
                 }
             }
             RequestType::BlobsByRange(request) => {
-                let max_requested_blobs = request
-                    .count
-                    .saturating_mul(spec.max_blobs_per_block_by_fork(current_fork));
+                let epoch = Slot::new(request.start_slot).epoch(E::slots_per_epoch());
+                let max_requested_blobs = request.max_blobs_requested(epoch, spec);
                 let max_allowed = spec.max_request_blob_sidecars(current_fork) as u64;
                 if max_requested_blobs > max_allowed {
                     self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
@@ -951,8 +950,10 @@ where
             _ => {}
         };
 
-        let max_responses =
-            req.max_responses(self.fork_context.current_fork(), &self.fork_context.spec);
+        let max_responses = req.max_responses(
+            self.fork_context.current_fork_epoch(),
+            &self.fork_context.spec,
+        );
 
         // store requests that expect responses
         if max_responses > 0 {
@@ -1022,8 +1023,10 @@ where
         }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
-        let max_responses =
-            request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec);
+        let max_responses = request.max_responses(
+            self.fork_context.current_fork_epoch(),
+            &self.fork_context.spec,
+        );
         if max_responses > 0 {
             let max_remaining_chunks = if request.expect_exactly_one_response() {
                 // Currently enforced only for multiple responses

@@ -181,7 +181,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     ensure_state_is_in_epoch(&mut state, head_state_root, request_epoch, &chain.spec)?;
 
     let indices = state
-        .get_beacon_proposer_indices(&chain.spec)
+        .get_beacon_proposer_indices(request_epoch, &chain.spec)
         .map_err(BeaconChainError::from)?;
 
     let dependent_root = state

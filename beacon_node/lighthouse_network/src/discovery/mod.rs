@@ -4,7 +4,6 @@
 //! queries and manages access to the discovery routing table.
 
 pub(crate) mod enr;
-pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 use crate::service::TARGET_SUBNET_PEERS;
@@ -12,8 +11,8 @@ use crate::{metrics, ClearDialError};
 use crate::{Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5};
 pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2Enr};
-pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 pub use libp2p::identity::{Keypair, PublicKey};
+use network_utils::enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
 
 use alloy_rlp::bytes::Bytes;
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
@@ -33,6 +32,7 @@ pub use libp2p::{
 };
 use logging::crit;
 use lru::LruCache;
+use network_utils::discovery_metrics;
 use ssz::Encode;
 use std::num::NonZeroUsize;
 use std::{
@@ -49,6 +49,7 @@ use tracing::{debug, error, info, trace, warn};
 use types::{ChainSpec, EnrForkId, EthSpec};
 
 mod subnet_predicate;
+use crate::discovery::enr::{NEXT_FORK_DIGEST_ENR_KEY, PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY};
 pub use subnet_predicate::subnet_predicate;
 use types::non_zero_usize::new_non_zero_usize;
 
@@ -476,6 +477,15 @@ impl<E: EthSpec> Discovery<E> {
         Ok(())
     }
 
+    pub fn update_enr_cgc(&mut self, custody_group_count: u64) -> Result<(), String> {
+        self.discv5
+            .enr_insert(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY, &custody_group_count)
+            .map_err(|e| format!("{:?}", e))?;
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
+        Ok(())
+    }
+
     /// Adds/Removes a subnet from the ENR attnets/syncnets Bitfield
     pub fn update_enr_bitfield(&mut self, subnet: Subnet, value: bool) -> Result<(), String> {
         let local_enr = self.discv5.local_enr();
@@ -557,6 +567,19 @@ impl<E: EthSpec> Discovery<E> {
 
         // persist modified enr to disk
         enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
+        Ok(())
+    }
+
+    pub fn update_enr_nfd(&mut self, nfd: [u8; 4]) -> Result<(), String> {
+        self.discv5
+            .enr_insert::<Bytes>(NEXT_FORK_DIGEST_ENR_KEY, &nfd.as_ssz_bytes().into())
+            .map_err(|e| format!("{:?}", e))?;
+        info!(
+            next_fork_digest = ?nfd,
+            "Updating the ENR nfd"
+        );
+        enr::save_enr_to_disk(Path::new(&self.enr_dir), &self.local_enr());
+        *self.network_globals.local_enr.write() = self.discv5.local_enr();
         Ok(())
     }
 
@@ -664,7 +687,10 @@ impl<E: EthSpec> Discovery<E> {
                 min_ttl,
                 retries,
             });
-            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+            metrics::set_gauge(
+                &discovery_metrics::DISCOVERY_QUEUE,
+                self.queued_queries.len() as i64,
+            );
         }
     }
 
@@ -699,7 +725,10 @@ impl<E: EthSpec> Discovery<E> {
             }
         }
         // Update the queue metric
-        metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+        metrics::set_gauge(
+            &discovery_metrics::DISCOVERY_QUEUE,
+            self.queued_queries.len() as i64,
+        );
         processed
     }
 
@@ -1204,10 +1233,19 @@ mod tests {
         let spec = Arc::new(ChainSpec::default());
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
-        config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
+        config.set_listening_addr(network_utils::listen_addr::ListenAddress::unused_v4_ports());
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
-        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default(), &spec).unwrap();
+        let next_fork_digest = [0; 4];
+        let enr: Enr = build_enr::<E>(
+            &enr_key,
+            &config,
+            &EnrForkId::default(),
+            None,
+            next_fork_digest,
+            &spec,
+        )
+        .unwrap();
         let globals = NetworkGlobals::new(
             enr,
             MetaData::V2(MetaDataV2 {

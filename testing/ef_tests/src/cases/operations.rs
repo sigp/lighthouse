@@ -24,8 +24,8 @@ use state_processing::{
 use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
-    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
+    BeaconState, BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
     ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
@@ -357,8 +357,8 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     BeaconBlockBody::Electra(inner.clone_as_blinded())
                 }
                 ForkName::Fulu => {
-                    let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
-                    BeaconBlockBody::Electra(inner.clone_as_blinded())
+                    let inner = <BeaconBlockBodyFulu<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Fulu(inner.clone_as_blinded())
                 }
                 _ => panic!(),
             })

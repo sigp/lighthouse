@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::cmp;
 
-#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SelectionProof(Signature);
 

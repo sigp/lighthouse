@@ -16,11 +16,10 @@ use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnsByRootIdentifier, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    DataColumnsByRootIdentifier, Epoch, EthSpec, ForkContext, Hash256, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList,
     SignedBeaconBlock, Slot,
 };
-use types::{ForkContext, ForkName};
 
 /// Maximum length of error message.
 pub type MaxErrorLen = U256;
@@ -64,7 +63,11 @@ impl Display for ErrorType {
 /* Requests */
 
 /// The STATUS request/response handshake message.
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[superstruct(
+    variants(V1, V2),
+    variant_attributes(derive(Encode, Decode, Clone, Debug, PartialEq),)
+)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StatusMessage {
     /// The fork version of the chain we are broadcasting.
     pub fork_digest: [u8; 4],
@@ -80,6 +83,43 @@ pub struct StatusMessage {
 
     /// The slot associated with the latest block root.
     pub head_slot: Slot,
+
+    /// The slot after which we guarantee to have all the blocks
+    /// and blobs/data columns that we currently advertise.
+    #[superstruct(only(V2))]
+    pub earliest_available_slot: Slot,
+}
+
+impl StatusMessage {
+    pub fn status_v1(&self) -> StatusMessageV1 {
+        match &self {
+            Self::V1(status) => status.clone(),
+            Self::V2(status) => StatusMessageV1 {
+                fork_digest: status.fork_digest,
+                finalized_root: status.finalized_root,
+                finalized_epoch: status.finalized_epoch,
+                head_root: status.head_root,
+                head_slot: status.head_slot,
+            },
+        }
+    }
+
+    pub fn status_v2(&self) -> StatusMessageV2 {
+        match &self {
+            Self::V1(status) => StatusMessageV2 {
+                fork_digest: status.fork_digest,
+                finalized_root: status.finalized_root,
+                finalized_epoch: status.finalized_epoch,
+                head_root: status.head_root,
+                head_slot: status.head_slot,
+                // Note: we always produce a V2 message as our local
+                // status message, so this match arm should ideally never
+                // be invoked in lighthouse.
+                earliest_available_slot: Slot::new(0),
+            },
+            Self::V2(status) => status.clone(),
+        }
+    }
 }
 
 /// The PING request/response message.
@@ -328,8 +368,8 @@ pub struct BlobsByRangeRequest {
 }
 
 impl BlobsByRangeRequest {
-    pub fn max_blobs_requested(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
-        let max_blobs_per_block = spec.max_blobs_per_block_by_fork(current_fork);
+    pub fn max_blobs_requested(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+        let max_blobs_per_block = spec.max_blobs_per_block(epoch);
         self.count.saturating_mul(max_blobs_per_block)
     }
 }
@@ -444,7 +484,7 @@ impl BlocksByRootRequest {
     pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
         let max_request_blocks = fork_context
             .spec
-            .max_request_blocks(fork_context.current_fork());
+            .max_request_blocks(fork_context.current_fork_name());
         let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V2(BlocksByRootRequestV2 { block_roots })
     }
@@ -452,7 +492,7 @@ impl BlocksByRootRequest {
     pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
         let max_request_blocks = fork_context
             .spec
-            .max_request_blocks(fork_context.current_fork());
+            .max_request_blocks(fork_context.current_fork_name());
         let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
         Self::V1(BlocksByRootRequestV1 { block_roots })
     }
@@ -469,7 +509,7 @@ impl BlobsByRootRequest {
     pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Self {
         let max_request_blob_sidecars = fork_context
             .spec
-            .max_request_blob_sidecars(fork_context.current_fork());
+            .max_request_blob_sidecars(fork_context.current_fork_name());
         let blob_ids = RuntimeVariableList::from_vec(blob_ids, max_request_blob_sidecars);
         Self { blob_ids }
     }
@@ -709,6 +749,23 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::LightClientUpdatesByRange(_) => Protocol::LightClientUpdatesByRange,
         }
     }
+
+    pub fn slot(&self) -> Option<Slot> {
+        match self {
+            Self::BlocksByRange(r) | Self::BlocksByRoot(r) => Some(r.slot()),
+            Self::BlobsByRange(r) | Self::BlobsByRoot(r) => {
+                Some(r.signed_block_header.message.slot)
+            }
+            Self::DataColumnsByRange(r) | Self::DataColumnsByRoot(r) => {
+                Some(r.signed_block_header.message.slot)
+            }
+            Self::LightClientBootstrap(r) => Some(r.get_slot()),
+            Self::LightClientFinalityUpdate(r) => Some(r.get_attested_header_slot()),
+            Self::LightClientOptimisticUpdate(r) => Some(r.get_slot()),
+            Self::LightClientUpdatesByRange(r) => Some(r.attested_header_slot()),
+            Self::MetaData(_) | Self::Status(_) | Self::Pong(_) => None,
+        }
+    }
 }
 
 impl std::fmt::Display for RpcErrorResponse {
@@ -727,7 +784,7 @@ impl std::fmt::Display for RpcErrorResponse {
 
 impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}", self.fork_digest, self.finalized_root, self.finalized_epoch, self.head_root, self.head_slot)
+        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}, Earliest available slot: {:?}", self.fork_digest(), self.finalized_root(), self.finalized_epoch(), self.head_root(), self.head_slot(), self.earliest_available_slot())
     }
 }
 

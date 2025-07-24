@@ -1,20 +1,19 @@
 //! Utilities for managing database schema changes.
-mod migration_schema_v20;
-mod migration_schema_v21;
-mod migration_schema_v22;
 mod migration_schema_v23;
+mod migration_schema_v24;
+mod migration_schema_v25;
+mod migration_schema_v26;
+mod migration_schema_v27;
 
 use crate::beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
 use store::Error as StoreError;
-use types::Hash256;
 
 /// Migrate the database from one schema version to another, applying all requisite mutations.
 pub fn migrate_schema<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    genesis_state_root: Option<Hash256>,
     from: SchemaVersion,
     to: SchemaVersion,
 ) -> Result<(), StoreError> {
@@ -24,40 +23,19 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
-            migrate_schema::<T>(db.clone(), genesis_state_root, from, next)?;
-            migrate_schema::<T>(db, genesis_state_root, next, to)
+            migrate_schema::<T>(db.clone(), from, next)?;
+            migrate_schema::<T>(db, next, to)
         }
         // Downgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if to.as_u64() + 1 < from.as_u64() => {
             let next = SchemaVersion(from.as_u64() - 1);
-            migrate_schema::<T>(db.clone(), genesis_state_root, from, next)?;
-            migrate_schema::<T>(db, genesis_state_root, next, to)
+            migrate_schema::<T>(db.clone(), from, next)?;
+            migrate_schema::<T>(db, next, to)
         }
 
         //
-        // Migrations from before SchemaVersion(19) are deprecated.
+        // Migrations from before SchemaVersion(22) are deprecated.
         //
-        (SchemaVersion(19), SchemaVersion(20)) => {
-            let ops = migration_schema_v20::upgrade_to_v20::<T>(db.clone())?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(20), SchemaVersion(19)) => {
-            let ops = migration_schema_v20::downgrade_from_v20::<T>(db.clone())?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(20), SchemaVersion(21)) => {
-            let ops = migration_schema_v21::upgrade_to_v21::<T>(db.clone())?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(21), SchemaVersion(20)) => {
-            let ops = migration_schema_v21::downgrade_from_v21::<T>(db.clone())?;
-            db.store_schema_version_atomically(to, ops)
-        }
-        (SchemaVersion(21), SchemaVersion(22)) => {
-            // This migration needs to sync data between hot and cold DBs. The schema version is
-            // bumped inside the upgrade_to_v22 fn
-            migration_schema_v22::upgrade_to_v22::<T>(db.clone(), genesis_state_root)
-        }
         (SchemaVersion(22), SchemaVersion(23)) => {
             let ops = migration_schema_v23::upgrade_to_v23::<T>(db.clone())?;
             db.store_schema_version_atomically(to, ops)
@@ -65,6 +43,41 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         (SchemaVersion(23), SchemaVersion(22)) => {
             let ops = migration_schema_v23::downgrade_from_v23::<T>(db.clone())?;
             db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(23), SchemaVersion(24)) => {
+            let ops = migration_schema_v24::upgrade_to_v24::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(24), SchemaVersion(23)) => {
+            let ops = migration_schema_v24::downgrade_from_v24::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(24), SchemaVersion(25)) => {
+            let ops = migration_schema_v25::upgrade_to_v25()?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(25), SchemaVersion(24)) => {
+            let ops = migration_schema_v25::downgrade_from_v25()?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(25), SchemaVersion(26)) => {
+            let ops = migration_schema_v26::upgrade_to_v26::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(26), SchemaVersion(25)) => {
+            let ops = migration_schema_v26::downgrade_from_v26::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(26), SchemaVersion(27)) => {
+            // This migration updates the blobs db. The schema version
+            // is bumped inside upgrade_to_v27.
+            migration_schema_v27::upgrade_to_v27::<T>(db.clone())
+        }
+        (SchemaVersion(27), SchemaVersion(26)) => {
+            // Downgrading is essentially a no-op and is only possible
+            // if peer das isn't scheduled.
+            migration_schema_v27::downgrade_from_v27::<T>(db.clone())?;
+            db.store_schema_version_atomically(to, vec![])
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {

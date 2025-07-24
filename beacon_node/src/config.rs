@@ -8,17 +8,15 @@ use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::TrustedSetup;
 use clap::{parser::ValueSource, ArgMatches, Id};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_required};
+use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
-use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
-use lighthouse_network::ListenAddress;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
+use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
-use std::cmp::max;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::fs;
@@ -194,10 +192,6 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.shuffling_cache_size = cache_size;
     }
 
-    if cli_args.get_flag("enable-sampling") {
-        client_config.chain.enable_sampling = true;
-    }
-
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
         client_config.chain.blob_publication_batches = batches;
     }
@@ -266,31 +260,21 @@ pub fn get_config<E: EthSpec>(
     }
 
     /*
-     * Eth1
+     * Deprecated Eth1 flags (can be removed in the next minor release after v7.1.0)
      */
-
-    if cli_args.get_flag("dummy-eth1") {
-        warn!("The --dummy-eth1 flag is deprecated");
-    }
-
-    if cli_args.get_flag("eth1") {
-        warn!("The --eth1 flag is deprecated");
-    }
-
-    if let Some(val) = cli_args.get_one::<String>("eth1-blocks-per-log-query") {
-        client_config.eth1.blocks_per_log_query = val
-            .parse()
-            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
+    if cli_args
+        .get_one::<String>("eth1-blocks-per-log-query")
+        .is_some()
+    {
+        warn!("The eth1-blocks-per-log-query flag is deprecated");
     }
 
     if cli_args.get_flag("eth1-purge-cache") {
-        client_config.eth1.purge_cache = true;
+        warn!("The eth1-purge-cache flag is deprecated");
     }
 
-    if let Some(follow_distance) =
-        clap_utils::parse_optional(cli_args, "eth1-cache-follow-distance")?
-    {
-        client_config.eth1.cache_follow_distance = Some(follow_distance);
+    if clap_utils::parse_optional::<u64>(cli_args, "eth1-cache-follow-distance")?.is_some() {
+        warn!("The eth1-cache-follow-distance flag is deprecated");
     }
 
     // `--execution-endpoint` is required now.
@@ -358,13 +342,6 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_required(cli_args, "execution-timeout-multiplier")?;
     el_config.execution_timeout_multiplier = Some(execution_timeout_multiplier);
 
-    client_config.eth1.endpoint = Eth1Endpoint::Auth {
-        endpoint: execution_endpoint,
-        jwt_path: secret_file,
-        jwt_id: el_config.jwt_id.clone(),
-        jwt_version: el_config.jwt_version.clone(),
-    };
-
     // Store the EL config in the client config.
     client_config.execution_layer = Some(el_config);
 
@@ -418,7 +395,13 @@ pub fn get_config<E: EthSpec>(
     if let Some(hdiff_buffer_cache_size) =
         clap_utils::parse_optional(cli_args, "hdiff-buffer-cache-size")?
     {
-        client_config.store.hdiff_buffer_cache_size = hdiff_buffer_cache_size;
+        client_config.store.cold_hdiff_buffer_cache_size = hdiff_buffer_cache_size;
+    }
+
+    if let Some(hdiff_buffer_cache_size) =
+        clap_utils::parse_optional(cli_args, "hot-hdiff-buffer-cache-size")?
+    {
+        client_config.store.hot_hdiff_buffer_cache_size = hdiff_buffer_cache_size;
     }
 
     client_config.store.compact_on_init = cli_args.get_flag("compact-db");
@@ -500,20 +483,9 @@ pub fn get_config<E: EthSpec>(
         .as_ref()
         .ok_or("Context is missing eth2 network config")?;
 
-    client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
-    client_config.eth1.deposit_contract_deploy_block =
-        eth2_network_config.deposit_contract_deploy_block;
-    client_config.eth1.lowest_cached_block_number =
-        client_config.eth1.deposit_contract_deploy_block;
-    client_config.eth1.follow_distance = spec.eth1_follow_distance;
-    client_config.eth1.node_far_behind_seconds =
-        max(5, spec.eth1_follow_distance / 2) * spec.seconds_per_eth1_block;
-    client_config.eth1.chain_id = spec.deposit_chain_id.into();
-    client_config.eth1.set_block_cache_truncation::<E>(spec);
-
     info!(
-        deploy_block = client_config.eth1.deposit_contract_deploy_block,
-        address = &client_config.eth1.deposit_contract_address,
+        deploy_block = eth2_network_config.deposit_contract_deploy_block,
+        address = ?spec.deposit_contract_address,
         "Deposit contract"
     );
 
@@ -809,9 +781,8 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
-    // Note: This overrides any previous flags that enable this option.
     if cli_args.get_flag("disable-deposit-contract-sync") {
-        client_config.sync_eth1_chain = false;
+        warn!("The disable-deposit-contract-sync flag is deprecated");
     }
 
     client_config.chain.prepare_payload_lookahead =
@@ -1046,7 +1017,7 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp6_port)
+                .then(network_utils::unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port);
 
@@ -1061,18 +1032,18 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
             let disc_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(tcp_port);
 
             let quic_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
-            ListenAddress::V6(lighthouse_network::ListenAddr {
+            ListenAddress::V6(network_utils::listen_addr::ListenAddr {
                 addr: ipv6,
                 quic_port,
                 disc_port,
@@ -1084,25 +1055,25 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp4_port)
+                .then(network_utils::unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             // use zero ports if required. If not, use the specific discovery port. If none given, use
             // the tcp port.
             let disc_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(tcp_port);
             // use zero ports if required. If not, use the specific quic port. If none given, use
             // the tcp port + 1.
             let quic_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
-            ListenAddress::V4(lighthouse_network::ListenAddr {
+            ListenAddress::V4(network_utils::listen_addr::ListenAddr {
                 addr: ipv4,
                 disc_port,
                 quic_port,
@@ -1114,16 +1085,16 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
             let port6 = maybe_port6.unwrap_or(port);
 
             let ipv4_tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp4_port)
+                .then(network_utils::unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             let ipv4_disc_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(ipv4_tcp_port);
             let ipv4_quic_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if ipv4_tcp_port == 0 {
@@ -1134,16 +1105,16 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // Defaults to 9000 when required
             let ipv6_tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp6_port)
+                .then(network_utils::unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port6);
             let ipv6_disc_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc6_port)
                 .unwrap_or(ipv6_tcp_port);
             let ipv6_quic_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic6_port)
                 .unwrap_or(if ipv6_tcp_port == 0 {
@@ -1153,13 +1124,13 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
                 });
 
             ListenAddress::DualStack(
-                lighthouse_network::ListenAddr {
+                network_utils::listen_addr::ListenAddr {
                     addr: ipv4,
                     disc_port: ipv4_disc_port,
                     quic_port: ipv4_quic_port,
                     tcp_port: ipv4_tcp_port,
                 },
-                lighthouse_network::ListenAddr {
+                network_utils::listen_addr::ListenAddr {
                     addr: ipv6,
                     disc_port: ipv6_disc_port,
                     quic_port: ipv6_quic_port,
@@ -1195,6 +1166,12 @@ pub fn set_network_config(
 
     if parse_flag(cli_args, "import-all-attestations") {
         config.import_all_attestations = true;
+    }
+
+    if let Some(advertise_false_custody_group_count) =
+        parse_optional(cli_args, "advertise-false-custody-group-count")?
+    {
+        config.advertise_false_custody_group_count = Some(advertise_false_custody_group_count);
     }
 
     if parse_flag(cli_args, "shutdown-after-sync") {

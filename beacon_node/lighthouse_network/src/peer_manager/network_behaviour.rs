@@ -12,11 +12,12 @@ use libp2p::swarm::behaviour::{ConnectionClosed, ConnectionEstablished, DialFail
 use libp2p::swarm::dial_opts::{DialOpts, PeerCondition};
 use libp2p::swarm::dummy::ConnectionHandler;
 use libp2p::swarm::{ConnectionDenied, ConnectionId, NetworkBehaviour, ToSwarm};
-pub use metrics::{set_gauge_vec, NAT_OPEN};
+use metrics::set_gauge_vec;
+use network_utils::discovery_metrics::NAT_OPEN;
+use network_utils::enr_ext::EnrExt;
 use tracing::{debug, error, trace};
 use types::EthSpec;
 
-use crate::discovery::enr_ext::EnrExt;
 use crate::types::SyncState;
 use crate::{metrics, ClearDialError};
 
@@ -106,14 +107,14 @@ impl<E: EthSpec> NetworkBehaviour for PeerManager<E> {
         if let Some(enr) = self.peers_to_dial.pop() {
             self.inject_peer_connection(&enr.peer_id(), ConnectingType::Dialing, Some(enr.clone()));
 
+            let multiaddr_quic = if self.quic_enabled {
+                enr.multiaddr_quic()
+            } else {
+                vec![]
+            };
+
             // Prioritize Quic connections over Tcp ones.
-            let multiaddrs = [
-                self.quic_enabled
-                    .then_some(enr.multiaddr_quic())
-                    .unwrap_or_default(),
-                enr.multiaddr_tcp(),
-            ]
-            .concat();
+            let multiaddrs = [multiaddr_quic, enr.multiaddr_tcp()].concat();
 
             debug!(peer_id = %enr.peer_id(), ?multiaddrs, "Dialing peer");
             return Poll::Ready(ToSwarm::Dial {

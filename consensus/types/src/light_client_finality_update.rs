@@ -28,20 +28,27 @@ use tree_hash_derive::TreeHash;
             Decode,
             Encode,
             TestRandom,
-            arbitrary::Arbitrary,
             TreeHash,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
         context_deserialize(ForkName),
     )
 )]
-#[derive(Debug, Clone, Serialize, Encode, TreeHash, arbitrary::Arbitrary, PartialEq)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, Encode, TreeHash, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-#[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientFinalityUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
@@ -79,6 +86,7 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
+    #[superstruct(getter(copy))]
     pub signature_slot: Slot,
 }
 
@@ -179,6 +187,20 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         })
     }
 
+    pub fn get_attested_header_root<'a>(&'a self) -> Hash256 {
+        map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.attested_header.beacon.canonical_root()
+        })
+    }
+
+    pub fn get_finalized_header_root<'a>(&'a self) -> Hash256 {
+        map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.finalized_header.beacon.canonical_root()
+        })
+    }
+
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let finality_update = match fork_name {
             ForkName::Altair | ForkName::Bellatrix => {
@@ -227,7 +249,7 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         if attested_slot > prev_slot {
             true
         } else {
-            attested_slot == prev_slot && signature_slot > *self.signature_slot()
+            attested_slot == prev_slot && signature_slot > self.signature_slot()
         }
     }
 }

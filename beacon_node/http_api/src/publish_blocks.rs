@@ -138,8 +138,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         spawn_build_data_sidecar_task(chain.clone(), block.clone(), unverified_blobs)?;
 
     // Gossip verify the block and blobs/data columns separately.
-    let gossip_verified_block_result = unverified_block
-        .into_gossip_verified_block(&chain, network_globals.custody_columns_count() as usize);
+    let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
     let block_root = block_root.unwrap_or_else(|| {
         gossip_verified_block_result.as_ref().map_or_else(
             |_| block.canonical_root(),
@@ -224,28 +223,30 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
-        let sampling_columns_indices = &network_globals.sampling_columns;
+        let sampling_columns_indices = &network_globals.sampling_columns();
         let sampling_columns = gossip_verified_columns
             .into_iter()
             .flatten()
             .filter(|data_column| sampling_columns_indices.contains(&data_column.index()))
-            .collect();
+            .collect::<Vec<_>>();
 
-        // Importing the columns could trigger block import and network publication in the case
-        // where the block was already seen on gossip.
-        if let Err(e) =
-            Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn)).await
-        {
-            let msg = format!("Invalid data column: {e}");
-            return if let BroadcastValidation::Gossip = validation_level {
-                Err(warp_utils::reject::broadcast_without_import(msg))
-            } else {
-                error!(
-                    reason = &msg,
-                    "Invalid data column during block publication"
-                );
-                Err(warp_utils::reject::custom_bad_request(msg))
-            };
+        if !sampling_columns.is_empty() {
+            // Importing the columns could trigger block import and network publication in the case
+            // where the block was already seen on gossip.
+            if let Err(e) =
+                Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn)).await
+            {
+                let msg = format!("Invalid data column: {e}");
+                return if let BroadcastValidation::Gossip = validation_level {
+                    Err(warp_utils::reject::broadcast_without_import(msg))
+                } else {
+                    error!(
+                        reason = &msg,
+                        "Invalid data column during block publication"
+                    );
+                    Err(warp_utils::reject::custom_bad_request(msg))
+                };
+            }
         }
     }
 
@@ -303,11 +304,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             );
             let import_result = Box::pin(chain.process_block(
                 block_root,
-                RpcBlock::new_without_blobs(
-                    Some(block_root),
-                    block.clone(),
-                    network_globals.custody_columns_count() as usize,
-                ),
+                RpcBlock::new_without_blobs(Some(block_root), block.clone()),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
@@ -421,6 +418,14 @@ fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
                         %slot,
                         proposer,
                         "Data column for publication already known"
+                    );
+                    Ok(None)
+                }
+                Err(GossipDataColumnError::PriorKnownUnpublished) => {
+                    debug!(
+                        column_index,
+                        %slot,
+                        "Data column for publication already known via the EL"
                     );
                     Ok(None)
                 }

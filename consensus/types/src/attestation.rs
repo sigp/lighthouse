@@ -1,7 +1,13 @@
-use crate::context_deserialize;
+use super::{
+    AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
+    Signature, SignedRoot,
+};
 use crate::slot_data::SlotData;
+use crate::{context_deserialize, IndexedAttestation};
 use crate::{test_utils::TestRandom, Hash256, Slot};
-use crate::{Checkpoint, ContextDeserialize, ForkName};
+use crate::{
+    Checkpoint, ContextDeserialize, ForkName, IndexedAttestationBase, IndexedAttestationElectra,
+};
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -11,11 +17,6 @@ use std::hash::{Hash, Hasher};
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
-
-use super::{
-    AggregateSignature, AttestationData, BitList, ChainSpec, Domain, EthSpec, Fork, SecretKey,
-    Signature, SignedRoot,
-};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -45,34 +46,31 @@ impl From<ssz_types::Error> for Error {
             Encode,
             TestRandom,
             Derivative,
-            arbitrary::Arbitrary,
             TreeHash,
         ),
         context_deserialize(ForkName),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec")
+        )
     ),
     ref_attributes(derive(TreeHash), tree_hash(enum_behaviour = "transparent")),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    TreeHash,
-    Encode,
-    Derivative,
-    Deserialize,
-    arbitrary::Arbitrary,
-    PartialEq,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Derivative, Deserialize, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-#[arbitrary(bound = "E: EthSpec")]
 pub struct Attestation<E: EthSpec> {
     #[superstruct(only(Base), partial_getter(rename = "aggregation_bits_base"))]
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,
@@ -246,8 +244,15 @@ impl<E: EthSpec> Attestation<E> {
         attester_index: u64,
     ) -> Result<SingleAttestation, Error> {
         match self {
-            Self::Base(_) => Err(Error::IncorrectStateVariant),
+            Self::Base(attn) => attn.to_single_attestation_with_attester_index(attester_index),
             Self::Electra(attn) => attn.to_single_attestation_with_attester_index(attester_index),
+        }
+    }
+
+    pub fn get_aggregation_bits(&self) -> Vec<u64> {
+        match self {
+            Self::Base(attn) => attn.get_aggregation_bits(),
+            Self::Electra(attn) => attn.get_aggregation_bits(),
         }
     }
 }
@@ -461,6 +466,26 @@ impl<E: EthSpec> AttestationBase<E> {
     ) -> Result<BitList<E::MaxValidatorsPerSlot>, ssz::BitfieldError> {
         self.aggregation_bits.resize::<E::MaxValidatorsPerSlot>()
     }
+
+    pub fn get_aggregation_bits(&self) -> Vec<u64> {
+        self.aggregation_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(index, bit)| if bit { Some(index as u64) } else { None })
+            .collect()
+    }
+
+    pub fn to_single_attestation_with_attester_index(
+        &self,
+        attester_index: u64,
+    ) -> Result<SingleAttestation, Error> {
+        Ok(SingleAttestation {
+            committee_index: self.data.index,
+            attester_index,
+            data: self.data.clone(),
+            signature: self.signature.clone(),
+        })
+    }
 }
 
 impl<E: EthSpec> SlotData for Attestation<E> {
@@ -483,7 +508,7 @@ pub enum AttestationOnDisk<E: EthSpec> {
 }
 
 impl<E: EthSpec> AttestationOnDisk<E> {
-    pub fn to_ref(&self) -> AttestationRefOnDisk<E> {
+    pub fn to_ref(&self) -> AttestationRefOnDisk<'_, E> {
         match self {
             AttestationOnDisk::Base(att) => AttestationRefOnDisk::Base(att),
             AttestationOnDisk::Electra(att) => AttestationRefOnDisk::Electra(att),
@@ -573,6 +598,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
 }
 */
 
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
     Debug,
     Clone,
@@ -582,7 +608,6 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
     Encode,
     TestRandom,
     Derivative,
-    arbitrary::Arbitrary,
     TreeHash,
     PartialEq,
 )]
@@ -594,6 +619,24 @@ pub struct SingleAttestation {
     pub attester_index: u64,
     pub data: AttestationData,
     pub signature: AggregateSignature,
+}
+
+impl SingleAttestation {
+    pub fn to_indexed<E: EthSpec>(&self, fork_name: ForkName) -> IndexedAttestation<E> {
+        if fork_name.electra_enabled() {
+            IndexedAttestation::Electra(IndexedAttestationElectra {
+                attesting_indices: vec![self.attester_index].into(),
+                data: self.data.clone(),
+                signature: self.signature.clone(),
+            })
+        } else {
+            IndexedAttestation::Base(IndexedAttestationBase {
+                attesting_indices: vec![self.attester_index].into(),
+                data: self.data.clone(),
+                signature: self.signature.clone(),
+            })
+        }
+    }
 }
 
 #[cfg(test)]
@@ -615,12 +658,12 @@ mod tests {
         let attestation_data = size_of::<AttestationData>();
         let signature = size_of::<AggregateSignature>();
 
-        assert_eq!(aggregation_bits, 152);
+        assert_eq!(aggregation_bits, 144);
         assert_eq!(attestation_data, 128);
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + attestation_data + signature;
-        assert_eq!(attestation_expected, 584);
+        assert_eq!(attestation_expected, 576);
         assert_eq!(
             size_of::<AttestationBase<MainnetEthSpec>>(),
             attestation_expected
@@ -638,13 +681,13 @@ mod tests {
             size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxCommitteesPerSlot>>();
         let signature = size_of::<AggregateSignature>();
 
-        assert_eq!(aggregation_bits, 152);
-        assert_eq!(committee_bits, 152);
+        assert_eq!(aggregation_bits, 144);
+        assert_eq!(committee_bits, 144);
         assert_eq!(attestation_data, 128);
         assert_eq!(signature, 288 + 16);
 
         let attestation_expected = aggregation_bits + committee_bits + attestation_data + signature;
-        assert_eq!(attestation_expected, 736);
+        assert_eq!(attestation_expected, 720);
         assert_eq!(
             size_of::<AttestationElectra<MainnetEthSpec>>(),
             attestation_expected

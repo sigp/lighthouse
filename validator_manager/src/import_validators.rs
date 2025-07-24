@@ -55,7 +55,7 @@ pub fn cli_app() -> Command {
                 .help(
                     "The path to a keystore JSON file to be \
                     imported to the validator client. This file is usually created \
-                    using staking-deposit-cli or ethstaker-deposit-cli",
+                    using ethstaker-deposit-cli",
                 )
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -404,8 +404,12 @@ pub mod tests {
         }
 
         pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-            let dir = tempdir().unwrap();
             let vc = ApiTester::new_with_http_config(http_config).await;
+            Self::new_with_vc(vc).await
+        }
+
+        pub async fn new_with_vc(vc: ApiTester) -> Self {
+            let dir = tempdir().unwrap();
             let vc_token_path = dir.path().join(VC_TOKEN_FILE_NAME);
             fs::write(&vc_token_path, &vc.api_token).unwrap();
 

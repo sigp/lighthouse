@@ -49,9 +49,7 @@ impl fmt::Display for EthSpecId {
     }
 }
 
-pub trait EthSpec:
-    'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq + for<'a> arbitrary::Arbitrary<'a>
-{
+pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq {
     /*
      * Constants
      */
@@ -118,6 +116,7 @@ pub trait EthSpec:
     type FieldElementsPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type FieldElementsPerExtBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type ProposerLookaheadSlots: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -378,6 +377,10 @@ pub trait EthSpec:
     fn kzg_commitments_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentsInclusionProofDepth::to_usize()
     }
+
+    fn proposer_lookahead_slots() -> usize {
+        Self::ProposerLookaheadSlots::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -389,7 +392,8 @@ macro_rules! params_from_eth_spec {
 }
 
 /// Ethereum Foundation specifications.
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
@@ -429,6 +433,7 @@ impl EthSpec for MainnetEthSpec {
     type MaxCellsPerBlock = U33554432;
     type KzgCommitmentInclusionProofDepth = U17;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
+    type ProposerLookaheadSlots = U64; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -454,7 +459,8 @@ impl EthSpec for MainnetEthSpec {
 }
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
@@ -476,13 +482,12 @@ impl EthSpec for MinimalEthSpec {
     type KzgCommitmentInclusionProofDepth = U10;
     type PendingPartialWithdrawalsLimit = U64;
     type PendingConsolidationsLimit = U64;
-    type MaxDepositRequestsPerPayload = U4;
-    type MaxWithdrawalRequestsPerPayload = U2;
     type FieldElementsPerCell = U64;
     type FieldElementsPerExtBlob = U8192;
     type MaxCellsPerBlock = U33554432;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
 
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
@@ -509,7 +514,9 @@ impl EthSpec for MinimalEthSpec {
         MaxPendingDepositsPerEpoch,
         MaxConsolidationRequestsPerPayload,
         MaxAttesterSlashingsElectra,
-        MaxAttestationsElectra
+        MaxAttestationsElectra,
+        MaxDepositRequestsPerPayload,
+        MaxWithdrawalRequestsPerPayload
     });
 
     fn default_spec() -> ChainSpec {
@@ -522,7 +529,8 @@ impl EthSpec for MinimalEthSpec {
 }
 
 /// Gnosis Beacon Chain specifications.
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct GnosisEthSpec;
 
 impl EthSpec for GnosisEthSpec {
@@ -576,6 +584,7 @@ impl EthSpec for GnosisEthSpec {
     type MaxCellsPerBlock = U33554432;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()
@@ -592,9 +601,14 @@ mod test {
     use ssz_types::typenum::Unsigned;
 
     fn assert_valid_spec<E: EthSpec>() {
+        let spec = E::default_spec();
         E::kzg_commitments_tree_depth();
         E::block_body_tree_depth();
         assert!(E::MaxValidatorsPerSlot::to_i32() >= E::MaxValidatorsPerCommittee::to_i32());
+        assert_eq!(
+            E::proposer_lookahead_slots(),
+            (spec.min_seed_lookahead.as_usize() + 1) * E::slots_per_epoch() as usize
+        );
     }
 
     #[test]
