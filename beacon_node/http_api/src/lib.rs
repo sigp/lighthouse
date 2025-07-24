@@ -3760,7 +3760,6 @@ pub fn serve<T: BeaconChainTypes>(
                                 .to_string(),
                         ));
                     }
-
                     Ok(())
                 })
             },
@@ -3790,7 +3789,11 @@ pub fn serve<T: BeaconChainTypes>(
                         .ok_or(BeaconChainError::ExecutionLayerMissing)
                         .map_err(warp_utils::reject::unhandled_error)?;
 
-                    let current_slot = chain.slot().map_err(warp_utils::reject::unhandled_error)?;
+                    let current_slot = chain
+                        .slot_clock
+                        .now_or_genesis()
+                        .ok_or(BeaconChainError::UnableToReadSlot)
+                        .map_err(warp_utils::reject::unhandled_error)?;
                     let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
                     debug!(
@@ -3841,6 +3844,12 @@ pub fn serve<T: BeaconChainTypes>(
                             current_slot,
                             &chain.spec,
                         ) {
+                            chain.update_data_column_custody_info(Some(
+                                cgc_change
+                                    .effective_epoch
+                                    .start_slot(T::EthSpec::slots_per_epoch()),
+                            ));
+
                             network_tx.send(NetworkMessage::CustodyCountChanged {
                                 new_custody_group_count: cgc_change.new_custody_group_count,
                                 sampling_count: cgc_change.sampling_count,

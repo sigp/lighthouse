@@ -2,6 +2,7 @@ use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use super::RangeSyncType;
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
 use crate::sync::{network_context::SyncNetworkContext, BatchOperationOutcome, BatchProcessResult};
 use beacon_chain::block_verification_types::RpcBlock;
@@ -12,7 +13,7 @@ use logging::crit;
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use strum::IntoStaticStr;
 use tracing::{debug, instrument, warn};
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -826,11 +827,37 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
+            if let RpcResponseError::BlockComponentCouplingError(CouplingError {
+                column_and_peer,
+                msg,
+            }) = &err
+            {
+                debug!(?batch_id, msg, "Block components coupling error");
+                // Note: we don't fail the batch here because a `CouplingError` is
+                // recoverable by requesting from other honest peers.
+                if let Some((column_and_peer, action)) = column_and_peer {
+                    let mut failed_columns = HashSet::new();
+                    let mut failed_peers = HashSet::new();
+                    for (column, peer) in column_and_peer {
+                        failed_columns.insert(*column);
+                        failed_peers.insert(*peer);
+                    }
+                    for peer in failed_peers.iter() {
+                        network.report_peer(*peer, *action, "failed to return columns");
+                    }
+
+                    return self.retry_partial_batch(
+                        network,
+                        batch_id,
+                        request_id,
+                        failed_columns,
+                        failed_peers,
+                    );
+                }
+            }
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            // TODO(das): removed peer_id matching as the node may request a different peer for data
-            // columns.
             if !batch.is_expecting_block(&request_id) {
                 debug!(
                     batch_epoch = %batch_id,
@@ -891,7 +918,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers()
+                .synced_peers_for_epoch(batch_id, &self.peers)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -948,6 +975,50 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         }
 
+        Ok(KeepChain)
+    }
+
+    /// Retries partial column requests within the batch by creating new requests for the failed columns.
+    #[instrument(parent = None, fields(chain = self.id , service = "range_sync"), skip_all)]
+    pub fn retry_partial_batch(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+        batch_id: BatchId,
+        id: Id,
+        failed_columns: HashSet<ColumnIndex>,
+        mut failed_peers: HashSet<PeerId>,
+    ) -> ProcessingResult {
+        if let Some(batch) = self.batches.get_mut(&batch_id) {
+            failed_peers.extend(&batch.failed_peers());
+            let req = batch.to_blocks_by_range_request().0;
+
+            let synced_peers = network
+                .network_globals()
+                .peers
+                .read()
+                .synced_peers()
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            match network.retry_columns_by_range(
+                id,
+                &synced_peers,
+                &failed_peers,
+                req,
+                &failed_columns,
+            ) {
+                Ok(_) => {
+                    debug!(
+                        ?batch_id,
+                        id, "Retried column requests from different peers"
+                    );
+                    return Ok(KeepChain);
+                }
+                Err(e) => {
+                    debug!(?batch_id, id, e, "Failed to retry partial batch");
+                }
+            }
+        }
         Ok(KeepChain)
     }
 
@@ -1031,9 +1102,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .network_globals()
                         .peers
                         .read()
-                        .good_custody_subnet_peer(*subnet_id)
+                        .good_range_sync_custody_subnet_peer(*subnet_id, &self.peers)
                         .count();
-
                     peer_count > 0
                 });
             peers_on_all_custody_subnets

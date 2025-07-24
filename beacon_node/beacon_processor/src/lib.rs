@@ -65,10 +65,9 @@ use tracing::{error, trace, warn};
 use types::{EthSpec, Hash256, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId};
 use work_queue::WorkQueues;
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
-    QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, IgnoredRpcBlock, QueuedAggregate, QueuedLightClientUpdate,
+    QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
 };
-use work_reprocessing_queue::{IgnoredRpcBlock, QueuedSamplingRequest};
 mod metrics;
 pub mod scheduler;
 
@@ -276,10 +275,6 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     process_fn,
                 },
             },
-            ReadyWork::SamplingRequest(QueuedSamplingRequest { process_fn, .. }) => Self {
-                drop_during_sync: true,
-                work: Work::UnknownBlockSamplingRequest { process_fn },
-            },
             ReadyWork::BackfillSync(QueuedBackfillBatch(process_fn)) => Self {
                 drop_during_sync: false,
                 work: Work::ChainSegmentBackfill(process_fn),
@@ -440,7 +435,6 @@ pub enum WorkType {
     GossipAggregate,
     UnknownBlockAggregate,
     UnknownLightClientOptimisticUpdate,
-    UnknownBlockSamplingRequest,
     GossipAggregateBatch,
     GossipBlock,
     GossipBlobSidecar,
@@ -457,12 +451,13 @@ pub enum WorkType {
     RpcBlobs,
     RpcCustodyColumn,
     RpcVerifyDataColumn,
-    SamplingResult,
+    UnknownBlockSamplingRequest,
     ColumnReconstruction,
     IgnoredRpcBlock,
     ChainSegment,
     ChainSegmentBackfill,
     Status,
+    SamplingResult,
     BlocksByRangeRequest,
     BlocksByRootsRequest,
     BlobsByRangeRequest,
@@ -510,6 +505,7 @@ impl<E: EthSpec> Work<E> {
             Work::RpcCustodyColumn { .. } => WorkType::RpcCustodyColumn,
             Work::RpcVerifyDataColumn { .. } => WorkType::RpcVerifyDataColumn,
             Work::SamplingResult { .. } => WorkType::SamplingResult,
+            Work::UnknownBlockSamplingRequest { .. } => WorkType::UnknownBlockSamplingRequest,
             Work::ColumnReconstruction(_) => WorkType::ColumnReconstruction,
             Work::IgnoredRpcBlock { .. } => WorkType::IgnoredRpcBlock,
             Work::ChainSegment { .. } => WorkType::ChainSegment,
@@ -529,7 +525,6 @@ impl<E: EthSpec> Work<E> {
             Work::LightClientUpdatesByRangeRequest(_) => WorkType::LightClientUpdatesByRangeRequest,
             Work::UnknownBlockAttestation { .. } => WorkType::UnknownBlockAttestation,
             Work::UnknownBlockAggregate { .. } => WorkType::UnknownBlockAggregate,
-            Work::UnknownBlockSamplingRequest { .. } => WorkType::UnknownBlockSamplingRequest,
             Work::UnknownLightClientOptimisticUpdate { .. } => {
                 WorkType::UnknownLightClientOptimisticUpdate
             }
@@ -1269,9 +1264,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::RpcBlock { process_fn }
             | Work::RpcBlobs { process_fn }
             | Work::RpcCustodyColumn(process_fn)
+            | Work::ColumnReconstruction(process_fn)
             | Work::RpcVerifyDataColumn(process_fn)
-            | Work::SamplingResult(process_fn)
-            | Work::ColumnReconstruction(process_fn) => task_spawner.spawn_async(process_fn),
+            | Work::SamplingResult(process_fn) => task_spawner.spawn_async(process_fn),
             Work::IgnoredRpcBlock { process_fn } => task_spawner.spawn_blocking(process_fn),
             Work::GossipBlock(work)
             | Work::GossipBlobSidecar(work)
