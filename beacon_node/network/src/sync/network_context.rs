@@ -487,7 +487,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|e| format!("{:?}", e))?;
 
         // Reuse the id for the request that received partially correct responses
-        let id = ComponentsByRangeRequestId { id: id, requester };
+        let id = ComponentsByRangeRequestId { id, requester };
 
         let data_column_requests = columns_by_range_peers_to_request
             .into_iter()
@@ -743,7 +743,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     entry.remove();
                     return Some(Err(RpcResponseError::BlockComponentCouplingError(
                         CouplingError::ExceededMaxRetries(
-                            faulty_peers.into_iter().map(|r| r.1).collect(),
+                            faulty_peers.iter().map(|r| r.1).collect(),
                             *action,
                         ),
                     )));

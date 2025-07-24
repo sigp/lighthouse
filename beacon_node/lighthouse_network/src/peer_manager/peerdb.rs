@@ -263,7 +263,7 @@ impl<E: EthSpec> PeerDB<E> {
         self.peers
             .iter()
             .filter(move |(peer_id, info)| {
-                allowed_peers.map_or(true, |allowed| allowed.contains(peer_id))
+                allowed_peers.is_none_or(|allowed| allowed.contains(peer_id))
                     && info.is_connected()
                     && match info.sync_status() {
                         SyncStatus::Synced { info } => {
@@ -325,10 +325,10 @@ impl<E: EthSpec> PeerDB<E> {
 
     /// Returns an iterator of all peers that are supposed to be custodying
     /// the given subnet id.
-    pub fn good_range_sync_custody_subnet_peers<'a>(
-        &'a self,
+    pub fn good_range_sync_custody_subnet_peers(
+        &self,
         subnet: DataColumnSubnetId,
-    ) -> impl Iterator<Item = &'a PeerId> {
+    ) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
             .filter(move |(_, info)| {
