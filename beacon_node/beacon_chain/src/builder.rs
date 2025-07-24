@@ -514,9 +514,26 @@ where
             "Storing split from weak subjectivity state"
         );
 
-        // Set the store's split point *before* storing genesis so that genesis is stored
-        // immediately in the freezer DB.
+        // Set the store's split point *before* storing genesis so that if the genesis state
+        // is prior to the split slot, it will immediately be stored in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
+
+        // It is also possible for the checkpoint state to be equal to the genesis state, in which
+        // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
+        // is initialised prior to storing the state, as the anchor is required for working out
+        // hdiff storage strategies.
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    weak_subj_block.parent_root(),
+                    weak_subj_block.slot(),
+                    weak_subj_slot,
+                    retain_historic_states,
+                )
+                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
+
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
@@ -539,20 +556,6 @@ where
             to_excl = %weak_subj_state.slot(),
             block_root = ?weak_subj_block_root,
             "Stored frozen block roots at skipped slots"
-        );
-
-        // Write the anchor to memory before calling `put_state` otherwise hot hdiff can't store
-        // states that do not align with the `start_slot` grid.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
-        self.pending_io_batch.push(
-            store
-                .init_anchor_info(
-                    weak_subj_block.parent_root(),
-                    weak_subj_block.slot(),
-                    weak_subj_slot,
-                    retain_historic_states,
-                )
-                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
         );
 
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten

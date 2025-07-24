@@ -98,15 +98,6 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_ATTESTATIONS: LazyLock<Re
             "Number of queued attestations where as matching block has been imported.",
         )
     });
-// TODO: This should be labeled instead of N single metrics
-pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_SAMPLING_REQUESTS: LazyLock<
-    Result<IntCounter>,
-> = LazyLock::new(|| {
-    try_create_int_counter(
-        "beacon_processor_reprocessing_queue_matched_sampling_requests",
-        "Number of queued sampling requests where a matching block has been imported.",
-    )
-});
 
 /*
  * Light client update reprocessing queue metrics.

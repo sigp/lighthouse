@@ -6,11 +6,12 @@ on Github](https://github.com/sigp/lighthouse/releases).
 
 ## Platforms
 
-Binaries are supplied for four platforms:
+Binaries are supplied for five platforms:
 
 - `x86_64-unknown-linux-gnu`: AMD/Intel 64-bit processors (most desktops, laptops, servers)
 - `aarch64-unknown-linux-gnu`: 64-bit ARM processors (Raspberry Pi 4)
 - `x86_64-apple-darwin`: macOS with Intel chips
+- `aarch64-apple-darwin`: macOS with ARM chips
 - `x86_64-windows`: Windows with 64-bit processors
 
 ## Usage

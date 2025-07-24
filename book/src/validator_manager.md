@@ -32,4 +32,4 @@ The `validator-manager` boasts the following features:
 
 - [Creating and importing validators using the `create` and `import` commands.](./validator_manager_create.md)
 - [Moving validators between two VCs using the `move` command.](./validator_manager_move.md)
-- [Managing validators such as delete, import and list validators.](./validator_manager_api.md)
+- [Managing validators such as exit, delete, import and list validators.](./validator_manager_api.md)
