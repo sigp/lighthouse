@@ -33,7 +33,7 @@ lru_cache = { workspace = true }
 metrics = { workspace = true }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
-rand = { workspace = true }
+rand = "0.8.5"
 slot_clock = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }

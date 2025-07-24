@@ -171,7 +171,7 @@ impl<E: EthSpec> AttesterSlashing<E> {
 
 impl<E: EthSpec> TestRandom for AttesterSlashing<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        if rng.random_bool(0.5) {
+        if rng.gen_bool(0.5) {
             AttesterSlashing::Base(AttesterSlashingBase::random_for_test(rng))
         } else {
             AttesterSlashing::Electra(AttesterSlashingElectra::random_for_test(rng))

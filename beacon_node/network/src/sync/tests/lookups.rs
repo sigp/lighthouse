@@ -37,8 +37,6 @@ use lighthouse_network::{
     },
     types::SyncState,
 };
-use rand::Rng;
-use rand_chacha::rand_core::SeedableRng;
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
 use tracing::info;
@@ -46,7 +44,7 @@ use types::{
     BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
     Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     data_column_sidecar::ColumnIndex,
-    test_utils::{TestRandom, XorShiftRng},
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 
 const D: Duration = Duration::new(0, 0);
