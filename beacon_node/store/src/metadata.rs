@@ -4,7 +4,7 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{Hash256, Slot};
 
-pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(26);
+pub const CURRENT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(27);
 
 // All the keys that get stored under the `BeaconMeta` column.
 //
@@ -18,6 +18,7 @@ pub const COMPACTION_TIMESTAMP_KEY: Hash256 = Hash256::repeat_byte(4);
 pub const ANCHOR_INFO_KEY: Hash256 = Hash256::repeat_byte(5);
 pub const BLOB_INFO_KEY: Hash256 = Hash256::repeat_byte(6);
 pub const DATA_COLUMN_INFO_KEY: Hash256 = Hash256::repeat_byte(7);
+pub const DATA_COLUMN_CUSTODY_INFO_KEY: Hash256 = Hash256::repeat_byte(8);
 
 /// State upper limit value used to indicate that a node is not storing historic states.
 pub const STATE_UPPER_LIMIT_NO_RETAIN: Slot = Slot::new(u64::MAX);
@@ -201,6 +202,30 @@ impl StoreItem for BlobInfo {
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
+    }
+}
+
+/// Database parameter relevant to data column custody sync. There is only at most a single
+/// `DataColumnCustodyInfo` stored in the db. `earliest_data_column_slot` is updated when cgc
+/// count changes and is updated incrementally during data column custody backfill. Once custody backfill
+/// is complete `earliest_data_column_slot` is set to `None`.
+#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
+pub struct DataColumnCustodyInfo {
+    /// The earliest slot for which data columns are available.
+    pub earliest_data_column_slot: Option<Slot>,
+}
+
+impl StoreItem for DataColumnCustodyInfo {
+    fn db_column() -> DBColumn {
+        DBColumn::BeaconDataColumnCustodyInfo
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+        Ok(DataColumnCustodyInfo::from_ssz_bytes(bytes)?)
     }
 }
 
