@@ -923,7 +923,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Permute the blobs and split them into batches.
                 // The hope is that we won't need to publish some blobs because we will receive them
                 // on gossip from other nodes.
-                blobs.shuffle(&mut rand::thread_rng());
+                blobs.shuffle(&mut rand::rng());
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let mut publish_count = 0usize;
@@ -1005,7 +1005,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Permute the columns and split them into batches.
                 // The hope is that we won't need to publish some columns because we will receive them
                 // on gossip from other nodes.
-                data_columns_to_publish.shuffle(&mut rand::thread_rng());
+                data_columns_to_publish.shuffle(&mut rand::rng());
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let blob_publication_batches = chain.config.blob_publication_batches;

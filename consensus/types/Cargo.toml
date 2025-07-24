@@ -45,7 +45,7 @@ merkle_proof = { workspace = true }
 metastruct = "0.1.0"
 milhouse = { workspace = true }
 parking_lot = { workspace = true }
-rand = "0.8.5"
+rand = { workspace = true }
 rand_xorshift = "0.4.0"
 rayon = { workspace = true }
 regex = { workspace = true }

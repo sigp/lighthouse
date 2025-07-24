@@ -1176,8 +1176,8 @@ mod tests {
     use beacon_chain::test_utils::BeaconChainHarness;
     use bls::Hash256;
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
-    use rand::SeedableRng;
-    use rand::prelude::StdRng;
+    use rand_chacha::ChaCha20Rng;
+    use rand_chacha::rand_core::SeedableRng;
     use types::MinimalEthSpec;
 
     #[test]
@@ -1198,7 +1198,7 @@ mod tests {
         ));
 
         {
-            let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+            let mut rng = ChaCha20Rng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
             let peer_id = network_globals
                 .peers
                 .write()

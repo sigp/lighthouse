@@ -258,7 +258,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                             active_request_count_by_peer.get(peer).copied().unwrap_or(0)
                                 + columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
                             // Random factor to break ties, otherwise the PeerID breaks ties
-                            rand::thread_rng().r#gen::<u32>(),
+                            rand::rng().random::<u32>(),
                             *peer,
                         )
                     })
