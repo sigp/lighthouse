@@ -502,7 +502,7 @@ pub static SYNC_RPC_REQUEST_ERRORS: LazyLock<Result<IntCounterVec>> = LazyLock::
     try_create_int_counter_vec(
         "sync_rpc_requests_error_total",
         "Total count of sync RPC requests errors",
-        &["protocol"],
+        &["protocol", "error"],
     )
 });
 pub static SYNC_RPC_REQUEST_TIME: LazyLock<Result<HistogramVec>> = LazyLock::new(|| {

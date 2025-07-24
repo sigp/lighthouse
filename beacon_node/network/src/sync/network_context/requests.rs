@@ -19,7 +19,7 @@ pub use data_columns_by_root::{
 
 use crate::metrics;
 
-use super::{RpcEvent, RpcResponseResult};
+use super::{RpcEvent, RpcResponseError, RpcResponseResult};
 
 mod blobs_by_range;
 mod blobs_by_root;
@@ -192,7 +192,15 @@ impl<K: Copy + Eq + Hash + std::fmt::Display, T: ActiveRequestItems> ActiveReque
                 Ok((items, seen_timestamp))
             }
             Err(e) => {
-                metrics::inc_counter_vec(&metrics::SYNC_RPC_REQUEST_ERRORS, &[self.name]);
+                let err_str: &'static str = match &e {
+                    RpcResponseError::RpcError(e) => e.into(),
+                    RpcResponseError::VerifyError(e) => e.into(),
+                    RpcResponseError::CustodyRequestError(_) => "CustodyRequestError",
+                    RpcResponseError::BlockComponentCouplingError(_) => {
+                        "BlockComponentCouplingError"
+                    }
+                };
+                metrics::inc_counter_vec(&metrics::SYNC_RPC_REQUEST_ERRORS, &[self.name, err_str]);
                 debug!(
                     %id,
                     method = self.name,
