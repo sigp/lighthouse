@@ -174,7 +174,7 @@ jobs:
   checkpoint-sync-test:
     name: checkpoint-sync-test-${{ matrix.network }}
     # Use self-hosted runner for Fusaka devnet testing as GitHub hosted ones aren't able to keep up with the chain.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && matrix.network == 'devnet' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && matrix.network == 'devnet' && fromJson('["self-hosted", "linux", "Kurtosis", "large"]') || 'ubuntu-latest'  }}
     needs: dockerfile-ubuntu
     if: contains(github.event.pull_request.labels.*.name, 'syncing')
     continue-on-error: true
