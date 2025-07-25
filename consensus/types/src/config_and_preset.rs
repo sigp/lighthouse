@@ -44,13 +44,18 @@ pub struct ConfigAndPreset {
 
 impl ConfigAndPreset {
     pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
-        let config = Config::from_chain_spec::<E>(spec);
+        let mut config = Config::from_chain_spec::<E>(spec);
         let base_preset = BasePreset::from_chain_spec::<E>(spec);
         let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
         let bellatrix_preset = BellatrixPreset::from_chain_spec::<E>(spec);
         let capella_preset = CapellaPreset::from_chain_spec::<E>(spec);
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
+
+        // Remove blob schedule for backwards-compatibility.
+        if spec.is_fulu_scheduled() {
+            config.blob_schedule.set_skip_serializing();
+        }
 
         if spec.is_fulu_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
@@ -123,7 +128,7 @@ pub fn get_extra_fields(spec: &ChainSpec) -> HashMap<String, Value> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::MainnetEthSpec;
+    use crate::{Epoch, MainnetEthSpec};
     use std::fs::File;
     use tempfile::NamedTempFile;
 
@@ -135,7 +140,9 @@ mod test {
             .write(true)
             .open(tmp_file.as_ref())
             .expect("error opening file");
-        let mainnet_spec = ChainSpec::mainnet();
+        let mut mainnet_spec = ChainSpec::mainnet();
+        // setting fulu_fork_epoch because we are roundtripping a fulu config
+        mainnet_spec.fulu_fork_epoch = Some(Epoch::new(42));
         let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");

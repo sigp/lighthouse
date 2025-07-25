@@ -192,10 +192,6 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.shuffling_cache_size = cache_size;
     }
 
-    if cli_args.get_flag("enable-sampling") {
-        client_config.chain.enable_sampling = true;
-    }
-
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
         client_config.chain.blob_publication_batches = batches;
     }

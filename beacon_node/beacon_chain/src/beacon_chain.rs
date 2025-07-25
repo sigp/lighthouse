@@ -2959,16 +2959,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ChainSegmentResult::Successful { imported_blocks }
     }
 
-    /// Updates fork-choice node into a permanent `available` state so it can become a viable head.
-    /// Only completed sampling results are received. Blocks are unavailable by default and should
-    /// be pruned on finalization, on a timeout or by a max count.
-    pub async fn process_sampling_completed(self: &Arc<Self>, block_root: Hash256) {
-        // TODO(das): update fork-choice, act on sampling result, adjust log level
-        // NOTE: It is possible that sampling complets before block is imported into fork choice,
-        // in that case we may need to update availability cache.
-        info!(%block_root, "Sampling completed");
-    }
-
     /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the
     /// gossip network. The block is not imported into the chain, it is just partially verified.
     ///
@@ -7041,15 +7031,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn should_fetch_custody_columns(&self, block_epoch: Epoch) -> bool {
         self.da_check_required_for_epoch(block_epoch)
             && self.spec.is_peer_das_enabled_for_epoch(block_epoch)
-    }
-
-    /// Returns true if we should issue a sampling request for this block
-    /// TODO(das): check if the block is still within the da_window
-    pub fn should_sample_slot(&self, slot: Slot) -> bool {
-        self.config.enable_sampling
-            && self
-                .spec
-                .is_peer_das_enabled_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()))
     }
 
     /// Gets the `LightClientBootstrap` object for a requested block root.
