@@ -13,7 +13,7 @@ use eth2::types::{
     BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
     PublishBlockRequest, SignedBlockContents,
 };
-use execution_layer::ProvenancedPayload;
+use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::{NetworkGlobals, PubsubMessage};
 use network::NetworkMessage;
@@ -636,27 +636,37 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let block_root = blinded_block.canonical_root();
-    let full_block = reconstruct_block(chain.clone(), block_root, blinded_block).await?;
-    publish_block::<T, _>(
-        Some(block_root),
-        full_block,
-        chain,
-        network_tx,
-        validation_level,
-        duplicate_status_code,
-        network_globals,
-    )
-    .await
+    let full_block_opt = reconstruct_block(chain.clone(), block_root, blinded_block).await?;
+
+    if let Some(full_block) = full_block_opt {
+        publish_block::<T, _>(
+            Some(block_root),
+            full_block,
+            chain,
+            network_tx,
+            validation_level,
+            duplicate_status_code,
+            network_globals,
+        )
+        .await
+    } else {
+        // From the fulu fork, builders are responsible for publishing and
+        // will no longer return the full payload and blobs.
+        Ok(warp::reply().into_response())
+    }
 }
 
 /// Deconstruct the given blinded block, and construct a full block. This attempts to use the
 /// execution layer's payload cache, and if that misses, attempts a blind block proposal to retrieve
 /// the full payload.
+///
+/// From the Fulu fork, external builders no longer return the full payload and blobs, and this
+/// function will always return `Ok(None)` on successful submission of blinded block.
 pub async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
     block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
-) -> Result<ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>>, Rejection> {
+) -> Result<Option<ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>>>, Rejection> {
     let full_payload_opt = if let Ok(payload_header) = block.message().body().execution_payload() {
         let el = chain.execution_layer.as_ref().ok_or_else(|| {
             warp_utils::reject::custom_server_error("Missing execution layer".to_string())
@@ -696,17 +706,24 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 "builder",
             );
 
-            let full_payload = el
-                .propose_blinded_beacon_block(block_root, &block)
+            match el
+                .propose_blinded_beacon_block(block_root, &block, &chain.spec)
                 .await
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Blind block proposal failed: {:?}",
                         e
                     ))
-                })?;
-            info!(block_hash = ?full_payload.block_hash(), "Successfully published a block to the builder network");
-            ProvenancedPayload::Builder(full_payload)
+                })? {
+                SubmitBlindedBlockResponse::V1(full_payload) => {
+                    info!(block_root = ?block_root, "Successfully published a block to the builder network");
+                    ProvenancedPayload::Builder(*full_payload)
+                }
+                SubmitBlindedBlockResponse::V2 => {
+                    info!(block_root = ?block_root, "Successfully published a block to the builder network");
+                    return Ok(None);
+                }
+            }
         };
 
         Some(full_payload_contents)
@@ -734,6 +751,7 @@ pub async fn reconstruct_block<T: BeaconChainTypes>(
                 .map(|(block, blobs)| ProvenancedBlock::builder(block, blobs))
         }
     }
+    .map(Some)
     .map_err(|e| {
         warp_utils::reject::custom_server_error(format!("Unable to add payload to block: {e:?}"))
     })
