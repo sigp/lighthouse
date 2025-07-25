@@ -798,7 +798,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 match blobs_or_data_column {
                     EngineGetBlobsOutput::Blobs(blobs) => {
                         self_cloned.publish_blobs_gradually(
-                            blobs.into_iter().map(|b| b.clone_blob()).collect(),
+                            blobs.into_iter().map(|b| b.to_blob()).collect(),
                             block_root,
                         );
                     }
