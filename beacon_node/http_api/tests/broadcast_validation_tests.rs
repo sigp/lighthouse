@@ -1275,14 +1275,17 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         Arc::new(block_a),
     )
     .await
-    .unwrap();
+    .expect("failed to reconstruct block")
+    .expect("block expected");
+
     let unblinded_block_b = reconstruct_block(
         tester.harness.chain.clone(),
         block_b.canonical_root(),
         block_b.clone(),
     )
     .await
-    .unwrap();
+    .expect("failed to reconstruct block")
+    .expect("block expected");
 
     let inner_block_a = match unblinded_block_a {
         ProvenancedBlock::Local(a, _, _) => a,
