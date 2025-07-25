@@ -319,13 +319,7 @@ impl<E: EthSpec> CustodyContext<E> {
             .expect("should compute node sampling size from valid chain spec")
     }
 
-    /// Checks if sampling is required for a data column at a given slot.
-    pub fn is_sampling_required_for_column(
-        &self,
-        slot: Slot,
-        index: ColumnIndex,
-        spec: &ChainSpec,
-    ) -> bool {
+    pub fn sampling_columns_for_slot(&self, slot: Slot, spec: &ChainSpec) -> Vec<ColumnIndex> {
         let num_of_groups_to_sample = self
             .num_of_custody_groups_to_sample(Some(slot.epoch(E::slots_per_epoch())), spec)
             as usize;
@@ -335,7 +329,9 @@ impl<E: EthSpec> CustodyContext<E> {
             .expect("all_custody_groups_ordered should be initialized")[..num_of_groups_to_sample];
         groups_to_sample
             .iter()
-            .any(|group| group.columns.contains(&index))
+            .flat_map(|group| &group.columns)
+            .copied()
+            .collect()
     }
 }
 

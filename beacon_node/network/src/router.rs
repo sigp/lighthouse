@@ -382,7 +382,6 @@ impl<T: BeaconChainTypes> Router<T> {
                             subnet_id,
                             column_sidecar,
                             timestamp_now(),
-                            should_process,
                         ),
                 )
             }

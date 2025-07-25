@@ -360,7 +360,6 @@ impl TestRig {
                     DataColumnSubnetId::from_column_index(data_column.index, &self.chain.spec),
                     data_column.clone(),
                     Duration::from_secs(0),
-                    true,
                 )
                 .unwrap();
         }
@@ -821,7 +820,7 @@ async fn accept_processed_gossip_data_columns_without_import() {
     let block_root = rig.next_block.canonical_root();
     rig.chain
         .data_availability_checker
-        .put_gossip_verified_data_columns(block_root, verified_data_columns)
+        .put_gossip_verified_data_columns(block_root, rig.next_block.slot(), verified_data_columns)
         .expect("should put data columns into availability cache");
 
     // WHEN an already processed but unobserved data column is received via gossip

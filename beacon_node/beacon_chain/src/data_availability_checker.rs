@@ -18,7 +18,7 @@ use tracing::{debug, error, info_span, Instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock,
+    RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -231,6 +231,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
+        slot: Slot,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         // Attributes fault to the specific peer that sent an invalid column
@@ -238,8 +239,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             KzgVerifiedDataColumn::from_batch_with_scoring(custody_columns, &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidColumn)?;
 
+        // Filter out columns that aren't required for custody for this slot
+        // This is required because `data_columns_by_root` requests the **latest** CGC that _may_
+        // not be yet effective for data availability check, as CGC changes are only effecive from
+        // a new epoch.
+        let sampling_columns = self
+            .custody_context
+            .sampling_columns_for_slot(slot, &self.spec);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
+            .filter(|col| sampling_columns.contains(&col.index()))
             .map(KzgVerifiedCustodyDataColumn::from_asserted_custody)
             .collect::<Vec<_>>();
 
@@ -275,10 +284,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     >(
         &self,
         block_root: Hash256,
+        slot: Slot,
         data_columns: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let sampling_columns = self
+            .custody_context
+            .sampling_columns_for_slot(slot, &self.spec);
         let custody_columns = data_columns
             .into_iter()
+            .filter(|col| sampling_columns.contains(&col.index()))
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 

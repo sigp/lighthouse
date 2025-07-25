@@ -3594,7 +3594,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let availability = self
             .data_availability_checker
-            .put_gossip_verified_data_columns(block_root, data_columns)?;
+            .put_gossip_verified_data_columns(block_root, slot, data_columns)?;
 
         self.process_availability(slot, availability, publish_fn)
             .await
@@ -3685,9 +3685,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // This slot value is purely informative for the consumers of
         // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
-        let availability = self
-            .data_availability_checker
-            .put_rpc_custody_columns(block_root, custody_columns)?;
+        let availability = self.data_availability_checker.put_rpc_custody_columns(
+            block_root,
+            slot,
+            custody_columns,
+        )?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await
