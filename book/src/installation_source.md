@@ -178,8 +178,6 @@ E.g.
 CARGO_INSTALL_EXTRA_FLAGS="--no-default-features" make
 ```
 
-[jemalloc]: https://jemalloc.net/
-
 ## Compilation Profiles
 
 You can customise the compiler settings used to compile Lighthouse via
