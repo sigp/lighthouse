@@ -89,7 +89,7 @@ build-lcli-riscv64:
 SOURCE_DATE := $(shell git log -1 --pretty=%ct)
 
 # Default image for x86_64
-RUST_IMAGE_AMD64 ?= rust:1.82-bullseye@sha256:ac7fe7b0c9429313c0fe87d3a8993998d1fe2be9e3e91b5e2ec05d3a09d87128
+RUST_IMAGE_AMD64 ?= rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816
 
 # Reproducible build for x86_64
 build-reproducible-x86_64:
@@ -101,7 +101,7 @@ build-reproducible-x86_64:
 		-t lighthouse:reproducible-amd64 .
 
 # Default image for arm64
-RUST_IMAGE_ARM64 ?= rust:1.82-bullseye@sha256:3c1b8b6487513ad4e753d008b960260f5bcc81bf110883460f6ed3cd72bf439b
+RUST_IMAGE_ARM64 ?= rust:1.88-bullseye@sha256:8b22455a7ce2adb1355067638284ee99d21cc516fab63a96c4514beaf370aa94
 
 # Reproducible build for aarch64
 build-reproducible-aarch64:
