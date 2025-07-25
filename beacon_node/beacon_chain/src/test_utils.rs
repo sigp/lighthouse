@@ -3131,9 +3131,10 @@ where
                 .into_iter()
                 .filter(|c| custody_columns.contains(&c.index))
                 .map(|sidecar| {
-                    let column_index = sidecar.index;
+                    let subnet_id =
+                        DataColumnSubnetId::from_column_index(sidecar.index, &self.spec);
                     self.chain
-                        .verify_data_column_sidecar_for_gossip(sidecar, column_index)
+                        .verify_data_column_sidecar_for_gossip(sidecar, subnet_id)
                 })
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap();

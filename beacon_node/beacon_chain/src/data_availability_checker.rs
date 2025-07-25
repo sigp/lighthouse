@@ -74,7 +74,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
-    custody_context: Arc<CustodyContext>,
+    custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -112,7 +112,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
-        custody_context: Arc<CustodyContext>,
+        custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         let inner = DataAvailabilityCheckerInner::new(
@@ -130,7 +130,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    pub fn custody_context(&self) -> Arc<CustodyContext> {
+    pub fn custody_context(&self) -> Arc<CustodyContext<T::EthSpec>> {
         self.custody_context.clone()
     }
 

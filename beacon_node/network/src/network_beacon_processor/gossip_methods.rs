@@ -607,10 +607,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        _peer_client: Client,
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_duration: Duration,
+        should_process: bool,
     ) {
         let slot = column_sidecar.slot();
         let block_root = column_sidecar.block_root();
@@ -623,7 +623,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         match self
             .chain
-            .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), *subnet_id)
+            .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), subnet_id)
         {
             Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
@@ -650,12 +650,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         duration,
                     );
                 }
-                self.process_gossip_verified_data_column(
-                    peer_id,
-                    gossip_verified_data_column,
-                    seen_duration,
-                )
-                .await
+
+                if should_process {
+                    self.process_gossip_verified_data_column(
+                        peer_id,
+                        gossip_verified_data_column,
+                        seen_duration,
+                    )
+                    .await
+                }
             }
             Err(err) => {
                 match err {

@@ -1,12 +1,13 @@
+use parking_lot::RwLock;
+use ssz_derive::{Decode, Encode};
+use std::marker::PhantomData;
+use std::sync::OnceLock;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::atomic::{AtomicU64, Ordering},
 };
-
-use parking_lot::RwLock;
-
-use ssz_derive::{Decode, Encode};
-use types::{ChainSpec, Epoch, EthSpec, Slot};
+use types::data_column_custody_group::{compute_columns_for_custody_group, CustodyIndex};
+use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
 
 /// A delay before making the CGC change effective to the data availability checker.
 const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
@@ -16,6 +17,13 @@ const VALIDATOR_REGISTRATION_EXPIRY_SLOTS: Slot = Slot::new(256);
 
 type ValidatorsAndBalances = Vec<(usize, u64)>;
 type SlotAndEffectiveBalance = (Slot, u64);
+
+#[derive(Debug)]
+struct CustodyGroup {
+    #[allow(dead_code)]
+    index: CustodyIndex,
+    columns: Box<[ColumnIndex]>,
+}
 
 /// This currently just registers increases in validator count.
 /// Does not handle decreasing validator counts
@@ -120,7 +128,7 @@ fn get_validators_custody_requirement(validator_custody_units: u64, spec: &Chain
 /// Contains all the information the node requires to calculate the
 /// number of columns to be custodied when checking for DA.
 #[derive(Debug)]
-pub struct CustodyContext {
+pub struct CustodyContext<E: EthSpec> {
     /// The Number of custody groups required based on the number of validators
     /// that is attached to this node.
     ///
@@ -139,9 +147,13 @@ pub struct CustodyContext {
     persisted_is_supernode: bool,
     /// Maintains all the validators that this node is connected to currently
     validator_registrations: RwLock<ValidatorRegistrations>,
+    /// Stores an immutable, ordered list of all custody groups as determined by the node's NodeID
+    /// on startup.
+    all_custody_groups_ordered: OnceLock<Box<[CustodyGroup]>>,
+    _phantom_data: PhantomData<E>,
 }
 
-impl CustodyContext {
+impl<E: EthSpec> CustodyContext<E> {
     /// Create a new custody default custody context object when no persisted object
     /// exists.
     ///
@@ -152,6 +164,8 @@ impl CustodyContext {
             current_is_supernode: is_supernode,
             persisted_is_supernode: is_supernode,
             validator_registrations: Default::default(),
+            all_custody_groups_ordered: OnceLock::new(),
+            _phantom_data: PhantomData,
         }
     }
 
@@ -170,7 +184,30 @@ impl CustodyContext {
                     .into_iter()
                     .collect(),
             }),
+            all_custody_groups_ordered: OnceLock::new(),
+            _phantom_data: PhantomData,
         }
+    }
+
+    pub fn init_all_custody_groups_ordered(
+        &self,
+        all_custody_groups_ordered: Vec<CustodyIndex>,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
+        let mut ordered_custody_groups = vec![];
+        for custody_index in all_custody_groups_ordered {
+            let columns = compute_columns_for_custody_group(custody_index, spec)
+                .map_err(|e| format!("Failed to compute columns for custody group {e:?}"))?;
+            ordered_custody_groups.push(CustodyGroup {
+                index: custody_index,
+                columns: columns.collect::<Vec<_>>().into_boxed_slice(),
+            });
+        }
+        self.all_custody_groups_ordered
+            .set(ordered_custody_groups.into_boxed_slice())
+            .map_err(|_| {
+                "Failed to initialise CustodyContext with computed custody groups".to_string()
+            })
     }
 
     /// Register a new validator index and updates the list of validators if required.
@@ -179,7 +216,7 @@ impl CustodyContext {
     /// update the `custody_column_count`.
     ///
     /// Returns `Some` along with the updated custody group count if it has changed, otherwise returns `None`.
-    pub fn register_validators<E: EthSpec>(
+    pub fn register_validators(
         &self,
         validators_and_balance: ValidatorsAndBalances,
         current_slot: Slot,
@@ -281,6 +318,25 @@ impl CustodyContext {
         spec.sampling_size_columns(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
+
+    /// Checks if sampling is required for a data column at a given slot.
+    pub fn is_sampling_required_for_column(
+        &self,
+        slot: Slot,
+        index: ColumnIndex,
+        spec: &ChainSpec,
+    ) -> bool {
+        let num_of_groups_to_sample = self
+            .num_of_custody_groups_to_sample(Some(slot.epoch(E::slots_per_epoch())), spec)
+            as usize;
+        let groups_to_sample = &self
+            .all_custody_groups_ordered
+            .get()
+            .expect("all_custody_groups_ordered should be initialized")[..num_of_groups_to_sample];
+        groups_to_sample
+            .iter()
+            .any(|group| group.columns.contains(&index))
+    }
 }
 
 /// The custody count changed because of a change in the
@@ -299,8 +355,8 @@ pub struct CustodyContextSsz {
     pub epoch_validator_custody_requirements: Vec<(Epoch, u64)>,
 }
 
-impl From<&CustodyContext> for CustodyContextSsz {
-    fn from(context: &CustodyContext) -> Self {
+impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
+    fn from(context: &CustodyContext<E>) -> Self {
         CustodyContextSsz {
             validator_custody_at_head: context.validator_custody_count.load(Ordering::Relaxed),
             persisted_is_supernode: context.persisted_is_supernode,
@@ -325,7 +381,7 @@ mod tests {
 
     #[test]
     fn no_validators_supernode_default() {
-        let custody_context = CustodyContext::new(true);
+        let custody_context = CustodyContext::<E>::new(true);
         let spec = E::default_spec();
         assert_eq!(
             custody_context.custody_group_count_at_head(&spec),
@@ -339,7 +395,7 @@ mod tests {
 
     #[test]
     fn no_validators_fullnode_default() {
-        let custody_context = CustodyContext::new(false);
+        let custody_context = CustodyContext::<E>::new(false);
         let spec = E::default_spec();
         assert_eq!(
             custody_context.custody_group_count_at_head(&spec),
@@ -354,7 +410,7 @@ mod tests {
 
     #[test]
     fn register_single_validator_should_update_cgc() {
-        let custody_context = CustodyContext::new(false);
+        let custody_context = CustodyContext::<E>::new(false);
         let spec = E::default_spec();
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
@@ -369,7 +425,7 @@ mod tests {
             (vec![(0, 10 * bal_per_additional_group)], Some(10)),
         ];
 
-        register_validators_and_assert_cgc(
+        register_validators_and_assert_cgc::<E>(
             &custody_context,
             validators_and_expected_cgc_change,
             &spec,
@@ -378,7 +434,7 @@ mod tests {
 
     #[test]
     fn register_multiple_validators_should_update_cgc() {
-        let custody_context = CustodyContext::new(false);
+        let custody_context = CustodyContext::<E>::new(false);
         let spec = E::default_spec();
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
@@ -406,12 +462,16 @@ mod tests {
             ),
         ];
 
-        register_validators_and_assert_cgc(&custody_context, validators_and_expected_cgc, &spec);
+        register_validators_and_assert_cgc::<E>(
+            &custody_context,
+            validators_and_expected_cgc,
+            &spec,
+        );
     }
 
     #[test]
     fn register_validators_should_not_update_cgc_for_supernode() {
-        let custody_context = CustodyContext::new(true);
+        let custody_context = CustodyContext::<E>::new(true);
         let spec = E::default_spec();
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
 
@@ -435,7 +495,11 @@ mod tests {
             ),
         ];
 
-        register_validators_and_assert_cgc(&custody_context, validators_and_expected_cgc, &spec);
+        register_validators_and_assert_cgc::<E>(
+            &custody_context,
+            validators_and_expected_cgc,
+            &spec,
+        );
         assert_eq!(
             custody_context.num_of_custody_groups_to_sample(None, &spec),
             spec.number_of_custody_groups
@@ -444,14 +508,14 @@ mod tests {
 
     #[test]
     fn cgc_change_should_be_effective_to_sampling_after_delay() {
-        let custody_context = CustodyContext::new(false);
+        let custody_context = CustodyContext::<E>::new(false);
         let spec = E::default_spec();
         let current_slot = Slot::new(10);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let default_sampling_size = custody_context.num_of_custody_groups_to_sample(None, &spec);
         let validator_custody_units = 10;
 
-        let _cgc_changed = custody_context.register_validators::<E>(
+        let _cgc_changed = custody_context.register_validators(
             vec![(
                 0,
                 validator_custody_units * spec.balance_per_additional_custody_group,
@@ -474,14 +538,14 @@ mod tests {
 
     #[test]
     fn validator_dropped_after_no_registrations_within_expiry_should_not_reduce_cgc() {
-        let custody_context = CustodyContext::new(false);
+        let custody_context = CustodyContext::<E>::new(false);
         let spec = E::default_spec();
         let current_slot = Slot::new(10);
         let val_custody_units_1 = 10;
         let val_custody_units_2 = 5;
 
         // GIVEN val_1 and val_2 registered at `current_slot`
-        let _ = custody_context.register_validators::<E>(
+        let _ = custody_context.register_validators(
             vec![
                 (
                     1,
@@ -497,7 +561,7 @@ mod tests {
         );
 
         // WHEN val_1 re-registered, but val_2 did not re-register after `VALIDATOR_REGISTRATION_EXPIRY_SLOTS + 1` slots
-        let cgc_changed_opt = custody_context.register_validators::<E>(
+        let cgc_changed_opt = custody_context.register_validators(
             vec![(
                 1,
                 val_custody_units_1 * spec.balance_per_additional_custody_group,
@@ -516,7 +580,7 @@ mod tests {
 
     #[test]
     fn validator_dropped_after_no_registrations_within_expiry() {
-        let custody_context = CustodyContext::new(false);
+        let custody_context = CustodyContext::<E>::new(false);
         let spec = E::default_spec();
         let current_slot = Slot::new(10);
         let val_custody_units_1 = 10;
@@ -524,7 +588,7 @@ mod tests {
         let val_custody_units_3 = 6;
 
         // GIVEN val_1 and val_2 registered at `current_slot`
-        let _ = custody_context.register_validators::<E>(
+        let _ = custody_context.register_validators(
             vec![
                 (
                     1,
@@ -540,7 +604,7 @@ mod tests {
         );
 
         // WHEN val_1 and val_3 registered, but val_3 did not re-register after `VALIDATOR_REGISTRATION_EXPIRY_SLOTS + 1` slots
-        let cgc_changed = custody_context.register_validators::<E>(
+        let cgc_changed = custody_context.register_validators(
             vec![
                 (
                     1,
@@ -565,8 +629,8 @@ mod tests {
     }
 
     /// Update validator every epoch and assert cgc against expected values.
-    fn register_validators_and_assert_cgc(
-        custody_context: &CustodyContext,
+    fn register_validators_and_assert_cgc<E: EthSpec>(
+        custody_context: &CustodyContext<E>,
         validators_and_expected_cgc_changed: Vec<(ValidatorsAndBalances, Option<u64>)>,
         spec: &ChainSpec,
     ) {
@@ -575,7 +639,7 @@ mod tests {
         {
             let epoch = Epoch::new(idx as u64);
             let updated_custody_count_opt = custody_context
-                .register_validators::<E>(
+                .register_validators(
                     validators_and_balance,
                     epoch.start_slot(E::slots_per_epoch()),
                     spec,

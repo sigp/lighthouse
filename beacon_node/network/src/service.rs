@@ -547,6 +547,24 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                             should_process,
                         ));
                     }
+                    PubsubMessage::DataColumnSidecar(ref subnet_and_column_sidecar) => {
+                        let (_, data_column_sidecar) = subnet_and_column_sidecar.as_ref();
+                        let should_process = self
+                            .beacon_chain
+                            .data_availability_checker
+                            .custody_context()
+                            .is_sampling_required_for_column(
+                                data_column_sidecar.slot(),
+                                data_column_sidecar.index,
+                                &self.beacon_chain.spec,
+                            );
+                        self.send_to_router(RouterMessage::PubsubMessage(
+                            id,
+                            source,
+                            message,
+                            should_process,
+                        ));
+                    }
                     _ => {
                         // all else is sent to the router
                         self.send_to_router(RouterMessage::PubsubMessage(

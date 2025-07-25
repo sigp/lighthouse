@@ -357,10 +357,10 @@ impl TestRig {
                 .send_gossip_data_column_sidecar(
                     junk_message_id(),
                     junk_peer_id(),
-                    Client::default(),
                     DataColumnSubnetId::from_column_index(data_column.index, &self.chain.spec),
                     data_column.clone(),
                     Duration::from_secs(0),
+                    true,
                 )
                 .unwrap();
         }
@@ -807,7 +807,8 @@ async fn accept_processed_gossip_data_columns_without_import() {
         .unwrap()
         .into_iter()
         .map(|data_column| {
-            let subnet_id = data_column.index;
+            let subnet_id =
+                DataColumnSubnetId::from_column_index(data_column.index, &rig.chain.spec);
             validate_data_column_sidecar_for_gossip::<_, DoNotObserve>(
                 data_column,
                 subnet_id,

@@ -2206,7 +2206,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
-        subnet_id: u64,
+        subnet_id: DataColumnSubnetId,
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
         metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);

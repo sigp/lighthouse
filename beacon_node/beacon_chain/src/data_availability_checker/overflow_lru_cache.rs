@@ -348,7 +348,7 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// This cache holds a limited number of states in memory and reconstructs them
     /// from disk when necessary. This is necessary until we merge tree-states
     state_cache: StateLRUCache<T>,
-    custody_context: Arc<CustodyContext>,
+    custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -365,7 +365,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
-        custody_context: Arc<CustodyContext>,
+        custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {

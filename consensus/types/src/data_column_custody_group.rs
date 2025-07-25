@@ -52,6 +52,49 @@ pub fn get_custody_groups(
     Ok(custody_groups)
 }
 
+/// Returns a deterministically ordered
+pub fn get_custody_groups_ordered(
+    raw_node_id: [u8; 32],
+    custody_group_count: u64,
+    spec: &ChainSpec,
+) -> Result<Vec<CustodyIndex>, DataColumnCustodyGroupError> {
+    if custody_group_count > spec.number_of_custody_groups {
+        return Err(DataColumnCustodyGroupError::InvalidCustodyGroupCount(
+            custody_group_count,
+        ));
+    }
+
+    let mut custody_groups = vec![];
+    let mut current_id = U256::from_be_slice(&raw_node_id);
+    while custody_groups.len() < custody_group_count as usize {
+        let mut node_id_bytes = [0u8; 32];
+        node_id_bytes.copy_from_slice(current_id.as_le_slice());
+        let hash = ethereum_hashing::hash_fixed(&node_id_bytes);
+        let hash_prefix: [u8; 8] = hash[0..8]
+            .try_into()
+            .expect("hash_fixed produces a 32 byte array");
+        let hash_prefix_u64 = u64::from_le_bytes(hash_prefix);
+        let custody_group = hash_prefix_u64
+            .safe_rem(spec.number_of_custody_groups)
+            .expect("spec.number_of_custody_groups must not be zero");
+        if !custody_groups.contains(&custody_group) {
+            custody_groups.push(custody_group);
+        }
+
+        current_id = current_id.wrapping_add(U256::from(1u64));
+    }
+
+    Ok(custody_groups)
+}
+
+pub fn get_all_custody_groups_ordered(
+    raw_node_id: [u8; 32],
+    spec: &ChainSpec,
+) -> Result<Vec<CustodyIndex>, DataColumnCustodyGroupError> {
+    let custody_group_count = spec.number_of_custody_groups;
+    get_custody_groups_ordered(raw_node_id, custody_group_count, spec)
+}
+
 /// Returns the columns that are associated with a given custody group.
 ///
 /// spec: https://github.com/ethereum/consensus-specs/blob/8e0d0d48e81d6c7c5a8253ab61340f5ea5bac66a/specs/fulu/das-core.md#compute_columns_for_custody_group

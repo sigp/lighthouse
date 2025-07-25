@@ -3839,11 +3839,8 @@ pub fn serve<T: BeaconChainTypes>(
                         if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()
-                            .register_validators::<T::EthSpec>(
-                            validators_and_balances,
-                            current_slot,
-                            &chain.spec,
-                        ) {
+                            .register_validators(validators_and_balances, current_slot, &chain.spec)
+                        {
                             chain.update_data_column_custody_info(Some(
                                 cgc_change
                                     .effective_epoch
