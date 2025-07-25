@@ -180,7 +180,7 @@ logging = { path = "common/logging" }
 logroller = "0.1.8"
 lru = "0.12"
 lru_cache = { path = "common/lru_cache" }
-malloc_utils = { path = "common/malloc_utils", default-features = false }
+malloc_utils = { path = "common/malloc_utils" }
 maplit = "1"
 merkle_proof = { path = "consensus/merkle_proof" }
 metrics = { path = "common/metrics" }

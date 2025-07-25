@@ -4,11 +4,13 @@ version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
-# Features are not rich enough to express the complexity of our defaults, so we choose to always
-# compile the jemalloc dependency, but avoid using it if the `sysmalloc` feature is set or it
-# is unsupported by the target platform (Windows).
+# Features are not rich enough to express the complexity of our defaults, so we choose to just
+# use the jemalloc feature to control whether the dependency is compiled, but avoid using it if
+# the `sysmalloc` feature is set.
+#
+# On Windows, setting the jemalloc feature will result in a compile-time error.
 [features]
-default = ["jemalloc"]
+default = []
 mallinfo2 = []
 # The jemalloc feature enables the compilation of jemalloc dependencies. Jemalloc is also the
 # default allocator, unless `sysmalloc` is set.

@@ -71,10 +71,10 @@ validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-malloc_utils = { workspace = true, default-features = true }
+malloc_utils = { workspace = true, features = ["jemalloc"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-malloc_utils = { workspace = true, default-features = false }
+malloc_utils = { workspace = true, features = [] }
 
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }
