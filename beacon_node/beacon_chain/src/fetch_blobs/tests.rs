@@ -250,8 +250,8 @@ mod get_blobs_v2 {
 
 mod get_blobs_v1 {
     use super::*;
-    use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
     use crate::block_verification_types::AsBlock;
+    use std::collections::HashSet;
 
     const ELECTRA_FORK: ForkName = ForkName::Electra;
 
@@ -325,10 +325,13 @@ mod get_blobs_v1 {
         mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
         // AND block is not imported into fork choice
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
-        // AND all blobs returned are valid
+        // AND all blobs have not yet been seen
         mock_adapter
-            .expect_verify_blob_for_gossip()
-            .returning(|b| Ok(GossipVerifiedBlob::__assumed_valid(b.clone())));
+            .expect_cached_blob_indexes()
+            .returning(|_| None);
+        mock_adapter
+            .expect_blobs_known_for_proposal()
+            .returning(|_, _| None);
         // Returned blobs should be processed
         mock_process_engine_blobs_result(
             &mut mock_adapter,
@@ -408,17 +411,22 @@ mod get_blobs_v1 {
         // **GIVEN**:
         // All blobs returned
         let blob_and_proof_opts = blobs_and_proofs.into_iter().map(Some).collect::<Vec<_>>();
+        let all_blob_indices = blob_and_proof_opts
+            .iter()
+            .enumerate()
+            .map(|(i, _)| i as u64)
+            .collect::<HashSet<_>>();
+
         mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
         // block not yet imported into fork choice
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         // All blobs already seen on gossip
-        mock_adapter.expect_verify_blob_for_gossip().returning(|b| {
-            Err(GossipBlobError::RepeatBlob {
-                proposer: b.block_proposer_index(),
-                slot: b.slot(),
-                index: b.index,
-            })
-        });
+        mock_adapter
+            .expect_cached_blob_indexes()
+            .returning(|_| None);
+        mock_adapter
+            .expect_blobs_known_for_proposal()
+            .returning(move |_, _| Some(all_blob_indices.clone()));
 
         // **WHEN**: Trigger `fetch_blobs` on the block
         let custody_columns = hashset![0, 1, 2];
@@ -454,8 +462,11 @@ mod get_blobs_v1 {
         mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         mock_adapter
-            .expect_verify_blob_for_gossip()
-            .returning(|b| Ok(GossipVerifiedBlob::__assumed_valid(b.clone())));
+            .expect_cached_blob_indexes()
+            .returning(|_| None);
+        mock_adapter
+            .expect_blobs_known_for_proposal()
+            .returning(|_, _| None);
         mock_process_engine_blobs_result(
             &mut mock_adapter,
             Ok(AvailabilityProcessingStatus::Imported(block_root)),

@@ -9,7 +9,7 @@ use crate::block_verification::{
     BlockSlashInfo,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
-use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
+use crate::observed_data_sidecars::{ObservationStrategy, Observe};
 use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use ssz_derive::{Decode, Encode};
@@ -304,6 +304,14 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
             seen_timestamp: Duration::from_secs(0),
         }
     }
+    /// Mark a blob as KZG verified. Caller must ONLY use this on blob sidecars constructed
+    /// from EL blobs.
+    pub fn from_execution_verified(blob: Arc<BlobSidecar<E>>, seen_timestamp: Duration) -> Self {
+        Self {
+            blob,
+            seen_timestamp,
+        }
+    }
 }
 
 /// Complete kzg verification for a `BlobSidecar`.
@@ -594,21 +602,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     })
 }
 
-impl<T: BeaconChainTypes> GossipVerifiedBlob<T, DoNotObserve> {
-    pub fn observe(
-        self,
-        chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlob<T, Observe>, GossipBlobError> {
-        observe_gossip_blob(&self.blob.blob, chain)?;
-        Ok(GossipVerifiedBlob {
-            block_root: self.block_root,
-            blob: self.blob,
-            _phantom: PhantomData,
-        })
-    }
-}
-
-fn observe_gossip_blob<T: BeaconChainTypes>(
+pub fn observe_gossip_blob<T: BeaconChainTypes>(
     blob_sidecar: &BlobSidecar<T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipBlobError> {

@@ -12,14 +12,14 @@ mod fetch_blobs_beacon_adapter;
 #[cfg(test)]
 mod tests;
 
-use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
+use crate::blob_verification::{GossipBlobError, KzgVerifiedBlob};
 use crate::block_verification_types::AsBlock;
 use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::ProposalKey;
-use crate::observed_data_sidecars::DoNotObserve;
+use crate::validator_monitor::timestamp_now;
 use crate::{
     metrics, AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes,
     BlockError,
@@ -34,11 +34,11 @@ use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_h
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, warn};
-use types::blob_sidecar::{BlobSidecarError, FixedBlobSidecarList};
+use types::blob_sidecar::BlobSidecarError;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
-    BeaconStateError, Blob, BlobSidecar, ChainSpec, ColumnIndex, EthSpec, FullPayload, Hash256,
-    KzgProofs, SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
+    BeaconStateError, Blob, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, KzgProofs,
+    SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
 };
 
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
@@ -46,7 +46,7 @@ use types::{
 /// be published immediately.
 #[derive(Debug)]
 pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
-    Blobs(Vec<GossipVerifiedBlob<T, DoNotObserve>>),
+    Blobs(Vec<KzgVerifiedBlob<T::EthSpec>>),
     /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
     CustodyColumns(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>),
 }
@@ -186,46 +186,47 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
         .signed_block_header_and_kzg_commitments_proof()
         .map_err(FetchEngineBlobError::BeaconStateError)?;
 
-    let fixed_blob_sidecar_list = build_blob_sidecars(
+    let mut blob_sidecar_list = build_blob_sidecars(
         &block,
         response,
         signed_block_header,
         &kzg_commitments_proof,
-        chain_adapter.spec(),
     )?;
 
-    // Gossip verify blobs before publishing. This prevents blobs with invalid KZG proofs from
-    // the EL making it into the data availability checker. We do not immediately add these
-    // blobs to the observed blobs/columns cache because we want to allow blobs/columns to arrive on gossip
-    // and be accepted (and propagated) while we are waiting to publish. Just before publishing
-    // we will observe the blobs/columns and only proceed with publishing if they are not yet seen.
-    let blobs_to_import_and_publish = fixed_blob_sidecar_list
-        .into_iter()
-        .filter_map(|opt_blob| {
-            let blob = opt_blob.as_ref()?;
-            match chain_adapter.verify_blob_for_gossip(blob) {
-                Ok(verified) => Some(Ok(verified)),
-                // Ignore already seen blobs.
-                Err(GossipBlobError::RepeatBlob { .. }) => None,
-                Err(e) => Some(Err(e)),
-            }
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(FetchEngineBlobError::GossipBlob)?;
-
-    if blobs_to_import_and_publish.is_empty() {
-        return Ok(None);
+    if let Some(observed_blobs) =
+        chain_adapter.blobs_known_for_proposal(block.message().proposer_index(), block.slot())
+    {
+        blob_sidecar_list.retain(|blob| !observed_blobs.contains(&blob.blob_index()));
+        if blob_sidecar_list.is_empty() {
+            debug!(
+                info = "blobs have already been seen on gossip",
+                "Ignoring EL blobs response"
+            );
+            return Ok(None);
+        }
     }
 
-    publish_fn(EngineGetBlobsOutput::Blobs(
-        blobs_to_import_and_publish.clone(),
-    ));
+    if let Some(known_blobs) = chain_adapter.cached_blob_indexes(&block_root) {
+        blob_sidecar_list.retain(|blob| !known_blobs.contains(&blob.blob_index()));
+        if blob_sidecar_list.is_empty() {
+            debug!(
+                info = "blobs have already been imported into data availability checker",
+                "Ignoring EL blobs response"
+            );
+            return Ok(None);
+        }
+    }
+
+    // Up until this point we have not observed the blobs in the gossip cache, which allows them to
+    // arrive independently while this function is running. In `publish_fn` we will observe them
+    // and then publish any blobs that had not already been observed.
+    publish_fn(EngineGetBlobsOutput::Blobs(blob_sidecar_list.clone()));
 
     let availability_processing_status = chain_adapter
         .process_engine_blobs(
             block.slot(),
             block_root,
-            EngineGetBlobsOutput::Blobs(blobs_to_import_and_publish),
+            EngineGetBlobsOutput::Blobs(blob_sidecar_list),
         )
         .await?;
 
@@ -408,37 +409,28 @@ fn build_blob_sidecars<E: EthSpec>(
     response: Vec<Option<BlobAndProofV1<E>>>,
     signed_block_header: SignedBeaconBlockHeader,
     kzg_commitments_inclusion_proof: &FixedVector<Hash256, E::KzgCommitmentsInclusionProofDepth>,
-    spec: &ChainSpec,
-) -> Result<FixedBlobSidecarList<E>, FetchEngineBlobError> {
-    let epoch = block.epoch();
-    let mut fixed_blob_sidecar_list =
-        FixedBlobSidecarList::default(spec.max_blobs_per_block(epoch) as usize);
+) -> Result<Vec<KzgVerifiedBlob<E>>, FetchEngineBlobError> {
+    let mut sidecars = vec![];
     for (index, blob_and_proof) in response
         .into_iter()
         .enumerate()
-        .filter_map(|(i, opt_blob)| Some((i, opt_blob?)))
+        .filter_map(|(index, opt_blob)| Some((index, opt_blob?)))
     {
-        match BlobSidecar::new_with_existing_proof(
+        let blob_sidecar = BlobSidecar::new_with_existing_proof(
             index,
             blob_and_proof.blob,
             block,
             signed_block_header.clone(),
             kzg_commitments_inclusion_proof,
             blob_and_proof.proof,
-        ) {
-            Ok(blob) => {
-                if let Some(blob_mut) = fixed_blob_sidecar_list.get_mut(index) {
-                    *blob_mut = Some(Arc::new(blob));
-                } else {
-                    return Err(FetchEngineBlobError::InternalError(format!(
-                        "Blobs from EL contains blob with invalid index {index}"
-                    )));
-                }
-            }
-            Err(e) => {
-                return Err(FetchEngineBlobError::BlobSidecarError(e));
-            }
-        }
+        )
+        .map_err(FetchEngineBlobError::BlobSidecarError)?;
+
+        sidecars.push(KzgVerifiedBlob::from_execution_verified(
+            Arc::new(blob_sidecar),
+            timestamp_now(),
+        ));
     }
-    Ok(fixed_blob_sidecar_list)
+
+    Ok(sidecars)
 }
