@@ -411,6 +411,11 @@ pub enum FailedCondition {
     EpochsSinceFinalization,
 }
 
+pub enum SubmitBlindedBlockResponse<E: EthSpec> {
+    V1(Box<FullPayloadContents<E>>),
+    V2,
+}
+
 type PayloadContentsRefTuple<'a, E> = (ExecutionPayloadRef<'a, E>, Option<&'a BlobsBundle<E>>);
 
 struct Inner<E: EthSpec> {
@@ -1893,9 +1898,25 @@ impl<E: EthSpec> ExecutionLayer<E> {
         &self,
         block_root: Hash256,
         block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<FullPayloadContents<E>, Error> {
+        spec: &ChainSpec,
+    ) -> Result<SubmitBlindedBlockResponse<E>, Error> {
         debug!(?block_root, "Sending block to builder");
+        if spec.is_fulu_scheduled() {
+            self.post_builder_blinded_blocks_v2(block_root, block)
+                .await
+                .map(|()| SubmitBlindedBlockResponse::V2)
+        } else {
+            self.post_builder_blinded_blocks_v1(block_root, block)
+                .await
+                .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
+        }
+    }
 
+    async fn post_builder_blinded_blocks_v1(
+        &self,
+        block_root: Hash256,
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<FullPayloadContents<E>, Error> {
         if let Some(builder) = self.builder() {
             let (payload_result, duration) =
                 timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
@@ -1903,16 +1924,16 @@ impl<E: EthSpec> ExecutionLayer<E> {
                     debug!(
                         ?block_root,
                         ssz = ssz_enabled,
-                        "Calling submit_blinded_block on builder"
+                        "Calling submit_blinded_block v1 on builder"
                     );
                     if ssz_enabled {
                         builder
-                            .post_builder_blinded_blocks_ssz(block)
+                            .post_builder_blinded_blocks_v1_ssz(block)
                             .await
                             .map_err(Error::Builder)
                     } else {
                         builder
-                            .post_builder_blinded_blocks(block)
+                            .post_builder_blinded_blocks_v1(block)
                             .await
                             .map_err(Error::Builder)
                             .map(|d| d.data)
@@ -1957,6 +1978,66 @@ impl<E: EthSpec> ExecutionLayer<E> {
             }
 
             payload_result
+        } else {
+            Err(Error::NoPayloadBuilder)
+        }
+    }
+
+    async fn post_builder_blinded_blocks_v2(
+        &self,
+        block_root: Hash256,
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<(), Error> {
+        if let Some(builder) = self.builder() {
+            let (result, duration) = timed_future(metrics::POST_BLINDED_PAYLOAD_BUILDER, async {
+                let ssz_enabled = builder.is_ssz_available();
+                debug!(
+                    ?block_root,
+                    ssz = ssz_enabled,
+                    "Calling submit_blinded_block v2 on builder"
+                );
+                if ssz_enabled {
+                    builder
+                        .post_builder_blinded_blocks_v2_ssz(block)
+                        .await
+                        .map_err(Error::Builder)
+                } else {
+                    builder
+                        .post_builder_blinded_blocks_v2(block)
+                        .await
+                        .map_err(Error::Builder)
+                }
+            })
+            .await;
+
+            match result {
+                Ok(()) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                        &[metrics::SUCCESS],
+                    );
+                    info!(
+                        relay_response_ms = duration.as_millis(),
+                        ?block_root,
+                        "Successfully submitted blinded block to the builder"
+                    )
+                }
+                Err(e) => {
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_BUILDER_REVEAL_PAYLOAD_OUTCOME,
+                        &[metrics::FAILURE],
+                    );
+                    error!(
+                        info = "this may result in a missed block proposal",
+                        error = ?e,
+                        relay_response_ms = duration.as_millis(),
+                        ?block_root,
+                        "Failed to submit blinded block to the builder"
+                    )
+                }
+            }
+
+            Ok(())
         } else {
             Err(Error::NoPayloadBuilder)
         }
