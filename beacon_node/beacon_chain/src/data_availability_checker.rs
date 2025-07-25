@@ -1,4 +1,6 @@
-use crate::blob_verification::{verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlobList};
+use crate::blob_verification::{
+    verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList,
+};
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
 };
@@ -262,6 +264,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
+    }
+
+    pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
+        &self,
+        block_root: Hash256,
+        blobs: I,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache
+            .put_kzg_verified_blobs(block_root, blobs)
     }
 
     /// Check if we've cached other data columns for this block. If it satisfies the custody requirement and we also
