@@ -8,7 +8,6 @@ use crate::sync::{
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
-use beacon_chain::data_column_verification::verify_kzg_for_data_column_list;
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainTypes,
     BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
@@ -25,7 +24,7 @@ use store::KzgCommitment;
 use tracing::{debug, error, info, warn};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{BlockImportSource, DataColumnSidecar, DataColumnSidecarList, Epoch, Hash256};
+use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
 
 /// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
@@ -142,7 +141,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         };
 
         let slot = block.slot();
-        let block_has_data = block.as_block().num_expected_blobs() > 0;
         let parent_root = block.message().parent_root();
         let commitments_formatted = block.as_block().commitments_formatted();
 
@@ -213,17 +211,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .await
             }
             _ => {}
-        }
-
-        // RPC block imported or execution validated. If the block was already imported by gossip we
-        // receive Err(BlockError::AlreadyKnown).
-        if result.is_ok() &&
-            // Block has at least one blob, so it produced columns
-            block_has_data &&
-            // Block slot is within the DA boundary (should always be the case) and PeerDAS is activated
-            self.chain.should_sample_slot(slot)
-        {
-            self.send_sync_message(SyncMessage::SampleBlock(block_root, slot));
         }
 
         // Sync handles these results
@@ -426,25 +413,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    /// Validate a list of data columns received from RPC requests
-    pub async fn validate_rpc_data_columns(
-        self: Arc<NetworkBeaconProcessor<T>>,
-        _block_root: Hash256,
-        data_columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
-        _seen_timestamp: Duration,
-    ) -> Result<(), String> {
-        verify_kzg_for_data_column_list(data_columns.iter(), &self.chain.kzg)
-            .map_err(|err| format!("{err:?}"))
-    }
-
-    /// Process a sampling completed event, inserting it into fork-choice
-    pub async fn process_sampling_completed(
-        self: Arc<NetworkBeaconProcessor<T>>,
-        block_root: Hash256,
-    ) {
-        self.chain.process_sampling_completed(block_root).await;
-    }
-
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
     pub async fn process_chain_segment(
@@ -570,15 +538,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if !imported_blocks.is_empty() {
                     self.chain.recompute_head_at_current_slot().await;
-
-                    for (block_root, block_slot) in &imported_blocks {
-                        if self.chain.should_sample_slot(*block_slot) {
-                            self.send_sync_message(SyncMessage::SampleBlock(
-                                *block_root,
-                                *block_slot,
-                            ));
-                        }
-                    }
                 }
                 (imported_blocks.len(), Ok(()))
             }

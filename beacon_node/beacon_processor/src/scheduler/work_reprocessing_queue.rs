@@ -69,10 +69,6 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
 
-/// How many sampling requests we queue before new ones get dropped.
-/// TODO(das): choose a sensible value
-const MAXIMUM_QUEUED_SAMPLING_REQUESTS: usize = 16_384;
-
 // Process backfill batch 50%, 60%, 80% through each slot.
 //
 // Note: use caution to set these fractions in a way that won't cause panic-y
@@ -109,8 +105,6 @@ pub enum ReprocessQueueMessage {
     UnknownBlockAggregate(QueuedAggregate),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate),
-    /// A sampling request that references an unknown block.
-    UnknownBlockSamplingRequest(QueuedSamplingRequest),
     /// A new backfill batch that needs to be scheduled for processing.
     BackfillSync(QueuedBackfillBatch),
     /// A delayed column reconstruction that needs checking
@@ -125,7 +119,6 @@ pub enum ReadyWork {
     Unaggregate(QueuedUnaggregate),
     Aggregate(QueuedAggregate),
     LightClientUpdate(QueuedLightClientUpdate),
-    SamplingRequest(QueuedSamplingRequest),
     BackfillSync(QueuedBackfillBatch),
     ColumnReconstruction(QueuedColumnReconstruction),
 }
@@ -148,12 +141,6 @@ pub struct QueuedAggregate {
 /// queued for later.
 pub struct QueuedLightClientUpdate {
     pub parent_root: Hash256,
-    pub process_fn: BlockingFn,
-}
-
-/// A sampling request for which the corresponding block is not known while processing.
-pub struct QueuedSamplingRequest {
-    pub beacon_block_root: Hash256,
     pub process_fn: BlockingFn,
 }
 
@@ -246,8 +233,6 @@ struct ReprocessQueue<S> {
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
-    /// Queue to manage scheduled sampling requests
-    sampling_requests_delay_queue: DelayQueue<QueuedSamplingRequestId>,
     /// Queue to manage scheduled column reconstructions.
     column_reconstructions_delay_queue: DelayQueue<QueuedColumnReconstruction>,
 
@@ -264,10 +249,6 @@ struct ReprocessQueue<S> {
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate, DelayKey)>,
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
-    /// Queued sampling requests.
-    queued_sampling_requests: FnvHashMap<usize, (QueuedSamplingRequest, DelayKey)>,
-    /// Sampling requests per block root.
-    awaiting_sampling_requests_per_block_root: HashMap<Hash256, Vec<QueuedSamplingRequestId>>,
     /// Column reconstruction per block root.
     queued_column_reconstructions: HashMap<Hash256, DelayKey>,
     /// Queued backfill batches
@@ -277,18 +258,15 @@ struct ReprocessQueue<S> {
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
     next_lc_update: usize,
-    next_sampling_request_update: usize,
     early_block_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
-    sampling_request_delay_debounce: TimeLatch,
     next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
     slot_clock: Arc<S>,
 }
 
 pub type QueuedLightClientUpdateId = usize;
-pub type QueuedSamplingRequestId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueuedAttestationId {
@@ -436,26 +414,21 @@ impl<S: SlotClock> ReprocessQueue<S> {
             rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
-            sampling_requests_delay_queue: <_>::default(),
             column_reconstructions_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
             queued_unaggregates: FnvHashMap::default(),
-            queued_sampling_requests: <_>::default(),
             awaiting_attestations_per_root: HashMap::new(),
             awaiting_lc_updates_per_parent_root: HashMap::new(),
-            awaiting_sampling_requests_per_block_root: <_>::default(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
             next_attestation: 0,
             next_lc_update: 0,
-            next_sampling_request_update: 0,
             early_block_debounce: TimeLatch::default(),
             rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
-            sampling_request_delay_debounce: <_>::default(),
             next_backfill_batch_event: None,
             slot_clock,
         }
@@ -664,34 +637,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 self.next_lc_update += 1;
             }
-            InboundEvent::Msg(UnknownBlockSamplingRequest(queued_sampling_request)) => {
-                if self.sampling_requests_delay_queue.len() >= MAXIMUM_QUEUED_SAMPLING_REQUESTS {
-                    if self.sampling_request_delay_debounce.elapsed() {
-                        error!(
-                            queue_size = MAXIMUM_QUEUED_SAMPLING_REQUESTS,
-                            "Sampling requests delay queue is full"
-                        );
-                    }
-                    // Drop the inbound message.
-                    return;
-                }
-
-                let id: QueuedSamplingRequestId = self.next_sampling_request_update;
-                self.next_sampling_request_update += 1;
-
-                // Register the delay.
-                let delay_key = self
-                    .sampling_requests_delay_queue
-                    .insert(id, QUEUED_SAMPLING_REQUESTS_DELAY);
-
-                self.awaiting_sampling_requests_per_block_root
-                    .entry(queued_sampling_request.beacon_block_root)
-                    .or_default()
-                    .push(id);
-
-                self.queued_sampling_requests
-                    .insert(id, (queued_sampling_request, delay_key));
-            }
             InboundEvent::Msg(BlockImported {
                 block_root,
                 parent_root,
@@ -748,48 +693,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
                             failed_count = failed_to_send_count,
                             sent_count,
                             "Ignored scheduled attestation(s) for block"
-                        );
-                    }
-                }
-                // Unqueue the sampling requests we have for this root, if any.
-                if let Some(queued_ids) = self
-                    .awaiting_sampling_requests_per_block_root
-                    .remove(&block_root)
-                {
-                    let mut sent_count = 0;
-                    let mut failed_to_send_count = 0;
-
-                    for id in queued_ids {
-                        metrics::inc_counter(
-                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_SAMPLING_REQUESTS,
-                        );
-
-                        if let Some((queued, delay_key)) = self.queued_sampling_requests.remove(&id)
-                        {
-                            // Remove the delay.
-                            self.sampling_requests_delay_queue.remove(&delay_key);
-
-                            // Send the work.
-                            let work = ReadyWork::SamplingRequest(queued);
-
-                            if self.ready_work_tx.try_send(work).is_err() {
-                                failed_to_send_count += 1;
-                            } else {
-                                sent_count += 1;
-                            }
-                        } else {
-                            // This should never happen.
-                            error!(?block_root, ?id, "Unknown sampling request for block root");
-                        }
-                    }
-
-                    if failed_to_send_count > 0 {
-                        error!(
-                            hint = "system may be overloaded",
-                            ?block_root,
-                            failed_to_send_count,
-                            sent_count,
-                            "Ignored scheduled sampling requests for block"
                         );
                     }
                 }

@@ -10,18 +10,9 @@ use tree_hash_derive::TreeHash;
 /// a nodes local ENR.
 ///
 /// Spec v0.11
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    Clone,
-    PartialEq,
-    Default,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
+    Debug, Clone, PartialEq, Default, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct EnrForkId {
     /// Fork digest of the current fork computed from [`ChainSpec::compute_fork_digest`].
