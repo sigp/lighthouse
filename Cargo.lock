@@ -5070,6 +5070,7 @@ dependencies = [
  "lighthouse_network",
  "lighthouse_version",
  "log",
+ "malloc_utils",
  "rayon",
  "serde",
  "serde_json",
