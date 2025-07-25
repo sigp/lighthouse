@@ -2628,7 +2628,7 @@ impl ApiTester {
                 .map(|res| ConfigAndPreset::Electra(res.data))
         }
         .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec);
 
         assert_eq!(result, expected);
 

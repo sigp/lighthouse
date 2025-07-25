@@ -1,6 +1,6 @@
 use crate::{
     consts::altair, consts::deneb, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset,
-    ChainSpec, Config, DenebPreset, ElectraPreset, EthSpec, ForkName, FuluPreset,
+    ChainSpec, Config, DenebPreset, ElectraPreset, EthSpec, FuluPreset,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ pub struct ConfigAndPreset {
 }
 
 impl ConfigAndPreset {
-    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec, fork_name: Option<ForkName>) -> Self {
+    pub fn from_chain_spec<E: EthSpec>(spec: &ChainSpec) -> Self {
         let config = Config::from_chain_spec::<E>(spec);
         let base_preset = BasePreset::from_chain_spec::<E>(spec);
         let altair_preset = AltairPreset::from_chain_spec::<E>(spec);
@@ -52,13 +52,7 @@ impl ConfigAndPreset {
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        // The latest stable fork is used if the `fork_name` is not specified.
-        let latest_stable_fork = ForkName::latest_stable();
-
-        if spec.fulu_fork_epoch.is_some()
-            || latest_stable_fork == ForkName::Fulu
-            || fork_name == Some(ForkName::Fulu)
-        {
+        if spec.is_fulu_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
             let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
 
@@ -73,10 +67,7 @@ impl ConfigAndPreset {
                 fulu_preset,
                 extra_fields,
             })
-        } else if spec.electra_fork_epoch.is_some()
-            || latest_stable_fork == ForkName::Electra
-            || fork_name == Some(ForkName::Electra)
-        {
+        } else {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
 
             ConfigAndPreset::Electra(ConfigAndPresetElectra {
@@ -87,16 +78,6 @@ impl ConfigAndPreset {
                 capella_preset,
                 deneb_preset,
                 electra_preset,
-                extra_fields,
-            })
-        } else {
-            ConfigAndPreset::Deneb(ConfigAndPresetDeneb {
-                config,
-                base_preset,
-                altair_preset,
-                bellatrix_preset,
-                capella_preset,
-                deneb_preset,
                 extra_fields,
             })
         }
@@ -155,8 +136,7 @@ mod test {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mainnet_spec = ChainSpec::mainnet();
-        let mut yamlconfig =
-            ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec, None);
+        let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
         let (k3, v3) = ("SAMPLE_HARDFORK_KEY3", 32);

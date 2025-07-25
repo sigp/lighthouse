@@ -45,6 +45,7 @@ struct ApiTester {
     validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
+    spec: Arc<ChainSpec>,
     _validator_dir: TempDir,
     _secrets_dir: TempDir,
     _test_runtime: TestRuntime,
@@ -117,7 +118,7 @@ impl ApiTester {
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec: E::default_spec().into(),
+            spec: spec.clone(),
             config: HttpConfig {
                 enabled: true,
                 listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -152,6 +153,7 @@ impl ApiTester {
             validator_store,
             url,
             slot_clock,
+            spec,
             _validator_dir: validator_dir,
             _secrets_dir: secrets_dir,
             _test_runtime: test_runtime,
@@ -206,8 +208,7 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let spec = E::default_spec();
-        let result = if spec.fulu_fork_epoch.is_some() {
+        let result = if self.spec.is_fulu_scheduled() {
             self.client
                 .get_lighthouse_spec::<ConfigAndPresetFulu>()
                 .await
@@ -219,7 +220,7 @@ impl ApiTester {
                 .map(|res| ConfigAndPreset::Electra(res.data))
         }
         .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&spec, None);
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.spec);
 
         assert_eq!(result, expected);
 
