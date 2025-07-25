@@ -52,11 +52,6 @@ impl ConfigAndPreset {
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        // Remove blob schedule for backwards-compatibility.
-        if spec.is_fulu_scheduled() {
-            config.blob_schedule.set_skip_serializing();
-        }
-
         if spec.is_fulu_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
             let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
@@ -73,6 +68,9 @@ impl ConfigAndPreset {
                 extra_fields,
             })
         } else {
+            // Remove blob schedule for backwards-compatibility.
+            config.blob_schedule.set_skip_serializing();
+
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
 
             ConfigAndPreset::Electra(ConfigAndPresetElectra {
@@ -160,8 +158,8 @@ mod test {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: ConfigAndPresetElectra =
+        let from: ConfigAndPresetFulu =
             serde_yaml::from_reader(reader).expect("error while deserializing");
-        assert_eq!(ConfigAndPreset::Electra(from), yamlconfig);
+        assert_eq!(ConfigAndPreset::Fulu(from), yamlconfig);
     }
 }

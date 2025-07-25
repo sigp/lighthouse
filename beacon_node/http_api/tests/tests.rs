@@ -2616,7 +2616,7 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = if self.chain.spec.fulu_fork_epoch.is_some() {
+        let result = if self.chain.spec.is_fulu_scheduled() {
             self.client
                 .get_config_spec::<ConfigAndPresetFulu>()
                 .await
