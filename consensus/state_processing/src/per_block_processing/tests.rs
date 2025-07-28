@@ -717,10 +717,10 @@ async fn invalid_attester_slashing_not_slashable() {
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
     match &mut attester_slashing {
-        AttesterSlashing::Base(ref mut attester_slashing) => {
+        AttesterSlashing::Base(attester_slashing) => {
             attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
         }
-        AttesterSlashing::Electra(ref mut attester_slashing) => {
+        AttesterSlashing::Electra(attester_slashing) => {
             attester_slashing.attestation_1 = attester_slashing.attestation_2.clone();
         }
     }
@@ -752,10 +752,10 @@ async fn invalid_attester_slashing_1_invalid() {
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
     match &mut attester_slashing {
-        AttesterSlashing::Base(ref mut attester_slashing) => {
+        AttesterSlashing::Base(attester_slashing) => {
             attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
         }
-        AttesterSlashing::Electra(ref mut attester_slashing) => {
+        AttesterSlashing::Electra(attester_slashing) => {
             attester_slashing.attestation_1.attesting_indices = VariableList::from(vec![2, 1]);
         }
     }
@@ -790,10 +790,10 @@ async fn invalid_attester_slashing_2_invalid() {
 
     let mut attester_slashing = harness.make_attester_slashing(vec![1, 2]);
     match &mut attester_slashing {
-        AttesterSlashing::Base(ref mut attester_slashing) => {
+        AttesterSlashing::Base(attester_slashing) => {
             attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
         }
-        AttesterSlashing::Electra(ref mut attester_slashing) => {
+        AttesterSlashing::Electra(attester_slashing) => {
             attester_slashing.attestation_2.attesting_indices = VariableList::from(vec![2, 1]);
         }
     }

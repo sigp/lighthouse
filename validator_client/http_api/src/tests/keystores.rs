@@ -9,7 +9,8 @@ use eth2::lighthouse_vc::{
 };
 use itertools::Itertools;
 use lighthouse_validator_store::DEFAULT_GAS_LIMIT;
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
@@ -1327,13 +1328,13 @@ async fn delete_concurrent_with_signing() {
         let all_pubkeys = all_pubkeys.clone();
 
         let handle = handle.spawn(async move {
-            let mut rng = SmallRng::from_entropy();
+            let mut rng: StdRng = SeedableRng::from_os_rng();
 
             let mut slashing_protection = vec![];
             for _ in 0..num_delete_attempts {
                 let to_delete = all_pubkeys
                     .iter()
-                    .filter(|_| rng.gen_bool(delete_prob))
+                    .filter(|_| rng.random_bool(delete_prob))
                     .copied()
                     .collect::<Vec<_>>();
 

@@ -770,37 +770,37 @@ async fn invalid_signature_attester_slashing() {
             .clone()
             .deconstruct();
         match &mut block.body_mut() {
-            BeaconBlockBodyRefMut::Base(ref mut blk) => {
+            BeaconBlockBodyRefMut::Base(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Altair(ref mut blk) => {
+            BeaconBlockBodyRefMut::Altair(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => {
+            BeaconBlockBodyRefMut::Bellatrix(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Capella(ref mut blk) => {
+            BeaconBlockBodyRefMut::Capella(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Deneb(ref mut blk) => {
+            BeaconBlockBodyRefMut::Deneb(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_base().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Electra(ref mut blk) => {
+            BeaconBlockBodyRefMut::Electra(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_electra().unwrap().clone())
                     .expect("should update attester slashing");
             }
-            BeaconBlockBodyRefMut::Fulu(ref mut blk) => {
+            BeaconBlockBodyRefMut::Fulu(blk) => {
                 blk.attester_slashings
                     .push(attester_slashing.as_electra().unwrap().clone())
                     .expect("should update attester slashing");
@@ -836,31 +836,31 @@ async fn invalid_signature_attestation() {
             .clone()
             .deconstruct();
         match &mut block.body_mut() {
-            BeaconBlockBodyRefMut::Base(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Base(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Altair(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Altair(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Bellatrix(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Bellatrix(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Capella(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Capella(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Deneb(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Deneb(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Electra(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Electra(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
-            BeaconBlockBodyRefMut::Fulu(ref mut blk) => blk
+            BeaconBlockBodyRefMut::Fulu(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),

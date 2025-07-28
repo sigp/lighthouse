@@ -1195,10 +1195,10 @@ async fn attesting_to_optimistic_head() {
             .unwrap();
 
         match &mut attestation {
-            Attestation::Base(ref mut att) => {
+            Attestation::Base(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
-            Attestation::Electra(ref mut att) => {
+            Attestation::Electra(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
         }

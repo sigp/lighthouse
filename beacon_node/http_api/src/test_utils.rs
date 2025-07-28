@@ -132,7 +132,7 @@ impl<E: EthSpec> InteractiveTester<E> {
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     test_runtime: &TestRuntime,
-) -> ApiServer<T, impl Future<Output = ()>> {
+) -> ApiServer<T, impl Future<Output = ()> + use<T>> {
     create_api_server_with_config(chain, Config::default(), test_runtime).await
 }
 

@@ -298,7 +298,7 @@ async fn randomised_skips() {
     let mut head_slot = 0;
 
     for slot in 1..=num_slots {
-        if rng.gen_bool(0.8) {
+        if rng.random_bool(0.8) {
             harness
                 .extend_chain(
                     1,

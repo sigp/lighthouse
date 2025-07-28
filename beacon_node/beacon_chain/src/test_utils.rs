@@ -713,7 +713,7 @@ where
     pub fn set_mock_builder(
         &mut self,
         beacon_url: SensitiveUrl,
-    ) -> impl futures::Future<Output = ()> {
+    ) -> impl futures::Future<Output = ()> + use<E, Hot, Cold> {
         let mock_el = self
             .mock_execution_layer
             .as_ref()

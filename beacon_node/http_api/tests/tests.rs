@@ -2441,10 +2441,10 @@ impl ApiTester {
     pub async fn test_post_beacon_pool_attester_slashings_invalid_v1(mut self) -> Self {
         let mut slashing = self.attester_slashing.clone();
         match &mut slashing {
-            AttesterSlashing::Base(ref mut slashing) => {
+            AttesterSlashing::Base(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
-            AttesterSlashing::Electra(ref mut slashing) => {
+            AttesterSlashing::Electra(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
         }
@@ -2465,10 +2465,10 @@ impl ApiTester {
     pub async fn test_post_beacon_pool_attester_slashings_invalid_v2(mut self) -> Self {
         let mut slashing = self.attester_slashing.clone();
         match &mut slashing {
-            AttesterSlashing::Base(ref mut slashing) => {
+            AttesterSlashing::Base(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
-            AttesterSlashing::Electra(ref mut slashing) => {
+            AttesterSlashing::Electra(slashing) => {
                 slashing.attestation_1.data.slot += 1;
             }
         }
@@ -4069,10 +4069,10 @@ impl ApiTester {
     pub async fn test_get_validator_aggregate_and_proofs_invalid_v1(mut self) -> Self {
         let mut aggregate = self.get_aggregate().await;
         match &mut aggregate {
-            SignedAggregateAndProof::Base(ref mut aggregate) => {
+            SignedAggregateAndProof::Base(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
-            SignedAggregateAndProof::Electra(ref mut aggregate) => {
+            SignedAggregateAndProof::Electra(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
@@ -4106,10 +4106,10 @@ impl ApiTester {
     pub async fn test_get_validator_aggregate_and_proofs_invalid_v2(mut self) -> Self {
         let mut aggregate = self.get_aggregate().await;
         match &mut aggregate {
-            SignedAggregateAndProof::Base(ref mut aggregate) => {
+            SignedAggregateAndProof::Base(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
-            SignedAggregateAndProof::Electra(ref mut aggregate) => {
+            SignedAggregateAndProof::Electra(aggregate) => {
                 aggregate.message.aggregate.data.slot += 1;
             }
         }
