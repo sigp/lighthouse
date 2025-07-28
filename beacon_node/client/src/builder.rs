@@ -207,7 +207,8 @@ where
             .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
-                StdRng::from_rng(OsRng).map_err(|e| format!("Failed to create RNG: {:?}", e))?,
+                StdRng::try_from_rng(&mut OsRng)
+                    .map_err(|e| format!("Failed to create RNG: {:?}", e))?,
             ));
 
         let builder = if let Some(slasher) = self.slasher.clone() {

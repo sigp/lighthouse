@@ -99,7 +99,9 @@ fn build_profile_name() -> String {
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var("RUST_BACKTRACE").is_err() {
-        std::env::set_var("RUST_BACKTRACE", "1");
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
     }
 
     // Parse the CLI parameters.
