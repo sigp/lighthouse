@@ -173,7 +173,8 @@ jobs:
   # Tests checkpoint syncing to a live network (current fork) and a running devnet (usually next scheduled fork)
   checkpoint-sync-test:
     name: checkpoint-sync-test-${{ matrix.network }}
-    runs-on: ubuntu-latest
+    # Use self-hosted runner for Fusaka devnet testing as GitHub hosted ones aren't able to keep up with the chain.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && matrix.network == 'devnet' && fromJson('["self-hosted", "linux", "Kurtosis", "large"]') || 'ubuntu-latest'  }}
     needs: dockerfile-ubuntu
     if: contains(github.event.pull_request.labels.*.name, 'syncing')
     continue-on-error: true
@@ -201,7 +202,9 @@ jobs:
 
       - name: Run the checkpoint sync test script
         run: |
-          ./checkpoint-sync.sh "sync-${{ matrix.network }}" "checkpoint-sync-config-${{ matrix.network }}.yaml"
+          # Use unique enclave names to avoid collisions
+          ENCLAVE_NAME=sync-${{ matrix.network }}-${{ github.run_id }}-${{ github.run_attempt }}
+          ./checkpoint-sync.sh "$ENCLAVE_NAME" "checkpoint-sync-config-${{ matrix.network }}.yaml"
         working-directory: scripts/tests
 
       - name: Upload logs artifact
