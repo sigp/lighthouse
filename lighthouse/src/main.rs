@@ -74,11 +74,11 @@ fn bls_hardware_acceleration() -> bool {
 }
 
 fn allocator_name() -> String {
-    #[cfg(target_os = "windows")]
+    #[cfg(any(feature = "heaptrack", target_os = "windows"))]
     {
         "system".to_string()
     }
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(feature = "heaptrack", target_os = "windows")))]
     match malloc_utils::jemalloc::page_size() {
         Ok(page_size) => format!("jemalloc ({}K)", page_size / 1024),
         Err(e) => format!("jemalloc (error: {e:?})"),
@@ -125,6 +125,16 @@ fn main() {
                 .hide(cfg!(windows))
                 .global(true)
                 .display_order(0),
+        )
+        .arg(
+            Arg::new("logfile")
+                .long("logfile")
+                .value_name("PATH")
+                .help("DEPRECATED")
+                .action(ArgAction::Set)
+                .global(true)
+                .hide(true)
+                .display_order(0)
         )
         .arg(
             Arg::new("logfile-dir")
@@ -700,6 +710,11 @@ fn run<E: EthSpec>(
 
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
+
+    // DEPRECATED: can be removed in v7.2.0/v8.0.0.
+    if clap_utils::parse_optional::<PathBuf>(matches, "logfile")?.is_some() {
+        warn!("The --logfile flag is deprecated and replaced by --logfile-dir");
+    }
 
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {

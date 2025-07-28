@@ -2616,13 +2616,19 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = self
-            .client
-            .get_config_spec::<ConfigAndPresetFulu>()
-            .await
-            .map(|res| ConfigAndPreset::Fulu(res.data))
-            .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
+        let result = if self.chain.spec.is_fulu_scheduled() {
+            self.client
+                .get_config_spec::<ConfigAndPresetFulu>()
+                .await
+                .map(|res| ConfigAndPreset::Fulu(res.data))
+        } else {
+            self.client
+                .get_config_spec::<ConfigAndPresetElectra>()
+                .await
+                .map(|res| ConfigAndPreset::Electra(res.data))
+        }
+        .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec);
 
         assert_eq!(result, expected);
 
@@ -4669,7 +4675,7 @@ impl ApiTester {
         self.mock_builder
             .as_ref()
             .unwrap()
-            .add_operation(Operation::GasLimit(30_000_000));
+            .add_operation(Operation::GasLimit(DEFAULT_GAS_LIMIT as usize));
 
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
@@ -4692,7 +4698,7 @@ impl ApiTester {
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index);
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
-        assert_eq!(payload.gas_limit(), 30_000_000);
+        assert_eq!(payload.gas_limit(), DEFAULT_GAS_LIMIT);
 
         self
     }

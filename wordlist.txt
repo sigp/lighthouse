@@ -75,6 +75,7 @@ Proto
 PRs
 Prysm
 QUIC
+QuickNode
 RasPi
 README
 RESTful
@@ -196,6 +197,8 @@ pem
 performant
 pid
 pre
+presign
+presigned
 pubkey
 pubkeys
 rc

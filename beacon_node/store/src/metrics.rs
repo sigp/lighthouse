@@ -68,7 +68,7 @@ pub static DISK_DB_WRITE_COUNT: LazyLock<Result<IntCounterVec>> = LazyLock::new(
 pub static DISK_DB_READ_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "store_disk_db_read_seconds",
-        "Time taken to write bytes to store.",
+        "Time taken to read bytes from store.",
     )
 });
 pub static DISK_DB_WRITE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {

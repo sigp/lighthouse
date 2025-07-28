@@ -799,13 +799,6 @@ fn network_subscribe_all_data_column_subnets_flag() {
         .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
 }
 #[test]
-fn network_enable_sampling_flag() {
-    CommandLineTest::new()
-        .flag("enable-sampling", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.enable_sampling));
-}
-#[test]
 fn blob_publication_batches() {
     CommandLineTest::new()
         .flag("blob-publication-batches", Some("3"))
@@ -826,12 +819,6 @@ fn blob_publication_batch_interval() {
         });
 }
 
-#[test]
-fn network_enable_sampling_flag_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.enable_sampling));
-}
 #[test]
 fn network_subscribe_all_subnets_flag() {
     CommandLineTest::new()
@@ -1829,7 +1816,7 @@ fn block_cache_size_flag() {
 fn state_cache_size_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(32)));
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
 }
 #[test]
 fn state_cache_size_flag() {
@@ -2475,6 +2462,13 @@ fn logfile_format_flag() {
                 Some("JSON".to_string())
             )
         });
+}
+// DEPRECATED but should not crash.
+#[test]
+fn deprecated_logfile() {
+    CommandLineTest::new()
+        .flag("logfile", Some("test.txt"))
+        .run_with_zero_port();
 }
 
 // DEPRECATED but should not crash.

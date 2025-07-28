@@ -192,10 +192,6 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.shuffling_cache_size = cache_size;
     }
 
-    if cli_args.get_flag("enable-sampling") {
-        client_config.chain.enable_sampling = true;
-    }
-
     if let Some(batches) = clap_utils::parse_optional(cli_args, "blob-publication-batches")? {
         client_config.chain.blob_publication_batches = batches;
     }
@@ -278,7 +274,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     if clap_utils::parse_optional::<u64>(cli_args, "eth1-cache-follow-distance")?.is_some() {
-        warn!("The eth1-purge-cache flag is deprecated");
+        warn!("The eth1-cache-follow-distance flag is deprecated");
     }
 
     // `--execution-endpoint` is required now.

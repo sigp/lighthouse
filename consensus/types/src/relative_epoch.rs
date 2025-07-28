@@ -18,7 +18,8 @@ impl From<ArithError> for Error {
 /// to and following some epoch.
 ///
 /// Spec v0.12.1
-#[derive(Debug, PartialEq, Clone, Copy, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum RelativeEpoch {
     /// The prior epoch.
     Previous,
