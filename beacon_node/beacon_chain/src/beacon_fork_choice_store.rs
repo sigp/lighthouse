@@ -136,6 +136,7 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     finalized_checkpoint: Checkpoint,
     justified_checkpoint: Checkpoint,
     justified_balances: JustifiedBalances,
+    justified_state_root: Hash256,
     unrealized_justified_checkpoint: Checkpoint,
     unrealized_finalized_checkpoint: Checkpoint,
     proposer_boost_root: Hash256,
@@ -162,9 +163,9 @@ where
     /// It is assumed that `anchor` is already persisted in `store`.
     pub fn get_forkchoice_store(
         store: Arc<HotColdDB<E, Hot, Cold>>,
-        anchor: &BeaconSnapshot<E>,
+        anchor: BeaconSnapshot<E>,
     ) -> Result<Self, Error> {
-        let anchor_state = &anchor.beacon_state;
+        let mut anchor_state = anchor.beacon_state.clone();
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
         if anchor_block_header.state_root == Hash256::zero() {
             anchor_block_header.state_root = anchor.beacon_state_root();
@@ -176,7 +177,8 @@ where
             root: anchor_root,
         };
         let finalized_checkpoint = justified_checkpoint;
-        let justified_balances = JustifiedBalances::from_justified_state(anchor_state)?;
+        let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
+        let justified_state_root = anchor_state.canonical_root()?;
 
         Ok(Self {
             store,
@@ -184,6 +186,7 @@ where
             time: anchor_state.slot(),
             justified_checkpoint,
             justified_balances,
+            justified_state_root,
             finalized_checkpoint,
             unrealized_justified_checkpoint: justified_checkpoint,
             unrealized_finalized_checkpoint: finalized_checkpoint,
@@ -197,11 +200,10 @@ where
     /// on-disk database.
     pub fn to_persisted(&self) -> PersistedForkChoiceStore {
         PersistedForkChoiceStore {
-            balances_cache: self.balances_cache.clone(),
             time: self.time,
             finalized_checkpoint: self.finalized_checkpoint,
             justified_checkpoint: self.justified_checkpoint,
-            justified_balances: self.justified_balances.effective_balances.clone(),
+            justified_state_root: self.justified_state_root,
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
@@ -210,19 +212,60 @@ where
     }
 
     /// Restore `Self` from a previously-generated `PersistedForkChoiceStore`.
-    pub fn from_persisted(
-        persisted: PersistedForkChoiceStore,
+    ///
+    /// DEPRECATED. Can be deleted when schema v23 migration is deleted.
+    pub fn from_persisted_v17(
+        persisted: PersistedForkChoiceStoreV17,
         store: Arc<HotColdDB<E, Hot, Cold>>,
     ) -> Result<Self, Error> {
         let justified_balances =
             JustifiedBalances::from_effective_balances(persisted.justified_balances)?;
+
+        // This dummy value for `justified_state_root` must not be relied upon.
+        let justified_state_root = Hash256::repeat_byte(0x66);
+
         Ok(Self {
             store,
-            balances_cache: persisted.balances_cache,
+            balances_cache: <_>::default(),
             time: persisted.time,
             finalized_checkpoint: persisted.finalized_checkpoint,
             justified_checkpoint: persisted.justified_checkpoint,
             justified_balances,
+            justified_state_root,
+            unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
+            proposer_boost_root: persisted.proposer_boost_root,
+            equivocating_indices: persisted.equivocating_indices,
+            _phantom: PhantomData,
+        })
+    }
+
+    /// Restore `Self` from a previously-generated `PersistedForkChoiceStore`.
+    pub fn from_persisted(
+        persisted: PersistedForkChoiceStore,
+        store: Arc<HotColdDB<E, Hot, Cold>>,
+    ) -> Result<Self, Error> {
+        let justified_checkpoint = persisted.justified_checkpoint;
+        let justified_state_root = persisted.justified_state_root;
+
+        let (_, justified_state) = store
+            .get_advanced_hot_state(
+                justified_checkpoint.root,
+                justified_checkpoint.epoch.start_slot(E::slots_per_epoch()),
+                justified_state_root,
+            )
+            .map_err(Error::FailedToReadState)?
+            .ok_or(Error::MissingState(justified_state_root))?;
+
+        let justified_balances = JustifiedBalances::from_justified_state(&justified_state)?;
+        Ok(Self {
+            store,
+            balances_cache: <_>::default(),
+            time: persisted.time,
+            finalized_checkpoint: persisted.finalized_checkpoint,
+            justified_checkpoint,
+            justified_balances,
+            justified_state_root,
             unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
@@ -309,6 +352,7 @@ where
                 .justified_checkpoint
                 .epoch
                 .start_slot(E::slots_per_epoch());
+            // FIXME(sproul): this looks wrong, the state root is not for the advanced justified state
             let (_, state) = self
                 .store
                 .get_advanced_hot_state(
@@ -346,16 +390,26 @@ where
     }
 }
 
-pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV17;
+pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV28;
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
-#[superstruct(variants(V17), variant_attributes(derive(Encode, Decode)), no_enum)]
+#[superstruct(
+    variants(V17, V28),
+    variant_attributes(derive(Encode, Decode)),
+    no_enum
+)]
 pub struct PersistedForkChoiceStore {
+    /// The balances cache was removed from disk storage in schema V28.
+    #[superstruct(only(V17))]
     pub balances_cache: BalancesCacheV8,
     pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
+    /// The justified balances were removed from disk storage in schema V28.
+    #[superstruct(only(V17))]
     pub justified_balances: Vec<u64>,
+    /// The justified state root is stored so that it can be used to load the justified balances.
+    pub justified_state_root: Hash256,
     pub unrealized_justified_checkpoint: Checkpoint,
     pub unrealized_finalized_checkpoint: Checkpoint,
     pub proposer_boost_root: Hash256,

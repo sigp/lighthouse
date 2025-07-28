@@ -1481,7 +1481,7 @@ where
 #[derive(Encode, Decode, Clone)]
 pub struct PersistedForkChoice {
     pub proto_array_bytes: Vec<u8>,
-    queued_attestations: Vec<QueuedAttestation>,
+    pub queued_attestations: Vec<QueuedAttestation>,
 }
 
 #[cfg(test)]

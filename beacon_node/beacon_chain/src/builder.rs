@@ -394,7 +394,7 @@ where
                 .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
         );
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, genesis.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
 
@@ -616,7 +616,7 @@ where
             beacon_state: weak_subj_state,
         };
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, snapshot.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
         let fork_choice = ForkChoice::from_anchor(

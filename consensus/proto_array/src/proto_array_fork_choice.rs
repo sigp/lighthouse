@@ -868,6 +868,10 @@ impl ProtoArrayForkChoice {
         self.proto_array.iter_block_roots(block_root)
     }
 
+    pub fn as_ssz_container(&self) -> SszContainer {
+        SszContainer::from(self)
+    }
+
     pub fn as_bytes(&self) -> Vec<u8> {
         SszContainer::from(self).as_ssz_bytes()
     }

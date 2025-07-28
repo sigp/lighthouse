@@ -1,16 +1,23 @@
-use crate::beacon_fork_choice_store::PersistedForkChoiceStoreV17;
+use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV17, PersistedForkChoiceStoreV28};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error, StoreItem};
 use superstruct::superstruct;
 
 // If adding a new version you should update this type alias and fix the breakages.
-pub type PersistedForkChoice = PersistedForkChoiceV17;
+pub type PersistedForkChoice = PersistedForkChoiceV28;
 
-#[superstruct(variants(V17), variant_attributes(derive(Encode, Decode)), no_enum)]
+#[superstruct(
+    variants(V17, V28),
+    variant_attributes(derive(Encode, Decode)),
+    no_enum
+)]
 pub struct PersistedForkChoice {
     pub fork_choice: fork_choice::PersistedForkChoice,
-    pub fork_choice_store: PersistedForkChoiceStoreV17,
+    #[superstruct(only(V17))]
+    pub fork_choice_store_v17: PersistedForkChoiceStoreV17,
+    #[superstruct(only(V28))]
+    pub fork_choice_store: PersistedForkChoiceStoreV28,
 }
 
 macro_rules! impl_store_item {
@@ -32,3 +39,4 @@ macro_rules! impl_store_item {
 }
 
 impl_store_item!(PersistedForkChoiceV17);
+impl_store_item!(PersistedForkChoiceV28);
