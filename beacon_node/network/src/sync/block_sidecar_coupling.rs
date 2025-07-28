@@ -221,11 +221,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
             let mut blob_list = Vec::with_capacity(max_blobs_per_block);
             while {
-                let pair_next_blob = blob_iter
+                blob_iter
                     .peek()
                     .map(|sidecar| sidecar.slot() == block.slot())
-                    .unwrap_or(false);
-                pair_next_blob
+                    .unwrap_or(false)
             } {
                 blob_list.push(blob_iter.next().ok_or_else(|| CouplingError {
                     msg: "Missing next blob".to_string(),
