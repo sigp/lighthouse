@@ -315,7 +315,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(spec_filter.clone())
         .then(|spec: Arc<_>| {
             blocking_json_task(move || {
-                let config = ConfigAndPreset::from_chain_spec::<E>(&spec, None);
+                let config = ConfigAndPreset::from_chain_spec::<E>(&spec);
                 Ok(api_types::GenericResponse::from(config))
             })
         });

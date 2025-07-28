@@ -2763,7 +2763,7 @@ pub fn serve<T: BeaconChainTypes>(
             move |task_spawner: TaskSpawner<T::EthSpec>, chain: Arc<BeaconChain<T>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
                     let config_and_preset =
-                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec, None);
+                        ConfigAndPreset::from_chain_spec::<T::EthSpec>(&chain.spec);
                     Ok(api_types::GenericResponse::from(config_and_preset))
                 })
             },

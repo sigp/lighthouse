@@ -293,7 +293,7 @@ impl BuilderHttpClient {
     }
 
     /// `POST /eth/v1/builder/blinded_blocks` with SSZ serialized request body
-    pub async fn post_builder_blinded_blocks_ssz<E: EthSpec>(
+    pub async fn post_builder_blinded_blocks_v1_ssz<E: EthSpec>(
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<FullPayloadContents<E>, Error> {
@@ -340,8 +340,58 @@ impl BuilderHttpClient {
             .map_err(Error::InvalidSsz)
     }
 
+    /// `POST /eth/v2/builder/blinded_blocks` with SSZ serialized request body
+    pub async fn post_builder_blinded_blocks_v2_ssz<E: EthSpec>(
+        &self,
+        blinded_block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        let body = blinded_block.as_ssz_bytes();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v2")
+            .push("builder")
+            .push("blinded_blocks");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONSENSUS_VERSION_HEADER,
+            HeaderValue::from_str(&blinded_block.fork_name_unchecked().to_string())
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+        headers.insert(
+            CONTENT_TYPE_HEADER,
+            HeaderValue::from_str(SSZ_CONTENT_TYPE_HEADER)
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_str(PREFERENCE_ACCEPT_VALUE)
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+
+        let result = self
+            .post_ssz_with_raw_response(
+                path,
+                body,
+                headers,
+                Some(self.timeouts.post_blinded_blocks),
+            )
+            .await?;
+
+        if result.status() == StatusCode::ACCEPTED {
+            Ok(())
+        } else {
+            // ACCEPTED is the only valid status code response
+            Err(Error::StatusCode(result.status()))
+        }
+    }
+
     /// `POST /eth/v1/builder/blinded_blocks`
-    pub async fn post_builder_blinded_blocks<E: EthSpec>(
+    pub async fn post_builder_blinded_blocks_v1<E: EthSpec>(
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
@@ -381,6 +431,54 @@ impl BuilderHttpClient {
             .await?
             .json()
             .await?)
+    }
+
+    /// `POST /eth/v2/builder/blinded_blocks`
+    pub async fn post_builder_blinded_blocks_v2<E: EthSpec>(
+        &self,
+        blinded_block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v2")
+            .push("builder")
+            .push("blinded_blocks");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONSENSUS_VERSION_HEADER,
+            HeaderValue::from_str(&blinded_block.fork_name_unchecked().to_string())
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+        headers.insert(
+            CONTENT_TYPE_HEADER,
+            HeaderValue::from_str(JSON_CONTENT_TYPE_HEADER)
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+        headers.insert(
+            ACCEPT,
+            HeaderValue::from_str(JSON_ACCEPT_VALUE)
+                .map_err(|e| Error::InvalidHeaders(format!("{}", e)))?,
+        );
+
+        let result = self
+            .post_with_raw_response(
+                path,
+                &blinded_block,
+                headers,
+                Some(self.timeouts.post_blinded_blocks),
+            )
+            .await?;
+
+        if result.status() == StatusCode::ACCEPTED {
+            Ok(())
+        } else {
+            // ACCEPTED is the only valid status code response
+            Err(Error::StatusCode(result.status()))
+        }
     }
 
     /// `GET /eth/v1/builder/header`

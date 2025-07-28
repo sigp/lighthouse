@@ -260,7 +260,7 @@ impl ApiTester {
             .await
             .map(|res| ConfigAndPreset::Fulu(res.data))
             .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
 
         assert_eq!(result, expected);
 
