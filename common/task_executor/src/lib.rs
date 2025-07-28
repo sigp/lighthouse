@@ -288,7 +288,7 @@ impl TaskExecutor {
         &self,
         task: F,
         name: &'static str,
-    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static>
+    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static + use<F, R>>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,

@@ -140,7 +140,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     http_config: Config,
     test_runtime: &TestRuntime,
-) -> ApiServer<T, impl Future<Output = ()>> {
+) -> ApiServer<T, impl Future<Output = ()> + use<T>> {
     // Use port 0 to allocate a new unused port.
     let port = 0;
 
