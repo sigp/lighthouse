@@ -10,6 +10,7 @@ use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key,
 use std::collections::HashSet;
 use std::path::Path;
 use types::EthSpec;
+use tokio::runtime::Handle;
 
 pub enum BeaconNodeBackend<E: EthSpec> {
     #[cfg(feature = "leveldb")]
@@ -31,8 +32,19 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::get_bytes(txn, column, key),
             #[cfg(feature = "postgres")]
             BeaconNodeBackend::PostgresDB(ref txn) => {
-                let rt = tokio::runtime::Runtime::new().expect("failed to build tokio runtime");
-                rt.block_on(txn.get_bytes(column, key))
+                // let rt = tokio::runtime::Runtime::new().expect("failed to build tokio runtime");
+                // rt.block_on(txn.get_bytes(column, key))
+
+                // Try to use the current Tokio runtime if available
+                match Handle::try_current() {
+                    Ok(handle) => handle.block_on(txn.get_bytes(column, key)),
+                    Err(_) => {
+                        // Fallback to creating a new runtime if not in async context
+                        let rt = tokio::runtime::Runtime::new()
+                            .map_err(|e| Error::DBError { message: e.to_string() })?;
+                        rt.block_on(txn.get_bytes(column, key))
+                    }
+                }
             }
         }
     }
@@ -56,9 +68,16 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 txn.write_options(),
             ),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(ref db) => {
-                let rt = tokio::runtime::Runtime::new().expect("Failed to block tokio runtime");
-                rt.block_on(db.put_bytes(column, key, value))
+            BeaconNodeBackend::PostgresDB(ref txn) => {
+                // let rt = tokio::runtime::Runtime::new().expect("Failed to block tokio runtime");
+                // rt.block_on(db.put_bytes(column, key, value))
+                match tokio::runtime::Handle::try_current() {
+                    Ok(handle) => handle.block_on(txn.put_bytes(column, key, value)),
+                    Err(_) => {
+                        let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
+                        rt.block_on(txn.put_bytes(column, key, value))
+                    }
+                }
             }
         }
     }
