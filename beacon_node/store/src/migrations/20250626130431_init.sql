@@ -25,6 +25,11 @@ CREATE TABLE beacon_data_column (
     value BYTEA NOT NULL
 );
 
+CREATE TABLE beacon_state (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
 CREATE TABLE beacon_state_hot_diff (
     key BYTEA PRIMARY KEY,
     value BYTEA NOT NULL
@@ -45,12 +50,22 @@ CREATE TABLE beacon_state_diff (
     value BYTEA NOT NULL
 );
 
+CREATE TABLE beacon_state_summary (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
 CREATE TABLE beacon_state_hot_summary (
     key BYTEA PRIMARY KEY,
     value BYTEA NOT NULL
 );
 
 CREATE TABLE beacon_cold_state_summary (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
+CREATE TABLE beacon_state_temporary (
     key BYTEA PRIMARY KEY,
     value BYTEA NOT NULL
 );
@@ -70,6 +85,11 @@ CREATE TABLE op_pool (
     value BYTEA NOT NULL
 );
 
+CREATE TABLE eth1_cache (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
 CREATE TABLE fork_choice (
     key BYTEA PRIMARY KEY,
     value BYTEA NOT NULL
@@ -80,12 +100,32 @@ CREATE TABLE pubkey_cache (
     value BYTEA NOT NULL
 );
 
+CREATE TABLE beacon_restore_point (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
 CREATE TABLE beacon_state_roots (
     key BYTEA PRIMARY KEY,
     value BYTEA NOT NULL
 );
 
+CREATE TABLE beacon_state_roots_chunked (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
 CREATE TABLE beacon_block_roots (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
+CREATE TABLE beacon_block_roots_chunked (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
+CREATE TABLE beacon_historical_roots (
     key BYTEA PRIMARY KEY,
     value BYTEA NOT NULL
 );
@@ -101,6 +141,16 @@ CREATE TABLE dht_enrs (
 );
 
 CREATE TABLE custody_context (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
+CREATE TABLE optimistic_transition_block (
+    key BYTEA PRIMARY KEY,
+    value BYTEA NOT NULL
+);
+
+CREATE TABLE beacon_historical_summaries (
     key BYTEA PRIMARY KEY,
     value BYTEA NOT NULL
 );
