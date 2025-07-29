@@ -835,7 +835,8 @@ impl<E: EthSpec> Encode for LightClientUpdateResponseChunk<E> {
     }
 
     fn ssz_bytes_len(&self) -> usize {
-        0_u64.ssz_bytes_len() + self.response_chunk.context.len()
+        0_u64.ssz_bytes_len()
+            + self.response_chunk.context.len()
             + match &self.response_chunk.payload {
                 LightClientUpdate::Altair(lc) => lc.ssz_bytes_len(),
                 LightClientUpdate::Capella(lc) => lc.ssz_bytes_len(),
