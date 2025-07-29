@@ -18,13 +18,6 @@ const VALIDATOR_REGISTRATION_EXPIRY_SLOTS: Slot = Slot::new(256);
 type ValidatorsAndBalances = Vec<(usize, u64)>;
 type SlotAndEffectiveBalance = (Slot, u64);
 
-#[derive(Debug)]
-struct CustodyGroup {
-    #[allow(dead_code)]
-    index: CustodyIndex,
-    columns: Box<[ColumnIndex]>,
-}
-
 /// This currently just registers increases in validator count.
 /// Does not handle decreasing validator counts
 #[derive(Default, Debug)]
@@ -147,9 +140,9 @@ pub struct CustodyContext<E: EthSpec> {
     persisted_is_supernode: bool,
     /// Maintains all the validators that this node is connected to currently
     validator_registrations: RwLock<ValidatorRegistrations>,
-    /// Stores an immutable, ordered list of all custody groups as determined by the node's NodeID
+    /// Stores an immutable, ordered list of all custody columns as determined by the node's NodeID
     /// on startup.
-    all_custody_groups_ordered: OnceLock<Box<[CustodyGroup]>>,
+    all_custody_columns_ordered: OnceLock<Box<[ColumnIndex]>>,
     _phantom_data: PhantomData<E>,
 }
 
@@ -164,7 +157,7 @@ impl<E: EthSpec> CustodyContext<E> {
             current_is_supernode: is_supernode,
             persisted_is_supernode: is_supernode,
             validator_registrations: Default::default(),
-            all_custody_groups_ordered: OnceLock::new(),
+            all_custody_columns_ordered: OnceLock::new(),
             _phantom_data: PhantomData,
         }
     }
@@ -184,7 +177,7 @@ impl<E: EthSpec> CustodyContext<E> {
                     .into_iter()
                     .collect(),
             }),
-            all_custody_groups_ordered: OnceLock::new(),
+            all_custody_columns_ordered: OnceLock::new(),
             _phantom_data: PhantomData,
         }
     }
@@ -198,15 +191,12 @@ impl<E: EthSpec> CustodyContext<E> {
         for custody_index in all_custody_groups_ordered {
             let columns = compute_columns_for_custody_group(custody_index, spec)
                 .map_err(|e| format!("Failed to compute columns for custody group {e:?}"))?;
-            ordered_custody_groups.push(CustodyGroup {
-                index: custody_index,
-                columns: columns.collect::<Vec<_>>().into_boxed_slice(),
-            });
+            ordered_custody_groups.extend(columns);
         }
-        self.all_custody_groups_ordered
+        self.all_custody_columns_ordered
             .set(ordered_custody_groups.into_boxed_slice())
             .map_err(|_| {
-                "Failed to initialise CustodyContext with computed custody groups".to_string()
+                "Failed to initialise CustodyContext with computed custody columns".to_string()
             })
     }
 
@@ -313,25 +303,24 @@ impl<E: EthSpec> CustodyContext<E> {
 
     /// Returns the count of columns this node must _sample_ for a block at `epoch` to import.
     /// If an `epoch` is not specified, returns the *current* validator custody requirement.
-    pub fn num_of_data_columns_to_sample(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> u64 {
+    pub fn num_of_data_columns_to_sample(
+        &self,
+        epoch_opt: Option<Epoch>,
+        spec: &ChainSpec,
+    ) -> usize {
         let custody_group_count = self.custody_group_count_at_epoch(epoch_opt, spec);
         spec.sampling_size_columns(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
 
-    pub fn sampling_columns_for_slot(&self, slot: Slot, spec: &ChainSpec) -> Vec<ColumnIndex> {
-        let num_of_groups_to_sample = self
-            .num_of_custody_groups_to_sample(Some(slot.epoch(E::slots_per_epoch())), spec)
-            as usize;
-        let groups_to_sample = &self
-            .all_custody_groups_ordered
+    pub fn sampling_columns_for_slot(&self, slot: Slot, spec: &ChainSpec) -> &[ColumnIndex] {
+        let epoch_opt = Some(slot.epoch(E::slots_per_epoch()));
+        let num_of_columns_to_sample = self.num_of_data_columns_to_sample(epoch_opt, spec);
+        let all_columns_ordered = self
+            .all_custody_columns_ordered
             .get()
-            .expect("all_custody_groups_ordered should be initialized")[..num_of_groups_to_sample];
-        groups_to_sample
-            .iter()
-            .flat_map(|group| &group.columns)
-            .copied()
-            .collect()
+            .expect("all_custody_columns_ordered should be initialized");
+        &all_columns_ordered[..num_of_columns_to_sample]
     }
 }
 

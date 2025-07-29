@@ -159,7 +159,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn make_available<R>(
         &mut self,
         spec: &Arc<ChainSpec>,
-        num_expected_columns: u64,
+        num_expected_columns: usize,
         recover: R,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError>
     where
@@ -173,7 +173,6 @@ impl<E: EthSpec> PendingComponents<E> {
         };
 
         let num_expected_blobs = block.num_blobs_expected();
-        let num_expected_columns = num_expected_columns as usize;
         let blob_data = if num_expected_blobs == 0 {
             Some(AvailableBlockData::NoData)
         } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
@@ -311,7 +310,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn status_str(
         &self,
         block_epoch: Epoch,
-        num_expected_columns: Option<u64>,
+        num_expected_columns: Option<usize>,
         spec: &ChainSpec,
     ) -> String {
         let block_count = if self.executed_block.is_some() { 1 } else { 0 };
