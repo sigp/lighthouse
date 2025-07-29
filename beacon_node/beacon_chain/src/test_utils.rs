@@ -606,6 +606,15 @@ where
 
         let chain = builder.build().expect("should build");
 
+        chain
+            .data_availability_checker
+            .custody_context()
+            .init_ordered_data_columns_from_custody_groups(
+                (0..spec.number_of_custody_groups).collect(),
+                &spec,
+            )
+            .expect("should initialise custody context");
+
         BeaconChainHarness {
             spec: chain.spec.clone(),
             chain: Arc::new(chain),

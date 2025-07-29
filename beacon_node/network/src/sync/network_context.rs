@@ -551,7 +551,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Attempt to find all required custody peers before sending any request or creating an ID
         let columns_by_range_peers_to_request =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let column_indexes = self.network_globals().sampling_columns();
+                let column_indexes = self
+                    .chain
+                    .sampling_columns_for_slot(None)
+                    .iter()
+                    .cloned()
+                    .collect();
                 Some(self.select_columns_by_range_peers_to_request(
                     &column_indexes,
                     peers,
@@ -608,12 +613,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             data_column_requests.map(|data_column_requests| {
                 (
                     data_column_requests,
-                    self.network_globals()
-                        .sampling_columns()
-                        .clone()
-                        .iter()
-                        .copied()
-                        .collect(),
+                    self.chain
+                        .sampling_columns_for_slot(None).to_vec(),
                 )
             }),
         );
@@ -1017,9 +1018,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = self
-            .network_globals()
-            .sampling_columns()
-            .into_iter()
+            .chain
+            .sampling_columns_for_slot(None)
+            .iter()
+            .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();
 

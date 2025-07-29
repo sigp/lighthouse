@@ -324,13 +324,17 @@ impl<E: EthSpec> CustodyContext<E> {
     /// Returns the ordered list of column indices that should be sampled for data availability checking at the given slot.
     ///
     /// # Parameters
-    /// * `slot` - The slot to determine sampling columns for
+    /// * `slot` - Optional slot to determine sampling columns for. If not provided, returns sampling columns at head
     /// * `spec` - Chain specification containing sampling parameters
     ///
     /// # Returns
     /// A slice of ordered column indices that should be sampled for this slot based on the node's custody configuration
-    pub fn sampling_columns_for_slot(&self, slot: Slot, spec: &ChainSpec) -> &[ColumnIndex] {
-        let epoch_opt = Some(slot.epoch(E::slots_per_epoch()));
+    pub fn sampling_columns_for_slot(
+        &self,
+        slot: Option<Slot>,
+        spec: &ChainSpec,
+    ) -> &[ColumnIndex] {
+        let epoch_opt = slot.map(|s| s.epoch(E::slots_per_epoch()));
         let num_of_columns_to_sample = self.num_of_data_columns_to_sample(epoch_opt, spec);
         let all_columns_ordered = self
             .all_custody_columns_ordered
@@ -650,7 +654,7 @@ mod tests {
             .expect("should initialise ordered data columns");
 
         let actual_sampling_columns =
-            custody_context.sampling_columns_for_slot(Slot::new(0), &spec);
+            custody_context.sampling_columns_for_slot(Some(Slot::new(0)), &spec);
 
         let expected_sampling_columns = &all_custody_groups_ordered
             .iter()
@@ -663,7 +667,7 @@ mod tests {
         assert_eq!(actual_sampling_columns, expected_sampling_columns)
     }
 
-    /// Update validator every epoch and assert cgc against expected values.
+    /// Update the validator every epoch and assert cgc against expected values.
     fn register_validators_and_assert_cgc<E: EthSpec>(
         custody_context: &CustodyContext<E>,
         validators_and_expected_cgc_changed: Vec<(ValidatorsAndBalances, Option<u64>)>,

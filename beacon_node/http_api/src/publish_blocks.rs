@@ -15,7 +15,7 @@ use eth2::types::{
 };
 use execution_layer::ProvenancedPayload;
 use futures::TryFutureExt;
-use lighthouse_network::{NetworkGlobals, PubsubMessage};
+use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use slot_clock::SlotClock;
@@ -82,7 +82,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let seen_timestamp = timestamp_now();
     let block_publishing_delay_for_testing = chain.config.block_publishing_delay;
@@ -223,7 +222,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
-        let sampling_columns_indices = &network_globals.sampling_columns();
+        let sampling_columns_indices = chain.sampling_columns_for_slot(Some(block.slot()));
         let sampling_columns = gossip_verified_columns
             .into_iter()
             .flatten()
@@ -633,7 +632,6 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     validation_level: BroadcastValidation,
     duplicate_status_code: StatusCode,
-    network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 ) -> Result<Response, Rejection> {
     let block_root = blinded_block.canonical_root();
     let full_block = reconstruct_block(chain.clone(), block_root, blinded_block).await?;
@@ -644,7 +642,6 @@ pub async fn publish_blinded_block<T: BeaconChainTypes>(
         network_tx,
         validation_level,
         duplicate_status_code,
-        network_globals,
     )
     .await
 }

@@ -372,7 +372,6 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     /* submit `block_b` which should induce equivocation */
     let channel = tokio::sync::mpsc::unbounded_channel();
-    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_block(
         None,
@@ -381,7 +380,6 @@ pub async fn consensus_partial_pass_only_consensus() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
-        network_globals,
     )
     .await;
 
@@ -663,7 +661,6 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
-    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_block(
         None,
@@ -672,7 +669,6 @@ pub async fn equivocation_consensus_late_equivocation() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
-        network_globals,
     )
     .await;
 
@@ -1299,7 +1295,6 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
-    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_blinded_block(
         block_b,
@@ -1307,7 +1302,6 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
-        network_globals,
     )
     .await;
 
@@ -1484,7 +1478,7 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
             &block,
             partial_blobs.iter(),
             partial_kzg_proofs.iter(),
-            Some(get_custody_columns(&tester)),
+            Some(get_custody_columns(&tester, block.slot())),
         )
         .await;
 
@@ -1555,7 +1549,7 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
             &block,
             blobs.iter(),
             kzg_proofs.iter(),
-            Some(get_custody_columns(&tester)),
+            Some(get_custody_columns(&tester, block.slot())),
         )
         .await;
 
@@ -1626,7 +1620,7 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
             &block,
             blobs.iter(),
             kzg_proofs.iter(),
-            Some(get_custody_columns(&tester)),
+            Some(get_custody_columns(&tester, block.slot())),
         )
         .await;
 
@@ -1700,7 +1694,7 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
             &block_b,
             blobs_b.iter(),
             kzg_proofs_b.iter(),
-            Some(get_custody_columns(&tester)),
+            Some(get_custody_columns(&tester, block_b.slot())),
         )
         .await;
 
@@ -1799,11 +1793,14 @@ fn assert_server_message_error(error_response: eth2::Error, expected_message: St
     assert_eq!(err.message, expected_message);
 }
 
-fn get_custody_columns(tester: &InteractiveTester<E>) -> HashSet<ColumnIndex> {
+fn get_custody_columns(tester: &InteractiveTester<E>, slot: Slot) -> HashSet<ColumnIndex> {
     tester
         .ctx
-        .network_globals
+        .chain
         .as_ref()
         .unwrap()
-        .sampling_columns()
+        .sampling_columns_for_slot(Some(slot))
+        .iter()
+        .copied()
+        .collect()
 }

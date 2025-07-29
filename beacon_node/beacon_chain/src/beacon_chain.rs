@@ -7112,6 +7112,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         roots.reverse();
         roots
     }
+
+    /// Returns a list of column indices that should be sampled for a given slot.
+    /// Used for data availability sampling in PeerDAS.
+    ///
+    /// If a slot is not provided (None), returns sampling columns at head.
+    pub fn sampling_columns_for_slot(&self, slot: Option<Slot>) -> &[ColumnIndex] {
+        self.data_availability_checker
+            .custody_context()
+            .sampling_columns_for_slot(slot, &self.spec)
+    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {

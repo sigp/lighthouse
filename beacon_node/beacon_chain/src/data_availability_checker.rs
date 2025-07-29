@@ -130,8 +130,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         })
     }
 
-    pub fn custody_context(&self) -> Arc<CustodyContext<T::EthSpec>> {
-        self.custody_context.clone()
+    pub fn custody_context(&self) -> &Arc<CustodyContext<T::EthSpec>> {
+        &self.custody_context
     }
 
     /// Checks if the block root is currenlty in the availability cache awaiting import because
@@ -245,7 +245,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // a new epoch.
         let sampling_columns = self
             .custody_context
-            .sampling_columns_for_slot(slot, &self.spec);
+            .sampling_columns_for_slot(Some(slot), &self.spec);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -289,7 +289,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let sampling_columns = self
             .custody_context
-            .sampling_columns_for_slot(slot, &self.spec);
+            .sampling_columns_for_slot(Some(slot), &self.spec);
         let custody_columns = data_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -892,7 +892,8 @@ mod test {
             .expect("should put rpc custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
-        let sampling_columns = custody_context.sampling_columns_for_slot(cgc_change_slot, &spec);
+        let sampling_columns =
+            custody_context.sampling_columns_for_slot(Some(cgc_change_slot), &spec);
         assert_eq!(
             sampling_columns.len(),
             spec.validator_custody_requirement as usize // 8
@@ -970,7 +971,8 @@ mod test {
             .expect("should put gossip custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
-        let sampling_columns = custody_context.sampling_columns_for_slot(cgc_change_slot, &spec);
+        let sampling_columns =
+            custody_context.sampling_columns_for_slot(Some(cgc_change_slot), &spec);
         assert_eq!(
             sampling_columns.len(),
             spec.validator_custody_requirement as usize // 8
@@ -995,12 +997,12 @@ mod test {
     fn init_custody_context_with_ordered_columns(
         custody_context: &Arc<CustodyContext<E>>,
         mut rng: &mut StdRng,
-        spec: &Arc<ChainSpec>,
+        spec: &ChainSpec,
     ) -> Vec<u64> {
         let mut all_data_columns = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
         all_data_columns.shuffle(&mut rng);
         custody_context
-            .init_ordered_data_columns_from_custody_groups(all_data_columns.clone(), &spec)
+            .init_ordered_data_columns_from_custody_groups(all_data_columns.clone(), spec)
             .expect("should initialise ordered custody columns");
         all_data_columns
     }

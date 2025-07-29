@@ -1,7 +1,6 @@
 use crate::{ChainSpec, ColumnIndex, DataColumnSubnetId};
 use alloy_primitives::U256;
 use itertools::Itertools;
-use maplit::hashset;
 use safe_arith::{ArithError, SafeArith};
 use std::collections::HashSet;
 
