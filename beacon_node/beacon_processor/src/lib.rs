@@ -777,7 +777,6 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
         // block is required to successfully process some new work.
         match self.ready_work_rx.poll_recv(cx) {
             Poll::Ready(Some(ready_work)) => {
-                // TODO is this right?
                 return Poll::Ready(Some(InboundEvent::ReprocessingWork((
                     ready_work.into(),
                     Instant::now(),
