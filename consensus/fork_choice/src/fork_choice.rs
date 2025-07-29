@@ -2,8 +2,8 @@ use crate::metrics::{self, scrape_for_metrics};
 use crate::{ForkChoiceStore, InvalidationOperation};
 use logging::crit;
 use proto_array::{
-    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, ProposerHeadError,
-    ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
+    Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
+    ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -1369,11 +1369,15 @@ where
     /// `Self::to_persisted`.
     pub fn proto_array_from_persisted(
         persisted: &PersistedForkChoice,
+        justified_balances: JustifiedBalances,
         reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
-        let mut proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
-            .map_err(Error::InvalidProtoArrayBytes)?;
+        let mut proto_array = ProtoArrayForkChoice::from_bytes(
+            &persisted.proto_array_bytes,
+            justified_balances.clone(),
+        )
+        .map_err(Error::InvalidProtoArrayBytes)?;
         let contains_invalid_payloads = proto_array.contains_invalid_payloads();
 
         debug!(
@@ -1401,7 +1405,7 @@ where
                 info = "please report this error",
                 "Failed to reset payload statuses"
             );
-            ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
+            ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes, justified_balances)
                 .map_err(Error::InvalidProtoArrayBytes)
         } else {
             debug!("Successfully reset all payload statuses");
@@ -1417,8 +1421,13 @@ where
         fc_store: T,
         spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
-        let proto_array =
-            Self::proto_array_from_persisted(&persisted, reset_payload_statuses, spec)?;
+        let justified_balances = fc_store.justified_balances().clone();
+        let proto_array = Self::proto_array_from_persisted(
+            &persisted,
+            justified_balances.clone(),
+            reset_payload_statuses,
+            spec,
+        )?;
 
         let current_slot = fc_store.get_current_slot();
 
@@ -1479,8 +1488,13 @@ where
 ///
 /// This is used when persisting the state of the fork choice to disk.
 #[derive(Encode, Decode, Clone)]
+// FIXME(sproul): version this
+// #[superstruct(variants(V17, V28))]
 pub struct PersistedForkChoice {
+    // #[superstruct(only(V17))]
     pub proto_array_bytes: Vec<u8>,
+    // #[superstruct(only(V17))]
+    // pub proto_array: proto_array::SszContainer,
     pub queued_attestations: Vec<QueuedAttestation>,
 }
 

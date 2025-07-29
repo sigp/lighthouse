@@ -1026,7 +1026,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                fork_choice: {}\n
                  proto_array_bytes/ssz_container: {}/{}\n
                     votes: {}\n
-                    balances: {}\n
                     nodes: {}\n
                     indices: {}\n
                  queued_attestations: {}\n
@@ -1036,7 +1035,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             persisted_fork_choice.fork_choice.proto_array_bytes.len(),
             ssz_container.as_ssz_bytes().len(),
             ssz_container.votes.as_ssz_bytes().len(),
-            ssz_container.balances.as_ssz_bytes().len(),
             ssz_container.nodes.as_ssz_bytes().len(),
             ssz_container.indices.as_ssz_bytes().len(),
             persisted_fork_choice

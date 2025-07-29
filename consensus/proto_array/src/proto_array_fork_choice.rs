@@ -876,10 +876,10 @@ impl ProtoArrayForkChoice {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8], balances: JustifiedBalances) -> Result<Self, String> {
         let container = SszContainer::from_ssz_bytes(bytes)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
-        container
+        (container, balances)
             .try_into()
             .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
