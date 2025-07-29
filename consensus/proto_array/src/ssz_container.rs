@@ -18,7 +18,7 @@ pub type SszContainer = SszContainerV28;
 
 #[superstruct(
     variants(V17, V28),
-    variant_attributes(derive(Encode, Decode)),
+    variant_attributes(derive(Encode, Decode, Clone)),
     no_enum
 )]
 pub struct SszContainer {

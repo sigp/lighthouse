@@ -1032,7 +1032,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                fork_choice_store: {}\n
                  equivocating_indices: {} ({} entries)",
             persisted_fork_choice.fork_choice.as_ssz_bytes().len(),
-            persisted_fork_choice.fork_choice.proto_array_bytes.len(),
+            persisted_fork_choice
+                .fork_choice
+                .proto_array
+                .as_ssz_bytes()
+                .len(),
             ssz_container.as_ssz_bytes().len(),
             ssz_container.votes.as_ssz_bytes().len(),
             ssz_container.nodes.as_ssz_bytes().len(),

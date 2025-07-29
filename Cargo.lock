@@ -3538,6 +3538,7 @@ dependencies = [
  "proto_array",
  "state_processing",
  "store",
+ "superstruct",
  "tokio",
  "tracing",
  "types",
