@@ -11,6 +11,7 @@ use slot_clock::ManualSlotClock;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::{Arc, Once};
+use std::time::Instant;
 use store::MemoryStore;
 use tokio::sync::mpsc;
 use tracing_subscriber::fmt::MakeWriter;
@@ -50,7 +51,7 @@ type T = Witness<ManualSlotClock, E, MemoryStore<E>, MemoryStore<E>>;
 ///                       +-----------------+
 struct TestRig {
     /// Receiver for `BeaconProcessor` events (e.g. block processing results).
-    beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
+    beacon_processor_rx: mpsc::Receiver<(WorkEvent<E>, Instant)>,
     beacon_processor_rx_queue: Vec<WorkEvent<E>>,
     /// Receiver for `NetworkMessage` (e.g. outgoing RPC requests from sync)
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,

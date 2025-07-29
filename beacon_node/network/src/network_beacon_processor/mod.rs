@@ -26,6 +26,7 @@ use rand::prelude::SliceRandom;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, trace, warn, Instrument};
@@ -34,7 +35,7 @@ use types::*;
 pub use sync_methods::ChainSegmentProcessId;
 use types::blob_sidecar::FixedBlobSidecarList;
 
-pub type Error<T> = TrySendError<BeaconWorkEvent<T>>;
+pub type Error<T> = TrySendError<(BeaconWorkEvent<T>, Instant)>;
 
 mod gossip_methods;
 mod rpc_methods;
@@ -1079,7 +1080,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         sync_tx: UnboundedSender<SyncMessage<E>>,
         chain: Arc<BeaconChain<TestBeaconChainType<E>>>,
         executor: TaskExecutor,
-    ) -> (Self, mpsc::Receiver<BeaconWorkEvent<E>>) {
+    ) -> (Self, mpsc::Receiver<(BeaconWorkEvent<E>, Instant)>) {
         let BeaconProcessorChannels {
             beacon_processor_tx,
             beacon_processor_rx,

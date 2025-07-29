@@ -735,9 +735,8 @@ impl<T: BeaconChainTypes> Router<T> {
     ) {
         if let Err(e) = result {
             let work_type = match &e {
-                mpsc::error::TrySendError::Closed(work) | mpsc::error::TrySendError::Full(work) => {
-                    work.work_type_str()
-                }
+                mpsc::error::TrySendError::Closed((work, _))
+                | mpsc::error::TrySendError::Full((work, _)) => work.work_type_str(),
             };
 
             if self.logger_debounce.elapsed() {
