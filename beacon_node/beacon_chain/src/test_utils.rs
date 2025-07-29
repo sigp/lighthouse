@@ -782,13 +782,6 @@ where
         (0..self.validator_keypairs.len()).collect()
     }
 
-    pub fn get_sampling_column_count(&self) -> usize {
-        self.chain
-            .data_availability_checker
-            .custody_context()
-            .num_of_data_columns_to_sample(None, &self.chain.spec)
-    }
-
     pub fn slots_per_epoch(&self) -> u64 {
         E::slots_per_epoch()
     }
@@ -2394,7 +2387,7 @@ where
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RpcBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let sampling_column_count = self.get_sampling_column_count();
+            let sampling_columns = self.chain.sampling_columns_for_slot(Some(block.slot()));
 
             if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
@@ -2402,7 +2395,7 @@ where
                 // currently have any knowledge of the columns being custodied.
                 let columns = generate_data_column_sidecars_from_block(&block, &self.spec)
                     .into_iter()
-                    .take(sampling_column_count)
+                    .filter(|d| sampling_columns.contains(&d.index))
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
                 RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
@@ -3132,8 +3125,11 @@ where
         let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
         if is_peerdas_enabled {
             let custody_columns = custody_columns_opt.unwrap_or_else(|| {
-                let sampling_column_count = self.get_sampling_column_count() as u64;
-                (0..sampling_column_count).collect()
+                self.chain
+                    .sampling_columns_for_slot(Some(block.slot()))
+                    .iter()
+                    .copied()
+                    .collect()
             });
 
             let verified_columns = generate_data_column_sidecars_from_block(block, &self.spec)

@@ -507,10 +507,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .peek()
             .map(|verified_blob| verified_blob.as_data_column().epoch())
         else {
-            // Verified data_columns list should be non-empty.
-            return Err(AvailabilityCheckError::Unexpected(
-                "empty columns".to_owned(),
-            ));
+            // No columns are processed. This can occur if all received columns were filtered out
+            // before this point, e.g. due to a CGC change that caused extra columns to be downloaded
+            // // before the new CGC took effect.
+            // Return `Ok` without marking the block as available.
+            return Ok(Availability::MissingComponents(block_root));
         };
 
         let mut write_lock = self.critical.write();
