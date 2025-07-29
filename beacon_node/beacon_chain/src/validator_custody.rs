@@ -182,7 +182,15 @@ impl<E: EthSpec> CustodyContext<E> {
         }
     }
 
-    pub fn init_all_custody_groups_ordered(
+    /// Initializes an ordered list of data columns based on provided custody groups.
+    ///
+    /// # Arguments
+    /// * `all_custody_groups_ordered` - Vector of custody group indices to map to columns
+    /// * `spec` - Chain specification containing custody parameters
+    ///
+    /// # Returns
+    /// Ok(()) if initialization succeeds, Err with description string if it fails
+    pub fn init_ordered_data_columns_from_custody_groups(
         &self,
         all_custody_groups_ordered: Vec<CustodyIndex>,
         spec: &ChainSpec,
@@ -313,6 +321,14 @@ impl<E: EthSpec> CustodyContext<E> {
             .expect("should compute node sampling size from valid chain spec")
     }
 
+    /// Returns the ordered list of column indices that should be sampled for data availability checking at the given slot.
+    ///
+    /// # Parameters
+    /// * `slot` - The slot to determine sampling columns for
+    /// * `spec` - Chain specification containing sampling parameters
+    ///
+    /// # Returns
+    /// A slice of ordered column indices that should be sampled for this slot based on the node's custody configuration
     pub fn sampling_columns_for_slot(&self, slot: Slot, spec: &ChainSpec) -> &[ColumnIndex] {
         let epoch_opt = Some(slot.epoch(E::slots_per_epoch()));
         let num_of_columns_to_sample = self.num_of_data_columns_to_sample(epoch_opt, spec);
@@ -358,6 +374,8 @@ impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
 
 #[cfg(test)]
 mod tests {
+    use rand::seq::SliceRandom;
+    use rand::thread_rng;
     use types::MainnetEthSpec;
 
     use super::*;
@@ -611,6 +629,38 @@ mod tests {
                 .new_custody_group_count,
             val_custody_units_1 + val_custody_units_3
         );
+    }
+
+    #[test]
+    fn should_init_ordered_data_columns_and_return_sampling_columns() {
+        let spec = E::default_spec();
+        let custody_context = CustodyContext::<E>::new(false);
+        let sampling_size =
+            custody_context.num_of_data_columns_to_sample(Some(Epoch::new(0)), &spec);
+
+        // initialise ordered columns
+        let mut all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+        all_custody_groups_ordered.shuffle(&mut thread_rng());
+
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(
+                all_custody_groups_ordered.clone(),
+                &spec,
+            )
+            .expect("should initialise ordered data columns");
+
+        let actual_sampling_columns =
+            custody_context.sampling_columns_for_slot(Slot::new(0), &spec);
+
+        let expected_sampling_columns = &all_custody_groups_ordered
+            .iter()
+            .flat_map(|custody_index| {
+                compute_columns_for_custody_group(*custody_index, &spec)
+                    .expect("should compute columns for custody group")
+            })
+            .collect::<Vec<_>>()[0..sampling_size];
+
+        assert_eq!(actual_sampling_columns, expected_sampling_columns)
     }
 
     /// Update validator every epoch and assert cgc against expected values.

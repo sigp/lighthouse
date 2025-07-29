@@ -339,7 +339,7 @@ mod test {
         );
         assert_eq!(
             globals.sampling_columns.read().len(),
-            expected_sampling_columns as usize
+            expected_sampling_columns
         );
     }
 

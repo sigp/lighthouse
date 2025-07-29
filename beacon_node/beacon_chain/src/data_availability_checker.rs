@@ -814,3 +814,207 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test_utils::{
+        generate_rand_block_and_data_columns, get_kzg, EphemeralHarnessType, NumBlobs,
+    };
+    use crate::CustodyContext;
+    use rand::prelude::StdRng;
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+    use slot_clock::{SlotClock, TestingSlotClock};
+    use std::collections::HashSet;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use store::HotColdDB;
+    use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
+
+    type E = MainnetEthSpec;
+    type T = EphemeralHarnessType<E>;
+
+    /// Test to verify any extra RPC columns received that are not part of the "effective" CGC for
+    /// the slot are excluded from import.
+    #[test]
+    fn should_exclude_rpc_columns_not_required_for_sampling() {
+        // SETUP
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+
+        let da_checker = new_da_checker(spec.clone());
+        let custody_context = &da_checker.custody_context;
+        let all_column_indices_ordered =
+            init_custody_context_with_ordered_columns(custody_context, &mut rng, &spec);
+
+        // GIVEN a single 32 ETH validator is attached slot 0
+        let epoch = Epoch::new(0);
+        let validator_0 = 0;
+        custody_context.register_validators(
+            vec![(validator_0, 32_000_000_000)],
+            epoch.start_slot(E::slots_per_epoch()),
+            &spec,
+        );
+        assert_eq!(
+            custody_context.num_of_data_columns_to_sample(Some(epoch), &spec),
+            spec.validator_custody_requirement as usize,
+            "sampling size should be the minimal custody requirement == 8"
+        );
+
+        // WHEN additional attached validators result in a CGC increase to 10 at the end slot of the same epoch
+        let validator_1 = 1;
+        let cgc_change_slot = epoch.end_slot(E::slots_per_epoch());
+        custody_context.register_validators(
+            vec![(validator_1, 32_000_000_000 * 9)],
+            cgc_change_slot,
+            &spec,
+        );
+        // AND custody columns (8) and any new extra columns (2) are received via RPC responses.
+        // NOTE: block lookup uses the **latest** CGC (10) instead of the effective CGC (8) as the slot is unknown.
+        let (_, data_columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut rng,
+            &spec,
+        );
+        let block_root = Hash256::random();
+        let requested_columns = &all_column_indices_ordered[..10];
+        da_checker
+            .put_rpc_custody_columns(
+                block_root,
+                cgc_change_slot,
+                data_columns
+                    .into_iter()
+                    .filter(|d| requested_columns.contains(&d.index))
+                    .collect(),
+            )
+            .expect("should put rpc custody columns");
+
+        // THEN the sampling size for the end slot of the same epoch remains unchanged
+        let sampling_columns = custody_context.sampling_columns_for_slot(cgc_change_slot, &spec);
+        assert_eq!(
+            sampling_columns.len(),
+            spec.validator_custody_requirement as usize // 8
+        );
+        // AND any extra columns received via RPC responses are excluded from import.
+        let actual_cached: HashSet<ColumnIndex> = da_checker
+            .cached_data_column_indexes(&block_root)
+            .expect("should have cached data columns")
+            .into_iter()
+            .collect();
+        let expected_sampling_columns = sampling_columns.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(
+            actual_cached, expected_sampling_columns,
+            "should cache only the effective sampling columns"
+        );
+        assert!(
+            actual_cached.len() < requested_columns.len(),
+            "extra columns should be excluded"
+        )
+    }
+
+    /// Test to verify any extra gossip columns received that are not part of the "effective" CGC for
+    /// the slot are excluded from import.
+    #[test]
+    fn should_exclude_gossip_columns_not_required_for_sampling() {
+        // SETUP
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+
+        let da_checker = new_da_checker(spec.clone());
+        let custody_context = &da_checker.custody_context;
+        let all_column_indices_ordered =
+            init_custody_context_with_ordered_columns(custody_context, &mut rng, &spec);
+
+        // GIVEN a single 32 ETH validator is attached slot 0
+        let epoch = Epoch::new(0);
+        let validator_0 = 0;
+        custody_context.register_validators(
+            vec![(validator_0, 32_000_000_000)],
+            epoch.start_slot(E::slots_per_epoch()),
+            &spec,
+        );
+        assert_eq!(
+            custody_context.num_of_data_columns_to_sample(Some(epoch), &spec),
+            spec.validator_custody_requirement as usize,
+            "sampling size should be the minimal custody requirement == 8"
+        );
+
+        // WHEN additional attached validators result in a CGC increase to 10 at the end slot of the same epoch
+        let validator_1 = 1;
+        let cgc_change_slot = epoch.end_slot(E::slots_per_epoch());
+        custody_context.register_validators(
+            vec![(validator_1, 32_000_000_000 * 9)],
+            cgc_change_slot,
+            &spec,
+        );
+        // AND custody columns (8) and any new extra columns (2) are received via gossip.
+        // NOTE: CGC updates results in new topics subscriptions immediately, and extra columns may start to
+        // arrive via gossip.
+        let (_, data_columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut rng,
+            &spec,
+        );
+        let block_root = Hash256::random();
+        let requested_columns = &all_column_indices_ordered[..10];
+        let gossip_columns = data_columns
+            .into_iter()
+            .filter(|d| requested_columns.contains(&d.index))
+            .map(GossipVerifiedDataColumn::<T>::__new_for_testing)
+            .collect::<Vec<_>>();
+        da_checker
+            .put_gossip_verified_data_columns(block_root, cgc_change_slot, gossip_columns)
+            .expect("should put gossip custody columns");
+
+        // THEN the sampling size for the end slot of the same epoch remains unchanged
+        let sampling_columns = custody_context.sampling_columns_for_slot(cgc_change_slot, &spec);
+        assert_eq!(
+            sampling_columns.len(),
+            spec.validator_custody_requirement as usize // 8
+        );
+        // AND any extra columns received via gossip responses are excluded from import.
+        let actual_cached: HashSet<ColumnIndex> = da_checker
+            .cached_data_column_indexes(&block_root)
+            .expect("should have cached data columns")
+            .into_iter()
+            .collect();
+        let expected_sampling_columns = sampling_columns.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(
+            actual_cached, expected_sampling_columns,
+            "should cache only the effective sampling columns"
+        );
+        assert!(
+            actual_cached.len() < requested_columns.len(),
+            "extra columns should be excluded"
+        )
+    }
+
+    fn init_custody_context_with_ordered_columns(
+        custody_context: &Arc<CustodyContext<E>>,
+        mut rng: &mut StdRng,
+        spec: &Arc<ChainSpec>,
+    ) -> Vec<u64> {
+        let mut all_data_columns = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+        all_data_columns.shuffle(&mut rng);
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(all_data_columns.clone(), &spec)
+            .expect("should initialise ordered custody columns");
+        all_data_columns
+    }
+
+    fn new_da_checker(spec: Arc<ChainSpec>) -> DataAvailabilityChecker<T> {
+        let slot_clock = TestingSlotClock::new(
+            Slot::new(0),
+            Duration::from_secs(0),
+            Duration::from_secs(spec.seconds_per_slot),
+        );
+        let kzg = get_kzg(&spec);
+        let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
+        let custody_context = Arc::new(CustodyContext::new(false));
+        DataAvailabilityChecker::new(slot_clock, kzg, store, custody_context, spec)
+            .expect("should initialise data availability checker")
+    }
+}

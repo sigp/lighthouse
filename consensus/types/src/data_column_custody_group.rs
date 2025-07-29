@@ -25,34 +25,20 @@ pub fn get_custody_groups(
     custody_group_count: u64,
     spec: &ChainSpec,
 ) -> Result<HashSet<CustodyIndex>, DataColumnCustodyGroupError> {
-    if custody_group_count > spec.number_of_custody_groups {
-        return Err(DataColumnCustodyGroupError::InvalidCustodyGroupCount(
-            custody_group_count,
-        ));
-    }
-
-    let mut custody_groups: HashSet<u64> = hashset![];
-    let mut current_id = U256::from_be_slice(&raw_node_id);
-    while custody_groups.len() < custody_group_count as usize {
-        let mut node_id_bytes = [0u8; 32];
-        node_id_bytes.copy_from_slice(current_id.as_le_slice());
-        let hash = ethereum_hashing::hash_fixed(&node_id_bytes);
-        let hash_prefix: [u8; 8] = hash[0..8]
-            .try_into()
-            .expect("hash_fixed produces a 32 byte array");
-        let hash_prefix_u64 = u64::from_le_bytes(hash_prefix);
-        let custody_group = hash_prefix_u64
-            .safe_rem(spec.number_of_custody_groups)
-            .expect("spec.number_of_custody_groups must not be zero");
-        custody_groups.insert(custody_group);
-
-        current_id = current_id.wrapping_add(U256::from(1u64));
-    }
-
-    Ok(custody_groups)
+    get_custody_groups_ordered(raw_node_id, custody_group_count, spec)
+        .map(|custody_groups| custody_groups.into_iter().collect())
 }
 
-/// Returns a deterministically ordered
+/// Returns a deterministically ordered list of custody groups assigned to a node,
+/// preserving the order in which they were computed during iteration.
+///
+/// # Arguments
+/// * `raw_node_id` - 32-byte node identifier
+/// * `custody_group_count` - Number of custody groups to generate
+/// * `spec` - Chain specification containing custody group parameters
+///
+/// # Returns
+/// Vector of custody group indices in computation order or error if parameters are invalid
 pub fn get_custody_groups_ordered(
     raw_node_id: [u8; 32],
     custody_group_count: u64,
@@ -85,14 +71,6 @@ pub fn get_custody_groups_ordered(
     }
 
     Ok(custody_groups)
-}
-
-pub fn get_all_custody_groups_ordered(
-    raw_node_id: [u8; 32],
-    spec: &ChainSpec,
-) -> Result<Vec<CustodyIndex>, DataColumnCustodyGroupError> {
-    let custody_group_count = spec.number_of_custody_groups;
-    get_custody_groups_ordered(raw_node_id, custody_group_count, spec)
 }
 
 /// Returns the columns that are associated with a given custody group.
