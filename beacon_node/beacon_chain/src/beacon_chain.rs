@@ -3654,7 +3654,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             EngineGetBlobsOutput::Blobs(blobs) => {
                 self.check_blobs_for_slashability(block_root, blobs.iter().map(|b| b.as_blob()))?;
                 self.data_availability_checker
-                    .put_gossip_verified_blobs(block_root, blobs)?
+                    .put_kzg_verified_blobs(block_root, blobs)?
             }
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
                 self.check_columns_for_slashability(
