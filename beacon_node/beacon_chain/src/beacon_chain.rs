@@ -4181,6 +4181,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Process a block for the validator monitor, including all its constituent messages.
+    #[instrument(skip_all)]
     fn import_block_update_validator_monitor(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
@@ -4338,6 +4339,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// If a slasher is configured, provide the attestations from the block.
+    #[instrument(skip_all)]
     fn import_block_update_slasher(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
