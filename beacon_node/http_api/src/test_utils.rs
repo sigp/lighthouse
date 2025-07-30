@@ -91,7 +91,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             harness_builder = harness_builder.initial_mutator(mutator);
         }
 
-        let harness = harness_builder.build();
+        let mut harness = harness_builder.build();
 
         let ApiServer {
             ctx,
@@ -103,6 +103,17 @@ impl<E: EthSpec> InteractiveTester<E> {
 
         tokio::spawn(server);
 
+        // Late-initalize the mock builder now that the mock execution node and beacon API ports
+        // have been allocated.
+        let beacon_api_ip = listening_socket.ip();
+        let beacon_api_port = listening_socket.port();
+        let beacon_url =
+            SensitiveUrl::parse(format!("http://{beacon_api_ip}:{beacon_api_port}").as_str())
+                .unwrap();
+        let mock_builder_server = harness.set_mock_builder(beacon_url.clone());
+
+        tokio::spawn(mock_builder_server);
+
         // Override the default timeout to 2s to timeouts on CI, as CI seems to require longer
         // to process. The 1s timeouts for other tasks have been working for a long time, so we'll
         // keep it as it is, as it may help identify a performance regression.
@@ -110,15 +121,7 @@ impl<E: EthSpec> InteractiveTester<E> {
             default: Duration::from_secs(2),
             ..Timeouts::set_all(Duration::from_secs(1))
         };
-        let client = BeaconNodeHttpClient::new(
-            SensitiveUrl::parse(&format!(
-                "http://{}:{}",
-                listening_socket.ip(),
-                listening_socket.port()
-            ))
-            .unwrap(),
-            timeouts,
-        );
+        let client = BeaconNodeHttpClient::new(beacon_url.clone(), timeouts);
 
         Self {
             ctx,

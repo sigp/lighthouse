@@ -1146,11 +1146,11 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     /* submit `block_a` as valid */
-    assert!(tester
+    tester
         .client
         .post_beacon_blinded_blocks_v2(&block_a, validation_level)
         .await
-        .is_ok());
+        .unwrap();
     assert!(tester
         .harness
         .chain
