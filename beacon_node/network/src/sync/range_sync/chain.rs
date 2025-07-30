@@ -833,6 +833,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         error,
                         faulty_peers,
                         action,
+                        exceeded_retries,
                     } => {
                         debug!(?batch_id, error, "Block components coupling error");
                         // Note: we don't fail the batch here because a `CouplingError` is
@@ -846,21 +847,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         for peer in failed_peers.iter() {
                             network.report_peer(*peer, *action, "failed to return columns");
                         }
-
-                        return self.retry_partial_batch(
-                            network,
-                            batch_id,
-                            request_id,
-                            failed_columns,
-                            failed_peers,
-                        );
-                    }
-                    CouplingError::ExceededMaxRetries(peers, action) => {
-                        for peer in peers.iter() {
-                            network.report_peer(
-                                *peer,
-                                *action,
-                                "failed to return columns, exceeded retry attempts",
+                        // Retry the failed columns if the column requests haven't exceeded the
+                        // max retries. Otherwise, remove treat it as a failed batch below.
+                        if !*exceeded_retries {
+                            return self.retry_partial_batch(
+                                network,
+                                batch_id,
+                                request_id,
+                                failed_columns,
+                                failed_peers,
                             );
                         }
                     }

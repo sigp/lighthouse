@@ -56,7 +56,7 @@ pub mod custody;
 mod requests;
 
 /// Max retries for block components after which we fail the batch.
-pub const MAX_BLOCK_COMPONENT_RETRIES: usize = 3;
+pub const MAX_COLUMN_RETRIES: usize = 3;
 
 #[derive(Debug)]
 pub enum RpcEvent<T> {
@@ -728,28 +728,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let range_req = entry.get_mut();
         if let Some(blocks_result) = range_req.responses(&self.chain.spec) {
             if let Err(CouplingError::PeerFailure {
-                action,
+                action: _,
                 error,
-                faulty_peers,
+                faulty_peers: _,
+                exceeded_retries,
             }) = &blocks_result
             {
-                // Remove the entry and retry the batch if it equals
-                if range_req.attempt() == MAX_BLOCK_COMPONENT_RETRIES {
+                // Remove the entry if its a peer failure **and** retry counter is exceeded
+                if *exceeded_retries {
                     debug!(
                         entry=?entry.key(),
                         msg = error,
                         "Request exceeded max retries, failing batch"
                     );
                     entry.remove();
-                    return Some(Err(RpcResponseError::BlockComponentCouplingError(
-                        CouplingError::ExceededMaxRetries(
-                            faulty_peers.iter().map(|r| r.1).collect(),
-                            *action,
-                        ),
-                    )));
                 };
             } else {
-                // remove the entry only if it coupled successfully with
+                // also remove the entry only if it coupled successfully with
                 // or if its an internal error
                 entry.remove();
             }

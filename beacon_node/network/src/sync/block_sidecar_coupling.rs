@@ -12,12 +12,13 @@ use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock,
 };
+
+use crate::sync::network_context::MAX_COLUMN_RETRIES;
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
-    attempt: usize,
 }
 
 enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
@@ -36,6 +37,7 @@ enum RangeBlockDataRequest<E: EthSpec> {
         /// The column indices corresponding to the request
         column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
         expected_custody_columns: Vec<ColumnIndex>,
+        attempt: usize,
     },
 }
 
@@ -47,9 +49,8 @@ pub(crate) enum CouplingError {
         error: String,
         faulty_peers: Vec<(ColumnIndex, PeerId)>,
         action: PeerAction,
+        exceeded_retries: bool,
     },
-    /// The batch exceeded the max retries
-    ExceededMaxRetries(Vec<PeerId>, PeerAction),
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -73,6 +74,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     .collect(),
                 column_peers,
                 expected_custody_columns,
+                attempt: 0,
             }
         } else {
             RangeBlockDataRequest::NoData
@@ -81,12 +83,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Self {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
-            attempt: 0,
         }
-    }
-
-    pub fn attempt(&self) -> usize {
-        self.attempt
     }
 
     /// Modifies `self` by inserting a new `DataColumnsByRangeRequestId` for a formerly failed
@@ -100,6 +97,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 requests,
                 expected_custody_columns: _,
                 column_peers,
+                attempt: _,
             } => {
                 for (request, columns) in failed_column_requests.into_iter() {
                     requests.insert(request, ByRangeRequest::Active(request));
@@ -182,6 +180,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 requests,
                 expected_custody_columns,
                 column_peers,
+                attempt,
             } => {
                 let mut data_columns = vec![];
                 let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
@@ -192,6 +191,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     data_columns.extend(data.clone())
                 }
 
+                *attempt += 1;
                 // Note: this assumes that only 1 peer is responsible for a column
                 // with a batch.
                 for (id, columns) in column_peers {
@@ -205,6 +205,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     data_columns,
                     column_to_peer_id,
                     expected_custody_columns,
+                    *attempt,
                     spec,
                 );
 
@@ -212,6 +213,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     error: _,
                     faulty_peers,
                     action: _,
+                    exceeded_retries: _,
                 }) = &resp
                 {
                     for (_, peer) in faulty_peers.iter() {
@@ -226,7 +228,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         };
 
         // Increment the attempt once this function returns the response or errors
-        self.attempt += 1;
         resp
     }
 
@@ -298,6 +299,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         data_columns: DataColumnSidecarList<E>,
         column_to_peer: HashMap<u64, PeerId>,
         expects_custody_columns: &[ColumnIndex],
+        attempt: usize,
         spec: &ChainSpec,
     ) -> Result<Vec<RpcBlock<E>>, CouplingError> {
         // Group data columns by block_root and index
@@ -323,6 +325,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // plus we have columns for our custody requirements
         let mut rpc_blocks = Vec::with_capacity(blocks.len());
 
+        let exceeded_retries = attempt >= MAX_COLUMN_RETRIES;
         for block in blocks {
             let block_root = get_block_root(&block);
             rpc_blocks.push(if block.num_expected_blobs() > 0 {
@@ -333,6 +336,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         error: format!("No columns for block {block_root:?} with data"),
                         faulty_peers: responsible_peers,
                         action: PeerAction::LowToleranceError,
+                        exceeded_retries,
+
                     });
                 };
 
@@ -353,6 +358,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         error: format!("Peers did not return column for block_root {block_root:?} {naughty_peers:?}"),
                         faulty_peers: naughty_peers,
                         action: PeerAction::LowToleranceError,
+                        exceeded_retries
                     });
                 }
 
