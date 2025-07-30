@@ -3778,11 +3778,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(das) record custody column available timestamp
 
-        // import
-        let chain = self.clone();
-        let block_root = self
-            .spawn_blocking_handle(
+        let block_root = {
+            // Capture the current span before moving into the blocking task
+            let current_span = tracing::Span::current();
+            let chain = self.clone();
+            self.spawn_blocking_handle(
                 move || {
+                    // Enter the captured span in the blocking thread
+                    let _guard = current_span.enter();
                     chain.import_block(
                         block,
                         block_root,
@@ -3794,7 +3797,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
                 "payload_verification_handle",
             )
-            .await??;
+            .await??
+        };
 
         // Remove block components from da_checker AFTER completing block import. Then we can assert
         // the following invariant:
