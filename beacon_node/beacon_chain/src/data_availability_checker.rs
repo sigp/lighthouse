@@ -16,7 +16,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tracing::{debug, error, info_span, Instrument};
+use tracing::{debug, error};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
@@ -622,14 +622,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
         executor.spawn(
-            async move {
-                availability_cache_maintenance_service(chain, overflow_cache)
-                    .instrument(info_span!(
-                        "DataAvailabilityChecker",
-                        service = "data_availability_checker"
-                    ))
-                    .await
-            },
+            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
             "availability_cache_service",
         );
     } else {
