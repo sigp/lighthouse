@@ -8967,6 +8967,7 @@ dependencies = [
  "ssz_types",
  "test_random_derive",
  "tokio",
+ "tracing",
  "tree_hash",
  "types",
 ]

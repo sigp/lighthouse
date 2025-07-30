@@ -34,6 +34,7 @@ pub use crate::beacon_state::slashings_cache::SlashingsCache;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
 pub use milhouse::{interface::Interface, List, Vector};
+use tracing::instrument;
 
 #[macro_use]
 mod committee_cache;
@@ -1931,6 +1932,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build all caches (except the tree hash cache), if they need to be built.
+    #[instrument(skip_all)]
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
@@ -1941,6 +1943,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build all committee caches, if they need to be built.
+    #[instrument(skip_all)]
     pub fn build_all_committee_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_committee_cache(RelativeEpoch::Previous, spec)?;
         self.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -1994,6 +1997,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build a committee cache, unless it is has already been built.
+    #[instrument(skip_all, fields(relative_epoch))]
     pub fn build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
@@ -2194,6 +2198,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
+    #[instrument(skip_all)]
     pub fn update_tree_hash_cache<'a>(&'a mut self) -> Result<Hash256, Error> {
         self.apply_pending_mutations()?;
         map_beacon_state_ref!(&'a _, self.to_ref(), |inner, cons| {

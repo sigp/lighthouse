@@ -92,7 +92,7 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, debug_span, error, info_span, instrument};
+use tracing::{debug, debug_span, error, info_span, instrument, Instrument};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
@@ -1440,7 +1440,10 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     started_execution,
                 );
             }
-            let payload_verification_status = payload_notifier.notify_new_payload().await?;
+            let payload_verification_status = payload_notifier
+                .notify_new_payload()
+                .instrument(info_span!("notify_new_payload", block_root = %block_root))
+                .await?;
 
             Ok(PayloadVerificationOutcome {
                 payload_verification_status,
@@ -1450,10 +1453,14 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         // Spawn the payload verification future as a new task, but don't wait for it to complete.
         // The `payload_verification_future` will be awaited later to ensure verification completed
         // successfully.
+        let current_span = tracing::Span::current();
         let payload_verification_handle = chain
             .task_executor
             .spawn_handle(
-                payload_verification_future,
+                async move {
+                    let _guard = current_span.enter();
+                    payload_verification_future.await
+                },
                 "execution_payload_verification",
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?;
@@ -1463,7 +1470,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          */
 
         let catchup_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_CATCHUP_STATE);
-
+        let catchup_span = info_span!("catchup_state", outcome = "").entered();
         let mut state = parent.pre_state;
 
         // The block must have a higher slot than its parent.
@@ -1537,6 +1544,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             }
         }
         metrics::stop_timer(catchup_timer);
+        drop(catchup_span);
 
         let block_slot = block.slot();
         let state_current_epoch = state.current_epoch();
