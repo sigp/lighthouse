@@ -1088,7 +1088,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for GossipVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
-    #[instrument(skip_all, fields(block_root = %block_root))]
+    #[instrument(name = "gossip_block_into_execution_pending_block_slashable", skip_all, fields(block_root = %block_root))]
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,
@@ -1268,7 +1268,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
-    #[instrument(skip_all, fields(block_root = %block_root))]
+    #[instrument(name = "sig_verified_block_into_execution_pending_block_slashable", skip_all, fields(block_root = %block_root))]
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,
@@ -1306,6 +1306,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
+    #[instrument(name = "rpc_block_into_execution_pending_block_slashable", skip_all, fields(block_root = %block_root))]
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,

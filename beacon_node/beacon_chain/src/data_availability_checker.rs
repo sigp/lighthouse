@@ -16,7 +16,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tracing::{debug, error};
+use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
@@ -328,6 +328,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///
     /// WARNING: This function assumes all required blobs are already present, it does NOT
     ///          check if there are any missing blobs.
+    #[instrument(skip_all)]
     pub fn verify_kzg_for_rpc_block(
         &self,
         block: RpcBlock<T::EthSpec>,
