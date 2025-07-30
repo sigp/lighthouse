@@ -92,7 +92,7 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, debug_span, error, info_span, instrument, Instrument};
+use tracing::{debug, debug_span, error, info_span, instrument, Instrument, Span};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
@@ -1444,7 +1444,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             }
             let payload_verification_status = payload_notifier
                 .notify_new_payload()
-                .instrument(info_span!("notify_new_payload", block_root = %block_root))
+                .instrument(info_span!(parent: &Span::current(), "notify_new_payload", block_root = %block_root))
                 .await?;
 
             Ok(PayloadVerificationOutcome {

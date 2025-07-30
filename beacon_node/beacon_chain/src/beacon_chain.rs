@@ -126,7 +126,7 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument, Span};
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
@@ -3447,7 +3447,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
-        .instrument(info_span!("import_block_future"));
+        .instrument(info_span!(parent: &Span::current(), "import_block_future"));
 
         // Verify and import the block.
         match import_block.await {
