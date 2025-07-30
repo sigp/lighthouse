@@ -1,5 +1,5 @@
 use crate::beacon_chain::BeaconChainTypes;
-use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::persisted_fork_choice::PersistedForkChoiceV17;
 use crate::schema_change::StoreError;
 use crate::test_utils::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY};
 use crate::BeaconForkChoiceStore;
@@ -80,7 +80,7 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
     };
 
     // Recreate head-tracker from fork choice.
-    let Some(persisted_fork_choice) = db.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
+    let Some(persisted_fork_choice) = db.get_item::<PersistedForkChoiceV17>(&FORK_CHOICE_DB_KEY)?
     else {
         // Fork choice should exist if the database exists.
         return Err(Error::MigrationError(
@@ -88,13 +88,16 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
         ));
     };
 
-    let fc_store =
-        BeaconForkChoiceStore::from_persisted(persisted_fork_choice.fork_choice_store, db.clone())
-            .map_err(|e| {
-                Error::MigrationError(format!(
-                    "Error loading fork choise store from persisted: {e:?}"
-                ))
-            })?;
+    let fc_store = BeaconForkChoiceStore::from_persisted(
+        // persisted_fork_choice.fork_choice_store_v17.into(),
+        panic!(),
+        db.clone(),
+    )
+    .map_err(|e| {
+        Error::MigrationError(format!(
+            "Error loading fork choise store from persisted: {e:?}"
+        ))
+    })?;
 
     // Doesn't matter what policy we use for invalid payloads, as our head calculation just
     // considers descent from finalization.

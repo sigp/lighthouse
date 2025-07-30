@@ -933,6 +933,7 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "types",
+ "zstd 0.13.3",
 ]
 
 [[package]]

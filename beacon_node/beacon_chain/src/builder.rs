@@ -888,7 +888,7 @@ where
             Witness<TSlotClock,  E, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
             &fork_choice
-        ));
+        ).map_err(|e| format!("Fork choice compression error: {e:?}"))?);
         store
             .hot_db
             .do_atomically(self.pending_io_batch)

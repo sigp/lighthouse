@@ -121,8 +121,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
-    BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
-    KeyValueStoreOp, StoreItem, StoreOp,
+    BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
+    KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
@@ -618,12 +618,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
-        let Some(persisted_fork_choice) =
-            store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
+        let Some(persisted_fork_choice_bytes) = store
+            .hot_db
+            .get_bytes(DBColumn::ForkChoice, FORK_CHOICE_DB_KEY.as_slice())?
         else {
             return Ok(None);
         };
 
+        let persisted_fork_choice =
+            PersistedForkChoice::from_bytes(&persisted_fork_choice_bytes, store.get_config())?;
         let fc_store =
             BeaconForkChoiceStore::from_persisted(persisted_fork_choice.fork_choice_store, store)?;
 
