@@ -4271,6 +4271,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Iterate through the attestations in the block and register them as "observed".
     ///
     /// This will stop us from propagating them on the gossip network.
+    #[instrument(skip_all)]
     fn import_block_observe_attestations(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
@@ -4431,6 +4432,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     // For the current and next epoch of this state, ensure we have the shuffling from this
     // block in our cache.
+    #[instrument(skip_all)]
     fn import_block_update_shuffling_cache(
         &self,
         block_root: Hash256,

@@ -472,6 +472,7 @@ where
     /// Is equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
+    #[instrument(skip_all)]
     pub fn get_head(
         &mut self,
         system_time_current_slot: Slot,
