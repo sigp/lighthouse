@@ -92,7 +92,7 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, error, info_span, instrument, span};
+use tracing::{debug, debug_span, error, info_span, instrument};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
@@ -827,6 +827,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError> {
+        let span = debug_span!("GossipVerifiedBlock::new", block_root = "");
+        let _guard = span.enter();
+
         // If the block is valid for gossip we don't supply it to the slasher here because
         // we assume it will be transformed into a fully verified block. We *do* need to supply
         // it to the slasher if an error occurs, because that's the end of this block's journey,
@@ -835,12 +838,16 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // The `SignedBeaconBlock` and `SignedBeaconBlockHeader` have the same canonical root,
         // but it's way quicker to calculate root of the header since the hash of the tree rooted
         // at `BeaconBlockBody` is already computed in the header.
-        Self::new_without_slasher_checks(block, &header, chain).map_err(|e| {
-            process_block_slash_info::<_, BlockError>(
-                chain,
-                BlockSlashInfo::from_early_error_block(header, e),
-            )
-        })
+        Self::new_without_slasher_checks(block, &header, chain)
+            .map_err(|e| {
+                process_block_slash_info::<_, BlockError>(
+                    chain,
+                    BlockSlashInfo::from_early_error_block(header, e),
+                )
+            })
+            .inspect(|block| {
+                span.record("block_root", block.block_root.to_string());
+            })
     }
 
     /// As for new, but doesn't pass the block to the slasher.
@@ -1185,6 +1192,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
     /// Finishes signature verification on the provided `GossipVerifedBlock`. Does not re-verify
     /// the proposer signature.
+    #[instrument(skip_all, fields(block_root = %from.block_root))]
     pub fn from_gossip_verified_block(
         from: GossipVerifiedBlock<T>,
         chain: &BeaconChain<T>,
@@ -1212,20 +1220,28 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         signature_verifier
             .include_all_signatures_except_proposal(block.as_ref(), &mut consensus_context)?;
 
-        if signature_verifier.verify().is_ok() {
-            Ok(Self {
-                block: MaybeAvailableBlock::AvailabilityPending {
+        let sig_verify_span = info_span!("signature_verify", result = "started");
+        let _guard = sig_verify_span.enter();
+        let result = signature_verifier.verify();
+        match result {
+            Ok(_) => {
+                sig_verify_span.record("result", &"ok");
+                Ok(Self {
+                    block: MaybeAvailableBlock::AvailabilityPending {
+                        block_root: from.block_root,
+                        block,
+                    },
                     block_root: from.block_root,
-                    block,
-                },
-                block_root: from.block_root,
-                parent: Some(parent),
-                consensus_context,
-            })
-        } else {
-            Err(BlockError::InvalidSignature(
-                InvalidSignature::BlockBodySignatures,
-            ))
+                    parent: Some(parent),
+                    consensus_context,
+                })
+            }
+            Err(_) => {
+                sig_verify_span.record("result", &"fail");
+                Err(BlockError::InvalidSignature(
+                    InvalidSignature::BlockBodySignatures,
+                ))
+            }
         }
     }
 
@@ -2035,6 +2051,7 @@ impl BlockBlobError for GossipDataColumnError {
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
 /// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
 /// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
+#[instrument(skip(state, spec))]
 pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobError>(
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
@@ -2069,6 +2086,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 }
 
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
+#[instrument(skip(chain), level = "debug")]
 pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<'_, ValidatorPubkeyCache<T>>, BeaconChainError> {
