@@ -790,6 +790,7 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
 pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
+    #[instrument(skip_all, fields(block_root = %block_root))]
     fn into_execution_pending_block(
         self,
         block_root: Hash256,
@@ -1087,6 +1088,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for GossipVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
+    #[instrument(skip_all, fields(block_root = %block_root))]
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,
@@ -1225,7 +1227,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         let result = signature_verifier.verify();
         match result {
             Ok(_) => {
-                sig_verify_span.record("result", &"ok");
+                sig_verify_span.record("result", "ok");
                 Ok(Self {
                     block: MaybeAvailableBlock::AvailabilityPending {
                         block_root: from.block_root,
@@ -1237,7 +1239,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
                 })
             }
             Err(_) => {
-                sig_verify_span.record("result", &"fail");
+                sig_verify_span.record("result", "fail");
                 Err(BlockError::InvalidSignature(
                     InvalidSignature::BlockBodySignatures,
                 ))
@@ -1266,6 +1268,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
+    #[instrument(skip_all, fields(block_root = %block_root))]
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,
@@ -1342,6 +1345,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// verification must be done upstream (e.g., via a `SignatureVerifiedBlock`
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
+    #[instrument(skip_all, fields(block_root = %block_root))]
     pub fn from_signature_verified_components(
         block: MaybeAvailableBlock<T::EthSpec>,
         block_root: Hash256,

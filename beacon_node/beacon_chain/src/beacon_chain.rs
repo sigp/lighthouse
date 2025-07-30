@@ -3749,6 +3749,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    #[instrument(skip_all, fields(block_root = %block.import_data.block_root))]
     pub async fn import_available_block(
         self: &Arc<Self>,
         block: Box<AvailableExecutedBlock<T::EthSpec>>,
