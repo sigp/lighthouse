@@ -72,6 +72,10 @@ types = { workspace = true }
 unused_port = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
+tracing-opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry = { workspace = true }
 
 [target.'cfg(any(target_os = "windows", features = "heaptrack"))'.dependencies]
 malloc_utils = { workspace = true }

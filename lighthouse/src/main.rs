@@ -19,6 +19,8 @@ use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use logging::{build_workspace_filter, crit, MetricsLayer};
 use malloc_utils::configure_memory_allocator;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::WithExportConfig;
 use std::backtrace::Backtrace;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -673,6 +675,28 @@ fn run<E: EthSpec>(
 
     logging_layers.push(MetricsLayer.boxed());
 
+    let mut environment = builder
+        .multi_threaded_tokio_runtime()?
+        .eth2_network_config(eth2_network_config)?
+        .build()?;
+
+    let telemetry_layer = environment.runtime().block_on(async {
+        let exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint("http://localhost:4317")
+            .build()
+            .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;
+
+        let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+            .with_batch_exporter(exporter)
+            .build();
+
+        let tracer = provider.tracer("lighthouse");
+        Ok::<_, String>(tracing_opentelemetry::layer().with_tracer(tracer))
+    })?;
+
+    logging_layers.push(telemetry_layer.boxed());
+
     #[cfg(feature = "console-subscriber")]
     {
         let console_layer = console_subscriber::spawn();
@@ -686,11 +710,6 @@ fn run<E: EthSpec>(
     if let Err(e) = logging_result {
         eprintln!("Failed to initialize logger: {e}");
     }
-
-    let mut environment = builder
-        .multi_threaded_tokio_runtime()?
-        .eth2_network_config(eth2_network_config)?
-        .build()?;
 
     // Log panics properly.
     {

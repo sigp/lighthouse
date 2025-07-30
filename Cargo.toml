@@ -275,6 +275,10 @@ xdelta3 = { git = "http://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9febb
 zeroize = { version = "1", features = ["zeroize_derive", "serde"] }
 zip = "0.6"
 zstd = "0.13"
+tracing-opentelemetry = "0.31.0"
+opentelemetry_sdk = "0.30.0"
+opentelemetry-otlp = { version = "0.30.0", features = ["grpc-tonic"] }
+opentelemetry = "0.30.0"
 
 [profile.maxperf]
 inherits = "release"
