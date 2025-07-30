@@ -365,7 +365,7 @@ mod test {
     type E = MainnetEthSpec;
     const TEST_NFD: [u8; 4] = [0x01, 0x02, 0x03, 0x04];
 
-    fn make_gloas_spec() -> ChainSpec {
+    fn make_fulu_spec() -> ChainSpec {
         let mut spec = E::default_spec();
         spec.fulu_fork_epoch = Some(Epoch::new(10));
         spec
@@ -396,8 +396,7 @@ mod test {
             subscribe_all_data_column_subnets: false,
             ..NetworkConfig::default()
         };
-        let spec = make_gloas_spec();
-
+        let spec = make_fulu_spec();
         let enr = build_enr_with_config(config, None, &spec).0;
 
         assert_eq!(
@@ -413,8 +412,8 @@ mod test {
             ..NetworkConfig::default()
         };
 
-        let spec = make_gloas_spec();
-        let enr = build_enr_with_config(config, &spec).0;
+        let spec = make_fulu_spec();
+        let enr = build_enr_with_config(config, None, &spec).0;
 
         assert_eq!(
             enr.custody_group_count::<E>(&spec).unwrap(),
