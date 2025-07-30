@@ -1952,6 +1952,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the exit cache, if it needs to be built.
+    #[instrument(skip_all)]
     pub fn build_exit_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         if self.exit_cache().check_initialized().is_err() {
             *self.exit_cache_mut() = ExitCache::new(self.validators(), spec)?;
@@ -1960,6 +1961,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the slashings cache if it needs to be built.
+    #[instrument(skip_all)]
     pub fn build_slashings_cache(&mut self) -> Result<(), Error> {
         let latest_block_slot = self.latest_block_header().slot;
         if !self.slashings_cache().is_initialized(latest_block_slot) {
@@ -2118,6 +2120,7 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Adds all `pubkeys` from the `validators` which are not already in the cache. Will
     /// never re-add a pubkey.
+    #[instrument(skip_all)]
     pub fn update_pubkey_cache(&mut self) -> Result<(), Error> {
         let mut pubkey_cache = mem::take(self.pubkey_cache_mut());
         let start_index = pubkey_cache.len();
