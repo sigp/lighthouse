@@ -20,7 +20,7 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{interval_at, Duration, Instant};
-use tracing::{debug, error, info, info_span, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
 
 pub struct SlasherService<T: BeaconChainTypes> {
@@ -70,8 +70,6 @@ impl<T: BeaconChainTypes> SlasherService<T> {
 
         executor.spawn_blocking(
             || {
-                let span = info_span!("slasher", service = "slasher");
-                let _ = span.enter();
                 Self::run_processor(beacon_chain, slasher, notif_receiver, network_sender);
             },
             "slasher_server_processor",
