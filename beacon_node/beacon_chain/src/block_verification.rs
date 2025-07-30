@@ -92,7 +92,7 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, error};
+use tracing::{debug, error, info_span, instrument, span};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
@@ -1854,6 +1854,7 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
 /// Returns `Err(BlockError::ParentUnknown)` if the parent is not found, or if an error occurs
 /// whilst attempting the operation.
 #[allow(clippy::type_complexity)]
+#[instrument(skip_all, fields(parent_root = %block.parent_root()))]
 fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     block: B,
     chain: &BeaconChain<T>,
@@ -1877,6 +1878,9 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
             parent_root: block.parent_root(),
         });
     }
+
+    let db_read_span = info_span!("block_processing_db_read");
+    let _guard = db_read_span.enter();
 
     let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
