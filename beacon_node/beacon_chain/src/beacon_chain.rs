@@ -126,7 +126,7 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
@@ -3383,6 +3383,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
+    #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source))]
     pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         block_root: Hash256,
@@ -3445,7 +3446,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.check_block_availability_and_import(block).await
                 }
             }
-        };
+        }
+        .instrument(info_span!("import_block_future"));
 
         // Verify and import the block.
         match import_block.await {
@@ -3499,6 +3501,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// get a fully `ExecutedBlock`.
     ///
     /// An error is returned if the verification handle couldn't be awaited.
+    #[instrument(skip_all)]
     pub async fn into_executed_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
@@ -3547,6 +3550,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if the block is available, and imports immediately if so, otherwise caches the block
     /// in the data availability checker.
+    #[instrument(skip_all)]
     async fn check_block_availability_and_import(
         self: &Arc<Self>,
         block: AvailabilityPendingExecutedBlock<T::EthSpec>,
@@ -3813,6 +3817,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
     #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        skip_all,
+        fields(
+            block_root = ?block_root,
+            slot = %signed_block.message().slot()
+        )
+    )]
     fn import_block(
         &self,
         signed_block: AvailableBlock<T::EthSpec>,
@@ -3850,6 +3861,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Only take a write lock if there are new keys to import.
             if state.validators().len() > pubkey_cache.len() {
+                let _pubkey_span = tracing::debug_span!(
+                    "pubkey_cache_update",
+                    new_validators = tracing::field::Empty,
+                    cache_len_before = pubkey_cache.len()
+                )
+                .entered();
+
                 parking_lot::RwLockUpgradableReadGuard::upgrade(pubkey_cache)
                     .import_new_pubkeys(&state)?
             } else {
@@ -3863,6 +3881,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // However, latency between the VC and the BN might cause the VC to produce attestations at
         // a previous slot.
         if state.current_epoch().saturating_add(1_u64) >= current_epoch {
+            let _attester_span = tracing::debug_span!("attester_cache_update").entered();
             self.attester_cache
                 .maybe_cache_state(&state, block_root, &self.spec)
                 .map_err(BeaconChainError::from)?;
@@ -4007,6 +4026,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
+        let db_span = tracing::info_span!("persist_blocks_and_blobs",).entered();
+
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
                 msg = "Restoring fork choice from disk",
@@ -4018,6 +4039,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .err()
                 .unwrap_or(e.into()));
         }
+
+        drop(db_span);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.

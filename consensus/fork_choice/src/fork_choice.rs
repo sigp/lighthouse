@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 use types::{
     consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
@@ -646,6 +646,11 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        skip_all,
+        fields(
+            block_root = %block_root, slot = %block.slot(), block_delay = ?block_delay, payload_verification_status = ?payload_verification_status
+        ))]
     pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
