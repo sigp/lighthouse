@@ -652,7 +652,7 @@ fn run<E: EthSpec>(
         logging_layers.push(
             file_logging_layer
                 .with_filter(logger_config.logfile_debug_level)
-                .with_filter(workspace_filter)
+                .with_filter(workspace_filter.clone())
                 .boxed(),
         );
     }
@@ -692,7 +692,11 @@ fn run<E: EthSpec>(
             .build();
 
         let tracer = provider.tracer("lighthouse");
-        Ok::<_, String>(tracing_opentelemetry::layer().with_tracer(tracer))
+        Ok::<_, String>(
+            tracing_opentelemetry::layer()
+                .with_tracer(tracer)
+                .with_filter(workspace_filter),
+        )
     })?;
 
     logging_layers.push(telemetry_layer.boxed());
