@@ -689,6 +689,11 @@ fn run<E: EthSpec>(
 
         let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
             .with_batch_exporter(exporter)
+            .with_resource(
+                opentelemetry_sdk::Resource::builder()
+                    .with_service_name("lighthouse")
+                    .build(),
+            )
             .build();
 
         let tracer = provider.tracer("lighthouse");
