@@ -97,7 +97,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip_all, fields(?block_root))]
+    #[instrument(skip_all, fields(?block_root), parent = None)]
     pub async fn process_rpc_block(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Attempt to process a list of blobs received from a direct RPC request.
-    #[instrument(skip_all, fields(?block_root, outcome = tracing::field::Empty))]
+    #[instrument(skip_all, fields(?block_root, outcome = tracing::field::Empty), parent = None)]
     pub async fn process_rpc_blobs(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -334,7 +334,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
-    #[instrument(skip_all, fields(?block_root))]
+    #[instrument(skip_all, fields(?block_root), parent = None)]
     pub async fn process_rpc_custody_columns(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -420,7 +420,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
-    #[instrument(skip_all, fields(sync_type = ?sync_type, downloaded_blocks = downloaded_blocks.len(), imported_blocks = tracing::field::Empty))]
+    #[instrument(skip_all, fields(sync_type = ?sync_type, downloaded_blocks = downloaded_blocks.len(), imported_blocks = tracing::field::Empty), parent = None)]
     pub async fn process_chain_segment(
         &self,
         sync_type: ChainSegmentProcessId,

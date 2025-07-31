@@ -603,7 +603,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    #[instrument(skip_all, level = "trace", fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index))]
+    #[instrument(skip_all, level = "trace", fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index), parent = None)]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -761,7 +761,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip_all, level = "trace", fields(slot = ?blob_sidecar.slot(), block_root = ?blob_sidecar.block_root(), index = blob_sidecar.index))]
+    #[instrument(skip_all, level = "trace", fields(slot = ?blob_sidecar.slot(), block_root = ?blob_sidecar.block_root(), index = blob_sidecar.index), parent = None)]
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -1099,7 +1099,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip_all, fields(block_root = tracing::field::Empty))]
+    #[instrument(skip_all, fields(block_root = tracing::field::Empty), parent = None)]
     pub async fn process_gossip_block(
         self: Arc<Self>,
         message_id: MessageId,
@@ -1430,7 +1430,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Raises a log if there are errors.
     #[instrument(skip_all)]
-    pub async fn process_gossip_verified_block(
+    async fn process_gossip_verified_block(
         self: Arc<Self>,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
