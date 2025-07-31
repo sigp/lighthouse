@@ -713,6 +713,8 @@ where
     pub fn set_mock_builder(
         &mut self,
         beacon_url: SensitiveUrl,
+        strict_registrations: bool,
+        apply_operations: bool,
     ) -> impl futures::Future<Output = ()> {
         let mock_el = self
             .mock_execution_layer
@@ -725,6 +727,8 @@ where
         let (mock_builder, (addr, mock_builder_server)) = MockBuilder::new_for_testing(
             mock_el_url,
             beacon_url,
+            strict_registrations,
+            apply_operations,
             self.spec.clone(),
             self.runtime.task_executor.clone(),
         );

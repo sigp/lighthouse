@@ -110,7 +110,17 @@ impl<E: EthSpec> InteractiveTester<E> {
         let beacon_url =
             SensitiveUrl::parse(format!("http://{beacon_api_ip}:{beacon_api_port}").as_str())
                 .unwrap();
-        let mock_builder_server = harness.set_mock_builder(beacon_url.clone());
+
+        // We disable apply_operations because it breaks the mock builder's ability to return
+        // payloads.
+        let apply_operations = false;
+
+        // We disable strict registration checks too, because it makes HTTP tests less fiddly to
+        // write.
+        let strict_registrations = false;
+
+        let mock_builder_server =
+            harness.set_mock_builder(beacon_url.clone(), strict_registrations, apply_operations);
 
         tokio::spawn(mock_builder_server);
 

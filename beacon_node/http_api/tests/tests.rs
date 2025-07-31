@@ -291,7 +291,14 @@ impl ApiTester {
         let beacon_api_port = listening_socket.port();
         let beacon_url =
             SensitiveUrl::parse(format!("http://127.0.0.1:{beacon_api_port}").as_str()).unwrap();
-        let mock_builder_server = harness.set_mock_builder(beacon_url.clone());
+
+        // Be strict with validator registrations, but don't bother applying operations, that flag
+        // is only used by mock-builder tests.
+        let strict_registrations = true;
+        let apply_operations = false;
+
+        let mock_builder_server =
+            harness.set_mock_builder(beacon_url.clone(), strict_registrations, apply_operations);
 
         // Start the mock builder service prior to building the chain out.
         harness

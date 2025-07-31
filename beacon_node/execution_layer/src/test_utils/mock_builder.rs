@@ -315,6 +315,8 @@ impl<E: EthSpec> MockBuilder<E> {
     pub fn new_for_testing(
         mock_el_url: SensitiveUrl,
         beacon_url: SensitiveUrl,
+        validate_pubkey: bool,
+        apply_operations: bool,
         spec: Arc<ChainSpec>,
         executor: TaskExecutor,
     ) -> (Self, (SocketAddr, impl Future<Output = ()>)) {
@@ -332,9 +334,6 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();
 
-        // FIXME(sproul): both of these options are kind of scuffed
-        let validate_pubkey = false;
-        let apply_operations = false;
         let max_bid = false;
 
         let builder = MockBuilder::new(
@@ -525,16 +524,29 @@ impl<E: EthSpec> MockBuilder<E> {
         info!("Got payload params");
 
         let fork = self.fork_name_at_slot(slot);
+
         let payload_response_type = self
             .el
-            .get_full_payload_caching(PayloadParameters {
-                parent_hash: payload_parameters.parent_hash,
-                parent_gas_limit: payload_parameters.parent_gas_limit,
-                proposer_gas_limit: payload_parameters.proposer_gas_limit,
-                payload_attributes: &payload_parameters.payload_attributes,
-                forkchoice_update_params: &payload_parameters.forkchoice_update_params,
-                current_fork: payload_parameters.current_fork,
-            })
+            .get_full_payload_with(
+                PayloadParameters {
+                    parent_hash: payload_parameters.parent_hash,
+                    parent_gas_limit: payload_parameters.parent_gas_limit,
+                    proposer_gas_limit: payload_parameters.proposer_gas_limit,
+                    payload_attributes: &payload_parameters.payload_attributes,
+                    forkchoice_update_params: &payload_parameters.forkchoice_update_params,
+                    current_fork: payload_parameters.current_fork,
+                },
+                // If apply_operations is set, do NOT cache the payload at this point, we are about
+                // to mutate it and it would be incorrect to cache the unmutated payload.
+                //
+                // This is a flaw in apply_operations generally, if you want the mock builder to
+                // actually return payloads then this option should be turned off.
+                if self.apply_operations {
+                    |_, _| None
+                } else {
+                    ExecutionLayer::cache_payload
+                },
+            )
             .await
             .map_err(|e| format!("couldn't get payload {:?}", e))?;
 
