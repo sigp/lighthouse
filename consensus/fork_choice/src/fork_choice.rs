@@ -472,7 +472,7 @@ where
     /// Is equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub fn get_head(
         &mut self,
         system_time_current_slot: Slot,
@@ -650,7 +650,7 @@ where
     #[instrument(
         skip_all,
         fields(
-            block_root = %block_root, slot = %block.slot(), block_delay = ?block_delay, payload_verification_status = ?payload_verification_status
+            fork_choice_block_delay = ?block_delay, payload_verification_status = ?payload_verification_status
         ))]
     pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,

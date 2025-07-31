@@ -3414,7 +3414,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // A small closure to group the verification and import errors.
         let chain = self.clone();
-        let current_span = tracing::Span::current();
+        let current_span = Span::current();
         let import_block = async move {
             let _ = current_span.enter();
             let execution_pending = unverified_block.into_execution_pending_block(
@@ -3502,7 +3502,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// get a fully `ExecutedBlock`.
     ///
     /// An error is returned if the verification handle couldn't be awaited.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub async fn into_executed_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
@@ -3881,7 +3881,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // However, latency between the VC and the BN might cause the VC to produce attestations at
         // a previous slot.
         if state.current_epoch().saturating_add(1_u64) >= current_epoch {
-            let _attester_span = tracing::debug_span!("attester_cache_update").entered();
+            let _attester_span = debug_span!("attester_cache_update").entered();
             self.attester_cache
                 .maybe_cache_state(&state, block_root, &self.spec)
                 .map_err(BeaconChainError::from)?;
@@ -4026,7 +4026,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        let db_span = tracing::info_span!("persist_blocks_and_blobs").entered();
+        let db_span = info_span!("persist_blocks_and_blobs").entered();
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
@@ -4176,7 +4176,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Process a block for the validator monitor, including all its constituent messages.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     fn import_block_update_validator_monitor(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
@@ -4271,7 +4271,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Iterate through the attestations in the block and register them as "observed".
     ///
     /// This will stop us from propagating them on the gossip network.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     fn import_block_observe_attestations(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
@@ -4334,7 +4334,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// If a slasher is configured, provide the attestations from the block.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     fn import_block_update_slasher(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
@@ -4433,7 +4433,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     // For the current and next epoch of this state, ensure we have the shuffling from this
     // block in our cache.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     fn import_block_update_shuffling_cache(
         &self,
         block_root: Hash256,

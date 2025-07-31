@@ -1933,7 +1933,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build all caches (except the tree hash cache), if they need to be built.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub fn build_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_all_committee_caches(spec)?;
         self.update_pubkey_cache()?;
@@ -1944,7 +1944,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build all committee caches, if they need to be built.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub fn build_all_committee_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         self.build_committee_cache(RelativeEpoch::Previous, spec)?;
         self.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -1953,7 +1953,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the exit cache, if it needs to be built.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub fn build_exit_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         if self.exit_cache().check_initialized().is_err() {
             *self.exit_cache_mut() = ExitCache::new(self.validators(), spec)?;
@@ -1962,7 +1962,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the slashings cache if it needs to be built.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub fn build_slashings_cache(&mut self) -> Result<(), Error> {
         let latest_block_slot = self.latest_block_header().slot;
         if !self.slashings_cache().is_initialized(latest_block_slot) {
@@ -2000,7 +2000,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build a committee cache, unless it is has already been built.
-    #[instrument(skip_all, fields(relative_epoch))]
+    #[instrument(skip_all, level = "debug")]
     pub fn build_committee_cache(
         &mut self,
         relative_epoch: RelativeEpoch,
@@ -2121,7 +2121,7 @@ impl<E: EthSpec> BeaconState<E> {
     ///
     /// Adds all `pubkeys` from the `validators` which are not already in the cache. Will
     /// never re-add a pubkey.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub fn update_pubkey_cache(&mut self) -> Result<(), Error> {
         let mut pubkey_cache = mem::take(self.pubkey_cache_mut());
         let start_index = pubkey_cache.len();
@@ -2202,7 +2202,7 @@ impl<E: EthSpec> BeaconState<E> {
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub fn update_tree_hash_cache<'a>(&'a mut self) -> Result<Hash256, Error> {
         self.apply_pending_mutations()?;
         map_beacon_state_ref!(&'a _, self.to_ref(), |inner, cons| {
