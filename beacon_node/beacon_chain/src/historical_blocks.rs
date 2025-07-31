@@ -11,7 +11,7 @@ use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
-use tracing::debug;
+use tracing::{debug, instrument};
 use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -63,6 +63,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
     ///
     /// Return the number of blocks successfully imported.
+    #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,

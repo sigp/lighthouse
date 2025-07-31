@@ -472,6 +472,7 @@ where
     Err(errors)
 }
 
+#[instrument(skip_all, level = "debug")]
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: u64,

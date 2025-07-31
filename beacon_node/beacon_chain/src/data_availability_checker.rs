@@ -395,6 +395,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///
     /// WARNING: This function assumes all required blobs are already present, it does NOT
     ///          check if there are any missing blobs.
+    #[instrument(skip_all)]
     pub fn verify_kzg_for_rpc_blocks(
         &self,
         blocks: Vec<RpcBlock<T::EthSpec>>,

@@ -618,6 +618,7 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 ///
 /// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
 /// will be returned.
+#[instrument(skip_all)]
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, RpcBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
