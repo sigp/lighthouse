@@ -131,7 +131,7 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
         .is_ok())
 }
 
-#[instrument(skip_all)]
+#[instrument(skip_all, level = "debug")]
 pub fn initialize_epoch_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,

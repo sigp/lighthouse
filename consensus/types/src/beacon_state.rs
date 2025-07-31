@@ -1874,7 +1874,7 @@ impl<E: EthSpec> BeaconState<E> {
     }
 
     /// Build the total active balance cache for the current epoch if it is not already built.
-    #[instrument(skip_all)]
+    #[instrument(skip_all, level = "debug")]
     pub fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         if self
             .get_total_active_balance_at_epoch(self.current_epoch())

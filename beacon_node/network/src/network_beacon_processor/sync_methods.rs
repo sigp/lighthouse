@@ -21,7 +21,7 @@ use lighthouse_network::PeerAction;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn, Span};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
@@ -97,6 +97,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, fields(?block_root))]
     pub async fn process_rpc_block(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -243,6 +244,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Attempt to process a list of blobs received from a direct RPC request.
+    #[instrument(skip_all, fields(?block_root, outcome = tracing::field::Empty))]
     pub async fn process_rpc_blobs(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -291,6 +293,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                Span::current().record("outcome", "imported");
                 debug!(
                     result = "imported block and blobs",
                     %slot,
@@ -300,6 +303,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+                Span::current().record("outcome", "missing_components");
                 debug!(
                     block_hash = %block_root,
                     %slot,
@@ -330,6 +334,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    #[instrument(skip_all, fields(?block_root))]
     pub async fn process_rpc_custody_columns(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,

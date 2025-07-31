@@ -126,7 +126,7 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument, Span};
+use tracing::{debug, debug_span, error, info, info_span, instrument, trace, warn, Span};
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
@@ -2203,6 +2203,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    #[instrument(skip_all, level = "trace")]
     pub fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
@@ -2215,6 +2216,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    #[instrument(skip_all, level = "trace")]
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
         blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
@@ -2974,10 +2976,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let chain = self.clone();
+        let span = Span::current();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
                 move || {
+                    let _guard = span.enter();
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
@@ -3006,7 +3010,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                     }
                 },
-                "payload_verification_handle",
+                "gossip_block_verification_handle",
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?
             .await
@@ -3015,6 +3019,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the blob in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
@@ -3088,6 +3093,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    #[instrument(skip_all, level = "debug")]
     pub async fn process_rpc_blobs(
         self: &Arc<Self>,
         slot: Slot,
@@ -3861,7 +3867,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Only take a write lock if there are new keys to import.
             if state.validators().len() > pubkey_cache.len() {
-                let _pubkey_span = tracing::debug_span!(
+                let _pubkey_span = debug_span!(
                     "pubkey_cache_update",
                     new_validators = tracing::field::Empty,
                     cache_len_before = pubkey_cache.len()

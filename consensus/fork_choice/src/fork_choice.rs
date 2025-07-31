@@ -648,9 +648,10 @@ where
     /// here.
     #[allow(clippy::too_many_arguments)]
     #[instrument(
+        name = "fork_choice_on_block",
         skip_all,
         fields(
-            fork_choice_block_delay = ?block_delay, payload_verification_status = ?payload_verification_status
+            fork_choice_block_delay = ?block_delay
         ))]
     pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,

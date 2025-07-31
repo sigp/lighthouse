@@ -12,7 +12,7 @@ use types::{
 };
 
 /// Initializes the `ProgressiveBalancesCache` if it is unbuilt.
-#[instrument(skip_all)]
+#[instrument(skip_all, level = "debug")]
 pub fn initialize_progressive_balances_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,

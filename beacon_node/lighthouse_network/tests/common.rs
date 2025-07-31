@@ -7,7 +7,7 @@ use lighthouse_network::{NetworkConfig, NetworkEvent};
 use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
-use tracing::{debug, error};
+use tracing::{debug, error, info_span, Instrument};
 use tracing_subscriber::EnvFilter;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
@@ -204,7 +204,8 @@ pub async fn build_node_pair(
                 }
             }
         }
-    };
+    }
+    .instrument(info_span!("Sender", who = "sender"));
     let receiver_fut = async {
         loop {
             if let NetworkEvent::NewListenAddr(addr) = receiver.next_event().await {
@@ -226,7 +227,8 @@ pub async fn build_node_pair(
                 }
             }
         }
-    };
+    }
+    .instrument(info_span!("Receiver", who = "receiver"));
 
     let joined = futures::future::join(sender_fut, receiver_fut);
 
