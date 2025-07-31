@@ -332,12 +332,17 @@ impl<E: EthSpec> MockBuilder<E> {
 
         let el = ExecutionLayer::from_config(config, executor.clone()).unwrap();
 
+        // FIXME(sproul): both of these options are kind of scuffed
+        let validate_pubkey = false;
+        let apply_operations = false;
+        let max_bid = false;
+
         let builder = MockBuilder::new(
             el,
             BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(Duration::from_secs(1))),
-            true,
-            true,
-            false,
+            validate_pubkey,
+            apply_operations,
+            max_bid,
             spec,
             None,
         );
@@ -458,14 +463,20 @@ impl<E: EthSpec> MockBuilder<E> {
                 block.message.body.execution_payload.tree_hash_root()
             }
         };
+        let block_hash = block
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            .block_hash();
         info!(
-            block_hash = %root,
+            execution_payload_root = %root,
+            ?block_hash,
             "Submitting blinded beacon block to builder"
         );
-        let payload = self
-            .el
-            .get_payload_by_root(&root)
-            .ok_or_else(|| "missing payload for tx root".to_string())?;
+        let payload = self.el.get_payload_by_root(&root).ok_or_else(|| {
+            format!("missing payload for root: {root:?}, block_hash: {block_hash:?}",)
+        })?;
 
         let (payload, blobs) = payload.deconstruct();
         let full_block = block

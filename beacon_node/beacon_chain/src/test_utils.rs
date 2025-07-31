@@ -906,8 +906,62 @@ where
         state: BeaconState<E>,
         slot: Slot,
     ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
-        let (unblinded, new_state) = self.make_block(state, slot).await;
-        ((*unblinded.0).clone().into(), new_state)
+        self.make_blinded_block_with_modifier(state, slot, |_| {})
+            .await
+    }
+
+    pub async fn make_blinded_block_with_modifier(
+        &self,
+        mut state: BeaconState<E>,
+        slot: Slot,
+        block_modifier: impl FnOnce(&mut BlindedBeaconBlock<E>),
+    ) -> (SignedBlindedBeaconBlock<E>, BeaconState<E>) {
+        assert_ne!(slot, 0, "can't produce a block at slot 0");
+        assert!(slot >= state.slot());
+
+        complete_state_advance(&mut state, None, slot, &self.spec)
+            .expect("should be able to advance state to slot");
+
+        state.build_caches(&self.spec).expect("should build caches");
+
+        let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
+
+        // If we produce two blocks for the same slot, they hash up to the same value and
+        // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
+        // different blocks each time.
+        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+
+        let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
+
+        let BeaconBlockResponseWrapper::Blinded(block_response) = self
+            .chain
+            .produce_block_on_state(
+                state,
+                None,
+                slot,
+                randao_reveal,
+                Some(graffiti),
+                ProduceBlockVerification::VerifyRandao,
+                None,
+                BlockProductionVersion::BlindedV2,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("Should always be a blinded payload response");
+        };
+
+        let mut block = block_response.block;
+        block_modifier(&mut block);
+
+        let signed_block = block.sign(
+            &self.validator_keypairs[proposer_index].sk,
+            &block_response.state.fork(),
+            block_response.state.genesis_validators_root(),
+            &self.spec,
+        );
+
+        (signed_block, block_response.state)
     }
 
     /// Returns a newly created block, signed by the proposer for the given slot.

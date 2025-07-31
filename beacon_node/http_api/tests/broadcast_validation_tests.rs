@@ -1,7 +1,7 @@
 use beacon_chain::test_utils::test_spec;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
-    GossipVerifiedBlock, IntoGossipVerifiedBlock,
+    GossipVerifiedBlock, IntoGossipVerifiedBlock, WhenSlotSkipped,
 };
 use eth2::reqwest::StatusCode;
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
@@ -762,9 +762,9 @@ pub async fn blinded_gossip_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block_contents_tuple, _) = tester
+    let (blinded_block, _) = tester
         .harness
-        .make_block_with_modifier(chain_state_before, slot, |b| {
+        .make_blinded_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
             *b.parent_root_mut() = Hash256::zero();
         })
@@ -772,7 +772,7 @@ pub async fn blinded_gossip_invalid() {
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block_contents_tuple.0.clone_as_blinded(), validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
     assert!(response.is_err());
 
@@ -780,7 +780,14 @@ pub async fn blinded_gossip_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string());
+
+    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
+    // block.
+    let pre_finalized_block_root = Hash256::zero();
+    assert_server_message_error(
+        error_response,
+        format!("BAD_REQUEST: BlobParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
+    );
 }
 
 /// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
@@ -811,16 +818,16 @@ pub async fn blinded_gossip_partial_pass() {
 
     tester.harness.advance_slot();
 
-    let (block_contents_tuple, _) = tester
+    let (blinded_block, _) = tester
         .harness
-        .make_block_with_modifier(chain_state_before, slot, |b| {
+        .make_blinded_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero()
         })
         .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block_contents_tuple.0.clone_as_blinded(), validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
     assert!(response.is_err());
 
@@ -921,7 +928,7 @@ pub async fn blinded_consensus_invalid() {
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
-    let num_initial: u64 = 31;
+    let num_initial: u64 = 256;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
@@ -940,17 +947,29 @@ pub async fn blinded_consensus_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block_contents_tuple, _) = tester
+    let finalized_slot = chain_state_before
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(E::slots_per_epoch());
+    assert_ne!(finalized_slot, 0);
+    let pre_finalized_block_root = tester
         .harness
-        .make_block_with_modifier(chain_state_before, slot, |b| {
+        .chain
+        .block_root_at_slot(finalized_slot - 1, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+
+    let (blinded_block, _) = tester
+        .harness
+        .make_blinded_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
-            *b.parent_root_mut() = Hash256::zero();
+            *b.parent_root_mut() = pre_finalized_block_root;
         })
         .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block_contents_tuple.0.clone_as_blinded(), validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
     assert!(response.is_err());
 
@@ -958,7 +977,13 @@ pub async fn blinded_consensus_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string());
+
+    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
+    // block.
+    assert_server_message_error(
+        error_response,
+        format!("BAD_REQUEST: BlobParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
+    );
 }
 
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus`.
@@ -989,14 +1014,16 @@ pub async fn blinded_consensus_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_contents_tuple, _) = tester
+    let (blinded_block, _) = tester
         .harness
-        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
+        .make_blinded_block_with_modifier(state_a, slot_b, |b| {
+            *b.state_root_mut() = Hash256::zero()
+        })
         .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block_contents_tuple.0.clone_as_blinded(), validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
     assert!(response.is_err());
 
@@ -1004,7 +1031,7 @@ pub async fn blinded_consensus_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x253405be9aa159bce7b276b8e1d3849c743e673118dfafe8c7d07c203ae0d80d }".to_string());
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x3fd3d78bc99e39a7a4e643f19ff446524b405df7256f4a2f6f5f07affa0b1036 }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
@@ -1059,7 +1086,7 @@ pub async fn blinded_equivocation_invalid() {
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
-    let num_initial: u64 = 31;
+    let num_initial: u64 = 256;
     let tester = InteractiveTester::<E>::new(None, validator_count).await;
 
     // Create some chain depth.
@@ -1078,17 +1105,29 @@ pub async fn blinded_equivocation_invalid() {
 
     tester.harness.advance_slot();
 
-    let (block_contents_tuple, _) = tester
+    let finalized_slot = chain_state_before
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(E::slots_per_epoch());
+    assert_ne!(finalized_slot, 0);
+    let pre_finalized_block_root = tester
         .harness
-        .make_block_with_modifier(chain_state_before, slot, |b| {
+        .chain
+        .block_root_at_slot(finalized_slot - 1, WhenSlotSkipped::Prev)
+        .unwrap()
+        .unwrap();
+
+    let (blinded_block, _) = tester
+        .harness
+        .make_blinded_block_with_modifier(chain_state_before, slot, |b| {
             *b.state_root_mut() = Hash256::zero();
-            *b.parent_root_mut() = Hash256::zero();
+            *b.parent_root_mut() = pre_finalized_block_root;
         })
         .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block_contents_tuple.0.clone_as_blinded(), validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
     assert!(response.is_err());
 
@@ -1096,7 +1135,12 @@ pub async fn blinded_equivocation_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: NotFinalizedDescendant { block_parent_root: 0x0000000000000000000000000000000000000000000000000000000000000000 }".to_string());
+    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
+    // block.
+    assert_server_message_error(
+        error_response,
+        format!("BAD_REQUEST: BlobParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
+    );
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -1198,14 +1242,16 @@ pub async fn blinded_equivocation_gossip() {
     let slot_b = slot_a + 1;
 
     let state_a = tester.harness.get_current_state();
-    let (block_contents_tuple, _) = tester
+    let (blinded_block, _) = tester
         .harness
-        .make_block_with_modifier(state_a, slot_b, |b| *b.state_root_mut() = Hash256::zero())
+        .make_blinded_block_with_modifier(state_a, slot_b, |b| {
+            *b.state_root_mut() = Hash256::zero()
+        })
         .await;
 
     let response: Result<(), eth2::Error> = tester
         .client
-        .post_beacon_blinded_blocks_v2(&block_contents_tuple.0.clone_as_blinded(), validation_level)
+        .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
     assert!(response.is_err());
 
@@ -1214,7 +1260,7 @@ pub async fn blinded_equivocation_gossip() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x253405be9aa159bce7b276b8e1d3849c743e673118dfafe8c7d07c203ae0d80d }".to_string());
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x3fd3d78bc99e39a7a4e643f19ff446524b405df7256f4a2f6f5f07affa0b1036 }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and
