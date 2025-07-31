@@ -754,7 +754,9 @@ fn run<E: EthSpec>(
         (Some(testnet), None) => testnet,
         (None, Some(testnet_dir)) => format!("custom ({})", testnet_dir.display()),
         (None, None) => DEFAULT_HARDCODED_NETWORK.to_string(),
-        (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
+        (Some(_), Some(_)) => {
+            return Err("Cannot specify both --network and --testnet-dir flags simultaneously".into());
+        }
     };
 
     if let Some(sub_matches) = matches.subcommand_matches(account_manager::CMD) {
