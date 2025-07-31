@@ -281,6 +281,18 @@ fn main() {
                 .display_order(0)
         )
         .arg(
+            Arg::new("telemetry-collector-url")
+                .long("telemetry-collector-url")
+                .value_name("URL")
+                .help(
+                    "URL of the OpenTelemetry collector to export tracing spans \
+                    (e.g., http://localhost:4317). If not set, tracing export is disabled.",
+                )
+                .action(ArgAction::Set)
+                .global(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("datadir")
                 .long("datadir")
                 .short('d')
@@ -680,31 +692,33 @@ fn run<E: EthSpec>(
         .eth2_network_config(eth2_network_config)?
         .build()?;
 
-    let telemetry_layer = environment.runtime().block_on(async {
-        let exporter = opentelemetry_otlp::SpanExporter::builder()
-            .with_tonic()
-            .with_endpoint("http://localhost:4317")
-            .build()
-            .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;
+    if let Some(telemetry_collector_url) = matches.get_one::<String>("telemetry-collector-url") {
+        let telemetry_layer = environment.runtime().block_on(async {
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(telemetry_collector_url)
+                .build()
+                .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;
 
-        let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-            .with_batch_exporter(exporter)
-            // .with_resource(
-            //     opentelemetry_sdk::Resource::builder()
-            //         .with_service_name("lighthouse")
-            //         .build(),
-            // )
-            .build();
+            let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_batch_exporter(exporter)
+                .with_resource(
+                    opentelemetry_sdk::Resource::builder()
+                        .with_service_name("lighthouse")
+                        .build(),
+                )
+                .build();
 
-        let tracer = provider.tracer("lighthouse");
-        Ok::<_, String>(
-            tracing_opentelemetry::layer()
-                .with_tracer(tracer)
-                .with_filter(workspace_filter),
-        )
-    })?;
+            let tracer = provider.tracer("lighthouse");
+            Ok::<_, String>(
+                tracing_opentelemetry::layer()
+                    .with_tracer(tracer)
+                    .with_filter(workspace_filter),
+            )
+        })?;
 
-    logging_layers.push(telemetry_layer.boxed());
+        logging_layers.push(telemetry_layer.boxed());
+    }
 
     #[cfg(feature = "console-subscriber")]
     {
