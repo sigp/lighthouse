@@ -3383,7 +3383,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
-    #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source), parent = None)]
+    #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source))]
     pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         block_root: Hash256,
@@ -3414,7 +3414,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // A small closure to group the verification and import errors.
         let chain = self.clone();
+        let current_span = tracing::Span::current();
         let import_block = async move {
+            let _ = current_span.enter();
             let execution_pending = unverified_block.into_execution_pending_block(
                 block_root,
                 &chain,
@@ -3446,8 +3448,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.check_block_availability_and_import(block).await
                 }
             }
-        }
-        .instrument(info_span!(parent: &Span::current(), "import_block_future"));
+        };
 
         // Verify and import the block.
         match import_block.await {
@@ -3749,7 +3750,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    #[instrument(skip_all, fields(block_root = %block.import_data.block_root))]
+    #[instrument(skip_all)]
     pub async fn import_available_block(
         self: &Arc<Self>,
         block: Box<AvailableExecutedBlock<T::EthSpec>>,
@@ -3822,13 +3823,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
     #[allow(clippy::too_many_arguments)]
-    #[instrument(
-        skip_all,
-        fields(
-            block_root = ?block_root,
-            slot = %signed_block.message().slot()
-        )
-    )]
+    #[instrument(skip_all)]
     fn import_block(
         &self,
         signed_block: AvailableBlock<T::EthSpec>,
@@ -4031,7 +4026,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
-        let db_span = tracing::info_span!("persist_blocks_and_blobs",).entered();
+        let db_span = tracing::info_span!("persist_blocks_and_blobs").entered();
 
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
