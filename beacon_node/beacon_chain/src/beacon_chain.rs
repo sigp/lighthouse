@@ -3383,7 +3383,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
-    #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source))]
+    #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source), parent = None)]
     pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         block_root: Hash256,
