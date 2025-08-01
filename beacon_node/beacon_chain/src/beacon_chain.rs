@@ -3420,9 +3420,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // A small closure to group the verification and import errors.
         let chain = self.clone();
-        let current_span = Span::current();
         let import_block = async move {
-            let _ = current_span.enter();
             let execution_pending = unverified_block.into_execution_pending_block(
                 block_root,
                 &chain,

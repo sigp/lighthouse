@@ -92,7 +92,7 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, debug_span, error, info_span, instrument, Span};
+use tracing::{debug, debug_span, error, info_span, instrument, Instrument, Span};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
@@ -1424,9 +1424,8 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         )?;
         let is_valid_merge_transition_block =
             is_merge_transition_block(&parent.pre_state, block.message().body());
-        let current_span = tracing::Span::current();
+
         let payload_verification_future = async move {
-            let _guard = current_span.enter();
             let chain = payload_notifier.chain.clone();
             let block = payload_notifier.block.clone();
 
@@ -1464,10 +1463,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         // Spawn the payload verification future as a new task, but don't wait for it to complete.
         // The `payload_verification_future` will be awaited later to ensure verification completed
         // successfully.
+        let current_span = Span::current();
         let payload_verification_handle = chain
             .task_executor
             .spawn_handle(
-                payload_verification_future,
+                payload_verification_future.instrument(current_span),
                 "execution_payload_verification",
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?;

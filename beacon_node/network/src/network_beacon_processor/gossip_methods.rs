@@ -32,7 +32,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc::error::TrySendError;
-use tracing::{debug, error, info, instrument, trace, warn, Span};
+use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
     AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
@@ -1449,11 +1449,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let current_span = Span::current();
         self.executor.spawn(
             async move {
-                let _guard = current_span.enter();
                 self_clone
                     .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
                     .await
-            },
+            }
+            .instrument(current_span),
             "fetch_blobs_gossip",
         );
 
