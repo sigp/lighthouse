@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -5050,7 +5050,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5612,7 +5612,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -6016,9 +6016,9 @@ dependencies = [
 
 [[package]]
 name = "milhouse"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdc758ed0c2597254f45baa97c8aa35f44ae0c8b04ddc355f135ced531f316d6"
+checksum = "2bdb104e38d3a8c5ffb7e9d2c43c522e6bcc34070edbadba565e722f0dee56c7"
 dependencies = [
  "alloy-primitives",
  "arbitrary",

@@ -11,7 +11,8 @@ use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
-#[derive(arbitrary::Arbitrary, PartialEq, Eq, Hash, Clone, Copy)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct SignedBeaconBlockHash(Hash256);
 
 impl fmt::Debug for SignedBeaconBlockHash {
@@ -51,24 +52,29 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Decode,
             TreeHash,
             Derivative,
-            arbitrary::Arbitrary,
             TestRandom
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
-        arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
+        ),
     ),
     map_into(BeaconBlock),
     map_ref_into(BeaconBlockRef),
     map_ref_mut_into(BeaconBlockRefMut)
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
 )]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
-#[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct SignedBeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
@@ -883,11 +889,25 @@ mod test {
         }
     }
 
+    fn spec_with_all_forks_enabled<E: EthSpec>() -> ChainSpec {
+        let mut chain_spec = E::default_spec();
+        chain_spec.altair_fork_epoch = Some(Epoch::new(1));
+        chain_spec.bellatrix_fork_epoch = Some(Epoch::new(2));
+        chain_spec.capella_fork_epoch = Some(Epoch::new(3));
+        chain_spec.deneb_fork_epoch = Some(Epoch::new(4));
+        chain_spec.electra_fork_epoch = Some(Epoch::new(5));
+        chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
+
+        // check that we have all forks covered
+        assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
+        chain_spec
+    }
+
     #[test]
     fn test_ssz_tagged_signed_beacon_block() {
         type E = MainnetEthSpec;
 
-        let spec = &E::default_spec();
+        let spec = &spec_with_all_forks_enabled::<E>();
         let sig = Signature::empty();
         let blocks = vec![
             SignedBeaconBlock::<E>::from_block(

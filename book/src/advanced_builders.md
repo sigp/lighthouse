@@ -114,7 +114,7 @@ Each field is optional.
 ```json
 {
     "builder_proposals": true,
-    "gas_limit": 30000001
+    "gas_limit": 45000001
 }
 ```
 
@@ -127,7 +127,7 @@ curl -X PATCH "http://localhost:5062/lighthouse/validators/0xb0148e6348264131bf4
 -H "Content-Type: application/json" \
 -d '{
     "builder_proposals": true,
-    "gas_limit": 30000001
+    "gas_limit": 45000001
 }' | jq
 ```
 
@@ -161,7 +161,7 @@ You can also directly configure these fields in the `validator_definitions.yml` 
   voting_keystore_path: /home/paul/.lighthouse/validators/0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007/voting-keystore.json
   voting_keystore_password_path: /home/paul/.lighthouse/secrets/0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007
   suggested_fee_recipient: "0x6cc8dcbca744a6e4ffedb98e1d0df903b10abd21"
-  gas_limit: 30000001
+  gas_limit: 45000001
   builder_proposals: true
   builder_boost_factor: 50
 - enabled: false
