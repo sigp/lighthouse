@@ -2853,8 +2853,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Filter uninteresting blocks from the chain segment in a blocking task.
         let chain = self.clone();
+        let filter_chain_segment = debug_span!("filter_chain_segment");
         let filtered_chain_segment_future = self.spawn_blocking_handle(
-            move || chain.filter_chain_segment(chain_segment),
+            move || {
+                let _guard = filter_chain_segment.enter();
+                chain.filter_chain_segment(chain_segment)
+            },
             "filter_chain_segment",
         );
         let mut filtered_chain_segment = match filtered_chain_segment_future.await {
@@ -2885,8 +2889,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
             let chain = self.clone();
+            let sig_verify_span = info_span!("signature_verify_chain_segment");
             let signature_verification_future = self.spawn_blocking_handle(
-                move || signature_verify_chain_segment(blocks, &chain),
+                move || {
+                    let _guard = sig_verify_span.enter();
+                    signature_verify_chain_segment(blocks, &chain)
+                },
                 "signature_verify_chain_segment",
             );
 
