@@ -289,7 +289,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns an empty `PendingComponents` object with the given block root.
     pub fn empty(block_root: Hash256, max_len: usize) -> Self {
-        let span = debug_span!("pending_components", %block_root);
+        let span = debug_span!(parent: None, "pending_components", %block_root);
         let _guard = span.clone().entered();
         Self {
             block_root,
