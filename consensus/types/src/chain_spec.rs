@@ -241,7 +241,7 @@ pub struct ChainSpec {
      */
     max_blobs_per_block_electra: u64,
     blob_sidecar_subnet_count_electra: u64,
-    max_request_blob_sidecars_electra: u64,
+    pub max_request_blob_sidecars_electra: u64,
 
     /*
      * Networking Fulu

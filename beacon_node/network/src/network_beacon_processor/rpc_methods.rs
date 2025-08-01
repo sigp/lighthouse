@@ -938,12 +938,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         let request_start_slot = Slot::from(req.start_slot);
+        let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
+        // Should not send more than max request blob sidecars
+        if req.max_blobs_requested(request_start_epoch, &self.chain.spec)
+            > self.chain.spec.max_request_blob_sidecars_electra
+        {
+            return Err((
+                RpcErrorResponse::InvalidRequest,
+                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS_ELECTRA`",
+            ));
+        }
+
         // This variable may only change when the request_start_slot + req.count spans across the Fulu fork slot
         let mut effective_count = req.count;
 
         if let Some(fulu_epoch) = self.chain.spec.fulu_fork_epoch {
             let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            let request_end_slot = request_start_slot + req.count - 1;
+            let request_end_slot = request_start_slot.saturating_add(req.count) - 1;
 
             // If the request_start_slot is at or after a Fulu slot, return an empty response
             if request_start_slot >= fulu_start_slot {
