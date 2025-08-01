@@ -59,6 +59,10 @@ impl<E: EthSpec> AsyncKeyValueStore<E> for PostgresDB<E> {
             .map(|_| ())
             .map_err(|e| Error::DBError { message: e.to_string() })
     }
+
+    async fn put_bytes_sync(&self, column: DBColumn, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        self.put_bytes(column, key, value).await
+    }
 }
 
 pub fn get_table_name(column: DBColumn) -> &'static str {
