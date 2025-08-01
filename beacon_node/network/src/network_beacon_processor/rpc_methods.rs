@@ -286,28 +286,48 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
 
         let mut blob_list_results = HashMap::new();
+        let mut retrieve_blob_slot = HashMap::new();
         for id in request.blob_ids.as_slice() {
             let BlobIdentifier {
                 block_root: root,
                 index,
             } = id;
 
+            // Get the slot for where the blob belongs to from the HashMap or cache without touching the database
+            let slot = if let Some(slot) = retrieve_blob_slot.get(root) {
+                *slot
+            } else {
+                // Try to get block from caches to extract slot
+                if let Some(block) = self
+                    .chain
+                    .data_availability_checker
+                    .get_execution_valid_block(root)
+                    .or_else(|| self.chain.early_attester_cache.get_block(*root))
+                {
+                    let slot = block.slot();
+                    retrieve_blob_slot.insert(*root, slot);
+                    slot
+                } else {
+                    continue;
+                }
+            };
+
+            // Skip if slot is >= fulu_start_slot
+            if let Some(fulu_slot) = fulu_start_slot {
+                if slot >= fulu_slot {
+                    debug!(
+                        %peer_id,
+                        request_root = %root,
+                        %slot,
+                        %fulu_slot,
+                        "BlobsByRoot request is at or after Fulu slot, returning empty response"
+                    );
+                    continue;
+                }
+            }
+
             // First attempt to get the blobs from the RPC cache.
             if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
-                // Check if the blob requested is from a Fulu slot, if so, skip the current blob id and proceed to the next
-                if let Some(fulu_slot) = fulu_start_slot {
-                    if blob.slot() >= fulu_slot {
-                        debug!(
-                            %peer_id,
-                            request_root = %root,
-                            blob_slot = %blob.slot(),
-                            %fulu_slot,
-                            "BlobsByRoot request is at or after Fulu slot, returning empty response"
-                        );
-                        continue;
-                    }
-                }
-
                 self.send_response(
                     peer_id,
                     inbound_request_id,
@@ -925,7 +945,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
             let request_end_slot = request_start_slot + req.count - 1;
 
-            // If the request_start_slot is at or after a Fulu slot, return empty response
+            // If the request_start_slot is at or after a Fulu slot, return an empty response
             if request_start_slot >= fulu_start_slot {
                 debug!(
                     %peer_id,
@@ -936,14 +956,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 return Ok(());
             // For the case that the request slots spans across the Fulu fork slot
-            } else if request_start_slot < fulu_start_slot && request_end_slot >= fulu_start_slot {
+            } else if request_end_slot >= fulu_start_slot {
                 effective_count = (fulu_start_slot - request_start_slot).as_u64();
                 debug!(
                     %peer_id,
                     %request_start_slot,
                     %fulu_start_slot,
                     requested = req.count,
-                    returned = effective_count,
+                    effective_count,
                     "BlobsByRange request spans across Fulu fork, only serving blobs before Fulu slots"
                 )
             }
