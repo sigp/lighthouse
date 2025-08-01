@@ -2889,10 +2889,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
             let chain = self.clone();
-            let sig_verify_span = info_span!("signature_verify_chain_segment");
+            let current_span = Span::current();
             let signature_verification_future = self.spawn_blocking_handle(
                 move || {
-                    let _guard = sig_verify_span.enter();
+                    let _guard = current_span.enter();
                     signature_verify_chain_segment(blocks, &chain)
                 },
                 "signature_verify_chain_segment",
