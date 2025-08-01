@@ -949,10 +949,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             ));
         }
 
-        // This variable may only change when the request_start_slot + req.count spans across the Fulu fork slot
-        let mut effective_count = req.count;
-
-        if let Some(fulu_epoch) = self.chain.spec.fulu_fork_epoch {
+        let effective_count = if let Some(fulu_epoch) = self.chain.spec.fulu_fork_epoch {
             let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
             let request_end_slot = request_start_slot.saturating_add(req.count) - 1;
 
@@ -968,17 +965,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 return Ok(());
             // For the case that the request slots spans across the Fulu fork slot
             } else if request_end_slot >= fulu_start_slot {
-                effective_count = (fulu_start_slot - request_start_slot).as_u64();
+                let count = (fulu_start_slot - request_start_slot).as_u64();
                 debug!(
                     %peer_id,
                     %request_start_slot,
                     %fulu_start_slot,
                     requested = req.count,
-                    effective_count,
+                    effective_count = count,
                     "BlobsByRange request spans across Fulu fork, only serving blobs before Fulu slots"
-                )
+                );
+                count
+            } else {
+                req.count
             }
-        }
+        } else {
+            req.count
+        };
 
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
