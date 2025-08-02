@@ -30,6 +30,8 @@ pub enum SyncRequestId {
     BlobsByRange(BlobsByRangeRequestId),
     /// Data columns by range request
     DataColumnsByRange(DataColumnsByRangeRequestId),
+    /// Custody sync Data column by range request
+    CustodySyncDataColumnsByRange(CustodySyncDataColumnsByRangeRequestId),
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -38,6 +40,13 @@ pub enum SyncRequestId {
 pub struct DataColumnsByRootRequestId {
     pub id: Id,
     pub requester: DataColumnsByRootRequester,
+}
+
+/// Request ID for data_columns_by_root requests for custody sync.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodySyncDataColumnsByRootRequestId {
+    pub id: Id,
+    pub parent_id: Id,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -78,6 +87,36 @@ pub struct ComponentsByRangeRequestId {
     pub id: Id,
     /// What sync component is issuing a components by range request and expecting data back
     pub requester: RangeRequestId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodySyncDataColumnsByRangeRequestId {
+    /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
+    pub id: Id,
+    /// The Id of the overall By Range request for block components.
+    pub parent_request_id: CustodySyncByRangeRequestId,
+    /// The peer id associated with the request.
+    ///
+    /// This is useful to penalize the peer at a later point if it returned data columns that
+    /// did not match with the verified block.
+    pub peer: PeerId,
+}
+
+// TODO add comments
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodySyncByRangeRequestId {
+    /// For each `epoch` we may request the same data in a later retry. This Id identifies the
+    /// current attempt.
+    pub id: Id,
+    pub epoch: Epoch,
+}
+
+impl Display for CustodySyncByRangeRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let id = self.id;
+        let epoch = self.epoch;
+        write!(f, "CustodySync/{id}/{epoch}")
+    }
 }
 
 /// Range sync chain or backfill batch
@@ -232,6 +271,7 @@ impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
 impl_display!(CustodyId, "{}", requester);
 impl_display!(SamplingId, "{}/{}", sampling_request_id, id);
+impl_display!(CustodySyncDataColumnsByRangeRequestId, "{}/{}", id, parent_request_id);
 
 impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

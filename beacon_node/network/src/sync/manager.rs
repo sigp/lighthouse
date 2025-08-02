@@ -514,6 +514,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::DataColumnsByRange(req_id) => {
                 self.on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
             }
+            SyncRequestId::CustodySyncDataColumnsByRange(_) => {
+                todo!()
+            }
         }
     }
 

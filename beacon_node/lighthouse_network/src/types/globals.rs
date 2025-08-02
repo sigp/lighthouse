@@ -30,6 +30,9 @@ pub struct NetworkGlobals<E: EthSpec> {
     pub sync_state: RwLock<SyncState>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
+
+    /// The current state of custody sync.s
+    pub custody_sync_state: RwLock<BackFillState>,
     /// The computed sampling subnets and columns is stored to avoid re-computing.
     pub sampling_subnets: RwLock<HashSet<DataColumnSubnetId>>,
     pub sampling_columns: RwLock<HashSet<ColumnIndex>>,
@@ -101,6 +104,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::Paused),
+            custody_sync_state: RwLock::new(BackFillState::Paused),
             sampling_subnets: RwLock::new(sampling_subnets),
             sampling_columns: RwLock::new(sampling_columns),
             config,

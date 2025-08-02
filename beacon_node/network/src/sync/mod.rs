@@ -4,6 +4,7 @@
 mod backfill_sync;
 mod block_lookups;
 mod block_sidecar_coupling;
+mod custody_sync;
 pub mod manager;
 mod network_context;
 mod peer_sampling;
