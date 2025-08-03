@@ -195,14 +195,14 @@ impl<E: EthSpec> CustodyContext<E> {
         all_custody_groups_ordered: Vec<CustodyIndex>,
         spec: &ChainSpec,
     ) -> Result<(), String> {
-        let mut ordered_custody_groups = vec![];
+        let mut ordered_custody_columns = vec![];
         for custody_index in all_custody_groups_ordered {
             let columns = compute_columns_for_custody_group(custody_index, spec)
                 .map_err(|e| format!("Failed to compute columns for custody group {e:?}"))?;
-            ordered_custody_groups.extend(columns);
+            ordered_custody_columns.extend(columns);
         }
         self.all_custody_columns_ordered
-            .set(ordered_custody_groups.into_boxed_slice())
+            .set(ordered_custody_columns.into_boxed_slice())
             .map_err(|_| {
                 "Failed to initialise CustodyContext with computed custody columns".to_string()
             })
