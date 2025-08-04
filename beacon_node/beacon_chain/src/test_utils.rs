@@ -715,6 +715,7 @@ where
         beacon_url: SensitiveUrl,
         strict_registrations: bool,
         apply_operations: bool,
+        broadcast_to_bn: bool,
     ) -> impl futures::Future<Output = ()> {
         let mock_el = self
             .mock_execution_layer
@@ -729,6 +730,7 @@ where
             beacon_url,
             strict_registrations,
             apply_operations,
+            broadcast_to_bn,
             self.spec.clone(),
             self.runtime.task_executor.clone(),
         );
@@ -937,6 +939,9 @@ where
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
+        // Always use the builder, so that we produce a "real" blinded payload.
+        let builder_boost_factor = Some(u64::MAX);
+
         let BeaconBlockResponseWrapper::Blinded(block_response) = self
             .chain
             .produce_block_on_state(
@@ -946,8 +951,8 @@ where
                 randao_reveal,
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
-                None,
-                BlockProductionVersion::BlindedV2,
+                builder_boost_factor,
+                BlockProductionVersion::V3,
             )
             .await
             .unwrap()

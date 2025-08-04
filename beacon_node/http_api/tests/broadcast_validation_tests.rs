@@ -1013,10 +1013,13 @@ pub async fn blinded_consensus_gossip() {
     let slot_a = Slot::new(num_initial);
     let slot_b = slot_a + 1;
 
+    let mut correct_state_root = Hash256::zero();
+
     let state_a = tester.harness.get_current_state();
     let (blinded_block, _) = tester
         .harness
         .make_blinded_block_with_modifier(state_a, slot_b, |b| {
+            *correct_state_root = *b.state_root();
             *b.state_root_mut() = Hash256::zero()
         })
         .await;
@@ -1031,7 +1034,14 @@ pub async fn blinded_consensus_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x3fd3d78bc99e39a7a4e643f19ff446524b405df7256f4a2f6f5f07affa0b1036 }".to_string());
+    assert_server_message_error(
+        error_response,
+        format!(
+            "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {},\
+             local: {correct_state_root} }}",
+            Hash256::ZERO
+        ),
+    );
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
@@ -1259,8 +1269,7 @@ pub async fn blinded_equivocation_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x3fd3d78bc99e39a7a4e643f19ff446524b405df7256f4a2f6f5f07affa0b1036 }".to_string());
+    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xf80855e46108b1f93f2efcd61b63e29c2f718d54b1437aaa25d84ffb52b06963 }".to_string());
 }
 
 /// This test checks that a block that is valid from both a gossip and

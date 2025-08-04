@@ -307,6 +307,10 @@ pub struct MockBuilder<E: EthSpec> {
     payload_id_cache: Arc<RwLock<HashMap<ExecutionBlockHash, PayloadParametersCloned>>>,
     /// If set to `true`, sets the bid returned by `get_header` to Uint256::MAX
     max_bid: bool,
+    /// Broadcast the full block with payload to the attached beacon node (simulating the relay).
+    ///
+    /// Turning this off is useful for testing.
+    broadcast_to_bn: bool,
     /// A cache that stores the proposers index for a given epoch
     proposers_cache: Arc<RwLock<HashMap<Epoch, Vec<ProposerData>>>>,
 }
@@ -317,6 +321,7 @@ impl<E: EthSpec> MockBuilder<E> {
         beacon_url: SensitiveUrl,
         validate_pubkey: bool,
         apply_operations: bool,
+        broadcast_to_bn: bool,
         spec: Arc<ChainSpec>,
         executor: TaskExecutor,
     ) -> (Self, (SocketAddr, impl Future<Output = ()>)) {
@@ -341,6 +346,7 @@ impl<E: EthSpec> MockBuilder<E> {
             BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(Duration::from_secs(1))),
             validate_pubkey,
             apply_operations,
+            broadcast_to_bn,
             max_bid,
             spec,
             None,
@@ -357,6 +363,7 @@ impl<E: EthSpec> MockBuilder<E> {
         beacon_client: BeaconNodeHttpClient,
         validate_pubkey: bool,
         apply_operations: bool,
+        broadcast_to_bn: bool,
         max_bid: bool,
         spec: Arc<ChainSpec>,
         sk: Option<&[u8]>,
@@ -386,6 +393,7 @@ impl<E: EthSpec> MockBuilder<E> {
             proposers_cache: Arc::new(RwLock::new(HashMap::new())),
             apply_operations,
             max_bid,
+            broadcast_to_bn,
             genesis_time: None,
         }
     }
@@ -484,16 +492,22 @@ impl<E: EthSpec> MockBuilder<E> {
         debug!(
             txs_count = payload.transactions().len(),
             blob_count = blobs.as_ref().map(|b| b.commitments.len()),
-            "Got full payload, sending to local beacon node for propagation"
+            "Got full payload"
         );
-        let publish_block_request = PublishBlockRequest::new(
-            Arc::new(full_block),
-            blobs.clone().map(|b| (b.proofs, b.blobs)),
-        );
-        self.beacon_client
-            .post_beacon_blocks_v2(&publish_block_request, Some(BroadcastValidation::Gossip))
-            .await
-            .map_err(|e| format!("Failed to post blinded block {:?}", e))?;
+        if self.broadcast_to_bn {
+            debug!(
+                block_hash = ?payload.block_hash(),
+                "Broadcasting builder block to BN"
+            );
+            let publish_block_request = PublishBlockRequest::new(
+                Arc::new(full_block),
+                blobs.clone().map(|b| (b.proofs, b.blobs)),
+            );
+            self.beacon_client
+                .post_beacon_blocks_v2(&publish_block_request, Some(BroadcastValidation::Gossip))
+                .await
+                .map_err(|e| format!("Failed to post blinded block {:?}", e))?;
+        }
         Ok(FullPayloadContents::new(payload, blobs))
     }
 

@@ -119,8 +119,16 @@ impl<E: EthSpec> InteractiveTester<E> {
         // write.
         let strict_registrations = false;
 
-        let mock_builder_server =
-            harness.set_mock_builder(beacon_url.clone(), strict_registrations, apply_operations);
+        // Broadcast validation tests expect to be able to infer things from the BN status code,
+        // so it is simpler if the builder is not also publishing blocks.
+        let broadcast_to_bn = false;
+
+        let mock_builder_server = harness.set_mock_builder(
+            beacon_url.clone(),
+            strict_registrations,
+            apply_operations,
+            broadcast_to_bn,
+        );
 
         tokio::spawn(mock_builder_server);
 
