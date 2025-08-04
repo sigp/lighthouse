@@ -1055,7 +1055,7 @@ pub async fn blinded_consensus_gossip() {
     assert_server_message_error(
         error_response,
         format!(
-            "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {},\
+            "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, \
              local: {correct_state_root} }}",
             Hash256::ZERO
         ),

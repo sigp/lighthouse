@@ -963,9 +963,9 @@ pub fn serve<E: EthSpec>(
     let prefix_either = warp::path("eth")
         .and(
             warp::path::param::<EndpointVersion>().or_else(|_| async move {
-                Err(warp_utils::reject::custom_bad_request(
+                Err(warp::reject::custom(Custom(
                     "Invalid EndpointVersion".to_string(),
-                ))
+                )))
             }),
         )
         .and(warp::path("builder"));
