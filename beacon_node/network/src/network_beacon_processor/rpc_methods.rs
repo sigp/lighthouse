@@ -1118,7 +1118,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if req.max_requested::<T::EthSpec>() > self.chain.spec.max_request_data_column_sidecars {
             return Err((
                 RpcErrorResponse::InvalidRequest,
-                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
+                "Request exceeded `MAX_REQUEST_DATA_COLUMN_SIDECARS`",
             ));
         }
 
