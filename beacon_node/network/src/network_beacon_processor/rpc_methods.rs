@@ -308,7 +308,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     retrieve_blob_slot.insert(*root, slot);
                     slot
                 } else {
-                    continue;
+                    match self.chain.get_blinded_block(root) {
+                        Ok(Some(block)) => {
+                            let slot = block.slot();
+                            retrieve_blob_slot.insert(*root, slot);
+                            slot
+                        }
+                        _ => continue,
+                    }
                 }
             };
 
