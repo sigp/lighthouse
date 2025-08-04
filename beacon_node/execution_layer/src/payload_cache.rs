@@ -2,7 +2,6 @@ use eth2::types::FullPayloadContents;
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::num::NonZeroUsize;
-use tracing::info;
 use tree_hash::TreeHash;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{EthSpec, Hash256};
@@ -28,7 +27,6 @@ impl<E: EthSpec> Default for PayloadCache<E> {
 impl<E: EthSpec> PayloadCache<E> {
     pub fn put(&self, payload: FullPayloadContents<E>) -> Option<FullPayloadContents<E>> {
         let root = payload.payload_ref().tree_hash_root();
-        info!(?root, block_hash = ?payload.payload_ref().block_hash(), parent_block_hash = ?payload.payload_ref().parent_hash(), "Caching payload");
         self.payloads.lock().put(PayloadCacheId(root), payload)
     }
 
