@@ -710,7 +710,7 @@ impl TestRig {
     }
 
     fn drain_processor_rx(&mut self) {
-        while let Ok((event, _)) = self.beacon_processor_rx.try_recv() {
+        while let Ok(event) = self.beacon_processor_rx.try_recv() {
             self.beacon_processor_rx_queue.push(event);
         }
     }
@@ -965,7 +965,7 @@ impl TestRig {
     #[track_caller]
     fn expect_parent_chain_process(&mut self) {
         match self.beacon_processor_rx.try_recv() {
-            Ok((work, _)) => {
+            Ok(work) => {
                 // Parent chain sends blocks one by one
                 assert_eq!(work.work_type(), beacon_processor::WorkType::RpcBlock);
             }

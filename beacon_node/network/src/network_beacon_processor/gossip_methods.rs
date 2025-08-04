@@ -1052,16 +1052,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             },
                         )),
                     });
-                    if let Err(TrySendError::Full((
-                        WorkEvent {
-                            work:
-                                Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
-                                    reconstruction,
-                                )),
-                            ..
-                        },
-                        _,
-                    ))) = send_result
+                    if let Err(TrySendError::Full(WorkEvent {
+                        work:
+                            Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
+                                reconstruction,
+                            )),
+                        ..
+                    })) = send_result
                     {
                         warn!("Unable to send reconstruction to reprocessing");
                         // Execute it immediately instead.

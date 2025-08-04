@@ -258,7 +258,7 @@ impl Default for BeaconProcessorConfig {
 // The channels necessary to instantiate a `BeaconProcessor`.
 pub struct BeaconProcessorChannels<E: EthSpec> {
     pub beacon_processor_tx: BeaconProcessorSend<E>,
-    pub beacon_processor_rx: mpsc::Receiver<(WorkEvent<E>, Instant)>,
+    pub beacon_processor_rx: mpsc::Receiver<WorkEvent<E>>,
 }
 
 impl<E: EthSpec> BeaconProcessorChannels<E> {
@@ -517,15 +517,12 @@ pub struct GossipAggregatePackage<E: EthSpec> {
 }
 
 #[derive(Clone)]
-pub struct BeaconProcessorSend<E: EthSpec>(pub mpsc::Sender<(WorkEvent<E>, Instant)>);
+pub struct BeaconProcessorSend<E: EthSpec>(pub mpsc::Sender<WorkEvent<E>>);
 
 impl<E: EthSpec> BeaconProcessorSend<E> {
-    pub fn try_send(
-        &self,
-        message: WorkEvent<E>,
-    ) -> Result<(), TrySendError<(WorkEvent<E>, Instant)>> {
+    pub fn try_send(&self, message: WorkEvent<E>) -> Result<(), TrySendError<WorkEvent<E>>> {
         let work_type = message.work_type();
-        match self.0.try_send((message, Instant::now())) {
+        match self.0.try_send(message) {
             Ok(res) => Ok(res),
             Err(e) => {
                 metrics::inc_counter_vec(
@@ -752,7 +749,7 @@ struct InboundEvents<E: EthSpec> {
     /// Used by workers when they finish a task.
     idle_rx: mpsc::Receiver<WorkType>,
     /// Used by upstream processes to send new work to the `BeaconProcessor`.
-    event_rx: mpsc::Receiver<(WorkEvent<E>, Instant)>,
+    event_rx: mpsc::Receiver<WorkEvent<E>>,
     /// Used internally for queuing work ready to be re-processed.
     ready_work_rx: mpsc::Receiver<ReadyWork>,
 }
@@ -789,8 +786,8 @@ impl<E: EthSpec> Stream for InboundEvents<E> {
         }
 
         match self.event_rx.poll_recv(cx) {
-            Poll::Ready(Some((event, created_timestamp))) => {
-                return Poll::Ready(Some(InboundEvent::WorkEvent((event, created_timestamp))));
+            Poll::Ready(Some(event)) => {
+                return Poll::Ready(Some(InboundEvent::WorkEvent((event, Instant::now()))));
             }
             Poll::Ready(None) => {
                 return Poll::Ready(None);
@@ -828,7 +825,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_manager<S: SlotClock + 'static>(
         mut self,
-        event_rx: mpsc::Receiver<(WorkEvent<E>, Instant)>,
+        event_rx: mpsc::Receiver<WorkEvent<E>>,
         work_journal_tx: Option<mpsc::Sender<&'static str>>,
         slot_clock: S,
         maximum_gossip_clock_disparity: Duration,
