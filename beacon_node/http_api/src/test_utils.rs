@@ -119,9 +119,12 @@ impl<E: EthSpec> InteractiveTester<E> {
         // write.
         let strict_registrations = false;
 
-        // Broadcast validation tests expect to be able to infer things from the BN status code,
-        // so it is simpler if the builder is not also publishing blocks.
-        let broadcast_to_bn = false;
+        // Broadcast to the BN only if Fulu is scheduled. In the broadcast validation tests we want
+        // to infer things from the builder return code, and pre-Fulu it's simpler to let the BN
+        // handle broadcast and return detailed codes. Post-Fulu the builder doesn't return the
+        // block at all, so we *need* the builder to do the broadcast and return a 400 if the block
+        // is invalid.
+        let broadcast_to_bn = ctx.chain.as_ref().unwrap().spec.is_fulu_scheduled();
 
         let mock_builder_server = harness.set_mock_builder(
             beacon_url.clone(),

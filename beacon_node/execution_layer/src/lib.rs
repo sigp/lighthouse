@@ -2020,7 +2020,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         relay_response_ms = duration.as_millis(),
                         ?block_root,
                         "Successfully submitted blinded block to the builder"
-                    )
+                    );
+
+                    Ok(())
                 }
                 Err(e) => {
                     metrics::inc_counter_vec(
@@ -2033,11 +2035,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         relay_response_ms = duration.as_millis(),
                         ?block_root,
                         "Failed to submit blinded block to the builder"
-                    )
+                    );
+                    Err(e)
                 }
             }
-
-            Ok(())
         } else {
             Err(Error::NoPayloadBuilder)
         }
