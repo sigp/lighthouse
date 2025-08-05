@@ -28,6 +28,7 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use logging::crit;
+use types::ColumnIndex;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -115,6 +116,12 @@ pub enum NetworkMessage<E: EthSpec> {
     },
 }
 
+pub enum SyncServiceMessage {
+    CustodyCountChanged {
+        columns: HashSet<ColumnIndex>
+    },
+}
+
 /// Messages triggered by validators that may trigger a subscription to a subnet.
 ///
 /// These messages can be very numerous with large validator counts (hundreds of thousands per
@@ -183,6 +190,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// The sending channel for the network service to send messages to be routed throughout
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
+    /// The sending channel for the network service to send messages to sync.
+    sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
     /// A reference to lighthouse's database to persist the DHT.
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
@@ -308,7 +317,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // launch derived network services
 
         // router task
-        let router_send = Router::spawn(
+        let (router_send, sync_service_send) = Router::spawn(
             beacon_chain.clone(),
             network_globals.clone(),
             network_senders.network_send(),
@@ -344,6 +353,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_recv,
             validator_subscription_recv,
             router_send,
+            sync_service_send,
             store,
             network_globals: network_globals.clone(),
             next_digest_update,

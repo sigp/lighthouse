@@ -26,9 +26,8 @@ pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyId, CustodyRequester, CustodySyncByRangeRequestId,
-    CustodySyncDataColumnsByRangeRequestId, CustodySyncDataColumnsByRootRequestId,
-    DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
-    SingleLookupReqId, SyncRequestId,
+    CustodySyncDataColumnsByRangeRequestId, DataColumnsByRangeRequestId,
+    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use parking_lot::RwLock;
@@ -365,6 +364,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .chain(blocks_by_range_ids)
             .chain(blobs_by_range_ids)
             .chain(data_column_by_range_ids)
+            .chain(custody_sync_data_column_by_range_ids)
             .collect()
     }
 
@@ -1688,7 +1688,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
     }
 
-    /// A data column by request sent by the custody sync algorithm
+    /// data column by range requests sent by the custody sync algorithm
     pub fn custody_sync_data_column_by_range_request(
         &mut self,
         request: DataColumnsByRangeRequest,
@@ -1715,19 +1715,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             epoch,
         };
 
-        let data_column_requests = columns_by_range_peers_to_request
+        let result = columns_by_range_peers_to_request
             .map(|columns_by_range_peers_to_request| {
                 columns_by_range_peers_to_request
-                    .into_iter()
-                    .map(|(peer_id, columns)| {
-                        let custody_sync_data_column_request =
-                            if let Ok((custody_sync_data_column_request, _)) = self
-                                .send_custody_sync_data_columns_by_range_request(
-                                    peer_id,
-                                    request.clone(),
-                                    id,
-                                )
-                            {
+                    .into_keys()
+                    .map(|peer_id| {
+                        match self.send_custody_sync_data_columns_by_range_request(
+                            peer_id,
+                            request.clone(),
+                            id,
+                        ) {
+                            Ok((custody_sync_data_column_request, _)) => {
                                 self.custody_sync_data_columns_by_range_requests.insert(
                                     custody_sync_data_column_request,
                                     peer_id,
@@ -1736,14 +1734,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                                 );
 
                                 Ok(custody_sync_data_column_request)
-                            } else {
-                                todo!()
-                            };
-                        custody_sync_data_column_request
+                            }
+                            Err(e) => Err(e),
+                        }
                     })
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
+
+        if result.is_none() {
+            return Err(RpcRequestSendError::InternalError(
+                "Unable to send an custody by sync rpc request".to_string(),
+            ));
+        }
 
         Ok(id.id)
     }
@@ -1801,19 +1804,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .custody_sync_data_columns_by_range_requests
             .on_response(id, rpc_event);
         self.on_rpc_response_result(id, "DataColumnsByRange", resp, peer_id, |d| d.len())
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn on_custody_sync_data_columns_by_root_response(
-        &mut self,
-        id: CustodySyncDataColumnsByRootRequestId,
-        peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<DataColumnSidecarList<T::EthSpec>>> {
-        let resp = self
-            .custody_sync_data_columns_by_range_requests
-            .on_response(id, rpc_event);
-        self.on_rpc_response_result(id, "DataColumnsByRoot", resp, peer_id, |d| d.len())
     }
 
     pub(crate) fn register_metrics(&self) {

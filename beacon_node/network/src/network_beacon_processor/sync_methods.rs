@@ -1,5 +1,6 @@
 use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::sync::manager::CustodyBatchProcessResult;
 use crate::sync::BatchProcessResult;
 use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
@@ -9,6 +10,7 @@ use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::data_column_verification::verify_kzg_for_data_column_list;
+use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     validator_monitor::get_slot_delay_ms, AvailabilityProcessingStatus, BeaconChainTypes,
     BlockError, ChainSegmentResult, HistoricalBlockError, NotifyExecutionLayer,
@@ -443,6 +445,80 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
     ) {
         self.chain.process_sampling_completed(block_root).await;
+    }
+
+    pub async fn process_data_columns(
+        &self,
+        process_id: Epoch,
+        downloaded_columns: DataColumnSidecarList<T::EthSpec>,
+    ) {
+        let sent_columns = downloaded_columns.len();
+        let result = match self
+            .chain
+            .import_historical_data_column_batch(downloaded_columns)
+        {
+            Ok(imported_columns) => {
+                // metrics::inc_counter(
+                //     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
+                // );
+                // (imported_blocks, Ok(()))
+                CustodyBatchProcessResult::Success {
+                    batch_id: process_id,
+                    sent_columns,
+                    imported_columns,
+                }
+            }
+            Err(e) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL,
+                );
+                let peer_action: Option<PeerAction> = match &e {
+                    HistoricalDataColumnError::NoBlockFound {
+                        data_column_block_root,
+                    } => {
+                        debug!(
+                            error = "no_block_found",
+                            ?data_column_block_root,
+                            "Custody backfill batch processing error"
+                        );
+                        // The peer is faulty if they send blocks with bad roots.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalDataColumnError::InvalidSignature { .. } => {
+                        warn!(
+                            error = ?e,
+                            "Custody backfill batch processing error"
+                        );
+                        // The peer is faulty if they bad signatures.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalDataColumnError::IndexOutOfBounds => {
+                        error!(
+                            error = ?e,
+                            "Custody backfill batch out of bounds error"
+                        );
+                        // This should never occur, don't penalize the peer.
+                        None
+                    }
+                    HistoricalDataColumnError::StoreError(e) => {
+                        warn!(error = ?e, "Custody backfill batch processing error");
+                        // This is an internal error, don't penalize the peer.
+                        None
+                    }
+                };
+                match peer_action {
+                    Some(penalty) => CustodyBatchProcessResult::FaultyFailure {
+                        imported_columns: 0,
+                        penalty,
+                        batch_id: process_id,
+                    },
+                    None => CustodyBatchProcessResult::NonFaultyFailure {
+                        batch_id: process_id,
+                    },
+                }
+            }
+        };
+        self.send_sync_message(SyncMessage::CustodyBatchProcessed { result });
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync

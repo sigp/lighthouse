@@ -1,5 +1,5 @@
 use beacon_chain::block_verification_types::RpcBlock;
-use lighthouse_network::rpc::methods::{BlocksByRangeRequest, DataColumnsByRangeRequest};
+use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
 use std::collections::HashSet;
@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use std::time::{Duration, Instant};
 use strum::Display;
-use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Slot};
+use types::{Epoch, EthSpec, Slot};
 
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
@@ -124,166 +124,6 @@ impl<E: EthSpec, B: BatchConfig> fmt::Display for BatchInfo<E, B> {
             "Start Slot: {}, End Slot: {}, State: {}",
             self.start_slot, self.end_slot, self.state
         )
-    }
-}
-
-#[derive(Debug)]
-/// A segment of a chain.
-pub struct CustodyBatchInfo<E: EthSpec> {
-    /// Start slot of the batch.
-    start_slot: Slot,
-    /// End slot of the batch.
-    end_slot: Slot,
-    /// Columns to fetch
-    columns: Vec<ColumnIndex>,
-    /// The `Attempts` that have been made and failed to send us this batch.
-    failed_processing_attempts: Vec<Attempt>,
-    /// Number of processing attempts that have failed but we do not count.
-    non_faulty_processing_attempts: u8,
-    /// The number of download retries this batch has undergone due to a failed request.
-    failed_download_attempts: Vec<Option<PeerId>>,
-    /// State of the batch.
-    state: CustodyBatchState<E>,
-}
-
-impl<E: EthSpec> fmt::Display for CustodyBatchInfo<E> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "Start Slot: {}, End Slot: {}, State: {}",
-            self.start_slot, self.end_slot, self.state
-        )
-    }
-}
-
-impl<E: EthSpec> CustodyBatchInfo<E> {
-    pub fn start_downloading(&mut self, request_id: Id) -> Result<(), WrongState> {
-        match self.state.poison() {
-            CustodyBatchState::AwaitingDownload => {
-                self.state = CustodyBatchState::Downloading(request_id);
-                Ok(())
-            }
-            CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
-            other => {
-                self.state = other;
-                Err(WrongState(format!(
-                    "Starting download for batch in wrong state {:?}",
-                    self.state
-                )))
-            }
-        }
-    }
-
-    /// Mark the batch as failed and return whether we can attempt a re-download.
-    ///
-    /// This can happen if a peer disconnects or some error occurred that was not the peers fault.
-    /// The `peer` parameter, when set to None, does not increment the failed attempts of
-    /// this batch and register the peer, rather attempts a re-download.
-    #[must_use = "Batch may have failed"]
-    pub fn download_failed(
-        &mut self,
-        peer: Option<PeerId>,
-    ) -> Result<BatchOperationOutcome, WrongState> {
-        match self.state.poison() {
-            CustodyBatchState::Downloading(_) => {
-                // register the attempt and check if the batch can be tried again
-                self.failed_download_attempts.push(peer);
-
-                self.state = if self.failed_download_attempts.len() >= 5
-                // TODO max download attemps config value
-                {
-                    CustodyBatchState::Failed
-                } else {
-                    // drop the columns
-                    CustodyBatchState::AwaitingDownload
-                };
-                Ok(self.outcome())
-            }
-            CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
-            other => {
-                self.state = other;
-                Err(WrongState(format!(
-                    "Download failed for batch in wrong state {:?}",
-                    self.state
-                )))
-            }
-        }
-    }
-
-    /// Gives a list of peers from which this batch has had a failed download or processing
-    /// attempt.
-    pub fn failed_peers(&self) -> HashSet<PeerId> {
-        let mut peers = HashSet::with_capacity(
-            self.failed_processing_attempts.len() + self.failed_download_attempts.len(),
-        );
-
-        for attempt in &self.failed_processing_attempts {
-            peers.insert(attempt.peer_id);
-        }
-
-        for peer in self.failed_download_attempts.iter().flatten() {
-            peers.insert(*peer);
-        }
-
-        peers
-    }
-
-    /// Returns a BlocksByRange request associated with the batch.
-    pub fn to_data_columns_by_range_request(&self) -> DataColumnsByRangeRequest {
-        DataColumnsByRangeRequest {
-            start_slot: self.start_slot.into(),
-            count: self.end_slot.sub(self.start_slot).into(),
-            columns: self.columns.clone(),
-        }
-    }
-
-    /// After different operations over a batch, this could be in a state that allows it to
-    /// continue, or in failed state. When the batch has failed, we check if it did mainly due to
-    /// processing failures. In this case the batch is considered failed and faulty.
-    pub fn outcome(&self) -> BatchOperationOutcome {
-        match self.state {
-            CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
-            CustodyBatchState::Failed => BatchOperationOutcome::Failed {
-                blacklist: self.failed_processing_attempts.len()
-                    > self.failed_download_attempts.len(),
-            },
-            _ => BatchOperationOutcome::Continue,
-        }
-    }
-
-    pub fn state(&self) -> &CustodyBatchState<E> {
-        &self.state
-    }
-}
-
-#[derive(Display, Debug)]
-/// Current state of a custody batch
-pub enum CustodyBatchState<E: EthSpec> {
-    /// The batch has failed either downloading or processing, but can be requested again.
-    AwaitingDownload,
-    /// The batch is being downloaded.
-    Downloading(Id),
-    /// The batch has been completely downloaded and is ready for processing.
-    AwaitingProcessing(PeerId, Vec<DataColumnSidecar<E>>, Instant),
-    /// The batch is being processed.
-    Processing(Attempt),
-    /// The batch was successfully processed and is waiting to be validated.
-    ///
-    /// It is not sufficient to process a batch successfully to consider it correct. This is
-    /// because batches could be erroneously empty, or incomplete. Therefore, a batch is considered
-    /// valid, only if the next sequential batch imports at least a block.
-    AwaitingValidation(Attempt),
-    /// Intermediate state for inner state handling.
-    Poisoned,
-    /// The batch has maxed out the allowed attempts for either downloading or processing. It
-    /// cannot be recovered.
-    Failed,
-}
-
-impl<E: EthSpec> CustodyBatchState<E> {
-    /// Helper function for poisoning a state.
-    pub fn poison(&mut self) -> CustodyBatchState<E> {
-        std::mem::replace(self, CustodyBatchState::Poisoned)
     }
 }
 

@@ -271,7 +271,12 @@ impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
 impl_display!(CustodyId, "{}", requester);
 impl_display!(SamplingId, "{}/{}", sampling_request_id, id);
-impl_display!(CustodySyncDataColumnsByRangeRequestId, "{}/{}", id, parent_request_id);
+impl_display!(
+    CustodySyncDataColumnsByRangeRequestId,
+    "{}/{}",
+    id,
+    parent_request_id
+);
 
 impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

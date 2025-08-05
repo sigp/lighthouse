@@ -535,6 +535,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    pub fn send_data_columns(
+        self: &Arc<Self>,
+        process_id: Epoch,
+        data_columns: DataColumnSidecarList<T::EthSpec>,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_data_columns(process_id, data_columns)
+                .await;
+        };
+        let process_fn = Box::pin(process_fn);
+
+        let work = Work::ChainSegmentBackfill(process_fn);
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: true,
+            work,
+        })
+    }
+
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn send_chain_segment(
         self: &Arc<Self>,

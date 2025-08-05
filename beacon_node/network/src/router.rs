@@ -6,7 +6,7 @@
 #![allow(clippy::unit_arg)]
 
 use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
-use crate::service::NetworkMessage;
+use crate::service::{NetworkMessage, SyncServiceMessage};
 use crate::status::status_message;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -86,13 +86,21 @@ impl<T: BeaconChainTypes> Router<T> {
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
         fork_context: Arc<ForkContext>,
-    ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
+    ) -> Result<
+        (
+            mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
+            mpsc::UnboundedSender<SyncServiceMessage>,
+        ),
+        String,
+    > {
         trace!("Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
 
         // generate the message channel
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
+        let (sync_service_send, sync_service_recv) =
+            mpsc::unbounded_channel::<SyncServiceMessage>();
 
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send,
@@ -113,6 +121,7 @@ impl<T: BeaconChainTypes> Router<T> {
             network_send.clone(),
             network_beacon_processor.clone(),
             sync_recv,
+            sync_service_recv,
             fork_context,
         );
 
@@ -138,7 +147,7 @@ impl<T: BeaconChainTypes> Router<T> {
             "router",
         );
 
-        Ok(handler_send)
+        Ok((handler_send, sync_service_send))
     }
 
     /// Handle all messages incoming from the network service.
@@ -717,16 +726,17 @@ impl<T: BeaconChainTypes> Router<T> {
             "Received DataColumnsByRange Response"
         );
 
-        if let AppRequestId::Sync(sync_request_id) = app_request_id {
-            self.send_to_sync(SyncMessage::RpcDataColumn {
-                peer_id,
-                sync_request_id,
-                data_column,
-                seen_timestamp: timestamp_now(),
-            });
-        } else {
-            crit!("All data columns by range responses should belong to sync");
-        }
+        match app_request_id {
+            AppRequestId::Sync(sync_request_id) => {
+                self.send_to_sync(SyncMessage::RpcDataColumn {
+                    peer_id,
+                    sync_request_id,
+                    data_column,
+                    seen_timestamp: timestamp_now(),
+                });
+            }
+            _ => crit!("All data columns by range responses should belong to sync"),
+        };
     }
 
     fn handle_beacon_processor_send_result(
