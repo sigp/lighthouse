@@ -138,6 +138,7 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     justified_balances: JustifiedBalances,
     justified_state_root: Hash256,
     unrealized_justified_checkpoint: Checkpoint,
+    unrealized_justified_state_root: Hash256,
     unrealized_finalized_checkpoint: Checkpoint,
     proposer_boost_root: Hash256,
     equivocating_indices: BTreeSet<u64>,
@@ -189,6 +190,7 @@ where
             justified_state_root,
             finalized_checkpoint,
             unrealized_justified_checkpoint: justified_checkpoint,
+            unrealized_justified_state_root: justified_state_root,
             unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
@@ -205,6 +207,7 @@ where
             justified_checkpoint: self.justified_checkpoint,
             justified_state_root: self.justified_state_root,
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
+            unrealized_justified_state_root: self.unrealized_justified_state_root,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
             equivocating_indices: self.equivocating_indices.clone(),
@@ -223,6 +226,7 @@ where
 
         // This dummy value for `justified_state_root` must not be relied upon.
         let justified_state_root = Hash256::repeat_byte(0x66);
+        let unrealized_justified_state_root = Hash256::repeat_byte(0x77);
 
         Ok(Self {
             store,
@@ -233,6 +237,7 @@ where
             justified_balances,
             justified_state_root,
             unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
+            unrealized_justified_state_root,
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
             equivocating_indices: persisted.equivocating_indices,
@@ -248,12 +253,9 @@ where
         let justified_checkpoint = persisted.justified_checkpoint;
         let justified_state_root = persisted.justified_state_root;
 
-        let (_, justified_state) = store
-            .get_advanced_hot_state(
-                justified_checkpoint.root,
-                justified_checkpoint.epoch.start_slot(E::slots_per_epoch()),
-                justified_state_root,
-            )
+        let update_cache = true;
+        let justified_state = store
+            .get_hot_state(&justified_state_root, update_cache)
             .map_err(Error::FailedToReadState)?
             .ok_or(Error::MissingState(justified_state_root))?;
 
@@ -267,6 +269,7 @@ where
             justified_balances,
             justified_state_root,
             unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
+            unrealized_justified_state_root: persisted.unrealized_justified_state_root,
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
             equivocating_indices: persisted.equivocating_indices,
@@ -304,6 +307,10 @@ where
         &self.justified_checkpoint
     }
 
+    fn justified_state_root(&self) -> Hash256 {
+        self.justified_state_root
+    }
+
     fn justified_balances(&self) -> &JustifiedBalances {
         &self.justified_balances
     }
@@ -314,6 +321,10 @@ where
 
     fn unrealized_justified_checkpoint(&self) -> &Checkpoint {
         &self.unrealized_justified_checkpoint
+    }
+
+    fn unrealized_justified_state_root(&self) -> Hash256 {
+        self.unrealized_justified_state_root
     }
 
     fn unrealized_finalized_checkpoint(&self) -> &Checkpoint {
@@ -328,8 +339,13 @@ where
         self.finalized_checkpoint = checkpoint
     }
 
-    fn set_justified_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<(), Error> {
+    fn set_justified_checkpoint(
+        &mut self,
+        checkpoint: Checkpoint,
+        justified_state_root: Hash256,
+    ) -> Result<(), Error> {
         self.justified_checkpoint = checkpoint;
+        self.justified_state_root = justified_state_root;
 
         if let Some(balances) = self.balances_cache.get(
             self.justified_checkpoint.root,
@@ -340,28 +356,14 @@ where
             self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
         } else {
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
-            let justified_block = self
-                .store
-                .get_blinded_block(&self.justified_checkpoint.root)
-                .map_err(Error::FailedToReadBlock)?
-                .ok_or(Error::MissingBlock(self.justified_checkpoint.root))?
-                .deconstruct()
-                .0;
 
-            let max_slot = self
-                .justified_checkpoint
-                .epoch
-                .start_slot(E::slots_per_epoch());
-            // FIXME(sproul): this looks wrong, the state root is not for the advanced justified state
-            let (_, state) = self
+            // Justified state is reasonably useful to cache, it might be finalized soon.
+            let update_cache = true;
+            let state = self
                 .store
-                .get_advanced_hot_state(
-                    self.justified_checkpoint.root,
-                    max_slot,
-                    justified_block.state_root(),
-                )
+                .get_hot_state(&self.justified_state_root, update_cache)
                 .map_err(Error::FailedToReadState)?
-                .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;
+                .ok_or_else(|| Error::MissingState(self.justified_state_root))?;
 
             self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
         }
@@ -369,8 +371,9 @@ where
         Ok(())
     }
 
-    fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint) {
+    fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint, state_root: Hash256) {
         self.unrealized_justified_checkpoint = checkpoint;
+        self.unrealized_justified_state_root = state_root;
     }
 
     fn set_unrealized_finalized_checkpoint(&mut self, checkpoint: Checkpoint) {
@@ -409,8 +412,11 @@ pub struct PersistedForkChoiceStore {
     #[superstruct(only(V17))]
     pub justified_balances: Vec<u64>,
     /// The justified state root is stored so that it can be used to load the justified balances.
+    #[superstruct(only(V28))]
     pub justified_state_root: Hash256,
     pub unrealized_justified_checkpoint: Checkpoint,
+    #[superstruct(only(V28))]
+    pub unrealized_justified_state_root: Hash256,
     pub unrealized_finalized_checkpoint: Checkpoint,
     pub proposer_boost_root: Hash256,
     pub equivocating_indices: BTreeSet<u64>,

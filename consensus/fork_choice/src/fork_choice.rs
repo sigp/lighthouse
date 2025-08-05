@@ -730,6 +730,11 @@ where
         self.update_checkpoints(
             state.current_justified_checkpoint(),
             state.finalized_checkpoint(),
+            || {
+                state
+                    .get_state_root_at_epoch_start(state.current_justified_checkpoint().epoch)
+                    .map_err(Into::into)
+            },
         )?;
 
         // Update unrealized justified/finalized checkpoints.
@@ -789,8 +794,15 @@ where
         if unrealized_justified_checkpoint.epoch
             > self.fc_store.unrealized_justified_checkpoint().epoch
         {
-            self.fc_store
-                .set_unrealized_justified_checkpoint(unrealized_justified_checkpoint);
+            // Justification has recently updated therefore the justified state root should be in
+            // range of the head state's `state_roots` vector.
+            let unrealized_justified_state_root =
+                state.get_state_root_at_epoch_start(unrealized_justified_checkpoint.epoch)?;
+
+            self.fc_store.set_unrealized_justified_checkpoint(
+                unrealized_justified_checkpoint,
+                unrealized_justified_state_root,
+            );
         }
         if unrealized_finalized_checkpoint.epoch
             > self.fc_store.unrealized_finalized_checkpoint().epoch
@@ -804,6 +816,13 @@ where
             self.pull_up_store_checkpoints(
                 unrealized_justified_checkpoint,
                 unrealized_finalized_checkpoint,
+                || {
+                    // In the case where we actually update justification, it must be that the
+                    // unrealized justification is recent and in range of the `state_roots` vector.
+                    state
+                        .get_state_root_at_epoch_start(unrealized_justified_checkpoint.epoch)
+                        .map_err(Into::into)
+                },
             )?;
         }
 
@@ -890,11 +909,13 @@ where
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        justified_state_root_producer: impl FnOnce() -> Result<Hash256, Error<T::Error>>,
     ) -> Result<(), Error<T::Error>> {
         // Update justified checkpoint.
         if justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
+            let justified_state_root = justified_state_root_producer()?;
             self.fc_store
-                .set_justified_checkpoint(justified_checkpoint)
+                .set_justified_checkpoint(justified_checkpoint, justified_state_root)
                 .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
 
@@ -1160,10 +1181,12 @@ where
         // Update the justified/finalized checkpoints based upon the
         // best-observed unrealized justification/finality.
         let unrealized_justified_checkpoint = *self.fc_store.unrealized_justified_checkpoint();
+        let unrealized_justified_state_root = self.fc_store.unrealized_justified_state_root();
         let unrealized_finalized_checkpoint = *self.fc_store.unrealized_finalized_checkpoint();
         self.pull_up_store_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
+            || Ok(unrealized_justified_state_root),
         )?;
 
         Ok(())
@@ -1173,10 +1196,12 @@ where
         &mut self,
         unrealized_justified_checkpoint: Checkpoint,
         unrealized_finalized_checkpoint: Checkpoint,
+        unrealized_justified_state_root_producer: impl FnOnce() -> Result<Hash256, Error<T::Error>>,
     ) -> Result<(), Error<T::Error>> {
         self.update_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
+            unrealized_justified_state_root_producer,
         )
     }
 
