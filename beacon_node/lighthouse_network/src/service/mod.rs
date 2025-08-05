@@ -334,25 +334,24 @@ impl<E: EthSpec> Network<E> {
                 max_subscriptions_per_request: max_topics_at_any_fork * 2,
             };
 
-            // If metrics are enabled for libp2p build the configuration
-            let gossipsub_metrics = ctx.libp2p_registry.as_mut().map(|registry| {
-                (
-                    registry.sub_registry_with_prefix("gossipsub"),
-                    Default::default(),
-                )
-            });
-
             let spec = &ctx.chain_spec;
             let snappy_transform =
                 SnappyTransform::new(spec.max_payload_size as usize, spec.max_compressed_len());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
                 MessageAuthenticity::Anonymous,
                 gs_config.clone(),
-                gossipsub_metrics,
                 filter,
                 snappy_transform,
             )
             .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
+
+            // If metrics are enabled for libp2p build the configuration
+            if let Some(ref mut registry) = ctx.libp2p_registry {
+                gossipsub = gossipsub.with_metrics(
+                    registry.sub_registry_with_prefix("gossipsub"),
+                    Default::default(),
+                );
+            }
 
             gossipsub
                 .with_peer_score(params, thresholds)
@@ -2196,6 +2195,7 @@ impl<E: EthSpec> Network<E> {
                 send_back_addr,
                 error,
                 connection_id: _,
+                peer_id: _,
             } => {
                 let error_repr = match error {
                     libp2p::swarm::ListenError::Aborted => {
@@ -2204,8 +2204,8 @@ impl<E: EthSpec> Network<E> {
                     libp2p::swarm::ListenError::WrongPeerId { obtained, endpoint } => {
                         format!("Wrong peer id, obtained {obtained}, endpoint {endpoint:?}")
                     }
-                    libp2p::swarm::ListenError::LocalPeerId { endpoint } => {
-                        format!("Dialing local peer id {endpoint:?}")
+                    libp2p::swarm::ListenError::LocalPeerId { address } => {
+                        format!("Dialing local peer id {address:?}")
                     }
                     libp2p::swarm::ListenError::Denied { cause } => {
                         format!("Connection was denied with cause: {cause:?}")
