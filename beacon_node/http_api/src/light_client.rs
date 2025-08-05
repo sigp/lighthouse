@@ -164,8 +164,6 @@ fn map_light_client_update_to_response_chunk<T: BeaconChainTypes>(
         payload: light_client_update,
     };
 
-    println!("response chunk len {:?}", response_chunk_len);
-
     LightClientUpdateResponseChunk {
         response_chunk_len: response_chunk_len as u64,
         response_chunk,
