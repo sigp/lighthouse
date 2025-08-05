@@ -1,11 +1,9 @@
 use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV17, PersistedForkChoiceStoreV28};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::io::{Read, Write};
 use store::{DBColumn, Error, KeyValueStoreOp, StoreConfig, StoreItem};
 use superstruct::superstruct;
 use types::Hash256;
-use zstd::{Decoder, Encoder};
 
 // If adding a new version you should update this type alias and fix the breakages.
 pub type PersistedForkChoice = PersistedForkChoiceV28;
@@ -45,11 +43,16 @@ impl_store_item!(PersistedForkChoiceV17);
 
 impl PersistedForkChoiceV28 {
     pub fn from_bytes(bytes: &[u8], store_config: &StoreConfig) -> Result<Self, Error> {
-        Self::from_ssz_bytes(&uncompress_bytes(bytes, store_config)?).map_err(Into::into)
+        let decompressed_bytes = store_config
+            .decompress_bytes(bytes)
+            .map_err(Error::Compression)?;
+        Self::from_ssz_bytes(&decompressed_bytes).map_err(Into::into)
     }
 
     pub fn as_bytes(&self, store_config: &StoreConfig) -> Result<Vec<u8>, Error> {
-        compress_bytes(&self.as_ssz_bytes(), store_config)
+        store_config
+            .compress_bytes(&self.as_ssz_bytes())
+            .map_err(Error::Compression)
     }
 
     pub fn as_kv_store_op(
@@ -63,21 +66,4 @@ impl PersistedForkChoiceV28 {
             self.as_bytes(store_config)?,
         ))
     }
-}
-
-// FIXME(sproul): dedupe?
-fn compress_bytes(input: &[u8], config: &StoreConfig) -> Result<Vec<u8>, Error> {
-    let compression_level = config.compression_level;
-    let mut out = Vec::with_capacity(config.estimate_compressed_size(input.len()));
-    let mut encoder = Encoder::new(&mut out, compression_level).map_err(Error::Compression)?;
-    encoder.write_all(input).map_err(Error::Compression)?;
-    encoder.finish().map_err(Error::Compression)?;
-    Ok(out)
-}
-
-fn uncompress_bytes(input: &[u8], config: &StoreConfig) -> Result<Vec<u8>, Error> {
-    let mut out = Vec::with_capacity(config.estimate_decompressed_size(input.len()));
-    let mut decoder = Decoder::new(input).map_err(Error::Compression)?;
-    decoder.read_to_end(&mut out).map_err(Error::Compression)?;
-    Ok(out)
 }
