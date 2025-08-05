@@ -1684,7 +1684,7 @@ impl Drop for SendOnDrop {
         metrics::observe_timer_vec(
             &metrics::BEACON_PROCESSOR_QUEUE_TIME,
             &[self.work_type.clone().into()],
-            self.created_timestamp - Instant::now(),
+            Instant::now() - self.created_timestamp,
         );
         if let Err(e) = self.tx.try_send(self.work_type.clone()) {
             warn!(
