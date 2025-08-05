@@ -1503,6 +1503,15 @@ impl<E: EthSpec> BeaconProcessor<E> {
         idle_tx: mpsc::Sender<WorkType>,
     ) {
         let work_id = work.str_id();
+        let work_type = work.to_type();
+        
+        // This metric tracks how long a work event has been in the queue
+        metrics::observe_timer_vec(
+            &metrics::BEACON_PROCESSOR_QUEUE_TIME,
+            &[work_type.into()],
+            Instant::now() - created_timestamp,
+        );
+
         let worker_timer =
             metrics::start_timer_vec(&metrics::BEACON_PROCESSOR_WORKER_TIME, &[work_id]);
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_WORKERS_SPAWNED_TOTAL);
@@ -1518,7 +1527,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let send_idle_on_drop = SendOnDrop {
             tx: idle_tx,
             work_type: work.to_type(),
-            created_timestamp,
             _worker_timer: worker_timer,
         };
 
@@ -1674,18 +1682,12 @@ impl TaskSpawner {
 pub struct SendOnDrop {
     tx: mpsc::Sender<WorkType>,
     work_type: WorkType,
-    created_timestamp: Instant,
     // The field is unused, but it's here to ensure the timer is dropped once the task has finished.
     _worker_timer: Option<metrics::HistogramTimer>,
 }
 
 impl Drop for SendOnDrop {
     fn drop(&mut self) {
-        metrics::observe_timer_vec(
-            &metrics::BEACON_PROCESSOR_QUEUE_TIME,
-            &[self.work_type.clone().into()],
-            Instant::now() - self.created_timestamp,
-        );
         if let Err(e) = self.tx.try_send(self.work_type.clone()) {
             warn!(
                 msg = "did not free worker, shutdown may be underway",
