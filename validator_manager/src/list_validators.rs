@@ -294,9 +294,7 @@ mod test {
 
             let result = run::<E>(self.list_config.clone().unwrap()).await;
 
-            if result.is_ok() {
-                let result_ref = result.as_ref().unwrap();
-
+            if let Ok(result_ref) = &result {
                 for local_validator in &self.validators {
                     let local_keystore = &local_validator.voting_keystore.0;
                     let local_pubkey = local_keystore.public_key().unwrap();

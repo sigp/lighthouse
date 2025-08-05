@@ -652,9 +652,8 @@ fn test_tcp_blocks_by_range_chunked_rpc_terminates_correctly() {
                 }
 
                 // if we need to send messages send them here. This will happen after a delay
-                if message_info.is_some() {
+                if let Some((peer_id, inbound_request_id)) = &message_info {
                     messages_sent += 1;
-                    let (peer_id, inbound_request_id) = message_info.as_ref().unwrap();
                     receiver.send_response(*peer_id, *inbound_request_id, rpc_response.clone());
                     debug!("Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
@@ -1074,9 +1073,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                 }
 
                 // if we need to send messages send them here. This will happen after a delay
-                if message_info.is_some() {
+                if let Some((peer_id, inbound_request_id)) = &message_info {
                     messages_sent += 1;
-                    let (peer_id, inbound_request_id) = message_info.as_ref().unwrap();
                     receiver.send_response(*peer_id, *inbound_request_id, rpc_response.clone());
                     debug!("Sending message {}", messages_sent);
                     if messages_sent == messages_to_send + extra_messages_to_send {
