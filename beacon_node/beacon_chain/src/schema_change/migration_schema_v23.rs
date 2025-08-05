@@ -88,9 +88,8 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
         ));
     };
 
-    let fc_store = BeaconForkChoiceStore::from_persisted(
-        // persisted_fork_choice.fork_choice_store_v17.into(),
-        panic!(),
+    let fc_store = BeaconForkChoiceStore::from_persisted_v17(
+        persisted_fork_choice.fork_choice_store_v17,
         db.clone(),
     )
     .map_err(|e| {
