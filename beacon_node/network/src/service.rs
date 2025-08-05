@@ -28,7 +28,6 @@ use lighthouse_network::{
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
 };
 use logging::crit;
-use types::ColumnIndex;
 use std::collections::BTreeSet;
 use std::{collections::HashSet, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -37,6 +36,7 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, info_span, trace, warn, Instrument};
+use types::ColumnIndex;
 use types::{
     EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
     ValidatorSubscription,
@@ -117,9 +117,7 @@ pub enum NetworkMessage<E: EthSpec> {
 }
 
 pub enum SyncServiceMessage {
-    CustodyCountChanged {
-        columns: HashSet<ColumnIndex>
-    },
+    CustodyCountChanged { columns: HashSet<ColumnIndex> },
 }
 
 /// Messages triggered by validators that may trigger a subscription to a subnet.

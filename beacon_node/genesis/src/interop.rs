@@ -169,7 +169,7 @@ fn alternating_eth1_withdrawal_credentials_fn<'a>(
     pubkey: &'a PublicKey,
     spec: &'a ChainSpec,
 ) -> Hash256 {
-    if index % 2usize == 0usize {
+    if index.is_multiple_of(2) {
         bls_withdrawal_credentials(pubkey, spec)
     } else {
         eth1_withdrawal_credentials(pubkey, spec)

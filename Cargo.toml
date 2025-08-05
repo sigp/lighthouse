@@ -184,7 +184,7 @@ malloc_utils = { path = "common/malloc_utils" }
 maplit = "1"
 merkle_proof = { path = "consensus/merkle_proof" }
 metrics = { path = "common/metrics" }
-milhouse = "0.6"
+milhouse = { version = "0.7", default-features = false }
 mockall = "0.13"
 mockall_double = "0.3"
 mockito = "1.5.0"

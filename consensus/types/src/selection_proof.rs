@@ -6,7 +6,8 @@ use safe_arith::{ArithError, SafeArith};
 use ssz::Encode;
 use std::cmp;
 
-#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Debug, Clone)]
 pub struct SelectionProof(Signature);
 
 impl SelectionProof {
