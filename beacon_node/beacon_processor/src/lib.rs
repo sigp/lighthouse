@@ -1504,7 +1504,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
     ) {
         let work_id = work.str_id();
         let work_type = work.to_type();
-        
+
         // This metric tracks how long a work event has been in the queue
         metrics::observe_timer_vec(
             &metrics::BEACON_PROCESSOR_QUEUE_TIME,
