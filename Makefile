@@ -143,7 +143,7 @@ build-release-tarballs:
 # test vectors.
 test-release:
 	cargo test --workspace --release --features "$(TEST_FEATURES)" \
- 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+ 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
 		--exclude http_api
 
 # Runs the full workspace tests in **release**, without downloading any additional
