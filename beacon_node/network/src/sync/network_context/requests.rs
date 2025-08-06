@@ -4,6 +4,7 @@ use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use strum::IntoStaticStr;
+use tracing::Span;
 use types::{Hash256, Slot};
 
 pub use blobs_by_range::BlobsByRangeRequestItems;
@@ -50,8 +51,10 @@ struct ActiveRequest<T: ActiveRequestItems> {
     peer_id: PeerId,
     // Error if the request terminates before receiving max expected responses
     expect_max_responses: bool,
+    span: Span,
 }
 
+#[derive(Debug)]
 enum State<T> {
     Active(T),
     CompletedEarly,
@@ -66,13 +69,22 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
         }
     }
 
-    pub fn insert(&mut self, id: K, peer_id: PeerId, expect_max_responses: bool, items: T) {
+    pub fn insert(
+        &mut self,
+        id: K,
+        peer_id: PeerId,
+        expect_max_responses: bool,
+        items: T,
+        span: Span,
+    ) {
+        let _guard = span.clone().entered();
         self.requests.insert(
             id,
             ActiveRequest {
                 state: State::Active(items),
                 peer_id,
                 expect_max_responses,
+                span,
             },
         );
     }
@@ -109,6 +121,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                             Ok(true) => {
                                 let items = items.consume();
                                 request.state = State::CompletedEarly;
+                                request.span.record("result", "CompletedEarly");
                                 Some(Ok((items, seen_timestamp)))
                             }
                             // Received item, but we are still expecting more
@@ -116,6 +129,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                             // Received an invalid item
                             Err(e) => {
                                 request.state = State::Errored;
+                                request.span.record("result", "Errored");
                                 Some(Err(e.into()))
                             }
                         }
@@ -140,11 +154,13 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                     // Received a stream termination in a valid sequence, consume items
                     State::Active(mut items) => {
                         if request.expect_max_responses {
+                            request.span.record("result", "NotEnoughResponsesReturned");
                             Some(Err(LookupVerifyError::NotEnoughResponsesReturned {
                                 actual: items.consume().len(),
                             }
                             .into()))
                         } else {
+                            request.span.record("result", "Completed");
                             Some(Ok((items.consume(), timestamp_now())))
                         }
                     }
@@ -157,7 +173,9 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             RpcEvent::RPCError(e) => {
                 // After an Error event from the network we must forget about this request as this
                 // may be the last message for this request.
-                match entry.remove().state {
+                let request = entry.remove();
+                request.span.record("result", "RPCError");
+                match request.state {
                     // Received error while request is still active, propagate error.
                     State::Active(_) => Some(Err(e.into())),
                     // Received error after completing the request, ignore the error. This is okay
