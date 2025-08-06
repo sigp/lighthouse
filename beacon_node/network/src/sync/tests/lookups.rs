@@ -104,7 +104,7 @@ impl TestRig {
         let spec = chain.spec.clone();
 
         // deterministic seed
-        let rng_08 = <rand_chacha_08::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
+        let rng_08 = <rand_chacha_03::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
 
         init_tracing();
