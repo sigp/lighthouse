@@ -268,15 +268,7 @@ pub enum Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eth2_keystore::json_keystore::{HexBytes, Kdf};
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct KeyCacheTest {
-        pub params: Kdf,
-        //pub checksum: ChecksumModule,
-        //pub cipher: CipherModule,
-        uuids: Vec<Uuid>,
-    }
+    use eth2_keystore::json_keystore::HexBytes;
 
     #[tokio::test]
     async fn test_serialization() {
