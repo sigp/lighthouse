@@ -45,7 +45,7 @@ use std::time::Duration;
 #[cfg(test)]
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, field, warn, Span};
+use tracing::{debug, error, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
@@ -1430,7 +1430,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         req_id: DataColumnsByRootRequestId,
         peer_id: PeerId,
         resp: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
-        span: Span,
     ) -> Option<CustodyByRootResult<T::EthSpec>> {
         // Note: need to remove the request to borrow self again below. Otherwise we can't
         // do nested requests
@@ -1440,9 +1439,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return None;
         };
 
-        let client = self.network_globals().client(&peer_id);
-        span.record("client", field::display(client));
-        let result = request.on_data_column_downloaded(peer_id, req_id, resp, self, span);
+        let result = request.on_data_column_downloaded(peer_id, req_id, resp, self);
 
         self.handle_custody_by_root_result(id.requester, request, result)
     }

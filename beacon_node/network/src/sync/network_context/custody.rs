@@ -12,7 +12,7 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
-use tracing::{debug, field, warn, Span};
+use tracing::{debug, debug_span, field, warn, Span};
 use types::EthSpec;
 use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
 
@@ -36,7 +36,8 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     failed_peers: LRUTimeCache<PeerId>,
     /// Set of peers that claim to have imported this block and their custody columns
     lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
-
+    /// Span for tracing the lifetime of this request.
+    span: Span,
     _phantom: PhantomData<T>,
 }
 
@@ -57,6 +58,8 @@ pub enum Error {
 
 struct ActiveBatchColumnsRequest {
     indices: Vec<ColumnIndex>,
+    /// Span for tracing the lifetime of this request.
+    span: Span,
 }
 
 pub type CustodyRequestResult<E> =
@@ -69,6 +72,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         column_indices: &[ColumnIndex],
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Self {
+        let span = debug_span!(parent: None, "active_custody_request", %block_root);
         Self {
             block_root,
             custody_id,
@@ -80,6 +84,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             active_batch_columns_requests: <_>::default(),
             failed_peers: LRUTimeCache::new(Duration::from_secs(FAILED_PEERS_CACHE_EXPIRY_SECONDS)),
             lookup_peers,
+            span,
             _phantom: PhantomData,
         }
     }
@@ -98,8 +103,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         req_id: DataColumnsByRootRequestId,
         resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
-        span: Span,
     ) -> CustodyRequestResult<T::EthSpec> {
+        let _guard = self.span.clone().entered();
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
             warn!(
                 block_root = ?self.block_root,
@@ -167,10 +172,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         "Custody column peer claims to not have some data"
                     );
 
-                    span.record(
+                    batch_request.span.record(
                         "missing_column_indexes",
                         field::debug(missing_column_indexes),
                     );
+                    // Close the span explicitly as the batch request has ended
+                    drop(std::mem::replace(&mut batch_request.span, Span::none()));
 
                     self.failed_peers.insert(peer_id);
                 }
@@ -192,6 +199,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .on_download_error_and_mark_failure(req_id)?;
                 }
 
+                batch_request.span.record(
+                    "missing_column_indexes",
+                    field::debug(&batch_request.indices),
+                );
+                // Close the span explicitly as the batch request has ended
+                drop(std::mem::replace(&mut batch_request.span, Span::none()));
+
                 self.failed_peers.insert(peer_id);
             }
         };
@@ -203,6 +217,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         &mut self,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
+        let _guard = self.span.clone().entered();
         if self.column_requests.values().all(|r| r.is_downloaded()) {
             // All requests have completed successfully.
             let mut peers = HashMap::<PeerId, Vec<usize>>::new();
@@ -307,6 +322,9 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
             match request_result {
                 LookupRequestResult::RequestSent(req_id) => {
+                    let client = cx.network_globals().client(&peer_id);
+                    let batch_columns_req_span = debug_span!("batch_columns_req", %peer_id, %client, missing_column_indexes = tracing::field::Empty);
+                    let _guard = batch_columns_req_span.clone().entered();
                     for column_index in &indices {
                         let column_request = self
                             .column_requests
@@ -317,8 +335,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         column_request.on_download_start(req_id)?;
                     }
 
-                    self.active_batch_columns_requests
-                        .insert(req_id, ActiveBatchColumnsRequest { indices });
+                    self.active_batch_columns_requests.insert(
+                        req_id,
+                        ActiveBatchColumnsRequest {
+                            indices,
+                            span: batch_columns_req_span,
+                        },
+                    );
                 }
                 LookupRequestResult::NoRequestNeeded(_) => unreachable!(),
                 LookupRequestResult::Pending(_) => unreachable!(),

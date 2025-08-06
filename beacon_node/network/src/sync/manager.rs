@@ -68,7 +68,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, instrument, trace, Span};
+use tracing::{debug, error, info, instrument, trace};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
@@ -1107,7 +1107,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty, missing_column_indexes = tracing::field::Empty))]
     fn on_data_columns_by_root_response(
         &mut self,
         req_id: DataColumnsByRootRequestId,
@@ -1120,13 +1119,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             match req_id.requester {
                 DataColumnsByRootRequester::Custody(custody_id) => {
-                    if let Some(result) = self.network.on_custody_by_root_response(
-                        custody_id,
-                        req_id,
-                        peer_id,
-                        resp,
-                        Span::current(),
-                    ) {
+                    if let Some(result) = self
+                        .network
+                        .on_custody_by_root_response(custody_id, req_id, peer_id, resp)
+                    {
                         self.on_custody_by_root_result(custody_id.requester, result);
                     }
                 }
