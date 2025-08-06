@@ -104,7 +104,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
-        let _guard = self.span.clone().entered();
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
             warn!(
                 block_root = ?self.block_root,
@@ -113,6 +112,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             );
             return Ok(None);
         };
+
+        let _guard = batch_request.span.clone().entered();
 
         match resp {
             Ok((data_columns, seen_timestamp)) => {

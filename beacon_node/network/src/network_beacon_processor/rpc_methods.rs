@@ -1041,7 +1041,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRange` request from the peer.
-    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty))]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty))]
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,

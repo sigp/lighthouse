@@ -516,7 +516,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
-        let range_request_span = debug_span!("outgoing_range_request", range_req_id = %requester);
+        let range_request_span =
+            debug_span!(parent: None, "outgoing_range_request", range_req_id = %requester);
         let _guard = range_request_span.clone().entered();
         let active_request_count_by_peer = self.active_request_count_by_peer();
 
