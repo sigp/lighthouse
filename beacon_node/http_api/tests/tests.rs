@@ -6270,7 +6270,9 @@ impl ApiTester {
 
         // Produce a BLS to execution change event
         self.client
-            .post_beacon_pool_bls_to_execution_changes(&[self.bls_to_execution_change.clone()])
+            .post_beacon_pool_bls_to_execution_changes(std::slice::from_ref(
+                &self.bls_to_execution_change,
+            ))
             .await
             .unwrap();
 

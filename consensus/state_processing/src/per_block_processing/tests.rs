@@ -906,7 +906,7 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
     let mut ctxt = ConsensusContext::new(state.slot());
     let result_1 = process_operations::process_proposer_slashings(
         &mut state,
-        &[proposer_slashing.clone()],
+        std::slice::from_ref(&proposer_slashing),
         VerifySignatures::False,
         &mut ctxt,
         &spec,
@@ -915,7 +915,7 @@ async fn invalid_proposer_slashing_duplicate_slashing() {
 
     let result_2 = process_operations::process_proposer_slashings(
         &mut state,
-        &[proposer_slashing],
+        std::slice::from_ref(&proposer_slashing),
         VerifySignatures::False,
         &mut ctxt,
         &spec,
