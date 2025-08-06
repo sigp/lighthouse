@@ -15,9 +15,9 @@ use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, field, instrument, warn, Span};
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -341,13 +341,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id))]
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: DataColumnsByRootRequest,
     ) {
+        let requested_columns = request
+            .data_column_ids
+            .iter()
+            .flat_map(|id| id.columns.clone())
+            .unique()
+            .collect::<Vec<_>>();
+        self.record_data_column_request_in_span(&peer_id, &requested_columns, Span::current());
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -990,14 +997,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Ok(())
     }
 
+    fn record_data_column_request_in_span(
+        &self,
+        peer_id: &PeerId,
+        requested_indices: &Vec<ColumnIndex>,
+        span: Span,
+    ) {
+        // FIXME: change to custody columns instead of sampling columns once 7792 is merged.
+        let non_custody_indices = {
+            let sampling_columns = self.network_globals.sampling_columns.read();
+            requested_indices
+                .iter()
+                .filter(|subnet_id| !sampling_columns.contains(subnet_id))
+                .collect::<Vec<_>>()
+        };
+        span.record("non_custody_indices", field::debug(non_custody_indices));
+
+        let client = self.network_globals.client(peer_id);
+        span.record("client", field::display(client));
+    }
+
     /// Handle a `DataColumnsByRange` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id))]
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) {
+        self.record_data_column_request_in_span(&peer_id, &req.columns, Span::current());
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,

@@ -12,7 +12,7 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
-use tracing::{debug, warn};
+use tracing::{debug, field, warn, Span};
 use types::EthSpec;
 use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
 
@@ -98,6 +98,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         req_id: DataColumnsByRootRequestId,
         resp: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T>,
+        span: Span,
     ) -> CustodyRequestResult<T::EthSpec> {
         let Some(batch_request) = self.active_batch_columns_requests.get_mut(&req_id) else {
             warn!(
@@ -164,6 +165,11 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         // TODO(das): this property can become very noisy, being the full range 0..128
                         ?missing_column_indexes,
                         "Custody column peer claims to not have some data"
+                    );
+
+                    span.record(
+                        "missing_column_indexes",
+                        field::debug(missing_column_indexes),
                     );
 
                     self.failed_peers.insert(peer_id);
