@@ -266,17 +266,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
+        let Some(_requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
         else {
             // No blob ids requested.
             return Ok(());
         };
-        let requested_indices = request
-            .blob_ids
-            .as_slice()
-            .iter()
-            .map(|id| id.index)
-            .collect::<Vec<_>>();
+
         let mut send_blob_count = 0;
 
         let fulu_start_slot = self
@@ -287,6 +282,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let mut blob_list_results = HashMap::new();
         let mut retrieve_blob_slot = HashMap::new();
+        // For logging purpose, to display one log per block root
+        let mut logging = HashMap::new();
         for id in request.blob_ids.as_slice() {
             let BlobIdentifier {
                 block_root: root,
@@ -341,6 +338,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Response::BlobsByRoot(Some(blob)),
                 );
                 send_blob_count += 1;
+                logging.entry(*root).or_insert(Vec::new()).push(*index);
             } else {
                 let blob_list_result = match blob_list_results.entry(root) {
                     Entry::Vacant(entry) => {
@@ -373,6 +371,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                     Response::BlobsByRoot(Some(blob_sidecar.clone())),
                                 );
                                 send_blob_count += 1;
+                                logging.entry(*root).or_insert(Vec::new()).push(*index);
                                 break 'inner;
                             }
                         }
@@ -388,13 +387,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
             }
         }
-        debug!(
-            %peer_id,
-            %requested_root,
-            ?requested_indices,
-            returned = send_blob_count,
-            "BlobsByRoot outgoing response processed"
-        );
+
+        // log once per block_root
+        for (block_root, blobs_indices) in &logging {
+            debug!(
+                %peer_id,
+                %block_root,
+                ?blobs_indices,
+                returned = send_blob_count,
+                "BlobsByRoot outgoing response processed"
+            );
+        }
 
         Ok(())
     }
