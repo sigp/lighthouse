@@ -51,8 +51,7 @@ use types::non_zero_usize::new_non_zero_usize;
 ///  occasionally spike to 2-4 for various reasons e.g. components arriving late, but would very
 /// rarely go above this, unless there are many concurrent forks.
 pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(64);
-/// Until tree-states is implemented, we can't store very many states in memory :(
-pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(2);
+pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
