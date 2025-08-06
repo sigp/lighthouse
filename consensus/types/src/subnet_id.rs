@@ -11,7 +11,7 @@ const MAX_SUBNET_ID: usize = 64;
 
 /// The number of bits in a Discovery `NodeId`. This is used for binary operations on the node-id
 /// data.
-const NODE_ID_BITS: u64 = 256;
+const NODE_ID_BITS: u32 = 256;
 
 static SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
     let mut v = Vec::with_capacity(MAX_SUBNET_ID);
@@ -102,7 +102,7 @@ impl SubnetId {
         spec: &ChainSpec,
     ) -> impl Iterator<Item = SubnetId> {
         // The bits of the node-id we are using to define the subnets.
-        let prefix_bits = spec.attestation_subnet_prefix_bits as u64;
+        let prefix_bits = spec.attestation_subnet_prefix_bits as u32;
 
         let node_id = U256::from_be_slice(&raw_node_id);
         // calculate the prefixes used to compute the subnet and shuffling
