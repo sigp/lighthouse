@@ -113,6 +113,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             // `ActiveRequestItems` validates the item before appending to its internal state.
             RpcEvent::Response(item, seen_timestamp) => {
                 let request = &mut entry.get_mut();
+                let _guard = request.span.clone().entered();
                 match &mut request.state {
                     State::Active(items) => {
                         match items.add(item) {
@@ -150,6 +151,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                 // After stream termination we must forget about this request, there will be no more
                 // messages coming from the network
                 let request = entry.remove();
+                let _guard = request.span.clone().entered();
                 match request.state {
                     // Received a stream termination in a valid sequence, consume items
                     State::Active(mut items) => {
@@ -174,6 +176,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                 // After an Error event from the network we must forget about this request as this
                 // may be the last message for this request.
                 let request = entry.remove();
+                let _guard = request.span.clone().entered();
                 request.span.record("result", "RPCError");
                 match request.state {
                     // Received error while request is still active, propagate error.
