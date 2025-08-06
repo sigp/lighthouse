@@ -355,6 +355,18 @@ impl StateSummariesDAG {
         }
         Ok(descendants)
     }
+
+    /// Returns the root of the state at `slot` with `latest_block_root`, if it exists.
+    ///
+    /// The `slot` must be the slot of the `latest_block_root` or a skipped slot following it. This
+    /// function will not return the `state_root` of a state with a different `latest_block_root`
+    /// even if it lies on the same chain.
+    pub fn state_root_at_slot(&self, latest_block_root: Hash256, slot: Slot) -> Option<Hash256> {
+        self.state_summaries_by_block_root
+            .get(&latest_block_root)?
+            .get(&slot)
+            .map(|(state_root, _)| *state_root)
+    }
 }
 
 impl From<HotStateSummary> for DAGStateSummary {

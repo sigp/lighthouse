@@ -102,7 +102,7 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
     // considers descent from finalization.
     let reset_payload_statuses = ResetPayloadStatuses::OnlyWithInvalidPayload;
     let fork_choice = ForkChoice::from_persisted(
-        persisted_fork_choice.fork_choice,
+        persisted_fork_choice.fork_choice_v17.try_into()?,
         reset_payload_statuses,
         fc_store,
         &db.spec,

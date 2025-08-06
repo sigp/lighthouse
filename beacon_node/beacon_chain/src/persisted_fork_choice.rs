@@ -14,7 +14,10 @@ pub type PersistedForkChoice = PersistedForkChoiceV28;
     no_enum
 )]
 pub struct PersistedForkChoice {
-    pub fork_choice: fork_choice::PersistedForkChoice,
+    #[superstruct(only(V17))]
+    pub fork_choice_v17: fork_choice::PersistedForkChoiceV17,
+    #[superstruct(only(V28))]
+    pub fork_choice: fork_choice::PersistedForkChoiceV28,
     #[superstruct(only(V17))]
     pub fork_choice_store_v17: PersistedForkChoiceStoreV17,
     #[superstruct(only(V28))]

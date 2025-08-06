@@ -69,3 +69,18 @@ impl TryFrom<(SszContainer, JustifiedBalances)> for ProtoArrayForkChoice {
         })
     }
 }
+
+// Convert V17 to V28 by dropping balances.
+impl From<SszContainerV17> for SszContainerV28 {
+    fn from(v17: SszContainerV17) -> Self {
+        Self {
+            votes: v17.votes,
+            prune_threshold: v17.prune_threshold,
+            justified_checkpoint: v17.justified_checkpoint,
+            finalized_checkpoint: v17.finalized_checkpoint,
+            nodes: v17.nodes,
+            indices: v17.indices,
+            previous_proposer_boost: v17.previous_proposer_boost,
+        }
+    }
+}
