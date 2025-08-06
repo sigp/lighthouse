@@ -1107,7 +1107,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id))]
+    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty, missing_column_indexes = tracing::field::Empty))]
     fn on_data_columns_by_root_response(
         &mut self,
         req_id: DataColumnsByRootRequestId,

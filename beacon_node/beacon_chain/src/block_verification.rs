@@ -825,7 +825,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     /// on the p2p network.
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
-    #[instrument(name = "verify_gossip_block", skip_all)]
+    #[instrument(name = "verify_gossip_block", skip_all, fields(block_root = tracing::field::Empty))]
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
@@ -1226,7 +1226,8 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         signature_verifier
             .include_all_signatures_except_proposal(block.as_ref(), &mut consensus_context)?;
 
-        let sig_verify_span = info_span!("signature_verify", result = "started").entered();
+        let sig_verify_span =
+            info_span!("signature_verify", result = tracing::field::Empty).entered();
         let result = signature_verifier.verify();
         match result {
             Ok(_) => {

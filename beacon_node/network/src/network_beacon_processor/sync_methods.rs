@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Attempt to process a list of blobs received from a direct RPC request.
-    #[instrument(skip_all, fields(?block_root, outcome = tracing::field::Empty), parent = None)]
+    #[instrument(skip_all, fields(?block_root, result = tracing::field::Empty), parent = None)]
     pub async fn process_rpc_blobs(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -293,7 +293,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
-                Span::current().record("outcome", "imported");
+                Span::current().record("result", "imported");
                 debug!(
                     result = "imported block and blobs",
                     %slot,
@@ -303,7 +303,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                Span::current().record("outcome", "missing_components");
+                Span::current().record("result", "missing_components");
                 debug!(
                     block_hash = %block_root,
                     %slot,
@@ -545,7 +545,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {
-                Span::current().record("outcome", "success");
+                Span::current().record("result", "success");
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if !imported_blocks.is_empty() {
                     self.chain.recompute_head_at_current_slot().await;
@@ -556,7 +556,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 imported_blocks,
                 error,
             } => {
-                Span::current().record("outcome", "failed");
+                Span::current().record("result", "failed");
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
                 if !imported_blocks.is_empty() {

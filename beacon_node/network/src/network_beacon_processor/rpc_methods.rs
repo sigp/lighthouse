@@ -341,7 +341,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
-    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id))]
+    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty))]
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -1018,7 +1018,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRange` request from the peer.
-    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id))]
+    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty))]
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,
