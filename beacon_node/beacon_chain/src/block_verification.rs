@@ -826,7 +826,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
     #[instrument(name = "verify_gossip_block", skip_all)]
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
