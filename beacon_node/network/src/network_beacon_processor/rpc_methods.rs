@@ -1000,7 +1000,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     fn record_data_column_request_in_span(
         &self,
         peer_id: &PeerId,
-        requested_indices: &Vec<ColumnIndex>,
+        requested_indices: &[ColumnIndex],
         span: Span,
     ) {
         // FIXME: change to custody columns instead of sampling columns once 7792 is merged.
