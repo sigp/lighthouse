@@ -292,7 +292,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             // Get the slot for where the blob belongs to from the HashMap or cache without touching the database
             let slot = if let Some(slot) = retrieve_blob_slot.get(root) {
-                *slot
+                Some(*slot)
             } else {
                 // Try to get block from caches to extract slot
                 if let Some(block) = self
@@ -303,21 +303,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 {
                     let slot = block.slot();
                     retrieve_blob_slot.insert(*root, slot);
-                    slot
+                    Some(slot)
                 } else {
-                    match self.chain.get_blinded_block(root) {
-                        Ok(Some(block)) => {
-                            let slot = block.slot();
-                            retrieve_blob_slot.insert(*root, slot);
-                            slot
-                        }
-                        _ => continue,
-                    }
+                    // Blobs not found in cache, return None to avoid hitting the database
+                    None
                 }
             };
 
             // Skip if slot is >= fulu_start_slot
-            if let Some(fulu_slot) = fulu_start_slot {
+            if let (Some(slot), Some(fulu_slot)) = (slot, fulu_start_slot) {
                 if slot >= fulu_slot {
                     debug!(
                         %peer_id,
@@ -351,7 +345,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Ok(blobs_sidecar_list) => {
                         'inner: for blob_sidecar in blobs_sidecar_list.iter() {
                             if blob_sidecar.index == *index {
-                                // Same logic as above to check for Fulu slot
+                                // Check for Fulu slot
                                 if let Some(fulu_slot) = fulu_start_slot {
                                     if blob_sidecar.slot() >= fulu_slot {
                                         debug!(
