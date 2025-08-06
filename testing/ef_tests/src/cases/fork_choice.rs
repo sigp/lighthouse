@@ -1002,7 +1002,7 @@ pub struct ManuallyVerifiedAttestation<'a, T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> VerifiedAttestation<T> for ManuallyVerifiedAttestation<'_, T> {
-    fn attestation(&self) -> AttestationRef<T::EthSpec> {
+    fn attestation(&self) -> AttestationRef<'_, T::EthSpec> {
         self.attestation.to_ref()
     }
 
