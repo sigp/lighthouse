@@ -430,6 +430,12 @@ impl TestRig {
             .unwrap();
     }
 
+    pub fn enqueue_data_column_batch(&self) {
+        self.network_beacon_processor
+            .send_data_columns(Epoch::default(), Vec::default())
+            .unwrap()
+    }
+
     pub fn enqueue_backfill_batch(&self) {
         self.network_beacon_processor
             .send_chain_segment(
@@ -1293,6 +1299,31 @@ async fn test_backfill_sync_processing() {
     }
 }
 
+/// Ensure that custody sync batches get rate-limited and processing is scheduled at specified intervals.
+#[tokio::test]
+async fn test_custody_sync_processing() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    // Note: to verify the exact event times in an integration test is not straight forward here
+    // (not straight forward to manipulate `TestingSlotClock` due to cloning of `SlotClock` in code)
+    // and makes the test very slow, hence timing calculation is unit tested separately in
+    // `work_reprocessing_queue`.
+    for _ in 0..1 {
+        rig.enqueue_data_column_batch();
+        // ensure queued batch is not processed until later
+        rig.assert_no_events_for(Duration::from_millis(100)).await;
+        // A new batch should be processed within a slot.
+        rig.assert_event_journal_with_timeout(
+            &[
+                WorkType::ChainSegmentBackfill.into(),
+                WORKER_FREED,
+                NOTHING_TO_DO,
+            ],
+            rig.chain.slot_clock.slot_duration(),
+        )
+        .await;
+    }
+}
+
 /// Ensure that backfill batches get processed as fast as they can when rate-limiting is disabled.
 #[tokio::test]
 async fn test_backfill_sync_processing_rate_limiting_disabled() {
@@ -1305,6 +1336,32 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
 
     for _ in 0..3 {
         rig.enqueue_backfill_batch();
+    }
+
+    // ensure all batches are processed
+    rig.assert_event_journal_with_timeout(
+        &[
+            WorkType::ChainSegmentBackfill.into(),
+            WorkType::ChainSegmentBackfill.into(),
+            WorkType::ChainSegmentBackfill.into(),
+        ],
+        Duration::from_millis(100),
+    )
+    .await;
+}
+
+/// Ensure that backfill batches get processed as fast as they can when rate-limiting is disabled.
+#[tokio::test]
+async fn test_custody_sync_processing_rate_limiting_disabled() {
+    let beacon_processor_config = BeaconProcessorConfig {
+        enable_backfill_rate_limiting: false,
+        ..Default::default()
+    };
+    let mut rig =
+        TestRig::new_parametric(SMALL_CHAIN, beacon_processor_config, test_spec::<E>()).await;
+
+    for _ in 0..3 {
+        rig.enqueue_data_column_batch();
     }
 
     // ensure all batches are processed

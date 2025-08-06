@@ -78,6 +78,7 @@ pub enum RouterMessage<E: EthSpec> {
 impl<T: BeaconChainTypes> Router<T> {
     /// Initializes and runs the Router.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::type_complexity)]
     pub fn spawn(
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,

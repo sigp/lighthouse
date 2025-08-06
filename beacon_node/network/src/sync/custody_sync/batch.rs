@@ -12,6 +12,10 @@ use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
 /// Error type of a batch in a wrong state.
 // Such errors should never be encountered.
+
+/// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed
+/// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
+const MAX_BATCH_PROCESSING_ATTEMPTS: usize = 10;
 pub struct WrongState(pub(crate) String);
 
 #[derive(Debug)]
@@ -133,8 +137,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
                 // register the attempt and check if the batch can be tried again
                 self.failed_download_attempts.push(peer);
 
-                self.state = if self.failed_download_attempts.len() >= 5
-                // TODO max download attempts config value
+                self.state = if self.failed_download_attempts.len() >= MAX_BATCH_PROCESSING_ATTEMPTS
                 {
                     CustodyBatchState::Failed
                 } else {
@@ -210,8 +213,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
                         self.failed_processing_attempts.push(attempt);
 
                         // check if the batch can be downloaded again
-                        // TODO(custody-sync)
-                        if self.failed_processing_attempts.len() >= 5 {
+                        if self.failed_processing_attempts.len() >= MAX_BATCH_PROCESSING_ATTEMPTS {
                             CustodyBatchState::Failed
                         } else {
                             CustodyBatchState::AwaitingDownload
@@ -289,12 +291,12 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
                 self.failed_processing_attempts.push(attempt);
 
                 // check if the batch can be downloaded again
-                // TODO(custody-sync)
-                self.state = if self.failed_processing_attempts.len() >= 5 {
-                    CustodyBatchState::Failed
-                } else {
-                    CustodyBatchState::AwaitingDownload
-                };
+                self.state =
+                    if self.failed_processing_attempts.len() >= MAX_BATCH_PROCESSING_ATTEMPTS {
+                        CustodyBatchState::Failed
+                    } else {
+                        CustodyBatchState::AwaitingDownload
+                    };
                 Ok(self.outcome())
             }
             CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),

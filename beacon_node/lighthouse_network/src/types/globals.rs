@@ -30,7 +30,6 @@ pub struct NetworkGlobals<E: EthSpec> {
     pub sync_state: RwLock<SyncState>,
     /// The current state of the backfill sync.
     pub backfill_state: RwLock<BackFillState>,
-
     /// The current state of custody sync.s
     pub custody_sync_state: RwLock<BackFillState>,
     /// The computed sampling subnets and columns is stored to avoid re-computing.

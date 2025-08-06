@@ -744,6 +744,19 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 // subscribe to `sampling_count` subnets
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
+
+                // TODO(custody_sync)
+                if let Err(e) =
+                    self.sync_service_send
+                        .send(SyncServiceMessage::CustodyCountChanged {
+                            columns: HashSet::new(),
+                        })
+                {
+                    warn!(
+                        error = ?e,
+                        "Failed to send custody count change to the sync service"
+                    );
+                }
                 if self
                     .network_globals
                     .config

@@ -58,8 +58,7 @@ use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
     CustodySyncDataColumnsByRangeRequestId, DataColumnsByRangeRequestId,
-    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SamplingId, SamplingRequester,
-    SingleLookupReqId, SyncRequestId,
+    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -948,6 +947,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     pub(crate) fn handle_sync_service_message(&mut self, sync_service_message: SyncServiceMessage) {
+        // TODO(custody-sync) make sure we are synced and done backfilling before we start
         let mut _sync_state = {
             let head = self.chain.best_slot();
             let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
@@ -972,8 +972,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncServiceMessage::CustodyCountChanged { .. } => {
                 match self.custody_sync.start(&mut self.network) {
                     Ok(SyncStart::Syncing {
-                        completed,
-                        remaining,
+                        completed: _,
+                        remaining: _,
                     }) => {
                         // TODO(custody-sync)
                         // sync_state = SyncState::BackFillSyncing {
