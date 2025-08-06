@@ -68,8 +68,9 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
         // DA checker only accepts sampling columns, so we need to create one with a sampling index.
         let mut random_sidecar = DataColumnSidecar::random_for_test(&mut rng);
         let slot = Slot::new(10);
+        let epoch = slot.epoch(E::slots_per_epoch());
         random_sidecar.signed_block_header.message.slot = slot;
-        random_sidecar.index = harness.chain.sampling_columns_for_slot(Some(slot))[0];
+        random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
         random_sidecar
     };
     let gossip_verified_data_column =

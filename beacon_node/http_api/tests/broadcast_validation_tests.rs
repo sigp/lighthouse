@@ -1797,12 +1797,13 @@ fn assert_server_message_error(error_response: eth2::Error, expected_message: St
 }
 
 fn get_custody_columns(tester: &InteractiveTester<E>, slot: Slot) -> HashSet<ColumnIndex> {
+    let epoch = slot().epoch(E::slots_per_epoch());
     tester
         .ctx
         .chain
         .as_ref()
         .unwrap()
-        .sampling_columns_for_slot(Some(slot))
+        .sampling_columns_for_epoch(epoch)
         .iter()
         .copied()
         .collect()

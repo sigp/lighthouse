@@ -245,9 +245,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // This is required because `data_columns_by_root` requests the **latest** CGC that _may_
         // not be yet effective for data availability check, as CGC changes are only effecive from
         // a new epoch.
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
             .custody_context
-            .sampling_columns_for_slot(Some(slot), &self.spec);
+            .sampling_columns_for_epoch(epoch, &self.spec);
         let verified_custody_columns = kzg_verified_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -298,9 +299,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         slot: Slot,
         data_columns: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
             .custody_context
-            .sampling_columns_for_slot(Some(slot), &self.spec);
+            .sampling_columns_for_epoch(epoch, &self.spec);
         let custody_columns = data_columns
             .into_iter()
             .filter(|col| sampling_columns.contains(&col.index()))
@@ -868,7 +870,7 @@ mod test {
             &spec,
         );
         assert_eq!(
-            custody_context.num_of_data_columns_to_sample(Some(epoch), &spec),
+            custody_context.num_of_data_columns_to_sample(epoch, &spec),
             spec.validator_custody_requirement as usize,
             "sampling size should be the minimal custody requirement == 8"
         );
@@ -903,8 +905,7 @@ mod test {
             .expect("should put rpc custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
-        let sampling_columns =
-            custody_context.sampling_columns_for_slot(Some(cgc_change_slot), &spec);
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
         assert_eq!(
             sampling_columns.len(),
             spec.validator_custody_requirement as usize // 8
@@ -948,7 +949,7 @@ mod test {
             &spec,
         );
         assert_eq!(
-            custody_context.num_of_data_columns_to_sample(Some(epoch), &spec),
+            custody_context.num_of_data_columns_to_sample(epoch, &spec),
             spec.validator_custody_requirement as usize,
             "sampling size should be the minimal custody requirement == 8"
         );
@@ -982,8 +983,7 @@ mod test {
             .expect("should put gossip custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
-        let sampling_columns =
-            custody_context.sampling_columns_for_slot(Some(cgc_change_slot), &spec);
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
         assert_eq!(
             sampling_columns.len(),
             spec.validator_custody_requirement as usize // 8

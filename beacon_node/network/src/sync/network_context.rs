@@ -551,9 +551,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Attempt to find all required custody peers before sending any request or creating an ID
         let columns_by_range_peers_to_request =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
+                let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
                 let column_indexes = self
                     .chain
-                    .sampling_columns_for_slot(None)
+                    .sampling_columns_for_epoch(epoch)
                     .iter()
                     .cloned()
                     .collect();
@@ -607,13 +608,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .transpose()?;
 
+        let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
             data_column_requests.map(|data_column_requests| {
                 (
                     data_column_requests,
-                    self.chain.sampling_columns_for_slot(None).to_vec(),
+                    self.chain.sampling_columns_for_epoch(epoch).to_vec(),
                 )
             }),
         );
@@ -1015,10 +1017,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .cached_data_column_indexes(&block_root)
             .unwrap_or_default();
 
+        let current_epoch = self.chain.epoch().map_err(|e| {
+            RpcRequestSendError::InternalError(format!("Unable to read slot clock {:?}", e))
+        })?;
+
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = self
             .chain
-            .sampling_columns_for_slot(None)
+            .sampling_columns_for_epoch(current_epoch)
             .iter()
             .copied()
             .filter(|index| !custody_indexes_imported.contains(index))

@@ -751,7 +751,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
-        let custody_columns = self.chain.sampling_columns_for_slot(Some(block.slot()));
+        let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {

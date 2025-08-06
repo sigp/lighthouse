@@ -222,7 +222,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         publish_column_sidecars(network_tx, &gossip_verified_columns, &chain).map_err(|_| {
             warp_utils::reject::custom_server_error("unable to publish data column sidecars".into())
         })?;
-        let sampling_columns_indices = chain.sampling_columns_for_slot(Some(block.slot()));
+        let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let sampling_columns_indices = chain.sampling_columns_for_epoch(epoch);
         let sampling_columns = gossip_verified_columns
             .into_iter()
             .flatten()

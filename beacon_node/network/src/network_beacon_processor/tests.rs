@@ -271,7 +271,8 @@ impl TestRig {
         let (blob_sidecars, data_columns) = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
-                let sampling_indices = chain.sampling_columns_for_slot(Some(block.slot()));
+                let epoch = block.slot().epoch(E::slots_per_epoch());
+                let sampling_indices = chain.sampling_columns_for_epoch(epoch);
                 let custody_columns: DataColumnSidecarList<E> = blobs_to_data_column_sidecars(
                     &blobs.iter().collect_vec(),
                     kzg_proofs.clone().into_iter().collect_vec(),

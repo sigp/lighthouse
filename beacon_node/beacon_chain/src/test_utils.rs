@@ -2387,7 +2387,8 @@ where
         blob_items: Option<(KzgProofs<E>, BlobsList<E>)>,
     ) -> Result<RpcBlock<E>, BlockError> {
         Ok(if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let sampling_columns = self.chain.sampling_columns_for_slot(Some(block.slot()));
+            let epoch = block.slot().epoch(E::slots_per_epoch());
+            let sampling_columns = self.chain.sampling_columns_for_epoch(epoch);
 
             if blob_items.is_some_and(|(_, blobs)| !blobs.is_empty()) {
                 // Note: this method ignores the actual custody columns and just take the first
@@ -3125,8 +3126,9 @@ where
         let is_peerdas_enabled = self.chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
         if is_peerdas_enabled {
             let custody_columns = custody_columns_opt.unwrap_or_else(|| {
+                let epoch = block.slot().epoch(E::slots_per_epoch());
                 self.chain
-                    .sampling_columns_for_slot(Some(block.slot()))
+                    .sampling_columns_for_epoch(epoch)
                     .iter()
                     .copied()
                     .collect()

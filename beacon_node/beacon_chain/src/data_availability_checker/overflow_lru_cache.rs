@@ -481,7 +481,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
             self.custody_context
-                .num_of_data_columns_to_sample(Some(epoch), &self.spec),
+                .num_of_data_columns_to_sample(epoch, &self.spec),
             |block| self.state_cache.recover_pending_executed_block(block),
         )? {
             // We keep the pending components in the availability cache during block import (#5845).
@@ -529,7 +529,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         let num_expected_columns = self
             .custody_context
-            .num_of_data_columns_to_sample(Some(epoch), &self.spec);
+            .num_of_data_columns_to_sample(epoch, &self.spec);
         debug!(
             component = "data_columns",
             ?block_root,
@@ -627,7 +627,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         let num_expected_columns = self
             .custody_context
-            .num_of_data_columns_to_sample(Some(epoch), &self.spec);
+            .num_of_data_columns_to_sample(epoch, &self.spec);
         debug!(
             component = "block",
             ?block_root,
