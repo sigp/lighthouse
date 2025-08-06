@@ -38,7 +38,6 @@ use super::block_lookups::BlockLookups;
 use super::network_context::{
     CustodyByRootResult, RangeBlockComponent, RangeRequestId, RpcEvent, SyncNetworkContext,
 };
-
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
