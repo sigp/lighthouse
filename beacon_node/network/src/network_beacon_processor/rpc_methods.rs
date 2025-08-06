@@ -155,13 +155,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
     pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: BlocksByRootRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -246,13 +249,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRoot` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -341,7 +347,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
-    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty))]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty))]
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -410,13 +416,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Ok(())
     }
 
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
     pub fn handle_light_client_updates_by_range(
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: LightClientUpdatesByRangeRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client));
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -502,13 +510,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientBootstrap` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: LightClientBootstrapRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client));
+
         self.terminate_response_single_item(
             peer_id,
             inbound_request_id,
@@ -533,12 +544,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientOptimisticUpdate` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
     pub fn handle_light_client_optimistic_update(
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client));
+
         self.terminate_response_single_item(
             peer_id,
             inbound_request_id,
@@ -558,12 +572,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientFinalityUpdate` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
     pub fn handle_light_client_finality_update(
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client));
+
         self.terminate_response_single_item(
             peer_id,
             inbound_request_id,
@@ -583,13 +600,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRange` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
     pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         req: BlocksByRangeRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -870,13 +890,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRange` request from the peer.
-    #[instrument(skip_all, level = "debug")]
+    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
     pub fn handle_blobs_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         req: BlobsByRangeRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,

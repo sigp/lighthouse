@@ -72,7 +72,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         column_indices: &[ColumnIndex],
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Self {
-        let span = debug_span!(parent: None, "active_custody_request", %block_root);
+        let span = debug_span!(parent: None, "outgoing_custody_request", %block_root);
         Self {
             block_root,
             custody_id,
