@@ -176,8 +176,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         "missing_column_indexes",
                         field::debug(missing_column_indexes),
                     );
-                    // Close the span explicitly as the batch request has ended
-                    drop(std::mem::replace(&mut batch_request.span, Span::none()));
 
                     self.failed_peers.insert(peer_id);
                 }
@@ -203,13 +201,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     "missing_column_indexes",
                     field::debug(&batch_request.indices),
                 );
-                // Close the span explicitly as the batch request has ended
-                drop(std::mem::replace(&mut batch_request.span, Span::none()));
 
                 self.failed_peers.insert(peer_id);
             }
         };
 
+        // Close the span explicitly as the batch request has ended
+        drop(std::mem::replace(&mut batch_request.span, Span::none()));
         self.continue_requests(cx)
     }
 

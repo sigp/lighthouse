@@ -68,7 +68,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, trace};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
@@ -1160,7 +1160,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    #[instrument(skip_all, level = "debug", fields(peer_id = %peer_id))]
     fn on_data_columns_by_range_response(
         &mut self,
         id: DataColumnsByRangeRequestId,
