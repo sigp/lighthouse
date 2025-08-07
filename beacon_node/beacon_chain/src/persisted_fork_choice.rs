@@ -56,8 +56,11 @@ impl PersistedForkChoiceV28 {
     }
 
     pub fn as_bytes(&self, store_config: &StoreConfig) -> Result<Vec<u8>, Error> {
+        let encode_timer = metrics::start_timer(&metrics::FORK_CHOICE_ENCODE_TIMES);
         let ssz_bytes = self.as_ssz_bytes();
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_COMPRESS_TIMES);
+        drop(encode_timer);
+
+        let _compress_timer = metrics::start_timer(&metrics::FORK_CHOICE_COMPRESS_TIMES);
         store_config
             .compress_bytes(&ssz_bytes)
             .map_err(Error::Compression)
