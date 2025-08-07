@@ -19,9 +19,8 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
-    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
-    ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256, KzgProofs, Transaction,
-    Transactions, Uint256,
+    ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadHeader, FixedBytesExtended,
+    ForkName, Hash256, KzgProofs, Transaction, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -589,6 +588,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         id: PayloadId,
         attributes: &PayloadAttributes,
     ) -> Result<ExecutionPayload<E>, String> {
+        let fork_name = self.get_fork_at_timestamp(attributes.timestamp());
         let mut execution_payload = match attributes {
             PayloadAttributes::V1(pa) => ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                 parent_hash: head_block_hash,
@@ -606,7 +606,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 block_hash: ExecutionBlockHash::zero(),
                 transactions: vec![].into(),
             }),
-            PayloadAttributes::V2(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
+            PayloadAttributes::V2(pa) => match fork_name {
                 ForkName::Bellatrix => ExecutionPayload::Bellatrix(ExecutionPayloadBellatrix {
                     parent_hash: head_block_hash,
                     fee_recipient: pa.suggested_fee_recipient,
@@ -642,69 +642,32 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
                 }),
                 _ => unreachable!(),
             },
-            PayloadAttributes::V3(pa) => match self.get_fork_at_timestamp(pa.timestamp) {
-                ForkName::Deneb => ExecutionPayload::Deneb(ExecutionPayloadDeneb {
-                    parent_hash: head_block_hash,
-                    fee_recipient: pa.suggested_fee_recipient,
-                    receipts_root: Hash256::repeat_byte(42),
-                    state_root: Hash256::repeat_byte(43),
-                    logs_bloom: vec![0; 256].into(),
-                    prev_randao: pa.prev_randao,
-                    block_number: parent.block_number() + 1,
-                    gas_limit: DEFAULT_GAS_LIMIT,
-                    gas_used: GAS_USED,
-                    timestamp: pa.timestamp,
-                    extra_data: mock_el_extra_data::<E>(),
-                    base_fee_per_gas: Uint256::from(1u64),
-                    block_hash: ExecutionBlockHash::zero(),
-                    transactions: vec![].into(),
-                    withdrawals: pa.withdrawals.clone().into(),
-                    blob_gas_used: 0,
-                    excess_blob_gas: 0,
-                }),
-                ForkName::Electra => ExecutionPayload::Electra(ExecutionPayloadElectra {
-                    parent_hash: head_block_hash,
-                    fee_recipient: pa.suggested_fee_recipient,
-                    receipts_root: Hash256::repeat_byte(42),
-                    state_root: Hash256::repeat_byte(43),
-                    logs_bloom: vec![0; 256].into(),
-                    prev_randao: pa.prev_randao,
-                    block_number: parent.block_number() + 1,
-                    gas_limit: DEFAULT_GAS_LIMIT,
-                    gas_used: GAS_USED,
-                    timestamp: pa.timestamp,
-                    extra_data: mock_el_extra_data::<E>(),
-                    base_fee_per_gas: Uint256::from(1u64),
-                    block_hash: ExecutionBlockHash::zero(),
-                    transactions: vec![].into(),
-                    withdrawals: pa.withdrawals.clone().into(),
-                    blob_gas_used: 0,
-                    excess_blob_gas: 0,
-                }),
-                ForkName::Fulu => ExecutionPayload::Fulu(ExecutionPayloadFulu {
-                    parent_hash: head_block_hash,
-                    fee_recipient: pa.suggested_fee_recipient,
-                    receipts_root: Hash256::repeat_byte(42),
-                    state_root: Hash256::repeat_byte(43),
-                    logs_bloom: vec![0; 256].into(),
-                    prev_randao: pa.prev_randao,
-                    block_number: parent.block_number() + 1,
-                    gas_limit: DEFAULT_GAS_LIMIT,
-                    gas_used: GAS_USED,
-                    timestamp: pa.timestamp,
-                    extra_data: "block gen was here".as_bytes().to_vec().into(),
-                    base_fee_per_gas: Uint256::from(1u64),
-                    block_hash: ExecutionBlockHash::zero(),
-                    transactions: vec![].into(),
-                    withdrawals: pa.withdrawals.clone().into(),
-                    blob_gas_used: 0,
-                    excess_blob_gas: 0,
-                }),
+            PayloadAttributes::V3(pa) => match fork_name {
+                ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
+                    ExecutionPayload::Deneb(ExecutionPayloadDeneb {
+                        parent_hash: head_block_hash,
+                        fee_recipient: pa.suggested_fee_recipient,
+                        receipts_root: Hash256::repeat_byte(42),
+                        state_root: Hash256::repeat_byte(43),
+                        logs_bloom: vec![0; 256].into(),
+                        prev_randao: pa.prev_randao,
+                        block_number: parent.block_number() + 1,
+                        gas_limit: DEFAULT_GAS_LIMIT,
+                        gas_used: GAS_USED,
+                        timestamp: pa.timestamp,
+                        extra_data: mock_el_extra_data::<E>(),
+                        base_fee_per_gas: Uint256::from(1u64),
+                        block_hash: ExecutionBlockHash::zero(),
+                        transactions: vec![].into(),
+                        withdrawals: pa.withdrawals.clone().into(),
+                        blob_gas_used: 0,
+                        excess_blob_gas: 0,
+                    })
+                }
                 _ => unreachable!(),
             },
         };
 
-        let fork_name = execution_payload.fork_name();
         if fork_name.deneb_enabled() {
             // get random number between 0 and Max Blobs
             let mut rng = self.rng.lock();
@@ -864,20 +827,8 @@ pub fn generate_genesis_header<E: EthSpec>(
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)
         }
-        ForkName::Deneb => {
+        ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
             let mut header = ExecutionPayloadHeader::Deneb(<_>::default());
-            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
-            *header.transactions_root_mut() = empty_transactions_root;
-            Some(header)
-        }
-        ForkName::Electra => {
-            let mut header = ExecutionPayloadHeader::Electra(<_>::default());
-            *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
-            *header.transactions_root_mut() = empty_transactions_root;
-            Some(header)
-        }
-        ForkName::Fulu => {
-            let mut header = ExecutionPayloadHeader::Fulu(<_>::default());
             *header.block_hash_mut() = genesis_block_hash.unwrap_or_default();
             *header.transactions_root_mut() = empty_transactions_root;
             Some(header)

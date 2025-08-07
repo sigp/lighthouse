@@ -495,13 +495,13 @@ where
         partial_getter(rename = "latest_execution_payload_header_electra")
     )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(
         only(Fulu),
         partial_getter(rename = "latest_execution_payload_header_fulu")
     )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
 
     // Capella
     #[superstruct(only(Capella, Deneb, Electra, Fulu), partial_getter(copy))]
@@ -1042,10 +1042,10 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Deneb(state) => Ok(ExecutionPayloadHeaderRef::Deneb(
                 &state.latest_execution_payload_header,
             )),
-            BeaconState::Electra(state) => Ok(ExecutionPayloadHeaderRef::Electra(
+            BeaconState::Electra(state) => Ok(ExecutionPayloadHeaderRef::Deneb(
                 &state.latest_execution_payload_header,
             )),
-            BeaconState::Fulu(state) => Ok(ExecutionPayloadHeaderRef::Fulu(
+            BeaconState::Fulu(state) => Ok(ExecutionPayloadHeaderRef::Deneb(
                 &state.latest_execution_payload_header,
             )),
         }
@@ -1065,10 +1065,10 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Deneb(state) => Ok(ExecutionPayloadHeaderRefMut::Deneb(
                 &mut state.latest_execution_payload_header,
             )),
-            BeaconState::Electra(state) => Ok(ExecutionPayloadHeaderRefMut::Electra(
+            BeaconState::Electra(state) => Ok(ExecutionPayloadHeaderRefMut::Deneb(
                 &mut state.latest_execution_payload_header,
             )),
-            BeaconState::Fulu(state) => Ok(ExecutionPayloadHeaderRefMut::Fulu(
+            BeaconState::Fulu(state) => Ok(ExecutionPayloadHeaderRefMut::Deneb(
                 &mut state.latest_execution_payload_header,
             )),
         }

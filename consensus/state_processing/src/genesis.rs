@@ -134,7 +134,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#testing
-        if let Some(ExecutionPayloadHeader::Electra(ref header)) = execution_payload_header {
+        if let Some(ExecutionPayloadHeader::Deneb(ref header)) = execution_payload_header {
             *state.latest_execution_payload_header_electra_mut()? = header.clone();
         }
     }
@@ -150,7 +150,7 @@ pub fn initialize_beacon_state_from_eth1<E: EthSpec>(
         state.fork_mut().previous_version = spec.fulu_fork_version;
 
         // Override latest execution payload header.
-        if let Some(ExecutionPayloadHeader::Fulu(header)) = execution_payload_header {
+        if let Some(ExecutionPayloadHeader::Deneb(header)) = execution_payload_header {
             *state.latest_execution_payload_header_fulu_mut()? = header.clone();
         }
     }

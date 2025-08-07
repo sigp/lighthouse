@@ -3,8 +3,7 @@ use crate::ChainSpec;
 use crate::{light_client_update::*, BeaconBlockBody};
 use crate::{
     test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, FixedVector, Hash256,
-    SignedBlindedBeaconBlock,
+    FixedVector, Hash256, SignedBlindedBeaconBlock,
 };
 use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
 use crate::{ContextDeserialize, ForkName};
@@ -65,9 +64,9 @@ pub struct LightClientHeader<E: EthSpec> {
         only(Electra),
         partial_getter(rename = "execution_payload_header_electra")
     )]
-    pub execution: ExecutionPayloadHeaderElectra<E>,
+    pub execution: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_header_fulu"))]
-    pub execution: ExecutionPayloadHeaderFulu<E>,
+    pub execution: ExecutionPayloadHeaderDeneb<E>,
 
     #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
@@ -263,9 +262,9 @@ impl<E: EthSpec> LightClientHeaderElectra<E> {
         let payload = block
             .message()
             .execution_payload()?
-            .execution_payload_electra()?;
+            .execution_payload_deneb()?;
 
-        let header = ExecutionPayloadHeaderElectra::from(payload);
+        let header = ExecutionPayloadHeaderDeneb::from(payload);
         let beacon_block_body = BeaconBlockBody::from(
             block
                 .message()
@@ -291,7 +290,7 @@ impl<E: EthSpec> Default for LightClientHeaderElectra<E> {
     fn default() -> Self {
         Self {
             beacon: BeaconBlockHeader::empty(),
-            execution: ExecutionPayloadHeaderElectra::default(),
+            execution: ExecutionPayloadHeaderDeneb::default(),
             execution_branch: FixedVector::default(),
             _phantom_data: PhantomData,
         }
@@ -305,9 +304,9 @@ impl<E: EthSpec> LightClientHeaderFulu<E> {
         let payload = block
             .message()
             .execution_payload()?
-            .execution_payload_fulu()?;
+            .execution_payload_deneb()?;
 
-        let header = ExecutionPayloadHeaderFulu::from(payload);
+        let header = ExecutionPayloadHeaderDeneb::from(payload);
         let beacon_block_body = BeaconBlockBody::from(
             block
                 .message()
@@ -333,7 +332,7 @@ impl<E: EthSpec> Default for LightClientHeaderFulu<E> {
     fn default() -> Self {
         Self {
             beacon: BeaconBlockHeader::empty(),
-            execution: ExecutionPayloadHeaderFulu::default(),
+            execution: ExecutionPayloadHeaderDeneb::default(),
             execution_branch: FixedVector::default(),
             _phantom_data: PhantomData,
         }

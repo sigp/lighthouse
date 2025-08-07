@@ -530,7 +530,7 @@ impl<E: EthSpec> SignedBeaconBlockDeneb<E, BlindedPayload<E>> {
 impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayloadElectra<E>,
+        execution_payload: ExecutionPayloadDeneb<E>,
     ) -> SignedBeaconBlockElectra<E, FullPayload<E>> {
         let SignedBeaconBlockElectra {
             message:
@@ -550,7 +550,7 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayloadElectra { .. },
+                            execution_payload: BlindedPayloadDeneb { .. },
                             bls_to_execution_changes,
                             blob_kzg_commitments,
                             execution_requests,
@@ -574,7 +574,7 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayloadElectra { execution_payload },
+                    execution_payload: FullPayloadDeneb { execution_payload },
                     bls_to_execution_changes,
                     blob_kzg_commitments,
                     execution_requests,
@@ -588,7 +588,7 @@ impl<E: EthSpec> SignedBeaconBlockElectra<E, BlindedPayload<E>> {
 impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
-        execution_payload: ExecutionPayloadFulu<E>,
+        execution_payload: ExecutionPayloadDeneb<E>,
     ) -> SignedBeaconBlockFulu<E, FullPayload<E>> {
         let SignedBeaconBlockFulu {
             message:
@@ -608,7 +608,7 @@ impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
                             deposits,
                             voluntary_exits,
                             sync_aggregate,
-                            execution_payload: BlindedPayloadFulu { .. },
+                            execution_payload: BlindedPayloadDeneb { .. },
                             bls_to_execution_changes,
                             blob_kzg_commitments,
                             execution_requests,
@@ -632,7 +632,7 @@ impl<E: EthSpec> SignedBeaconBlockFulu<E, BlindedPayload<E>> {
                     deposits,
                     voluntary_exits,
                     sync_aggregate,
-                    execution_payload: FullPayloadFulu { execution_payload },
+                    execution_payload: FullPayloadDeneb { execution_payload },
                     bls_to_execution_changes,
                     blob_kzg_commitments,
                     execution_requests,
@@ -660,10 +660,10 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
             (SignedBeaconBlock::Deneb(block), Some(ExecutionPayload::Deneb(payload))) => {
                 SignedBeaconBlock::Deneb(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Electra(block), Some(ExecutionPayload::Electra(payload))) => {
+            (SignedBeaconBlock::Electra(block), Some(ExecutionPayload::Deneb(payload))) => {
                 SignedBeaconBlock::Electra(block.into_full_block(payload))
             }
-            (SignedBeaconBlock::Fulu(block), Some(ExecutionPayload::Fulu(payload))) => {
+            (SignedBeaconBlock::Fulu(block), Some(ExecutionPayload::Deneb(payload))) => {
                 SignedBeaconBlock::Fulu(block.into_full_block(payload))
             }
             // avoid wildcard matching forks so that compiler will

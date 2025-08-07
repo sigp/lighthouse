@@ -2,9 +2,8 @@ use crate::beacon_block_body::KzgCommitments;
 use crate::{
     test_utils::TestRandom, ChainSpec, ContextDeserialize, EthSpec,
     ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, SignedRoot,
-    Uint256,
+    ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName,
+    ForkVersionDecode, SignedRoot, Uint256,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -30,9 +29,7 @@ use tree_hash_derive::TreeHash;
             TestRandom
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields)
-    ),
-    map_ref_into(ExecutionPayloadHeaderRef),
-    map_ref_mut_into(ExecutionPayloadHeaderRefMut)
+    )
 )]
 #[derive(PartialEq, Debug, Encode, Serialize, Deserialize, TreeHash, Clone)]
 #[serde(bound = "E: EthSpec", deny_unknown_fields, untagged)]
@@ -46,9 +43,9 @@ pub struct BuilderBid<E: EthSpec> {
     #[superstruct(only(Deneb), partial_getter(rename = "header_deneb"))]
     pub header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Electra), partial_getter(rename = "header_electra"))]
-    pub header: ExecutionPayloadHeaderElectra<E>,
+    pub header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
-    pub header: ExecutionPayloadHeaderFulu<E>,
+    pub header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(only(Deneb, Electra, Fulu))]
     pub blob_kzg_commitments: KzgCommitments<E>,
     #[superstruct(only(Electra, Fulu))]
@@ -66,17 +63,29 @@ impl<E: EthSpec> BuilderBid<E> {
 
 impl<'a, E: EthSpec> BuilderBidRef<'a, E> {
     pub fn header(&self) -> ExecutionPayloadHeaderRef<'a, E> {
-        map_builder_bid_ref_into_execution_payload_header_ref!(&'a _, self, |bid, cons| cons(
-            &bid.header
-        ))
+        match self {
+            BuilderBidRef::Bellatrix(bid) => ExecutionPayloadHeaderRef::Bellatrix(&bid.header),
+            BuilderBidRef::Capella(bid) => ExecutionPayloadHeaderRef::Capella(&bid.header),
+            BuilderBidRef::Deneb(bid) => ExecutionPayloadHeaderRef::Deneb(&bid.header),
+            BuilderBidRef::Electra(bid) => ExecutionPayloadHeaderRef::Deneb(&bid.header),
+            BuilderBidRef::Fulu(bid) => ExecutionPayloadHeaderRef::Deneb(&bid.header),
+        }
     }
 }
 
 impl<'a, E: EthSpec> BuilderBidRefMut<'a, E> {
     pub fn header_mut(self) -> ExecutionPayloadHeaderRefMut<'a, E> {
-        map_builder_bid_ref_mut_into_execution_payload_header_ref_mut!(&'a _, self, |bid, cons| {
-            cons(&mut bid.header)
-        })
+        match self {
+            BuilderBidRefMut::Bellatrix(bid) => {
+                ExecutionPayloadHeaderRefMut::Bellatrix(&mut bid.header)
+            }
+            BuilderBidRefMut::Capella(bid) => {
+                ExecutionPayloadHeaderRefMut::Capella(&mut bid.header)
+            }
+            BuilderBidRefMut::Deneb(bid) => ExecutionPayloadHeaderRefMut::Deneb(&mut bid.header),
+            BuilderBidRefMut::Electra(bid) => ExecutionPayloadHeaderRefMut::Deneb(&mut bid.header),
+            BuilderBidRefMut::Fulu(bid) => ExecutionPayloadHeaderRefMut::Deneb(&mut bid.header),
+        }
     }
 }
 

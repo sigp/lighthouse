@@ -109,12 +109,12 @@ where
         only(Electra),
         partial_getter(rename = "latest_execution_payload_header_electra")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderElectra<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
     #[superstruct(
         only(Fulu),
         partial_getter(rename = "latest_execution_payload_header_fulu")
     )]
-    pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderDeneb<E>,
 
     // Capella
     #[superstruct(only(Capella, Deneb, Electra, Fulu))]

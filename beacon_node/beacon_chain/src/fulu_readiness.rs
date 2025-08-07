@@ -1,7 +1,7 @@
 //! Provides tools for checking if a node is ready for the Fulu upgrade.
 
 use crate::{BeaconChain, BeaconChainTypes};
-use execution_layer::http::{ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V4};
+use execution_layer::http::ENGINE_NEW_PAYLOAD_V4;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::Duration;
@@ -18,8 +18,8 @@ pub const ENGINE_CAPABILITIES_REFRESH_INTERVAL: u64 = 300;
 pub enum FuluReadiness {
     /// The execution engine is fulu-enabled (as far as we can tell)
     Ready,
-    /// We are connected to an execution engine which doesn't support the V5 engine api methods
-    V5MethodsNotSupported { error: String },
+    /// We are connected to an execution engine which doesn't support the V4 engine api methods
+    V4MethodsNotSupported { error: String },
     /// The transition configuration with the EL failed, there might be a problem with
     /// connectivity, authentication or a difference in configuration.
     ExchangeCapabilitiesFailed { error: String },
@@ -44,7 +44,7 @@ impl fmt::Display for FuluReadiness {
                 "The --execution-endpoint flag is not specified, this is a \
                     requirement post-merge"
             ),
-            FuluReadiness::V5MethodsNotSupported { error } => write!(
+            FuluReadiness::V4MethodsNotSupported { error } => write!(
                 f,
                 "Execution endpoint does not support Fulu methods: {}",
                 error
@@ -87,12 +87,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(capabilities) => {
                     let mut missing_methods = String::from("Required Methods Unsupported:");
                     let mut all_good = true;
-                    if !capabilities.get_payload_v5 {
-                        missing_methods.push(' ');
-                        missing_methods.push_str(ENGINE_GET_PAYLOAD_V5);
-                        all_good = false;
-                    }
-                    // TODO(fulu) switch to v5 when the EL is ready
                     if !capabilities.new_payload_v4 {
                         missing_methods.push(' ');
                         missing_methods.push_str(ENGINE_NEW_PAYLOAD_V4);
@@ -102,7 +96,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if all_good {
                         FuluReadiness::Ready
                     } else {
-                        FuluReadiness::V5MethodsNotSupported {
+                        FuluReadiness::V4MethodsNotSupported {
                             error: missing_methods,
                         }
                     }

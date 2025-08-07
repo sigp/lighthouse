@@ -3224,7 +3224,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             ref mut message, ..
         }) => {
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
+            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
                 NumBlobs::Random => rng.gen_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
@@ -3243,7 +3243,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             ref mut message, ..
         }) => {
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
-            let payload: &mut FullPayloadFulu<E> = &mut message.body.execution_payload;
+            let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
                 NumBlobs::Random => rng.gen_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,

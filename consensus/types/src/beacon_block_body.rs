@@ -119,10 +119,10 @@ pub struct BeaconBlockBody<E: EthSpec, Payload: AbstractExecPayload<E> = FullPay
     pub execution_payload: Payload::Deneb,
     #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
     #[serde(flatten)]
-    pub execution_payload: Payload::Electra,
+    pub execution_payload: Payload::Deneb,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     #[serde(flatten)]
-    pub execution_payload: Payload::Fulu,
+    pub execution_payload: Payload::Deneb,
     #[superstruct(only(Capella, Deneb, Electra, Fulu))]
     pub bls_to_execution_changes:
         VariableList<SignedBlsToExecutionChange, E::MaxBlsToExecutionChanges>,
@@ -692,7 +692,7 @@ impl<E: EthSpec> From<BeaconBlockBodyDeneb<E, FullPayload<E>>>
 impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
     for (
         BeaconBlockBodyElectra<E, BlindedPayload<E>>,
-        Option<ExecutionPayloadElectra<E>>,
+        Option<ExecutionPayloadDeneb<E>>,
     )
 {
     fn from(body: BeaconBlockBodyElectra<E, FullPayload<E>>) -> Self {
@@ -706,7 +706,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayloadElectra { execution_payload },
+            execution_payload: FullPayloadDeneb { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
             execution_requests,
@@ -723,7 +723,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
                 deposits,
                 voluntary_exits,
                 sync_aggregate,
-                execution_payload: BlindedPayloadElectra {
+                execution_payload: BlindedPayloadDeneb {
                     execution_payload_header: From::from(&execution_payload),
                 },
                 bls_to_execution_changes,
@@ -738,7 +738,7 @@ impl<E: EthSpec> From<BeaconBlockBodyElectra<E, FullPayload<E>>>
 impl<E: EthSpec> From<BeaconBlockBodyFulu<E, FullPayload<E>>>
     for (
         BeaconBlockBodyFulu<E, BlindedPayload<E>>,
-        Option<ExecutionPayloadFulu<E>>,
+        Option<ExecutionPayloadDeneb<E>>,
     )
 {
     fn from(body: BeaconBlockBodyFulu<E, FullPayload<E>>) -> Self {
@@ -752,7 +752,7 @@ impl<E: EthSpec> From<BeaconBlockBodyFulu<E, FullPayload<E>>>
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayloadFulu { execution_payload },
+            execution_payload: FullPayloadDeneb { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
             execution_requests,
@@ -769,7 +769,7 @@ impl<E: EthSpec> From<BeaconBlockBodyFulu<E, FullPayload<E>>>
                 deposits,
                 voluntary_exits,
                 sync_aggregate,
-                execution_payload: BlindedPayloadFulu {
+                execution_payload: BlindedPayloadDeneb {
                     execution_payload_header: From::from(&execution_payload),
                 },
                 bls_to_execution_changes,
@@ -910,7 +910,7 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayloadElectra { execution_payload },
+            execution_payload: FullPayloadDeneb { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
             execution_requests,
@@ -926,7 +926,7 @@ impl<E: EthSpec> BeaconBlockBodyElectra<E, FullPayload<E>> {
             deposits: deposits.clone(),
             voluntary_exits: voluntary_exits.clone(),
             sync_aggregate: sync_aggregate.clone(),
-            execution_payload: BlindedPayloadElectra {
+            execution_payload: BlindedPayloadDeneb {
                 execution_payload_header: execution_payload.into(),
             },
             bls_to_execution_changes: bls_to_execution_changes.clone(),
@@ -948,7 +948,7 @@ impl<E: EthSpec> BeaconBlockBodyFulu<E, FullPayload<E>> {
             deposits,
             voluntary_exits,
             sync_aggregate,
-            execution_payload: FullPayloadFulu { execution_payload },
+            execution_payload: FullPayloadDeneb { execution_payload },
             bls_to_execution_changes,
             blob_kzg_commitments,
             execution_requests,
@@ -964,7 +964,7 @@ impl<E: EthSpec> BeaconBlockBodyFulu<E, FullPayload<E>> {
             deposits: deposits.clone(),
             voluntary_exits: voluntary_exits.clone(),
             sync_aggregate: sync_aggregate.clone(),
-            execution_payload: BlindedPayloadFulu {
+            execution_payload: BlindedPayloadDeneb {
                 execution_payload_header: execution_payload.into(),
             },
             bls_to_execution_changes: bls_to_execution_changes.clone(),

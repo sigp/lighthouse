@@ -591,12 +591,6 @@ mod ssz_static {
             .run();
         SszStaticHandler::<ExecutionPayloadDeneb<MainnetEthSpec>, MainnetEthSpec>::deneb_only()
             .run();
-        SszStaticHandler::<ExecutionPayloadElectra<MinimalEthSpec>, MinimalEthSpec>::electra_only()
-            .run();
-        SszStaticHandler::<ExecutionPayloadElectra<MainnetEthSpec>, MainnetEthSpec>::electra_only()
-            .run();
-        SszStaticHandler::<ExecutionPayloadFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only().run();
-        SszStaticHandler::<ExecutionPayloadFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only().run();
     }
 
     #[test]
@@ -613,14 +607,6 @@ mod ssz_static {
             ::deneb_only().run();
         SszStaticHandler::<ExecutionPayloadHeaderDeneb<MainnetEthSpec>, MainnetEthSpec>
             ::deneb_only().run();
-        SszStaticHandler::<ExecutionPayloadHeaderElectra<MinimalEthSpec>, MinimalEthSpec>
-            ::electra_only().run();
-        SszStaticHandler::<ExecutionPayloadHeaderElectra<MainnetEthSpec>, MainnetEthSpec>
-            ::electra_only().run();
-        SszStaticHandler::<ExecutionPayloadHeaderFulu<MinimalEthSpec>, MinimalEthSpec>::fulu_only()
-            .run();
-        SszStaticHandler::<ExecutionPayloadHeaderFulu<MainnetEthSpec>, MainnetEthSpec>::fulu_only()
-            .run();
     }
 
     #[test]

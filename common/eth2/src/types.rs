@@ -2384,10 +2384,12 @@ mod test {
             ExecutionPayload::Deneb(ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
-            ExecutionPayload::Electra(ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(
+            ExecutionPayload::Deneb(ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(
                 rng,
             )),
-            ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
+            ExecutionPayload::Deneb(ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
         ];
         let merged_forks = &ForkName::list_all()[2..];
         assert_eq!(
@@ -2397,7 +2399,6 @@ mod test {
         );
 
         for (payload, &fork_name) in payloads.into_iter().zip(merged_forks) {
-            assert_eq!(payload.fork_name(), fork_name);
             let payload_str = serde_json::to_string(&payload).unwrap();
             let mut de = serde_json::Deserializer::from_str(&payload_str);
             generic_deserialize_by_fork(&mut de, payload, fork_name);
@@ -2410,6 +2411,7 @@ mod test {
 
         let payloads = [
             {
+                // Deneb
                 let execution_payload =
                     ExecutionPayload::Deneb(
                         ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
@@ -2421,9 +2423,10 @@ mod test {
                 }
             },
             {
+                // Electra
                 let execution_payload =
-                    ExecutionPayload::Electra(
-                        ExecutionPayloadElectra::<MainnetEthSpec>::random_for_test(rng),
+                    ExecutionPayload::Deneb(
+                        ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
                     );
                 let blobs_bundle = BlobsBundle::random_for_test(rng);
                 ExecutionPayloadAndBlobs {
@@ -2432,9 +2435,10 @@ mod test {
                 }
             },
             {
+                // Fulu
                 let execution_payload =
-                    ExecutionPayload::Fulu(
-                        ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng),
+                    ExecutionPayload::Deneb(
+                        ExecutionPayloadDeneb::<MainnetEthSpec>::random_for_test(rng),
                     );
                 let blobs_bundle = BlobsBundle::random_for_test(rng);
                 ExecutionPayloadAndBlobs {
@@ -2452,7 +2456,6 @@ mod test {
         );
 
         for (payload, &fork_name) in payloads.into_iter().zip(blob_forks) {
-            assert_eq!(payload.execution_payload.fork_name(), fork_name);
             let payload_str = serde_json::to_string(&payload).unwrap();
             let mut de = serde_json::Deserializer::from_str(&payload_str);
             generic_deserialize_by_fork(&mut de, payload, fork_name);
