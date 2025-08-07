@@ -370,7 +370,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         }
                     }
                     CouplingError::InternalError(msg) => {
-                        debug!(?batch_id, msg, "Block components coupling internal error");
+                        error!(?batch_id, msg, "Block components coupling internal error");
                     }
                 }
             }
