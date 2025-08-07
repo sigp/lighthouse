@@ -1,12 +1,11 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
-use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
+use beacon_chain::blob_verification::{observe_gossip_blob, GossipBlobError};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::{observe_gossip_data_column, GossipDataColumnError};
 use beacon_chain::fetch_blobs::{
     fetch_and_process_engine_blobs, EngineGetBlobsOutput, FetchEngineBlobError,
 };
-use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
 };
@@ -228,7 +227,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        peer_client: Client,
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
@@ -239,7 +237,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .process_gossip_data_column_sidecar(
                     message_id,
                     peer_id,
-                    peer_client,
                     subnet_id,
                     column_sidecar,
                     seen_timestamp,
@@ -754,13 +751,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
-        let custody_columns = self.network_globals.sampling_columns();
+        let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {
                 match blobs_or_data_column {
                     EngineGetBlobsOutput::Blobs(blobs) => {
-                        self_cloned.publish_blobs_gradually(blobs, block_root);
+                        self_cloned.publish_blobs_gradually(
+                            blobs.into_iter().map(|b| b.to_blob()).collect(),
+                            block_root,
+                        );
                     }
                     EngineGetBlobsOutput::CustodyColumns(columns) => {
                         self_cloned.publish_data_columns_gradually(
@@ -903,7 +904,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// publisher exists for a blob, it will eventually get published here.
     fn publish_blobs_gradually(
         self: &Arc<Self>,
-        mut blobs: Vec<GossipVerifiedBlob<T, DoNotObserve>>,
+        mut blobs: Vec<Arc<BlobSidecar<T::EthSpec>>>,
         block_root: Hash256,
     ) {
         let self_clone = self.clone();
@@ -934,8 +935,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 while blobs_iter.peek().is_some() {
                     let batch = blobs_iter.by_ref().take(batch_size);
                     let publishable = batch
-                        .filter_map(|unobserved| match unobserved.observe(&chain) {
-                            Ok(observed) => Some(observed.clone_blob()),
+                        .filter_map(|blob| match observe_gossip_blob(&blob, &chain) {
+                            Ok(()) => Some(blob),
                             Err(GossipBlobError::RepeatBlob { .. }) => None,
                             Err(e) => {
                                 warn!(

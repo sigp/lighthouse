@@ -2616,13 +2616,19 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = self
-            .client
-            .get_config_spec::<ConfigAndPresetFulu>()
-            .await
-            .map(|res| ConfigAndPreset::Fulu(res.data))
-            .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec, None);
+        let result = if self.chain.spec.is_fulu_scheduled() {
+            self.client
+                .get_config_spec::<ConfigAndPresetFulu>()
+                .await
+                .map(|res| ConfigAndPreset::Fulu(res.data))
+        } else {
+            self.client
+                .get_config_spec::<ConfigAndPresetElectra>()
+                .await
+                .map(|res| ConfigAndPreset::Electra(res.data))
+        }
+        .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.chain.spec);
 
         assert_eq!(result, expected);
 
@@ -6264,7 +6270,9 @@ impl ApiTester {
 
         // Produce a BLS to execution change event
         self.client
-            .post_beacon_pool_bls_to_execution_changes(&[self.bls_to_execution_change.clone()])
+            .post_beacon_pool_bls_to_execution_changes(std::slice::from_ref(
+                &self.bls_to_execution_change,
+            ))
             .await
             .unwrap();
 

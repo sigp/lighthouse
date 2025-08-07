@@ -1673,7 +1673,9 @@ pub static BLOBS_FROM_EL_EXPECTED: LazyLock<Result<Histogram>> = LazyLock::new(|
     try_create_histogram_with_buckets(
         "beacon_blobs_from_el_expected",
         "Number of blobs expected from the execution layer",
-        Ok(vec![0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0]),
+        Ok(vec![
+            0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0,
+        ]),
     )
 });
 
@@ -1681,7 +1683,9 @@ pub static BLOBS_FROM_EL_RECEIVED: LazyLock<Result<Histogram>> = LazyLock::new(|
     try_create_histogram_with_buckets(
         "beacon_blobs_from_el_received_total",
         "Number of blobs fetched from the execution layer",
-        linear_buckets(0.0, 4.0, 20),
+        Ok(vec![
+            0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0,
+        ]),
     )
 });
 
