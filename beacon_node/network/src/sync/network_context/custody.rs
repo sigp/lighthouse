@@ -323,7 +323,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             match request_result {
                 LookupRequestResult::RequestSent(req_id) => {
                     let client = cx.network_globals().client(&peer_id);
-                    let batch_columns_req_span = debug_span!("batch_columns_req", %peer_id, %client, missing_column_indexes = tracing::field::Empty);
+                    let batch_columns_req_span = debug_span!("batch_columns_req", %peer_id, %client.kind, missing_column_indexes = tracing::field::Empty);
                     let _guard = batch_columns_req_span.clone().entered();
                     for column_index in &indices {
                         let column_request = self
