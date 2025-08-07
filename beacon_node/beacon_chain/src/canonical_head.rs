@@ -53,7 +53,9 @@ use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{iter::StateRootsIterator, Error as StoreError, KeyValueStore, KeyValueStoreOp};
+use store::{
+    iter::StateRootsIterator, Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig,
+};
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::{debug, error, info, warn};
 use types::*;
@@ -1007,53 +1009,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Return a database operation for writing fork choice to disk.
     pub fn persist_fork_choice_in_batch(&self) -> Result<KeyValueStoreOp, Error> {
-        Self::persist_fork_choice_in_batch_standalone(&self.canonical_head.fork_choice_read_lock())
-            .map_err(Into::into)
+        Self::persist_fork_choice_in_batch_standalone(
+            &self.canonical_head.fork_choice_read_lock(),
+            self.store.get_config(),
+        )
+        .map_err(Into::into)
     }
 
     /// Return a database operation for writing fork choice to disk.
     pub fn persist_fork_choice_in_batch_standalone(
         fork_choice: &BeaconForkChoice<T>,
+        store_config: &StoreConfig,
     ) -> Result<KeyValueStoreOp, StoreError> {
-        use ssz::Encode;
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),
             fork_choice_store: fork_choice.fc_store().to_persisted(),
         };
-        let ssz_container = fork_choice.proto_array().as_ssz_container();
-        let fc_store = &persisted_fork_choice.fork_choice_store;
-        println!(
-            "PersistedForkChoice:\n
-               fork_choice: {}\n
-                 proto_array_bytes/ssz_container: {}/{}\n
-                    votes: {}\n
-                    nodes: {}\n
-                    indices: {}\n
-                 queued_attestations: {}\n
-               fork_choice_store: {}\n
-                 equivocating_indices: {} ({} entries)",
-            persisted_fork_choice.fork_choice.as_ssz_bytes().len(),
-            persisted_fork_choice
-                .fork_choice
-                .proto_array
-                .as_ssz_bytes()
-                .len(),
-            ssz_container.as_ssz_bytes().len(),
-            ssz_container.votes.as_ssz_bytes().len(),
-            ssz_container.nodes.as_ssz_bytes().len(),
-            ssz_container.indices.as_ssz_bytes().len(),
-            persisted_fork_choice
-                .fork_choice
-                .queued_attestations
-                .as_ssz_bytes()
-                .len(),
-            persisted_fork_choice.fork_choice_store.as_ssz_bytes().len(),
-            fc_store.equivocating_indices.as_ssz_bytes().len(),
-            fc_store.equivocating_indices.len(),
-        );
-        // FIXME(sproul): plumb through config
-        let store_config = Default::default();
-        persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY, &store_config)
+        persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY, store_config)
     }
 }
 

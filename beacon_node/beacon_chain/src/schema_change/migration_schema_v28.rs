@@ -98,6 +98,7 @@ pub fn upgrade_to_v28<T: BeaconChainTypes>(
 
     let ops = vec![BeaconChain::<T>::persist_fork_choice_in_batch_standalone(
         &fork_choice,
+        db.get_config(),
     )?];
 
     info!("Upgraded fork choice for DB schema v28");

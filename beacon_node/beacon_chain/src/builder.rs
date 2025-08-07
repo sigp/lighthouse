@@ -887,7 +887,8 @@ where
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock,  E, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
-            &fork_choice
+            &fork_choice,
+            store.get_config(),
         ).map_err(|e| format!("Fork choice compression error: {e:?}"))?);
         store
             .hot_db
