@@ -279,7 +279,7 @@ lint:
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
-	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
+	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint-full
 
 # Also run the lints on the optimized-only tests
 lint-full:

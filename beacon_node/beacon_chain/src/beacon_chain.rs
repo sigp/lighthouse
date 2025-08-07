@@ -2206,7 +2206,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
-        subnet_id: u64,
+        subnet_id: DataColumnSubnetId,
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
         metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
@@ -3594,7 +3594,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let availability = self
             .data_availability_checker
-            .put_gossip_verified_data_columns(block_root, data_columns)?;
+            .put_gossip_verified_data_columns(block_root, slot, data_columns)?;
 
         self.process_availability(slot, availability, publish_fn)
             .await
@@ -3685,9 +3685,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // This slot value is purely informative for the consumers of
         // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
-        let availability = self
-            .data_availability_checker
-            .put_rpc_custody_columns(block_root, custody_columns)?;
+        let availability = self.data_availability_checker.put_rpc_custody_columns(
+            block_root,
+            slot,
+            custody_columns,
+        )?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await
@@ -7109,6 +7111,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // return in ascending slot order
         roots.reverse();
         roots
+    }
+
+    /// Returns a list of column indices that should be sampled for a given epoch.
+    /// Used for data availability sampling in PeerDAS.
+    pub fn sampling_columns_for_epoch(&self, epoch: Epoch) -> &[ColumnIndex] {
+        self.data_availability_checker
+            .custody_context()
+            .sampling_columns_for_epoch(epoch, &self.spec)
     }
 }
 
