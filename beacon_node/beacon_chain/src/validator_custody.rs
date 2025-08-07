@@ -6,7 +6,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::atomic::{AtomicU64, Ordering},
 };
-use types::data_column_custody_group::{compute_columns_for_custody_group, CustodyIndex};
+use types::data_column_custody_group::{CustodyIndex, compute_columns_for_custody_group};
 use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
 
 /// A delay before making the CGC change effective to the data availability checker.

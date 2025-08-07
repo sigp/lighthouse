@@ -831,13 +831,13 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{
-        generate_rand_block_and_data_columns, get_kzg, EphemeralHarnessType, NumBlobs,
-    };
     use crate::CustodyContext;
+    use crate::test_utils::{
+        EphemeralHarnessType, NumBlobs, generate_rand_block_and_data_columns, get_kzg,
+    };
+    use rand::SeedableRng;
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
-    use rand::SeedableRng;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::collections::HashSet;
     use std::sync::Arc;
