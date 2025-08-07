@@ -10,6 +10,13 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
+use lighthouse_tracing::{
+    SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
+    SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
+    SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST, SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
+    SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP, SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
+    SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE, SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
+};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
 use std::collections::{hash_map::Entry, HashMap};
@@ -155,7 +162,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -249,7 +262,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRoot` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -347,7 +366,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(
+            peer_id = %peer_id,
+            non_custody_indices = tracing::field::Empty,
+            client = tracing::field::Empty
+        )
+    )]
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -416,7 +445,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Ok(())
     }
 
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_light_client_updates_by_range(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -510,7 +545,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientBootstrap` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -544,7 +585,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientOptimisticUpdate` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_light_client_optimistic_update(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -572,7 +619,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientFinalityUpdate` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_light_client_finality_update(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -600,7 +653,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRange` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -890,7 +949,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRange` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST,
+        parent = None,
+        skip_all,
+        level = "debug",
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_blobs_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -1041,7 +1106,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRange` request from the peer.
-    #[instrument(parent = None, skip_all, level = "debug", fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty))]
+    #[instrument(
+        name = SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST,
+        parent = None,
+        skip_all,
+        level = "debug",
+        fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty)
+    )]
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,

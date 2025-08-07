@@ -6,6 +6,7 @@ use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_network::PeerId;
+use lighthouse_tracing::SPAN_OUTGOING_CUSTODY_REQUEST;
 use lru_cache::LRUTimeCache;
 use parking_lot::RwLock;
 use rand::Rng;
@@ -72,7 +73,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         column_indices: &[ColumnIndex],
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Self {
-        let span = debug_span!(parent: None, "outgoing_custody_request", %block_root);
+        let span = debug_span!(parent: None, SPAN_OUTGOING_CUSTODY_REQUEST, %block_root);
         Self {
             block_root,
             custody_id,

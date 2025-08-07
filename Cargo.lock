@@ -898,6 +898,7 @@ dependencies = [
  "int_to_bytes",
  "itertools 0.10.5",
  "kzg",
+ "lighthouse_tracing",
  "lighthouse_version",
  "logging",
  "lru",
@@ -5633,6 +5634,7 @@ dependencies = [
  "futures",
  "initialized_validators",
  "lighthouse_network",
+ "lighthouse_tracing",
  "lighthouse_version",
  "logging",
  "malloc_utils",
@@ -5713,6 +5715,14 @@ dependencies = [
  "types",
  "unsigned-varint 0.8.0",
  "unused_port",
+]
+
+[[package]]
+name = "lighthouse_tracing"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -6382,6 +6392,7 @@ dependencies = [
  "kzg",
  "libp2p-gossipsub",
  "lighthouse_network",
+ "lighthouse_tracing",
  "logging",
  "lru_cache",
  "matches",

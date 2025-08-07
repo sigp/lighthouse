@@ -29,6 +29,7 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
+use lighthouse_tracing::SPAN_OUTGOING_RANGE_REQUEST;
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -517,7 +518,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
         let range_request_span =
-            debug_span!(parent: None, "outgoing_range_request", range_req_id = %requester);
+            debug_span!(parent: None, SPAN_OUTGOING_RANGE_REQUEST, range_req_id = %requester);
         let _guard = range_request_span.clone().entered();
         let active_request_count_by_peer = self.active_request_count_by_peer();
 

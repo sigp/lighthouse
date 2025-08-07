@@ -28,6 +28,7 @@ hex = { workspace = true }
 igd-next = { version = "0.16", features = ["aio_tokio"] }
 itertools = { workspace = true }
 lighthouse_network = { workspace = true }
+lighthouse_tracing = { workspace = true }
 logging = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
