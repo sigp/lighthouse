@@ -225,6 +225,7 @@ where
             JustifiedBalances::from_effective_balances(persisted.justified_balances)?;
 
         // This dummy value for `justified_state_root` must not be relied upon.
+        // FIXME(sproul): consider removing this
         let justified_state_root = Hash256::repeat_byte(0x66);
         let unrealized_justified_state_root = Hash256::repeat_byte(0x77);
 
@@ -420,4 +421,21 @@ pub struct PersistedForkChoiceStore {
     pub unrealized_finalized_checkpoint: Checkpoint,
     pub proposer_boost_root: Hash256,
     pub equivocating_indices: BTreeSet<u64>,
+}
+
+// Convert V28 to V17 by re-adding balances (and removing justified state roots).
+impl From<(PersistedForkChoiceStoreV28, JustifiedBalances)> for PersistedForkChoiceStoreV17 {
+    fn from((v28, balances): (PersistedForkChoiceStoreV28, JustifiedBalances)) -> Self {
+        Self {
+            balances_cache: Default::default(),
+            time: v28.time,
+            finalized_checkpoint: v28.finalized_checkpoint,
+            justified_checkpoint: v28.justified_checkpoint,
+            justified_balances: balances.effective_balances,
+            unrealized_justified_checkpoint: v28.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: v28.unrealized_finalized_checkpoint,
+            proposer_boost_root: v28.proposer_boost_root,
+            equivocating_indices: v28.equivocating_indices,
+        }
+    }
 }

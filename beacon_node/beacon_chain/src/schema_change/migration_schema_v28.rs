@@ -1,12 +1,12 @@
 use crate::{
     beacon_chain::FORK_CHOICE_DB_KEY,
-    persisted_fork_choice::PersistedForkChoiceV17,
+    persisted_fork_choice::{PersistedForkChoiceV17, PersistedForkChoiceV28},
     summaries_dag::{DAGStateSummary, StateSummariesDAG},
-    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore,
+    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, PersistedForkChoiceStoreV17,
 };
 use fork_choice::{ForkChoice, ForkChoiceStore, ResetPayloadStatuses};
 use std::sync::Arc;
-use store::{Error, HotColdDB, KeyValueStoreOp};
+use store::{Error, HotColdDB, KeyValueStoreOp, StoreItem};
 use tracing::{info, warn};
 use types::{EthSpec, Hash256};
 
@@ -107,12 +107,52 @@ pub fn upgrade_to_v28<T: BeaconChainTypes>(
         &fork_choice,
     )?];
 
+    info!("Upgraded fork choice for v28");
+
     Ok(ops)
 }
 
 pub fn downgrade_from_v28<T: BeaconChainTypes>(
-    _db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    // FIXME(sproul): TODO
-    Ok(vec![])
+    let reset_payload_statuses = ResetPayloadStatuses::OnlyWithInvalidPayload;
+    let Some(fork_choice) =
+        BeaconChain::<T>::load_fork_choice(db.clone(), reset_payload_statuses, db.get_chain_spec())
+            .map_err(|e| Error::MigrationError(format!("Unable to load fork choice: {e:?}")))?
+    else {
+        warn!("No fork choice to downgrade");
+        return Ok(vec![]);
+    };
+
+    // Recreate V28 persisted fork choice, then convert each field back to its V17 version.
+    let persisted_fork_choice = PersistedForkChoiceV28 {
+        fork_choice: fork_choice.to_persisted(),
+        fork_choice_store: fork_choice.fc_store().to_persisted(),
+    };
+
+    let justified_balances = fork_choice.fc_store().justified_balances();
+
+    // 1. Create `proto_array::PersistedForkChoiceV17`.
+    let fork_choice_v17: fork_choice::PersistedForkChoiceV17 = (
+        persisted_fork_choice.fork_choice,
+        justified_balances.clone(),
+    )
+        .into();
+
+    let fork_choice_store_v17: PersistedForkChoiceStoreV17 = (
+        persisted_fork_choice.fork_choice_store,
+        justified_balances.clone(),
+    )
+        .into();
+
+    let persisted_fork_choice_v17 = PersistedForkChoiceV17 {
+        fork_choice_v17,
+        fork_choice_store_v17,
+    };
+
+    let ops = vec![persisted_fork_choice_v17.as_kv_store_op(FORK_CHOICE_DB_KEY)];
+
+    info!("Downgraded fork choice from v28");
+
+    Ok(ops)
 }

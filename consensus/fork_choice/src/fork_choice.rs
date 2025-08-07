@@ -5,7 +5,7 @@ use proto_array::{
     Block as ProtoBlock, DisallowedReOrgOffsets, ExecutionStatus, JustifiedBalances,
     ProposerHeadError, ProposerHeadInfo, ProtoArrayForkChoice, ReOrgThreshold,
 };
-use ssz::Decode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
     per_block_processing::errors::AttesterSlashingValidationError, per_epoch_processing,
@@ -1541,6 +1541,18 @@ impl TryFrom<PersistedForkChoiceV17> for PersistedForkChoiceV28 {
             proto_array: container_v28,
             queued_attestations: v17.queued_attestations,
         })
+    }
+}
+
+impl From<(PersistedForkChoiceV28, JustifiedBalances)> for PersistedForkChoiceV17 {
+    fn from((v28, balances): (PersistedForkChoiceV28, JustifiedBalances)) -> Self {
+        let container_v17 = proto_array::core::SszContainerV17::from((v28.proto_array, balances));
+        let proto_array_bytes = container_v17.as_ssz_bytes();
+
+        Self {
+            proto_array_bytes,
+            queued_attestations: v28.queued_attestations,
+        }
     }
 }
 

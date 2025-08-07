@@ -84,3 +84,19 @@ impl From<SszContainerV17> for SszContainerV28 {
         }
     }
 }
+
+// Convert V28 to V17 by re-adding balances.
+impl From<(SszContainerV28, JustifiedBalances)> for SszContainerV17 {
+    fn from((v28, balances): (SszContainerV28, JustifiedBalances)) -> Self {
+        Self {
+            votes: v28.votes,
+            balances: balances.effective_balances.clone(),
+            prune_threshold: v28.prune_threshold,
+            justified_checkpoint: v28.justified_checkpoint,
+            finalized_checkpoint: v28.finalized_checkpoint,
+            nodes: v28.nodes,
+            indices: v28.indices,
+            previous_proposer_boost: v28.previous_proposer_boost,
+        }
+    }
+}
