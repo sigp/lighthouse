@@ -38,14 +38,20 @@ use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
-/// The LRU Cache stores `PendingComponents` which can store up to
-/// `MAX_BLOBS_PER_BLOCK = 6` blobs each. A `BlobSidecar` is 0.131256 MB. So
-/// the maximum size of a `PendingComponents` is ~ 0.787536 MB. Setting this
-/// to 1024 means the maximum size of the cache is ~ 0.8 GB. But the cache
-/// will target a size of less than 75% of capacity.
-pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(1024);
-/// Until tree-states is implemented, we can't store very many states in memory :(
-pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(2);
+/// The LRU Cache stores `PendingComponents`, which can store up to `MAX_BLOBS_PER_BLOCK` blobs each.
+///
+/// * Deneb blobs are 128 kb each and are stored in the form of `BlobSidecar`.
+/// * From Fulu (PeerDAS), blobs are erasure-coded and are 256 kb each, stored in the form of 128 `DataColumnSidecar`s.
+///
+/// With `MAX_BLOBS_PER_BLOCK` = 48 (expected in the next year), the maximum size of data columns
+/// in `PendingComponents` is ~12.29 MB. Setting this to 64 means the maximum size of the cache is
+/// approximately 0.8 GB.
+///
+/// Under normal conditions, the cache should only store the current pending block, but could
+///  occasionally spike to 2-4 for various reasons e.g. components arriving late, but would very
+/// rarely go above this, unless there are many concurrent forks.
+pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(64);
+pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
