@@ -585,6 +585,12 @@ pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = La
         exponential_buckets(1e-3, 4.0, 7),
     )
 });
+pub static FORK_CHOICE_COMPRESS_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_fork_choice_compress_seconds",
+        "Time taken to compress the persisted fork choice data",
+    )
+});
 pub static BALANCES_CACHE_HITS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_balances_cache_hits_total",

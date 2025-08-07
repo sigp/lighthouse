@@ -1,4 +1,7 @@
-use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV17, PersistedForkChoiceStoreV28};
+use crate::{
+    beacon_fork_choice_store::{PersistedForkChoiceStoreV17, PersistedForkChoiceStoreV28},
+    metrics,
+};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use store::{DBColumn, Error, KeyValueStoreOp, StoreConfig, StoreItem};
@@ -53,8 +56,10 @@ impl PersistedForkChoiceV28 {
     }
 
     pub fn as_bytes(&self, store_config: &StoreConfig) -> Result<Vec<u8>, Error> {
+        let ssz_bytes = self.as_ssz_bytes();
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_COMPRESS_TIMES);
         store_config
-            .compress_bytes(&self.as_ssz_bytes())
+            .compress_bytes(&ssz_bytes)
             .map_err(Error::Compression)
     }
 
