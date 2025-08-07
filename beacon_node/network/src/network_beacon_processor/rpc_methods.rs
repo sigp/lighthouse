@@ -176,7 +176,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlocksByRootRequest,
     ) {
         let client = self.network_globals.client(&peer_id);
-        Span::current().record("client", field::display(client));
+        Span::current().record("client", field::display(client.kind));
 
         self.terminate_response_stream(
             peer_id,
@@ -276,7 +276,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: BlobsByRootRequest,
     ) {
         let client = self.network_globals.client(&peer_id);
-        Span::current().record("client", field::display(client));
+        Span::current().record("client", field::display(client.kind));
 
         self.terminate_response_stream(
             peer_id,
@@ -459,7 +459,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: LightClientUpdatesByRangeRequest,
     ) {
         let client = self.network_globals.client(&peer_id);
-        Span::current().record("client", field::display(client));
+        Span::current().record("client", field::display(client.kind));
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -559,7 +559,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: LightClientBootstrapRequest,
     ) {
         let client = self.network_globals.client(&peer_id);
-        Span::current().record("client", field::display(client));
+        Span::current().record("client", field::display(client.kind));
 
         self.terminate_response_single_item(
             peer_id,
@@ -598,7 +598,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
     ) {
         let client = self.network_globals.client(&peer_id);
-        Span::current().record("client", field::display(client));
+        Span::current().record("client", field::display(client.kind));
 
         self.terminate_response_single_item(
             peer_id,
@@ -632,7 +632,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
     ) {
         let client = self.network_globals.client(&peer_id);
-        Span::current().record("client", field::display(client));
+        Span::current().record("client", field::display(client.kind));
 
         self.terminate_response_single_item(
             peer_id,
@@ -667,7 +667,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         req: BlocksByRangeRequest,
     ) {
         let client = self.network_globals.client(&peer_id);
-        Span::current().record("client", field::display(client));
+        Span::current().record("client", field::display(client.kind));
 
         self.terminate_response_stream(
             peer_id,
@@ -963,7 +963,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         req: BlobsByRangeRequest,
     ) {
         let client = self.network_globals.client(&peer_id);
-        Span::current().record("client", field::display(client));
+        Span::current().record("client", field::display(client.kind));
 
         self.terminate_response_stream(
             peer_id,
@@ -1102,7 +1102,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         span.record("non_custody_indices", field::debug(non_custody_indices));
 
         let client = self.network_globals.client(peer_id);
-        span.record("client", field::display(client));
+        span.record("client", field::display(client.kind));
     }
 
     /// Handle a `DataColumnsByRange` request from the peer.
