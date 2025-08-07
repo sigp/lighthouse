@@ -216,18 +216,15 @@ where
 
     /// Restore `Self` from a previously-generated `PersistedForkChoiceStore`.
     ///
-    /// DEPRECATED. Can be deleted when schema v23 migration is deleted.
+    /// DEPRECATED. Can be deleted once migrations no longer require it.
     pub fn from_persisted_v17(
         persisted: PersistedForkChoiceStoreV17,
+        justified_state_root: Hash256,
+        unrealized_justified_state_root: Hash256,
         store: Arc<HotColdDB<E, Hot, Cold>>,
     ) -> Result<Self, Error> {
         let justified_balances =
             JustifiedBalances::from_effective_balances(persisted.justified_balances)?;
-
-        // This dummy value for `justified_state_root` must not be relied upon.
-        // FIXME(sproul): consider removing this
-        let justified_state_root = Hash256::repeat_byte(0x66);
-        let unrealized_justified_state_root = Hash256::repeat_byte(0x77);
 
         Ok(Self {
             store,
@@ -423,7 +420,7 @@ pub struct PersistedForkChoiceStore {
     pub equivocating_indices: BTreeSet<u64>,
 }
 
-// Convert V28 to V17 by re-adding balances (and removing justified state roots).
+// Convert V28 to V17 by adding balances and removing justified state roots.
 impl From<(PersistedForkChoiceStoreV28, JustifiedBalances)> for PersistedForkChoiceStoreV17 {
     fn from((v28, balances): (PersistedForkChoiceStoreV28, JustifiedBalances)) -> Self {
         Self {

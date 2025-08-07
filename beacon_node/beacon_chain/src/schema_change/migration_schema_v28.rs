@@ -34,20 +34,12 @@ pub fn upgrade_to_v28<T: BeaconChainTypes>(
         })?
     };
 
-    let mut fc_store = BeaconForkChoiceStore::from_persisted_v17(
-        persisted_fork_choice_v17.fork_choice_store_v17,
-        db.clone(),
-    )
-    .map_err(|e| {
-        Error::MigrationError(format!(
-            "Error loading fork choise store from persisted: {e:?}"
-        ))
-    })?;
-
-    // Fix the justified state roots.
-    let justified_block_root = fc_store.justified_checkpoint().root;
-    let justified_slot = fc_store
-        .justified_checkpoint()
+    // Determine the justified state roots.
+    let justified_checkpoint = persisted_fork_choice_v17
+        .fork_choice_store_v17
+        .justified_checkpoint;
+    let justified_block_root = justified_checkpoint.root;
+    let justified_slot = justified_checkpoint
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
     let justified_state_root = state_summaries_dag
@@ -59,9 +51,11 @@ pub fn upgrade_to_v28<T: BeaconChainTypes>(
             ))
         })?;
 
-    let unrealized_justified_block_root = fc_store.unrealized_justified_checkpoint().root;
-    let unrealized_justified_slot = fc_store
-        .unrealized_justified_checkpoint()
+    let unrealized_justified_checkpoint = persisted_fork_choice_v17
+        .fork_choice_store_v17
+        .unrealized_justified_checkpoint;
+    let unrealized_justified_block_root = unrealized_justified_checkpoint.root;
+    let unrealized_justified_slot = unrealized_justified_checkpoint
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
     let unrealized_justified_state_root = state_summaries_dag
@@ -73,27 +67,26 @@ pub fn upgrade_to_v28<T: BeaconChainTypes>(
             ))
         })?;
 
+    let fc_store = BeaconForkChoiceStore::from_persisted_v17(
+        persisted_fork_choice_v17.fork_choice_store_v17,
+        justified_state_root,
+        unrealized_justified_state_root,
+        db.clone(),
+    )
+    .map_err(|e| {
+        Error::MigrationError(format!(
+            "Error loading fork choise store from persisted: {e:?}"
+        ))
+    })?;
+
     info!(
         ?justified_state_root,
         %justified_slot,
-        "Writing fork choice justified state root"
-    );
-    fc_store
-        .set_justified_checkpoint(*fc_store.justified_checkpoint(), justified_state_root)
-        .map_err(|e| {
-            Error::MigrationError(format!("Unable to set justified state checkpoint: {e:?}"))
-        })?;
-
-    info!(
-        ?unrealized_justified_state_root,
-        %unrealized_justified_slot,
-        "Writing fork choice unrealized justified state root"
-    );
-    fc_store.set_unrealized_justified_checkpoint(
-        *fc_store.unrealized_justified_checkpoint(),
-        unrealized_justified_state_root,
+        "Added justified state root to fork choice"
     );
 
+    // Construct top-level ForkChoice struct using the patched fork choice store, and the converted
+    // proto array.
     let reset_payload_statuses = ResetPayloadStatuses::OnlyWithInvalidPayload;
     let fork_choice = ForkChoice::from_persisted(
         persisted_fork_choice_v17.fork_choice_v17.try_into()?,
@@ -107,7 +100,7 @@ pub fn upgrade_to_v28<T: BeaconChainTypes>(
         &fork_choice,
     )?];
 
-    info!("Upgraded fork choice for v28");
+    info!("Upgraded fork choice for DB schema v28");
 
     Ok(ops)
 }
@@ -152,7 +145,7 @@ pub fn downgrade_from_v28<T: BeaconChainTypes>(
 
     let ops = vec![persisted_fork_choice_v17.as_kv_store_op(FORK_CHOICE_DB_KEY)];
 
-    info!("Downgraded fork choice from v28");
+    info!("Downgraded fork choice for DB schema v28");
 
     Ok(ops)
 }
