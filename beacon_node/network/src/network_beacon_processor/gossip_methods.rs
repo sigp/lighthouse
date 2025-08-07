@@ -607,7 +607,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        _peer_client: Client,
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_duration: Duration,
@@ -623,7 +622,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         match self
             .chain
-            .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), *subnet_id)
+            .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), subnet_id)
         {
             Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
@@ -650,6 +649,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         duration,
                     );
                 }
+
                 self.process_gossip_verified_data_column(
                     peer_id,
                     gossip_verified_data_column,
@@ -1435,21 +1435,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processing_start_time = Instant::now();
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
-
-        // Note: okay to issue sampling request before the block is execution verified. If the
-        // proposer sends us a block with invalid blob transactions it can trigger us to issue
-        // sampling queries that will never resolve. This attack is equivalent to withholding data.
-        // Dismissed proposal to move this block to post-execution: https://github.com/sigp/lighthouse/pull/6492
-        if block.num_expected_blobs() > 0 {
-            // Trigger sampling for block not yet execution valid. At this point column custodials are
-            // unlikely to have received their columns. Triggering sampling so early is only viable with
-            // either:
-            // - Sync delaying sampling until some latter window
-            // - Re-processing early sampling requests: https://github.com/sigp/lighthouse/pull/5569
-            if self.chain.should_sample_slot(block.slot()) {
-                self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
-            }
-        }
 
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.

@@ -9,8 +9,8 @@ use tree_hash_derive::TreeHash;
 /// Casper FFG checkpoint, used in attestations.
 ///
 /// Spec v0.12.1
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    arbitrary::Arbitrary,
     Debug,
     Clone,
     Copy,

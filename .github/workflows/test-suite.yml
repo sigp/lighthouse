@@ -159,6 +159,28 @@ jobs:
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       run: sccache --show-stats
+  http-api-tests:
+    name: http-api-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run http_api tests for all recent forks
+      run: make test-http-api
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
     needs: [check-labels]
@@ -475,6 +497,7 @@ jobs:
       'op-pool-tests',
       'network-tests',
       'slasher-tests',
+      'http-api-tests',
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',
       'ef-tests-ubuntu',

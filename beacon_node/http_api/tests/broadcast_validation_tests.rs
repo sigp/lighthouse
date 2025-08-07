@@ -1,3 +1,4 @@
+use beacon_chain::test_utils::test_spec;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock, IntoGossipVerifiedBlock,
@@ -371,7 +372,6 @@ pub async fn consensus_partial_pass_only_consensus() {
 
     /* submit `block_b` which should induce equivocation */
     let channel = tokio::sync::mpsc::unbounded_channel();
-    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_block(
         None,
@@ -380,7 +380,6 @@ pub async fn consensus_partial_pass_only_consensus() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
-        network_globals,
     )
     .await;
 
@@ -571,7 +570,8 @@ pub async fn equivocation_gossip() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let spec = test_spec::<E>();
+    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -661,7 +661,6 @@ pub async fn equivocation_consensus_late_equivocation() {
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
-    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_block(
         None,
@@ -670,7 +669,6 @@ pub async fn equivocation_consensus_late_equivocation() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
-        network_globals,
     )
     .await;
 
@@ -1273,14 +1271,17 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         Arc::new(block_a),
     )
     .await
-    .unwrap();
+    .expect("failed to reconstruct block")
+    .expect("block expected");
+
     let unblinded_block_b = reconstruct_block(
         tester.harness.chain.clone(),
         block_b.canonical_root(),
         block_b.clone(),
     )
     .await
-    .unwrap();
+    .expect("failed to reconstruct block")
+    .expect("block expected");
 
     let inner_block_a = match unblinded_block_a {
         ProvenancedBlock::Local(a, _, _) => a,
@@ -1297,7 +1298,6 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     assert!(gossip_block_a.is_err());
 
     let channel = tokio::sync::mpsc::unbounded_channel();
-    let network_globals = tester.ctx.network_globals.clone().unwrap();
 
     let publication_result = publish_blinded_block(
         block_b,
@@ -1305,7 +1305,6 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
         &channel.0,
         validation_level,
         StatusCode::ACCEPTED,
-        network_globals,
     )
     .await;
 
@@ -1359,18 +1358,22 @@ pub async fn blinded_equivocation_full_pass() {
         .block_is_known_to_fork_choice(&block.canonical_root()));
 }
 
-/// This test checks that an HTTP POST request with the block & blobs succeeds with a 200 response
-/// even if the block has already been seen on gossip without any blobs.
+/// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
+/// even if the block has already been seen on gossip without any blobs/columns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn block_seen_on_gossip_without_blobs() {
+pub async fn block_seen_on_gossip_without_blobs_or_columns() {
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1421,18 +1424,22 @@ pub async fn block_seen_on_gossip_without_blobs() {
         .block_is_known_to_fork_choice(&block.canonical_root()));
 }
 
-/// This test checks that an HTTP POST request with the block & blobs succeeds with a 200 response
-/// even if the block has already been seen on gossip without all blobs.
+/// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
+/// even if the block has already been seen on gossip without all blobs/columns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn block_seen_on_gossip_with_some_blobs() {
+pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1474,7 +1481,7 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
             &block,
             partial_blobs.iter(),
             partial_kzg_proofs.iter(),
-            Some(get_custody_columns(&tester)),
+            Some(get_custody_columns(&tester, block.slot())),
         )
         .await;
 
@@ -1501,18 +1508,23 @@ pub async fn block_seen_on_gossip_with_some_blobs() {
         .block_is_known_to_fork_choice(&block.canonical_root()));
 }
 
-/// This test checks that an HTTP POST request with the block & blobs succeeds with a 200 response
-/// even if the blobs have already been seen on gossip.
+/// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
+/// even if the blobs/columns have already been seen on gossip.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn blobs_seen_on_gossip_without_block() {
+pub async fn blobs_or_columns_seen_on_gossip_without_block() {
+    let spec = test_spec::<E>();
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1540,7 +1552,7 @@ pub async fn blobs_seen_on_gossip_without_block() {
             &block,
             blobs.iter(),
             kzg_proofs.iter(),
-            Some(get_custody_columns(&tester)),
+            Some(get_custody_columns(&tester, block.slot())),
         )
         .await;
 
@@ -1570,15 +1582,19 @@ pub async fn blobs_seen_on_gossip_without_block() {
 /// This test checks that an HTTP POST request with the block succeeds with a 200 response
 /// if just the blobs have already been seen on gossip.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
+async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_columns() {
     let validation_level: Option<BroadcastValidation> = Some(BroadcastValidation::Gossip);
 
     // Validator count needs to be at least 32 or proposer boost gets set to 0 when computing
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1607,7 +1623,7 @@ pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
             &block,
             blobs.iter(),
             kzg_proofs.iter(),
-            Some(get_custody_columns(&tester)),
+            Some(get_custody_columns(&tester, block.slot())),
         )
         .await;
 
@@ -1638,7 +1654,7 @@ pub async fn blobs_seen_on_gossip_without_block_and_no_http_blobs() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
+async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
     let validation_level: Option<BroadcastValidation> =
         Some(BroadcastValidation::ConsensusAndEquivocation);
 
@@ -1646,8 +1662,12 @@ pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
-    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let state = tester.harness.get_current_state();
+    let fork_name = state.fork_name(&tester.harness.spec).unwrap();
+    if !fork_name.deneb_enabled() {
+        return;
+    }
 
     // Create some chain depth.
     tester.harness.advance_slot();
@@ -1677,7 +1697,7 @@ pub async fn slashable_blobs_seen_on_gossip_cause_failure() {
             &block_b,
             blobs_b.iter(),
             kzg_proofs_b.iter(),
-            Some(get_custody_columns(&tester)),
+            Some(get_custody_columns(&tester, block_b.slot())),
         )
         .await;
 
@@ -1714,10 +1734,9 @@ pub async fn duplicate_block_status_code() {
     // `validator_count // 32`.
     let validator_count = 64;
     let num_initial: u64 = 31;
-    let spec = ForkName::latest_stable().make_genesis_spec(E::default_spec());
     let duplicate_block_status_code = StatusCode::IM_A_TEAPOT;
     let tester = InteractiveTester::<E>::new_with_initializer_and_mutator(
-        Some(spec),
+        None,
         validator_count,
         None,
         None,
@@ -1777,11 +1796,15 @@ fn assert_server_message_error(error_response: eth2::Error, expected_message: St
     assert_eq!(err.message, expected_message);
 }
 
-fn get_custody_columns(tester: &InteractiveTester<E>) -> HashSet<ColumnIndex> {
+fn get_custody_columns(tester: &InteractiveTester<E>, slot: Slot) -> HashSet<ColumnIndex> {
+    let epoch = slot.epoch(E::slots_per_epoch());
     tester
         .ctx
-        .network_globals
+        .chain
         .as_ref()
         .unwrap()
-        .sampling_columns()
+        .sampling_columns_for_epoch(epoch)
+        .iter()
+        .copied()
+        .collect()
 }

@@ -379,7 +379,6 @@ impl<T: BeaconChainTypes> Router<T> {
                         .send_gossip_data_column_sidecar(
                             message_id,
                             peer_id,
-                            self.network_globals.client(&peer_id),
                             subnet_id,
                             column_sidecar,
                             timestamp_now(),

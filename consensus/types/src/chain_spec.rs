@@ -2,6 +2,7 @@ use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
+use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
@@ -33,7 +34,8 @@ pub enum Domain {
 /// Lighthouse's internal configuration struct.
 ///
 /// Contains a mixture of "preset" and "config" values w.r.t to the EF definitions.
-#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Config name
@@ -778,7 +780,7 @@ impl ChainSpec {
     }
 
     /// Returns the number of column sidecars to sample per slot.
-    pub fn sampling_size_columns(&self, custody_group_count: u64) -> Result<u64, String> {
+    pub fn sampling_size_columns(&self, custody_group_count: u64) -> Result<usize, String> {
         let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
 
         let columns_per_custody_group = self
@@ -790,7 +792,7 @@ impl ChainSpec {
             .safe_mul(sampling_size_groups)
             .map_err(|_| "Computing sampling size should not overflow")?;
 
-        Ok(sampling_size_columns)
+        Ok(sampling_size_columns as usize)
     }
 
     /// Returns the number of custody groups to sample per slot.
@@ -1459,7 +1461,8 @@ impl Default for ChainSpec {
     }
 }
 
-#[derive(arbitrary::Arbitrary, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
 pub struct BlobParameters {
     pub epoch: Epoch,
@@ -1469,8 +1472,18 @@ pub struct BlobParameters {
 
 // A wrapper around a vector of BlobParameters to ensure that the vector is reverse
 // sorted by epoch.
-#[derive(arbitrary::Arbitrary, Serialize, Debug, PartialEq, Clone)]
-pub struct BlobSchedule(Vec<BlobParameters>);
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Derivative, Clone)]
+#[derivative(PartialEq)]
+pub struct BlobSchedule {
+    schedule: Vec<BlobParameters>,
+    // This is a hack to prevent the blob schedule being serialized on the /eth/v1/config/spec
+    // endpoint prior to the Fulu fork being scheduled.
+    //
+    // We can remove this once Fulu is live on mainnet.
+    #[derivative(PartialEq = "ignore")]
+    skip_serializing: bool,
+}
 
 impl<'de> Deserialize<'de> for BlobSchedule {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
@@ -1486,30 +1499,60 @@ impl BlobSchedule {
     pub fn new(mut vec: Vec<BlobParameters>) -> Self {
         // reverse sort by epoch
         vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
-        Self(vec)
+        Self {
+            schedule: vec,
+            skip_serializing: false,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.schedule.is_empty()
+    }
+
+    pub fn skip_serializing(&self) -> bool {
+        self.skip_serializing
+    }
+
+    pub fn set_skip_serializing(&mut self) {
+        self.skip_serializing = true;
     }
 
     pub fn max_blobs_for_epoch(&self, epoch: Epoch) -> Option<u64> {
-        self.0
+        self.schedule
             .iter()
             .find(|entry| epoch >= entry.epoch)
             .map(|entry| entry.max_blobs_per_block)
     }
 
     pub fn blob_parameters_for_epoch(&self, epoch: Epoch) -> Option<BlobParameters> {
-        self.0.iter().find(|entry| epoch >= entry.epoch).cloned()
+        self.schedule
+            .iter()
+            .find(|entry| epoch >= entry.epoch)
+            .cloned()
     }
 
     pub const fn default() -> Self {
-        Self(vec![])
+        // TODO(EIP-7892): think about what the default should be
+        Self {
+            schedule: vec![],
+            skip_serializing: false,
+        }
     }
 
     pub fn as_vec(&self) -> &Vec<BlobParameters> {
-        &self.0
+        &self.schedule
+    }
+}
+
+impl Serialize for BlobSchedule {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut schedule = self.schedule.clone();
+        // reversing the list to get an ascending order
+        schedule.reverse();
+        schedule.serialize(serializer)
     }
 }
 
@@ -1518,7 +1561,7 @@ impl<'a> IntoIterator for &'a BlobSchedule {
     type IntoIter = std::slice::Iter<'a, BlobParameters>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+        self.schedule.iter()
     }
 }
 
@@ -1527,7 +1570,7 @@ impl IntoIterator for BlobSchedule {
     type IntoIter = std::vec::IntoIter<BlobParameters>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.schedule.into_iter()
     }
 }
 
@@ -1732,8 +1775,8 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
     #[serde(default = "BlobSchedule::default")]
-    #[serde(skip_serializing_if = "BlobSchedule::is_empty")]
-    blob_schedule: BlobSchedule,
+    #[serde(skip_serializing_if = "BlobSchedule::skip_serializing")]
+    pub blob_schedule: BlobSchedule,
     #[serde(default = "default_validator_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     validator_custody_requirement: u64,
@@ -2620,6 +2663,19 @@ mod yaml_tests {
             default_max_blobs_per_block_electra()
         );
         assert_eq!(spec.max_blobs_per_block_within_fork(ForkName::Fulu), 20);
+
+        // Check that serialization is in ascending order
+        let yaml = serde_yaml::to_string(&spec.blob_schedule).expect("should serialize");
+
+        // Deserialize back to Vec<BlobParameters> to check order
+        let deserialized: Vec<BlobParameters> =
+            serde_yaml::from_str(&yaml).expect("should deserialize");
+
+        // Should be in ascending order by epoch
+        assert!(
+            deserialized.iter().map(|bp| bp.epoch.as_u64()).is_sorted(),
+            "BlobSchedule should serialize in ascending order by epoch"
+        );
     }
 
     #[test]

@@ -38,7 +38,7 @@ use crate::{
     block_times_cache::BlockTimesCache,
     events::ServerSentEventHandler,
     metrics,
-    validator_monitor::{get_slot_delay_ms, timestamp_now},
+    validator_monitor::get_slot_delay_ms,
     BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
@@ -1287,7 +1287,10 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     slot_clock: &S,
     event_handler: Option<&ServerSentEventHandler<E>>,
 ) {
-    let block_time_set_as_head = timestamp_now();
+    let Some(block_time_set_as_head) = slot_clock.now_duration() else {
+        // Practically unreachable: the slot clock's time should not be before the UNIX epoch.
+        return;
+    };
     let head_block_root = head_block.root;
     let head_block_slot = head_block.slot;
     let head_block_is_optimistic = head_block.execution_status.is_optimistic_or_invalid();
@@ -1307,10 +1310,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
 
     // If a block comes in from over 4 slots ago, it is most likely a block from sync.
     let block_from_sync = block_delay_total > slot_clock.slot_duration() * 4;
-
-    // Determine whether the block has been set as head too late for proper attestation
-    // production.
-    let late_head = block_delay_total >= slot_clock.unagg_attestation_production_delay();
 
     // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
     // sync.
@@ -1410,6 +1409,14 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 .as_millis() as i64,
         );
 
+        // Consider the block late if the time it became attestable is after the attestation
+        // deadline. If the block was not made attestable, use the set-as-head time.
+        let attestable_delay = block_delays.attestable.unwrap_or(block_delay_total);
+
+        // Determine whether the block has been set as head too late for proper attestation
+        // production.
+        let late_head = attestable_delay >= slot_clock.unagg_attestation_production_delay();
+
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.
         let format_delay = |delay: &Option<Duration>| {
@@ -1432,6 +1439,24 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 set_as_head_time_ms = format_delay(&block_delays.set_as_head),
                 "Delayed head block"
             );
+            if let Some(event_handler) = event_handler {
+                if event_handler.has_late_head_subscribers() {
+                    let peer_info = block_times_cache.get_peer_info(head_block_root);
+                    event_handler.register(EventKind::LateHead(SseLateHead {
+                        slot: head_block_slot,
+                        block: head_block_root,
+                        peer_id: peer_info.id,
+                        peer_client: peer_info.client,
+                        proposer_index: head_block_proposer_index,
+                        proposer_graffiti: head_block_graffiti,
+                        block_delay: block_delay_total,
+                        observed_delay: block_delays.observed,
+                        imported_delay: block_delays.imported,
+                        set_as_head_delay: block_delays.set_as_head,
+                        execution_optimistic: head_block_is_optimistic,
+                    }));
+                }
+            }
         } else {
             debug!(
                 block_root = ?head_block_root,
@@ -1448,31 +1473,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 set_as_head_time_ms = format_delay(&block_delays.set_as_head),
                 "On-time head block"
             );
-        }
-    }
-
-    if let Some(event_handler) = event_handler {
-        if !block_from_sync && late_head && event_handler.has_late_head_subscribers() {
-            let peer_info = block_times_cache.get_peer_info(head_block_root);
-            let block_delays = block_times_cache.get_block_delays(
-                head_block_root,
-                slot_clock
-                    .start_of(head_block_slot)
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-            event_handler.register(EventKind::LateHead(SseLateHead {
-                slot: head_block_slot,
-                block: head_block_root,
-                peer_id: peer_info.id,
-                peer_client: peer_info.client,
-                proposer_index: head_block_proposer_index,
-                proposer_graffiti: head_block_graffiti,
-                block_delay: block_delay_total,
-                observed_delay: block_delays.observed,
-                imported_delay: block_delays.imported,
-                set_as_head_delay: block_delays.set_as_head,
-                execution_optimistic: head_block_is_optimistic,
-            }));
         }
     }
 }
