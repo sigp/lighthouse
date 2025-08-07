@@ -201,7 +201,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
-            .filter(|&(_block, block_root)| (block_root != self.genesis_block_root))
+            .filter(|&(_block, block_root)| block_root != self.genesis_block_root)
             .map(|(block, block_root)| {
                 block_proposal_signature_set_from_parts(
                     block,

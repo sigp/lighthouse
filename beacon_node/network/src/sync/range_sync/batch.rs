@@ -367,11 +367,11 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
 
     pub fn processing_completed(
         &mut self,
-        procesing_result: BatchProcessingResult,
+        processing_result: BatchProcessingResult,
     ) -> Result<BatchOperationOutcome, WrongState> {
         match self.state.poison() {
             BatchState::Processing(attempt) => {
-                self.state = match procesing_result {
+                self.state = match processing_result {
                     BatchProcessingResult::Success => BatchState::AwaitingValidation(attempt),
                     BatchProcessingResult::FaultyFailure => {
                         // register the failed attempt

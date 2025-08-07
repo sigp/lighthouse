@@ -72,12 +72,18 @@ impl std::ops::DerefMut for Libp2pInstance {
 }
 
 #[allow(unused)]
-pub fn build_tracing_subscriber(level: &str, enabled: bool) {
+pub fn build_tracing_subscriber(
+    level: &str,
+    enabled: bool,
+) -> Option<tracing::subscriber::DefaultGuard> {
     if enabled {
-        tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::try_new(level).unwrap())
-            .try_init()
-            .unwrap();
+        Some(tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::try_new(level).unwrap())
+                .finish(),
+        ))
+    } else {
+        None
     }
 }
 

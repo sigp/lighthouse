@@ -37,8 +37,9 @@ use tokio::sync::mpsc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
-    DataColumnSubnetId, Epoch, Hash256, MainnetEthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot,
+    SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -271,6 +272,8 @@ impl TestRig {
         let (blob_sidecars, data_columns) = if let Some((kzg_proofs, blobs)) = next_block_tuple.1 {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 let kzg = get_kzg(&chain.spec);
+                let epoch = block.slot().epoch(E::slots_per_epoch());
+                let sampling_indices = chain.sampling_columns_for_epoch(epoch);
                 let custody_columns: DataColumnSidecarList<E> = blobs_to_data_column_sidecars(
                     &blobs.iter().collect_vec(),
                     kzg_proofs.clone().into_iter().collect_vec(),
@@ -280,7 +283,7 @@ impl TestRig {
                 )
                 .unwrap()
                 .into_iter()
-                .filter(|c| network_globals.sampling_columns().contains(&c.index))
+                .filter(|c| sampling_indices.contains(&c.index))
                 .collect::<Vec<_>>();
 
                 (None, Some(custody_columns))
@@ -357,7 +360,6 @@ impl TestRig {
                 .send_gossip_data_column_sidecar(
                     junk_message_id(),
                     junk_peer_id(),
-                    Client::default(),
                     DataColumnSubnetId::from_column_index(data_column.index, &self.chain.spec),
                     data_column.clone(),
                     Duration::from_secs(0),
@@ -807,7 +809,8 @@ async fn accept_processed_gossip_data_columns_without_import() {
         .unwrap()
         .into_iter()
         .map(|data_column| {
-            let subnet_id = data_column.index;
+            let subnet_id =
+                DataColumnSubnetId::from_column_index(data_column.index, &rig.chain.spec);
             validate_data_column_sidecar_for_gossip::<_, DoNotObserve>(
                 data_column,
                 subnet_id,
@@ -820,7 +823,7 @@ async fn accept_processed_gossip_data_columns_without_import() {
     let block_root = rig.next_block.canonical_root();
     rig.chain
         .data_availability_checker
-        .put_gossip_verified_data_columns(block_root, verified_data_columns)
+        .put_gossip_verified_data_columns(block_root, rig.next_block.slot(), verified_data_columns)
         .expect("should put data columns into availability cache");
 
     // WHEN an already processed but unobserved data column is received via gossip

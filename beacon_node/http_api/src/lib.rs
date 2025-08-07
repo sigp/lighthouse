@@ -1433,14 +1433,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |value: serde_json::Value,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
@@ -1456,7 +1454,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1472,14 +1469,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1495,7 +1490,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1512,15 +1506,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   value: serde_json::Value,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
@@ -1537,7 +1529,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1554,15 +1545,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1578,7 +1567,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1598,13 +1586,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |block_contents: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         block_contents,
@@ -1612,7 +1598,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1628,13 +1613,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1650,7 +1633,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1666,14 +1648,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         blinded_block,
@@ -1681,7 +1661,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1697,14 +1676,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1720,7 +1697,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -3839,11 +3815,8 @@ pub fn serve<T: BeaconChainTypes>(
                         if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()
-                            .register_validators::<T::EthSpec>(
-                            validators_and_balances,
-                            current_slot,
-                            &chain.spec,
-                        ) {
+                            .register_validators(validators_and_balances, current_slot, &chain.spec)
+                        {
                             chain.update_data_column_custody_info(Some(
                                 cgc_change
                                     .effective_epoch

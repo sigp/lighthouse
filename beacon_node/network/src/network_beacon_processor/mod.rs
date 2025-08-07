@@ -227,7 +227,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        peer_client: Client,
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
@@ -238,7 +237,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 .process_gossip_data_column_sidecar(
                     message_id,
                     peer_id,
-                    peer_client,
                     subnet_id,
                     column_sidecar,
                     seen_timestamp,
@@ -753,7 +751,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         block_root: Hash256,
         publish_blobs: bool,
     ) {
-        let custody_columns = self.network_globals.sampling_columns();
+        let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+        let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {

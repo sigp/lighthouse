@@ -159,7 +159,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn make_available<R>(
         &mut self,
         spec: &Arc<ChainSpec>,
-        num_expected_columns: u64,
+        num_expected_columns: usize,
         recover: R,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError>
     where
@@ -173,7 +173,6 @@ impl<E: EthSpec> PendingComponents<E> {
         };
 
         let num_expected_blobs = block.num_blobs_expected();
-        let num_expected_columns = num_expected_columns as usize;
         let blob_data = if num_expected_blobs == 0 {
             Some(AvailableBlockData::NoData)
         } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
@@ -311,7 +310,7 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn status_str(
         &self,
         block_epoch: Epoch,
-        num_expected_columns: Option<u64>,
+        num_expected_columns: Option<usize>,
         spec: &ChainSpec,
     ) -> String {
         let block_count = if self.executed_block.is_some() { 1 } else { 0 };
@@ -348,7 +347,7 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// This cache holds a limited number of states in memory and reconstructs them
     /// from disk when necessary. This is necessary until we merge tree-states
     state_cache: StateLRUCache<T>,
-    custody_context: Arc<CustodyContext>,
+    custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -365,7 +364,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
-        custody_context: Arc<CustodyContext>,
+        custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
@@ -482,7 +481,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
             self.custody_context
-                .num_of_data_columns_to_sample(Some(epoch), &self.spec),
+                .num_of_data_columns_to_sample(epoch, &self.spec),
             |block| self.state_cache.recover_pending_executed_block(block),
         )? {
             // We keep the pending components in the availability cache during block import (#5845).
@@ -508,10 +507,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .peek()
             .map(|verified_blob| verified_blob.as_data_column().epoch())
         else {
-            // Verified data_columns list should be non-empty.
-            return Err(AvailabilityCheckError::Unexpected(
-                "empty columns".to_owned(),
-            ));
+            // No columns are processed. This can occur if all received columns were filtered out
+            // before this point, e.g. due to a CGC change that caused extra columns to be downloaded
+            // // before the new CGC took effect.
+            // Return `Ok` without marking the block as available.
+            return Ok(Availability::MissingComponents(block_root));
         };
 
         let mut write_lock = self.critical.write();
@@ -529,7 +529,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         let num_expected_columns = self
             .custody_context
-            .num_of_data_columns_to_sample(Some(epoch), &self.spec);
+            .num_of_data_columns_to_sample(epoch, &self.spec);
         debug!(
             component = "data_columns",
             ?block_root,
@@ -627,7 +627,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         let num_expected_columns = self
             .custody_context
-            .num_of_data_columns_to_sample(Some(epoch), &self.spec);
+            .num_of_data_columns_to_sample(epoch, &self.spec);
         debug!(
             component = "block",
             ?block_root,

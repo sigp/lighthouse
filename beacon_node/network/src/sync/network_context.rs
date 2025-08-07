@@ -551,7 +551,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Attempt to find all required custody peers before sending any request or creating an ID
         let columns_by_range_peers_to_request =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let column_indexes = self.network_globals().sampling_columns();
+                let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
+                let column_indexes = self
+                    .chain
+                    .sampling_columns_for_epoch(epoch)
+                    .iter()
+                    .cloned()
+                    .collect();
                 Some(self.select_columns_by_range_peers_to_request(
                     &column_indexes,
                     peers,
@@ -602,18 +608,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .transpose()?;
 
+        let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
             data_column_requests.map(|data_column_requests| {
                 (
                     data_column_requests,
-                    self.network_globals()
-                        .sampling_columns()
-                        .clone()
-                        .iter()
-                        .copied()
-                        .collect(),
+                    self.chain.sampling_columns_for_epoch(epoch).to_vec(),
                 )
             }),
         );
@@ -1015,11 +1017,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .cached_data_column_indexes(&block_root)
             .unwrap_or_default();
 
+        let current_epoch = self.chain.epoch().map_err(|e| {
+            RpcRequestSendError::InternalError(format!("Unable to read slot clock {:?}", e))
+        })?;
+
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = self
-            .network_globals()
-            .sampling_columns()
-            .into_iter()
+            .chain
+            .sampling_columns_for_epoch(current_epoch)
+            .iter()
+            .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();
 

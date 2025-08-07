@@ -63,6 +63,6 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     } else if endpoint_version == V1 {
         Ok(warp::reply::json(&GenericResponse::from(aggregate_attestation)).into_response())
     } else {
-        return Err(unsupported_version_rejection(endpoint_version));
+        Err(unsupported_version_rejection(endpoint_version))
     }
 }

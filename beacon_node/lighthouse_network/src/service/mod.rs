@@ -898,9 +898,9 @@ impl<E: EthSpec> Network<E> {
         name = "libp2p",
         skip_all
     )]
-    pub fn subscribe_new_data_column_subnets(&mut self, custody_column_count: u64) {
+    pub fn subscribe_new_data_column_subnets(&mut self, sampling_column_count: u64) {
         self.network_globals
-            .update_data_column_subnets(custody_column_count);
+            .update_data_column_subnets(sampling_column_count);
 
         for column in self.network_globals.sampling_subnets() {
             let kind = GossipKind::DataColumnSidecar(column);

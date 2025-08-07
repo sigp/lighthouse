@@ -63,7 +63,7 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
 struct ClearDialError<'a>(&'a DialError);
 
 impl ClearDialError<'_> {
-    fn most_inner_error(err: &(dyn std::error::Error)) -> &(dyn std::error::Error) {
+    fn most_inner_error(err: &dyn std::error::Error) -> &dyn std::error::Error {
         let mut current = err;
         while let Some(source) = current.source() {
             current = source;

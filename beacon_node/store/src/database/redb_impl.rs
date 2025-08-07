@@ -204,7 +204,11 @@ impl<E: EthSpec> Redb<E> {
         mut_db.compact().map_err(Into::into).map(|_| ())
     }
 
-    pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+    ) -> ColumnKeyIter<'_, K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
@@ -232,11 +236,11 @@ impl<E: EthSpec> Redb<E> {
     }
 
     /// Iterate through all keys and values in a particular column.
-    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K> {
         self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
-    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
@@ -269,7 +273,7 @@ impl<E: EthSpec> Redb<E> {
         }
     }
 
-    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<'_, K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 
