@@ -860,7 +860,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         }
                     }
                     CouplingError::InternalError(msg) => {
-                        error!(?batch_id, msg, "Block components coupling internal error");
+                        tracing::error!(?batch_id, msg, "Block components coupling internal error");
                     }
                 }
             }
