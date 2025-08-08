@@ -68,7 +68,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, info_span, trace, Instrument};
+use tracing::{debug, error, info, trace};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
@@ -263,14 +263,7 @@ pub fn spawn<T: BeaconChainTypes>(
 
     // spawn the sync manager thread
     debug!("Sync Manager started");
-    executor.spawn(
-        async move {
-            Box::pin(sync_manager.main())
-                .instrument(info_span!("", service = "sync"))
-                .await
-        },
-        "sync",
-    );
+    executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {

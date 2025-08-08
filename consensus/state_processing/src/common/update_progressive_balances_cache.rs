@@ -5,12 +5,14 @@ use crate::metrics::{
 };
 use crate::{BlockProcessingError, EpochProcessingError};
 use metrics::set_gauge;
+use tracing::instrument;
 use types::{
     is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch,
     EpochTotalBalances, EthSpec, ParticipationFlags, ProgressiveBalancesCache, Validator,
 };
 
 /// Initializes the `ProgressiveBalancesCache` if it is unbuilt.
+#[instrument(skip_all, level = "debug")]
 pub fn initialize_progressive_balances_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,

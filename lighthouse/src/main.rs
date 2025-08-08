@@ -19,6 +19,8 @@ use futures::TryFutureExt;
 use lighthouse_version::VERSION;
 use logging::{build_workspace_filter, crit, MetricsLayer};
 use malloc_utils::configure_memory_allocator;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::WithExportConfig;
 use std::backtrace::Backtrace;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -276,6 +278,18 @@ fn main() {
                 .value_parser(["info", "debug", "trace", "warn", "error"])
                 .global(true)
                 .default_value("info")
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("telemetry-collector-url")
+                .long("telemetry-collector-url")
+                .value_name("URL")
+                .help(
+                    "URL of the OpenTelemetry collector to export tracing spans \
+                    (e.g., http://localhost:4317). If not set, tracing export is disabled.",
+                )
+                .action(ArgAction::Set)
+                .global(true)
                 .display_order(0)
         )
         .arg(
@@ -677,6 +691,39 @@ fn run<E: EthSpec>(
 
     logging_layers.push(MetricsLayer.boxed());
 
+    let mut environment = builder
+        .multi_threaded_tokio_runtime()?
+        .eth2_network_config(eth2_network_config)?
+        .build()?;
+
+    if let Some(telemetry_collector_url) = matches.get_one::<String>("telemetry-collector-url") {
+        let telemetry_layer = environment.runtime().block_on(async {
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_endpoint(telemetry_collector_url)
+                .build()
+                .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;
+
+            let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_batch_exporter(exporter)
+                .with_resource(
+                    opentelemetry_sdk::Resource::builder()
+                        .with_service_name("lighthouse")
+                        .build(),
+                )
+                .build();
+
+            let tracer = provider.tracer("lighthouse");
+            Ok::<_, String>(
+                tracing_opentelemetry::layer()
+                    .with_tracer(tracer)
+                    .with_filter(workspace_filter),
+            )
+        })?;
+
+        logging_layers.push(telemetry_layer.boxed());
+    }
+
     #[cfg(feature = "console-subscriber")]
     {
         let console_layer = console_subscriber::spawn();
@@ -690,11 +737,6 @@ fn run<E: EthSpec>(
     if let Err(e) = logging_result {
         eprintln!("Failed to initialize logger: {e}");
     }
-
-    let mut environment = builder
-        .multi_threaded_tokio_runtime()?
-        .eth2_network_config(eth2_network_config)?
-        .build()?;
 
     // Log panics properly.
     {

@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, trace, warn, Instrument};
+use tracing::{debug, error, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -780,11 +780,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             custody_columns,
             publish_fn,
         )
-        .instrument(tracing::info_span!(
-            "",
-            service = "fetch_engine_blobs",
-            block_root = format!("{:?}", block_root)
-        ))
         .await
         {
             Ok(Some(availability)) => match availability {

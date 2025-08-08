@@ -32,7 +32,7 @@ use mockall_double::double;
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn, Span};
 use types::blob_sidecar::BlobSidecarError;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
@@ -68,6 +68,7 @@ pub enum FetchEngineBlobError {
 
 /// Fetches blobs from the EL mempool and processes them. It also broadcasts unseen blobs or
 /// data columns (PeerDAS onwards) to the network, using the supplied `publish_fn`.
+#[instrument(skip_all)]
 pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
@@ -140,6 +141,7 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
     }
 }
 
+#[instrument(skip_all, level = "debug")]
 async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
@@ -232,6 +234,7 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
     Ok(Some(availability_processing_status))
 }
 
+#[instrument(skip_all, level = "debug")]
 async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
@@ -342,10 +345,12 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
     let custody_columns_indices = custody_columns_indices.to_vec();
+    let current_span = Span::current();
     chain_adapter
         .executor()
         .spawn_blocking_handle(
             move || {
+                let _guard = current_span.enter();
                 let mut timer = metrics::start_timer_vec(
                     &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
                     &[&blobs.len().to_string()],

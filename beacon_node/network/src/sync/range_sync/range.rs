@@ -55,7 +55,7 @@ use logging::crit;
 use lru_cache::LRUTimeCache;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, trace, warn};
 use types::{Epoch, EthSpec, Hash256};
 
 /// For how long we store failed finalized chains to prevent retries.
@@ -81,11 +81,6 @@ impl<T: BeaconChainTypes> RangeSync<T>
 where
     T: BeaconChainTypes,
 {
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     pub fn new(beacon_chain: Arc<BeaconChain<T>>) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
@@ -102,11 +97,6 @@ where
         self.failed_chains.keys().copied().collect()
     }
 
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     pub fn state(&self) -> SyncChainStatus {
         self.chains.state()
     }
@@ -116,11 +106,6 @@ where
     /// may need to be synced as a result. A new peer, may increase the peer pool of a finalized
     /// chain, this may result in a different finalized chain from syncing as finalized chains are
     /// prioritised by peer-pool size.
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     pub fn add_peer(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -215,11 +200,6 @@ where
     ///
     /// This function finds the chain that made this request. Once found, processes the result.
     /// This request could complete a chain or simply add to its progress.
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     pub fn blocks_by_range_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -250,11 +230,6 @@ where
         }
     }
 
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     pub fn handle_block_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -287,11 +262,6 @@ where
 
     /// A peer has disconnected. This removes the peer from any ongoing chains and mappings. A
     /// disconnected peer could remove a chain
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     pub fn peer_disconnect(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
         // if the peer is in the awaiting head mapping, remove it
         self.awaiting_head_peers.remove(peer_id);
@@ -304,11 +274,6 @@ where
     /// which pool the peer is in. The chain may also have a batch or batches awaiting
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
         for (removed_chain, sync_type, remove_reason) in
             self.chains.call_all(|chain| chain.remove_peer(peer_id))
@@ -327,11 +292,6 @@ where
     ///
     /// Check to see if the request corresponds to a pending batch. If so, re-request it if possible, if there have
     /// been too many failed attempts for the batch, remove the chain.
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -362,11 +322,6 @@ where
         }
     }
 
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     fn on_chain_removed(
         &mut self,
         chain: SyncingChain<T>,
@@ -415,11 +370,6 @@ where
     }
 
     /// Kickstarts sync.
-    #[instrument(parent = None,
-        fields(component = "range_sync"),
-        name = "range_sync",
-        skip_all
-    )]
     pub fn resume(&mut self, network: &mut SyncNetworkContext<T>) {
         for (removed_chain, sync_type, remove_reason) in
             self.chains.call_all(|chain| chain.resume(network))
