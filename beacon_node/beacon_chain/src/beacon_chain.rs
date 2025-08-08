@@ -126,7 +126,7 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tracing::{debug, debug_span, error, info, info_span, instrument, trace, warn, Span};
+use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;

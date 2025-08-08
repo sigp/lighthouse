@@ -20,7 +20,7 @@ use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{Duration, Instant, interval_at};
-use tracing::{Instrument, debug, error, info, info_span, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
 
 pub struct SlasherService<T: BeaconChainTypes> {

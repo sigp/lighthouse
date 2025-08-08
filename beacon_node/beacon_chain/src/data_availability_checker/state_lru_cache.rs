@@ -9,7 +9,7 @@ use parking_lot::RwLock;
 use state_processing::BlockReplayer;
 use std::sync::Arc;
 use store::OnDiskConsensusContext;
-use tracing::{debug_span, instrument, Span};
+use tracing::{Span, debug_span, instrument};
 use types::beacon_block_body::KzgCommitments;
 use types::{BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 

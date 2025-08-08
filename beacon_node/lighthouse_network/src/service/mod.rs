@@ -39,6 +39,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
+use types::{ChainSpec, ForkName};
 use types::{
     EnrForkId, EthSpec, ForkContext, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
 };

@@ -21,7 +21,7 @@ use lighthouse_network::PeerAction;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
-use tracing::{debug, error, info, instrument, warn, Span};
+use tracing::{Span, debug, error, info, instrument, warn};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};

@@ -93,7 +93,7 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, debug_span, error, info_span, instrument, Instrument, Span};
+use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
     Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
