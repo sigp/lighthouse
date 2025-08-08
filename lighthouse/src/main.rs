@@ -650,13 +650,17 @@ fn run<E: EthSpec>(
         logging_layers.push(
             file_logging_layer
                 .with_filter(logger_config.logfile_debug_level)
-                .with_filter(workspace_filter)
+                .with_filter(workspace_filter.clone())
                 .boxed(),
         );
     }
 
     if let Some(sse_logging_layer) = sse_logging_layer_opt {
-        logging_layers.push(sse_logging_layer.boxed());
+        logging_layers.push(
+            sse_logging_layer
+                .with_filter(workspace_filter.clone())
+                .boxed(),
+        );
     }
 
     if let Some(libp2p_discv5_layer) = libp2p_discv5_layer {
