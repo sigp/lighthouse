@@ -943,11 +943,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     }
 
     /// Retries partial column requests within the batch by creating new requests for the failed columns.
-    #[instrument(parent = None,
-        fields(service = "backfill_sync"),
-        name = "backfill_sync",
-        skip_all
-    )]
     pub fn retry_partial_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
