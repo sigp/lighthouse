@@ -60,6 +60,9 @@ lighthouse_version = { workspace = true }
 logging = { workspace = true }
 malloc_utils = { workspace = true }
 metrics = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -67,6 +70,7 @@ slasher = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 types = { workspace = true }
 unused_port = { workspace = true }

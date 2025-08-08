@@ -16,7 +16,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tracing::{debug, error, info_span, Instrument};
+use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
@@ -209,6 +209,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
+    #[instrument(skip_all, level = "trace")]
     pub fn put_rpc_blobs(
         &self,
         block_root: Hash256,
@@ -236,6 +237,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
     #[allow(clippy::type_complexity)]
+    #[instrument(skip_all, level = "trace")]
     pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
@@ -270,6 +272,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Otherwise cache the blob sidecar.
     ///
     /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
+    #[instrument(skip_all, level = "trace")]
     pub fn put_gossip_verified_blobs<
         I: IntoIterator<Item = GossipVerifiedBlob<T, O>>,
         O: ObservationStrategy,
@@ -282,6 +285,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
     }
 
+    #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
         block_root: Hash256,
@@ -296,6 +300,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Otherwise cache the data column sidecar.
     ///
     /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
+    #[instrument(skip_all, level = "trace")]
     pub fn put_gossip_verified_data_columns<
         O: ObservationStrategy,
         I: IntoIterator<Item = GossipVerifiedDataColumn<T, O>>,
@@ -319,6 +324,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
+    #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_custody_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     >(
@@ -411,6 +417,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///
     /// WARNING: This function assumes all required blobs are already present, it does NOT
     ///          check if there are any missing blobs.
+    #[instrument(skip_all)]
     pub fn verify_kzg_for_rpc_blocks(
         &self,
         blocks: Vec<RpcBlock<T::EthSpec>>,
@@ -644,14 +651,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
         executor.spawn(
-            async move {
-                availability_cache_maintenance_service(chain, overflow_cache)
-                    .instrument(info_span!(
-                        "DataAvailabilityChecker",
-                        service = "data_availability_checker"
-                    ))
-                    .await
-            },
+            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
             "availability_cache_service",
         );
     } else {

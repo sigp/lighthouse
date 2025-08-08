@@ -32,7 +32,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc::error::TrySendError;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn, Instrument, Span};
 use types::{
     beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
     AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
@@ -603,6 +603,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    #[instrument(skip_all, level = "trace", fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index), parent = None)]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -760,6 +761,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, level = "trace", fields(slot = ?blob_sidecar.slot(), block_root = ?blob_sidecar.block_root(), index = blob_sidecar.index), parent = None)]
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -927,7 +929,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    pub async fn process_gossip_verified_blob(
+    async fn process_gossip_verified_blob(
         self: &Arc<Self>,
         peer_id: PeerId,
         verified_blob: GossipVerifiedBlob<T>,
@@ -995,7 +997,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    pub async fn process_gossip_verified_data_column(
+    async fn process_gossip_verified_data_column(
         self: &Arc<Self>,
         peer_id: PeerId,
         verified_data_column: GossipVerifiedDataColumn<T>,
@@ -1097,6 +1099,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, fields(block_root = tracing::field::Empty), parent = None)]
     pub async fn process_gossip_block(
         self: Arc<Self>,
         message_id: MessageId,
@@ -1118,6 +1121,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await
         {
             let block_root = gossip_verified_block.block_root;
+            Span::current().record("block_root", block_root.to_string());
 
             if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
                 self.process_gossip_verified_block(
@@ -1142,7 +1146,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
     /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
-    pub async fn process_gossip_unverified_block(
+    async fn process_gossip_unverified_block(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
@@ -1425,7 +1429,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Process the beacon block that has already passed gossip verification.
     ///
     /// Raises a log if there are errors.
-    pub async fn process_gossip_verified_block(
+    #[instrument(skip_all)]
+    async fn process_gossip_verified_block(
         self: Arc<Self>,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
@@ -1441,12 +1446,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let publish_blobs = true;
         let self_clone = self.clone();
         let block_clone = block.clone();
+        let current_span = Span::current();
         self.executor.spawn(
             async move {
                 self_clone
                     .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
                     .await
-            },
+            }
+            .instrument(current_span),
             "fetch_blobs_gossip",
         );
 
