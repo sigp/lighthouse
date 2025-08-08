@@ -31,7 +31,6 @@ use metrics::{inc_counter, TryExt};
 use mockall_double::double;
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::{debug, instrument, warn, Span};
 use types::blob_sidecar::BlobSidecarError;
@@ -74,7 +73,7 @@ pub async fn fetch_and_process_engine_blobs<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    custody_columns: HashSet<ColumnIndex>,
+    custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     fetch_and_process_engine_blobs_inner(
@@ -93,7 +92,7 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    custody_columns: HashSet<ColumnIndex>,
+    custody_columns: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let versioned_hashes = if let Some(kzg_commitments) = block
@@ -241,7 +240,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
     versioned_hashes: Vec<VersionedHash>,
-    custody_columns_indices: HashSet<ColumnIndex>,
+    custody_columns_indices: &[ColumnIndex],
     publish_fn: impl Fn(EngineGetBlobsOutput<T>) + Send + 'static,
 ) -> Result<Option<AvailabilityProcessingStatus>, FetchEngineBlobError> {
     let num_expected_blobs = versioned_hashes.len();
@@ -340,11 +339,12 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     blobs: Vec<Blob<T::EthSpec>>,
     proofs: Vec<KzgProofs<T::EthSpec>>,
-    custody_columns_indices: HashSet<ColumnIndex>,
+    custody_columns_indices: &[ColumnIndex],
 ) -> Result<Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>, FetchEngineBlobError> {
     let kzg = chain_adapter.kzg().clone();
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
+    let custody_columns_indices = custody_columns_indices.to_vec();
     let current_span = Span::current();
     chain_adapter
         .executor()

@@ -42,6 +42,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tracing::{debug, info, warn};
+use types::data_column_custody_group::get_custody_groups_ordered;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -477,7 +478,7 @@ where
         };
 
         let (network_globals, network_senders) = NetworkService::start(
-            beacon_chain,
+            beacon_chain.clone(),
             config,
             context.executor,
             libp2p_registry.as_mut(),
@@ -485,6 +486,8 @@ where
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
+
+        init_custody_context(beacon_chain, &network_globals)?;
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
@@ -785,6 +788,21 @@ where
             http_metrics_listen_addr,
         })
     }
+}
+
+fn init_custody_context<T: BeaconChainTypes>(
+    chain: Arc<BeaconChain<T>>,
+    network_globals: &NetworkGlobals<T::EthSpec>,
+) -> Result<(), String> {
+    let node_id = network_globals.local_enr().node_id().raw();
+    let spec = &chain.spec;
+    let custody_groups_ordered =
+        get_custody_groups_ordered(node_id, spec.number_of_custody_groups, spec)
+            .map_err(|e| format!("Failed to compute custody groups: {:?}", e))?;
+    chain
+        .data_availability_checker
+        .custody_context()
+        .init_ordered_data_columns_from_custody_groups(custody_groups_ordered, spec)
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>
