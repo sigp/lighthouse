@@ -197,7 +197,7 @@ test-beacon-chain-%:
 test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
 test-http-api-%:
-	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env,$(TEST_FEATURES)" -p http_api
+	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
 
 
 # Run the tests in the `operation_pool` crate for all known forks.
