@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 use types::{
     consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
     AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
@@ -472,6 +472,7 @@ where
     /// Is equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
+    #[instrument(skip_all, level = "debug")]
     pub fn get_head(
         &mut self,
         system_time_current_slot: Slot,
@@ -646,6 +647,12 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = "fork_choice_on_block",
+        skip_all,
+        fields(
+            fork_choice_block_delay = ?block_delay
+        ))]
     pub fn on_block<Payload: AbstractExecPayload<E>>(
         &mut self,
         system_time_current_slot: Slot,
