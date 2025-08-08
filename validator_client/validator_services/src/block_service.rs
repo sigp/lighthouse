@@ -148,14 +148,13 @@ impl<T: SlotClock> ProposerFallback<T> {
         Err: Debug,
     {
         // If there are proposer nodes, try calling `func` on them and return early if they are successful.
-        if let Some(proposer_nodes) = &self.proposer_nodes {
-            if proposer_nodes
+        if let Some(proposer_nodes) = &self.proposer_nodes
+            && proposer_nodes
                 .request(ApiTopic::Blocks, func.clone())
                 .await
                 .is_ok()
-            {
-                return Ok(());
-            }
+        {
+            return Ok(());
         }
 
         // If the proposer nodes failed, try on the non-proposer nodes.

@@ -393,13 +393,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         let mut result = vec![fork_context.context_bytes(current_epoch)];
 
-        if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch) {
-            if current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
+        if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch)
+            && current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
                 >= next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch())
-            {
-                let next_digest = fork_context.context_bytes(next_digest_epoch);
-                result.push(next_digest);
-            }
+        {
+            let next_digest = fork_context.context_bytes(next_digest_epoch);
+            result.push(next_digest);
         }
 
         result

@@ -277,15 +277,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "RPC blobs received"
         );
 
-        if let Ok(current_slot) = self.chain.slot() {
-            if current_slot == slot {
-                // Note: this metric is useful to gauge how long it takes to receive blobs requested
-                // over rpc. Since we always send the request for block components at `slot_clock.single_lookup_delay()`
-                // we can use that as a baseline to measure against.
-                let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
+        if let Ok(current_slot) = self.chain.slot()
+            && current_slot == slot
+        {
+            // Note: this metric is useful to gauge how long it takes to receive blobs requested
+            // over rpc. Since we always send the request for block components at `slot_clock.single_lookup_delay()`
+            // we can use that as a baseline to measure against.
+            let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
 
-                metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
-            }
+            metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
         }
 
         let result = self.chain.process_rpc_blobs(slot, block_root, blobs).await;
@@ -347,11 +347,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             return;
         };
 
-        if let Ok(current_slot) = self.chain.slot() {
-            if current_slot == slot {
-                let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
-                metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
-            }
+        if let Ok(current_slot) = self.chain.slot()
+            && current_slot == slot
+        {
+            let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
+            metrics::observe_duration(&metrics::BEACON_BLOB_RPC_SLOT_START_DELAY_TIME, delay);
         }
 
         let mut indices = custody_columns.iter().map(|d| d.index).collect::<Vec<_>>();

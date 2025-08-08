@@ -273,15 +273,15 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
             }
         }
 
-        if let Some(verified) = verified_for_pool {
-            if let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified) {
-                error!(
-                    error = ?e,
-                    slot = %sync_committee_signature.slot,
-                    validator_index = sync_committee_signature.validator_index,
-                    "Unable to add sync committee signature to pool"
-                );
-            }
+        if let Some(verified) = verified_for_pool
+            && let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified)
+        {
+            error!(
+                error = ?e,
+                slot = %sync_committee_signature.slot,
+                validator_index = sync_committee_signature.validator_index,
+                "Unable to add sync committee signature to pool"
+            );
         }
     }
 

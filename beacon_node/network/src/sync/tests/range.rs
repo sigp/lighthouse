@@ -207,11 +207,12 @@ impl TestRig {
                     return false;
                 }
             }
-            if let Some(expected_peer) = request_filter.peer {
-                if peer != expected_peer {
-                    return false;
-                }
+            if let Some(expected_peer) = request_filter.peer
+                && peer != expected_peer
+            {
+                return false;
             }
+
             true
         };
 

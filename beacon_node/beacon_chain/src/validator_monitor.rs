@@ -460,11 +460,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let unaggregated_attestations = &mut self.unaggregated_attestations;
 
         // Pruning, this removes the oldest key/pair of the hashmap if it's greater than MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH
-        if unaggregated_attestations.len() >= MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH {
-            if let Some(oldest_slot) = unaggregated_attestations.keys().min().copied() {
-                unaggregated_attestations.remove(&oldest_slot);
-            }
+        if unaggregated_attestations.len() >= MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH
+            && let Some(oldest_slot) = unaggregated_attestations.keys().min().copied()
+        {
+            unaggregated_attestations.remove(&oldest_slot);
         }
+
         let slot = attestation.data().slot;
         self.unaggregated_attestations.insert(slot, attestation);
     }
@@ -1095,19 +1096,19 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             return;
         }
 
-        if let Some(pubkey) = self.indices.get(&validator_index) {
-            if !self.validators.contains_key(pubkey) {
-                info!(
-                    %pubkey,
-                    validator = %validator_index,
-                    "Started monitoring validator"
-                );
+        if let Some(pubkey) = self.indices.get(&validator_index)
+            && !self.validators.contains_key(pubkey)
+        {
+            info!(
+                %pubkey,
+                validator = %validator_index,
+                "Started monitoring validator"
+            );
 
-                self.validators.insert(
-                    *pubkey,
-                    MonitoredValidator::new(*pubkey, Some(validator_index)),
-                );
-            }
+            self.validators.insert(
+                *pubkey,
+                MonitoredValidator::new(*pubkey, Some(validator_index)),
+            );
         }
     }
 

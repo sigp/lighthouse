@@ -324,17 +324,17 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<E, Payload>,
     ) -> Result<()> {
-        if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
-            if let Some(signature_set) = sync_aggregate_signature_set(
+        if let Ok(sync_aggregate) = block.message().body().sync_aggregate()
+            && let Some(signature_set) = sync_aggregate_signature_set(
                 &self.decompressor,
                 sync_aggregate,
                 block.slot(),
                 block.parent_root(),
                 self.state,
                 self.spec,
-            )? {
-                self.sets.push(signature_set);
-            }
+            )?
+        {
+            self.sets.push(signature_set);
         }
         Ok(())
     }

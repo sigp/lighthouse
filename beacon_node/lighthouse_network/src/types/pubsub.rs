@@ -250,17 +250,16 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::BlobSidecar(blob_index) => {
                         if let Some(fork_name) =
                             fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest)
+                            && fork_name.deneb_enabled()
                         {
-                            if fork_name.deneb_enabled() {
-                                let blob_sidecar = Arc::new(
-                                    BlobSidecar::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                );
-                                return Ok(PubsubMessage::BlobSidecar(Box::new((
-                                    *blob_index,
-                                    blob_sidecar,
-                                ))));
-                            }
+                            let blob_sidecar = Arc::new(
+                                BlobSidecar::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            );
+                            return Ok(PubsubMessage::BlobSidecar(Box::new((
+                                *blob_index,
+                                blob_sidecar,
+                            ))));
                         }
 
                         Err(format!(

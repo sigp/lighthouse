@@ -193,13 +193,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     spec,
                 );
 
-                if let Err(err) = &resp {
-                    if let Some((peers, _)) = &err.column_and_peer {
-                        for (_, peer) in peers.iter() {
-                            // find the req id associated with the peer and
-                            // delete it from the entries
-                            requests.retain(|&k, _| k.peer != *peer);
-                        }
+                if let Err(err) = &resp
+                    && let Some((peers, _)) = &err.column_and_peer
+                {
+                    for (_, peer) in peers.iter() {
+                        // find the req id associated with the peer and
+                        // delete it from the entries
+                        requests.retain(|&k, _| k.peer != *peer);
                     }
                 }
 

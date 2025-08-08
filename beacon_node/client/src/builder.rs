@@ -298,37 +298,37 @@ where
                 // It doesn't make sense to try and sync the chain if we can't
                 // verify blob availability by downloading blobs from the P2P
                 // network. The user should do a checkpoint sync instead.
-                if !config.allow_insecure_genesis_sync {
-                    if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
-                        let now = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .map_err(|e| format!("Unable to read system time: {e:}"))?
-                            .as_secs();
-                        let genesis_time = genesis_state.genesis_time();
-                        let deneb_time = genesis_time
-                            + (deneb_fork_epoch.as_u64()
-                                * E::slots_per_epoch()
-                                * spec.seconds_per_slot);
-
-                        // Shrink the blob availability window so users don't start
-                        // a sync right before blobs start to disappear from the P2P
-                        // network.
-                        let reduced_p2p_availability_epochs = spec
-                            .min_epochs_for_blob_sidecars_requests
-                            .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
-                        let blob_availability_window = reduced_p2p_availability_epochs
+                if !config.allow_insecure_genesis_sync
+                    && let Some(deneb_fork_epoch) = spec.deneb_fork_epoch
+                {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map_err(|e| format!("Unable to read system time: {e:}"))?
+                        .as_secs();
+                    let genesis_time = genesis_state.genesis_time();
+                    let deneb_time = genesis_time
+                        + (deneb_fork_epoch.as_u64()
                             * E::slots_per_epoch()
-                            * spec.seconds_per_slot;
+                            * spec.seconds_per_slot);
 
-                        if now > deneb_time + blob_availability_window {
-                            return Err(
+                    // Shrink the blob availability window so users don't start
+                    // a sync right before blobs start to disappear from the P2P
+                    // network.
+                    let reduced_p2p_availability_epochs = spec
+                        .min_epochs_for_blob_sidecars_requests
+                        .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
+                    let blob_availability_window = reduced_p2p_availability_epochs
+                        * E::slots_per_epoch()
+                        * spec.seconds_per_slot;
+
+                    if now > deneb_time + blob_availability_window {
+                        return Err(
                                     "Syncing from genesis is insecure and incompatible with data availability checks. \
                                     You should instead perform a checkpoint sync from a trusted node using the --checkpoint-sync-url option. \
                                     For a list of public endpoints, see: https://eth-clients.github.io/checkpoint-sync-endpoints/ \
                                     Alternatively, use --allow-insecure-genesis-sync if the risks are understood."
                                         .to_string(),
                                 );
-                        }
                     }
                 }
 

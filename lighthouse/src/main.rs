@@ -471,15 +471,16 @@ fn main() {
     // Only apply this optimization for the beacon node. It's the only process with a substantial
     // memory footprint.
     let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
-    if is_beacon_node && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
-        if let Err(e) = configure_memory_allocator() {
-            eprintln!(
-                "Unable to configure the memory allocator: {} \n\
+    if is_beacon_node
+        && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG)
+        && let Err(e) = configure_memory_allocator()
+    {
+        eprintln!(
+            "Unable to configure the memory allocator: {} \n\
                 Try providing the --{} flag",
-                e, DISABLE_MALLOC_TUNING_FLAG
-            );
-            exit(1)
-        }
+            e, DISABLE_MALLOC_TUNING_FLAG
+        );
+        exit(1)
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {

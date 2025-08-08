@@ -354,11 +354,11 @@ impl ProposerPreparationDataEntry {
         // Update `gas_limit` if `updated.gas_limit` is `Some` and:
         // - `self.gas_limit` is `None`, or
         // - both are `Some` but the values differ.
-        if let Some(updated_gas_limit) = updated.gas_limit {
-            if self.gas_limit != Some(updated_gas_limit) {
-                self.gas_limit = Some(updated_gas_limit);
-                changed = true;
-            }
+        if let Some(updated_gas_limit) = updated.gas_limit
+            && self.gas_limit != Some(updated_gas_limit)
+        {
+            self.gas_limit = Some(updated_gas_limit);
+            changed = true;
         }
 
         // Update `update_epoch` if it differs
@@ -740,18 +740,18 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// Returns the `Self::is_synced` response if unable to get latest block.
     pub async fn is_synced_for_notifier(&self, current_slot: Slot) -> bool {
         let synced = self.is_synced().await;
-        if synced {
-            if let Ok(Some(block)) = self
+        if synced
+            && let Ok(Some(block)) = self
                 .engine()
                 .api
                 .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
                 .await
-            {
-                if block.block_number == 0 && current_slot > 0 {
-                    return false;
-                }
-            }
+            && block.block_number == 0
+            && current_slot > 0
+        {
+            return false;
         }
+
         synced
     }
 
@@ -1479,17 +1479,17 @@ impl<E: EthSpec> ExecutionLayer<E> {
         let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
-        if let Some(ref payload_attributes) = payload_attributes {
-            if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                let timestamp = Duration::from_secs(payload_attributes.timestamp());
-                if let Some(lookahead) = timestamp.checked_sub(now) {
-                    metrics::observe_duration(
-                        &metrics::EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD,
-                        lookahead,
-                    );
-                } else {
-                    debug!(?timestamp, ?now, "Late payload attributes")
-                }
+        if let Some(ref payload_attributes) = payload_attributes
+            && let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH)
+        {
+            let timestamp = Duration::from_secs(payload_attributes.timestamp());
+            if let Some(lookahead) = timestamp.checked_sub(now) {
+                metrics::observe_duration(
+                    &metrics::EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD,
+                    lookahead,
+                );
+            } else {
+                debug!(?timestamp, ?now, "Late payload attributes")
             }
         }
 
@@ -1717,14 +1717,13 @@ impl<E: EthSpec> ExecutionLayer<E> {
 
         self.engine()
             .request(|engine| async move {
-                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
-                    if let Some(pow_parent) =
+                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await?
+                    && let Some(pow_parent) =
                         self.get_pow_block(engine, pow_block.parent_hash).await?
-                    {
-                        return Ok(Some(
-                            self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
-                        ));
-                    }
+                {
+                    return Ok(Some(
+                        self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
+                    ));
                 }
                 Ok(None)
             })

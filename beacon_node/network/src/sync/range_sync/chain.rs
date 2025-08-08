@@ -311,43 +311,41 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         //
         // First try our optimistic start, if any. If this batch is ready, we process it. If the
         // batch has not already been completed, check the current chain target.
-        if let Some(epoch) = self.optimistic_start {
-            if let Some(batch) = self.batches.get(&epoch) {
-                let state = batch.state();
-                match state {
-                    BatchState::AwaitingProcessing(..) => {
-                        // this batch is ready
-                        debug!(%epoch, "Processing optimistic start");
-                        return self.process_batch(network, epoch);
-                    }
-                    BatchState::Downloading(..) => {
-                        // The optimistic batch is being downloaded. We wait for this before
-                        // attempting to process other batches.
-                        return Ok(KeepChain);
-                    }
-                    BatchState::Poisoned => unreachable!("Poisoned batch"),
-                    BatchState::Processing(_)
-                    | BatchState::AwaitingDownload
-                    | BatchState::Failed => {
-                        // these are all inconsistent states:
-                        // - Processing -> `self.current_processing_batch` is None
-                        // - Failed -> non recoverable batch. For an optimistic batch, it should
-                        //   have been removed
-                        // - AwaitingDownload -> A recoverable failed batch should have been
-                        //   re-requested.
-                        return Err(RemoveChain::WrongChainState(format!(
-                            "Optimistic batch indicates inconsistent chain state: {:?}",
-                            state
-                        )));
-                    }
-                    BatchState::AwaitingValidation(_) => {
-                        // If an optimistic start is given to the chain after the corresponding
-                        // batch has been requested and processed we can land here. We drop the
-                        // optimistic candidate since we can't conclude whether the batch included
-                        // blocks or not at this point
-                        debug!(batch = %epoch, "Dropping optimistic candidate");
-                        self.optimistic_start = None;
-                    }
+        if let Some(epoch) = self.optimistic_start
+            && let Some(batch) = self.batches.get(&epoch)
+        {
+            let state = batch.state();
+            match state {
+                BatchState::AwaitingProcessing(..) => {
+                    // this batch is ready
+                    debug!(%epoch, "Processing optimistic start");
+                    return self.process_batch(network, epoch);
+                }
+                BatchState::Downloading(..) => {
+                    // The optimistic batch is being downloaded. We wait for this before
+                    // attempting to process other batches.
+                    return Ok(KeepChain);
+                }
+                BatchState::Poisoned => unreachable!("Poisoned batch"),
+                BatchState::Processing(_) | BatchState::AwaitingDownload | BatchState::Failed => {
+                    // these are all inconsistent states:
+                    // - Processing -> `self.current_processing_batch` is None
+                    // - Failed -> non recoverable batch. For an optimistic batch, it should
+                    //   have been removed
+                    // - AwaitingDownload -> A recoverable failed batch should have been
+                    //   re-requested.
+                    return Err(RemoveChain::WrongChainState(format!(
+                        "Optimistic batch indicates inconsistent chain state: {:?}",
+                        state
+                    )));
+                }
+                BatchState::AwaitingValidation(_) => {
+                    // If an optimistic start is given to the chain after the corresponding
+                    // batch has been requested and processed we can land here. We drop the
+                    // optimistic candidate since we can't conclude whether the batch included
+                    // blocks or not at this point
+                    debug!(batch = %epoch, "Dropping optimistic candidate");
+                    self.optimistic_start = None;
                 }
             }
         }
@@ -662,10 +660,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
                     debug!(batch = %id, %batch, "Advancing chain while processing a batch");
-                    if let Some(processing_id) = self.current_processing_batch {
-                        if id <= processing_id {
-                            self.current_processing_batch = None;
-                        }
+                    if let Some(processing_id) = self.current_processing_batch
+                        && id <= processing_id
+                    {
+                        self.current_processing_batch = None;
                     }
                 }
             }
@@ -680,11 +678,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // won't have this batch, so we need to request it.
             self.to_be_downloaded += EPOCHS_PER_BATCH;
         }
-        if let Some(epoch) = self.optimistic_start {
-            if epoch <= validating_epoch {
-                self.optimistic_start = None;
-            }
+        if let Some(epoch) = self.optimistic_start
+            && epoch <= validating_epoch
+        {
+            self.optimistic_start = None;
         }
+
         debug!(
             previous_start = %old_start,
             new_start = %self.start_epoch,

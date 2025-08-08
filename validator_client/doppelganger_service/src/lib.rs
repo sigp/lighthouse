@@ -261,8 +261,8 @@ impl DoppelgangerService {
                         continue;
                     }
 
-                    if let Some(slot) = slot_clock.now() {
-                        if let Err(e) = service
+                    if let Some(slot) = slot_clock.now()
+                        && let Err(e) = service
                             .detect_doppelgangers::<E, _, _, _, _>(
                                 slot,
                                 &get_index,
@@ -270,12 +270,11 @@ impl DoppelgangerService {
                                 &mut shutdown_func,
                             )
                             .await
-                        {
-                            error!(
-                                error = ?e,
-                                "Error during doppelganger detection"
-                            );
-                        }
+                    {
+                        error!(
+                            error = ?e,
+                            "Error during doppelganger detection"
+                        );
                     }
                 }
             },

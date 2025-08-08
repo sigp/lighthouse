@@ -223,10 +223,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     ) -> Result<(), BeaconChainError> {
         if let Some(latest_sync_committee) =
             self.latest_written_current_sync_committee.read().clone()
+            && latest_sync_committee == cached_parts.current_sync_committee
         {
-            if latest_sync_committee == cached_parts.current_sync_committee {
-                return Ok(());
-            }
+            return Ok(());
         };
 
         if finalized_period + 1 >= sync_committee_period {

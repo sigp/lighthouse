@@ -2054,10 +2054,10 @@ where
     D: Deserializer<'de>,
 {
     let decoded: Option<MaybeQuoted<Epoch>> = serde::de::Deserialize::deserialize(deserializer)?;
-    if let Some(fork_epoch) = decoded {
-        if fork_epoch.value != Epoch::max_value() {
-            return Ok(Some(fork_epoch));
-        }
+    if let Some(fork_epoch) = decoded
+        && fork_epoch.value != Epoch::max_value()
+    {
+        return Ok(Some(fork_epoch));
     }
     Ok(None)
 }

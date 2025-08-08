@@ -2511,19 +2511,17 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         // Use sync committees from `base` if they are equal.
-        if let Ok(current_sync_committee) = self.current_sync_committee_mut() {
-            if let Ok(base_sync_committee) = base.current_sync_committee() {
-                if current_sync_committee == base_sync_committee {
-                    *current_sync_committee = base_sync_committee.clone();
-                }
-            }
+        if let Ok(current_sync_committee) = self.current_sync_committee_mut()
+            && let Ok(base_sync_committee) = base.current_sync_committee()
+            && current_sync_committee == base_sync_committee
+        {
+            *current_sync_committee = base_sync_committee.clone();
         }
-        if let Ok(next_sync_committee) = self.next_sync_committee_mut() {
-            if let Ok(base_sync_committee) = base.next_sync_committee() {
-                if next_sync_committee == base_sync_committee {
-                    *next_sync_committee = base_sync_committee.clone();
-                }
-            }
+        if let Ok(next_sync_committee) = self.next_sync_committee_mut()
+            && let Ok(base_sync_committee) = base.next_sync_committee()
+            && next_sync_committee == base_sync_committee
+        {
+            *next_sync_committee = base_sync_committee.clone();
         }
 
         // Rebase caches like the committee caches and the pubkey cache, which are expensive to

@@ -130,11 +130,10 @@ async fn get_events_until_timeout<S: Stream<Item = SubnetServiceMessage> + Unpin
         tokio::select! {
             Some(event) = stream.next() => {
                 events.push(event);
-                if let Some(num) = num_events {
-                    if events.len() == num {
+                if let Some(num) = num_events
+                    && events.len() == num {
                         break;
                     }
-                }
             }
             _ = sleep.as_mut() => {
                 break;

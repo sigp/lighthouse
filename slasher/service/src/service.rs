@@ -211,15 +211,14 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             beacon_chain.import_attester_slashing(verified_slashing);
 
             // Publish to the network if broadcast is enabled.
-            if slasher.config().broadcast {
-                if let Err(e) =
+            if slasher.config().broadcast
+                && let Err(e) =
                     Self::publish_attester_slashing(beacon_chain, network_sender, slashing)
-                {
-                    debug!(
-                        error = ?e,
-                        "Unable to publish attester slashing"
-                    );
-                }
+            {
+                debug!(
+                    error = ?e,
+                    "Unable to publish attester slashing"
+                );
             }
         }
     }
@@ -260,15 +259,14 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             };
             beacon_chain.import_proposer_slashing(verified_slashing);
 
-            if slasher.config().broadcast {
-                if let Err(e) =
+            if slasher.config().broadcast
+                && let Err(e) =
                     Self::publish_proposer_slashing(beacon_chain, network_sender, slashing)
-                {
-                    debug!(
-                        error = ?e,
-                        "Unable to publish proposer slashing"
-                    );
-                }
+            {
+                debug!(
+                    error = ?e,
+                    "Unable to publish proposer slashing"
+                );
             }
         }
     }

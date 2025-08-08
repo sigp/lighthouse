@@ -336,15 +336,16 @@ where
             debug!(id = chain.id(), ?sync_type, reason = ?remove_reason, op, "Chain removed");
         }
 
-        if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
-            if RangeSyncType::Finalized == sync_type && blacklist {
-                warn!(
-                    id = chain.id(),
-                    "Chain failed! Syncing to its head won't be retried for at least the next {} seconds",
-                    FAILED_CHAINS_EXPIRY_SECONDS
-                );
-                self.failed_chains.insert(chain.target_head_root);
-            }
+        if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason
+            && RangeSyncType::Finalized == sync_type
+            && blacklist
+        {
+            warn!(
+                id = chain.id(),
+                "Chain failed! Syncing to its head won't be retried for at least the next {} seconds",
+                FAILED_CHAINS_EXPIRY_SECONDS
+            );
+            self.failed_chains.insert(chain.target_head_root);
         }
 
         metrics::inc_counter_vec_by(

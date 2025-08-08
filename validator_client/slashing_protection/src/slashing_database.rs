@@ -356,15 +356,15 @@ impl SlashingDatabase {
             .prepare("SELECT MIN(slot) FROM signed_blocks WHERE validator_id = ?1")?
             .query_row(params![validator_id], |row| row.get(0))?;
 
-        if let Some(min_slot) = min_slot {
-            if slot <= min_slot {
-                return Err(NotSafe::InvalidBlock(
-                    InvalidBlock::SlotViolatesLowerBound {
-                        block_slot: slot,
-                        bound_slot: min_slot,
-                    },
-                ));
-            }
+        if let Some(min_slot) = min_slot
+            && slot <= min_slot
+        {
+            return Err(NotSafe::InvalidBlock(
+                InvalidBlock::SlotViolatesLowerBound {
+                    block_slot: slot,
+                    bound_slot: min_slot,
+                },
+            ));
         }
 
         Ok(Safe::Valid)
@@ -467,30 +467,30 @@ impl SlashingDatabase {
             .prepare("SELECT MIN(source_epoch) FROM signed_attestations WHERE validator_id = ?1")?
             .query_row(params![validator_id], |row| row.get(0))?;
 
-        if let Some(min_source) = min_source {
-            if att_source_epoch < min_source {
-                return Err(NotSafe::InvalidAttestation(
-                    InvalidAttestation::SourceLessThanLowerBound {
-                        source_epoch: att_source_epoch,
-                        bound_epoch: min_source,
-                    },
-                ));
-            }
+        if let Some(min_source) = min_source
+            && att_source_epoch < min_source
+        {
+            return Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::SourceLessThanLowerBound {
+                    source_epoch: att_source_epoch,
+                    bound_epoch: min_source,
+                },
+            ));
         }
 
         let min_target = txn
             .prepare("SELECT MIN(target_epoch) FROM signed_attestations WHERE validator_id = ?1")?
             .query_row(params![validator_id], |row| row.get(0))?;
 
-        if let Some(min_target) = min_target {
-            if att_target_epoch <= min_target {
-                return Err(NotSafe::InvalidAttestation(
-                    InvalidAttestation::TargetLessThanOrEqLowerBound {
-                        target_epoch: att_target_epoch,
-                        bound_epoch: min_target,
-                    },
-                ));
-            }
+        if let Some(min_target) = min_target
+            && att_target_epoch <= min_target
+        {
+            return Err(NotSafe::InvalidAttestation(
+                InvalidAttestation::TargetLessThanOrEqLowerBound {
+                    target_epoch: att_target_epoch,
+                    bound_epoch: min_target,
+                },
+            ));
         }
 
         // Everything has been checked, return Valid

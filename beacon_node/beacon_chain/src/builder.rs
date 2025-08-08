@@ -1037,25 +1037,25 @@ where
             .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
 
         // Only perform the check if it was configured.
-        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
-            if let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
+        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint
+            && let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
                 wss_checkpoint,
                 head.beacon_block_root,
                 &head.beacon_state,
-            ) {
-                crit!(
-                    head_block_root = %head.beacon_block_root,
-                    head_slot = %head.beacon_block.slot(),
-                    finalized_epoch = %head.beacon_state.finalized_checkpoint().epoch,
-                    wss_checkpoint_epoch = %wss_checkpoint.epoch,
-                    error = ?e,
-                    "Weak subjectivity checkpoint verification failed on startup!"
-                );
-                crit!(
-                    "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network."
-                );
-                return Err(format!("Weak subjectivity verification failed: {:?}", e));
-            }
+            )
+        {
+            crit!(
+                head_block_root = %head.beacon_block_root,
+                head_slot = %head.beacon_block.slot(),
+                finalized_epoch = %head.beacon_state.finalized_checkpoint().epoch,
+                wss_checkpoint_epoch = %wss_checkpoint.epoch,
+                error = ?e,
+                "Weak subjectivity checkpoint verification failed on startup!"
+            );
+            crit!(
+                "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network."
+            );
+            return Err(format!("Weak subjectivity verification failed: {:?}", e));
         }
 
         info!(

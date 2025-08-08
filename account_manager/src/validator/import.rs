@@ -232,14 +232,15 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                     },
                 ..
             }) = old_validator_def_opt
+                && old_passwd.is_none()
+                && password_opt.is_some()
             {
-                if old_passwd.is_none() && password_opt.is_some() {
-                    *old_passwd = password_opt;
-                    defs.save(&validator_dir)
-                        .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
-                    eprintln!("Password updated for public key {}", voting_pubkey);
-                }
+                *old_passwd = password_opt;
+                defs.save(&validator_dir)
+                    .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
+                eprintln!("Password updated for public key {}", voting_pubkey);
             }
+
             eprintln!(
                 "Skipping import of keystore for existing public key: {:?}",
                 src_keystore

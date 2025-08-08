@@ -179,10 +179,10 @@ impl<E: EthSpec> PeerInfo<E> {
     pub fn long_lived_subnet_count(&self) -> usize {
         if let Some(meta_data) = self.meta_data.as_ref() {
             return meta_data.attnets().num_set_bits();
-        } else if let Some(enr) = self.enr.as_ref() {
-            if let Ok(attnets) = enr.attestation_bitfield::<E>() {
-                return attnets.num_set_bits();
-            }
+        } else if let Some(enr) = self.enr.as_ref()
+            && let Ok(attnets) = enr.attestation_bitfield::<E>()
+        {
+            return attnets.num_set_bits();
         }
         0
     }
@@ -247,20 +247,20 @@ impl<E: EthSpec> PeerInfo<E> {
             if !meta_data.attnets().is_zero() && !self.subnets.is_empty() {
                 return true;
             }
-            if let Ok(sync) = meta_data.syncnets() {
-                if !sync.is_zero() {
-                    return true;
-                }
+            if let Ok(sync) = meta_data.syncnets()
+                && !sync.is_zero()
+            {
+                return true;
             }
         }
 
         // We may not have the metadata but may have an ENR. Lets check that
-        if let Some(enr) = self.enr.as_ref() {
-            if let Ok(attnets) = enr.attestation_bitfield::<E>() {
-                if !attnets.is_zero() && !self.subnets.is_empty() {
-                    return true;
-                }
-            }
+        if let Some(enr) = self.enr.as_ref()
+            && let Ok(attnets) = enr.attestation_bitfield::<E>()
+            && !attnets.is_zero()
+            && !self.subnets.is_empty()
+        {
+            return true;
         }
         false
     }

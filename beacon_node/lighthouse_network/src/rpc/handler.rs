@@ -848,23 +848,22 @@ where
         }
 
         // Check if we have completed sending a goodbye, disconnect.
-        if let HandlerState::ShuttingDown(_) = self.state {
-            if self.dial_queue.is_empty()
-                && self.outbound_substreams.is_empty()
-                && self.inbound_substreams.is_empty()
-                && self.events_out.is_empty()
-                && self.dial_negotiated == 0
-            {
-                debug!(
-                    peer_id = %self.peer_id,
-                    connection_id = %self.connection_id,
-                    "Goodbye sent, Handler deactivated"
-                );
-                self.state = HandlerState::Deactivated;
-                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    HandlerEvent::Close(RPCError::Disconnected),
-                ));
-            }
+        if let HandlerState::ShuttingDown(_) = self.state
+            && self.dial_queue.is_empty()
+            && self.outbound_substreams.is_empty()
+            && self.inbound_substreams.is_empty()
+            && self.events_out.is_empty()
+            && self.dial_negotiated == 0
+        {
+            debug!(
+                peer_id = %self.peer_id,
+                connection_id = %self.connection_id,
+                "Goodbye sent, Handler deactivated"
+            );
+            self.state = HandlerState::Deactivated;
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                HandlerEvent::Close(RPCError::Disconnected),
+            ));
         }
 
         Poll::Pending

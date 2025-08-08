@@ -124,10 +124,10 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn merge_single_blob(&mut self, index: usize, blob: KzgVerifiedBlob<E>) {
         if let Some(cached_block) = self.get_cached_block() {
             let block_commitment_opt = cached_block.get_commitments().get(index).copied();
-            if let Some(block_commitment) = block_commitment_opt {
-                if block_commitment == *blob.get_commitment() {
-                    self.insert_blob_at_index(index, blob)
-                }
+            if let Some(block_commitment) = block_commitment_opt
+                && block_commitment == *blob.get_commitment()
+            {
+                self.insert_blob_at_index(index, blob)
             }
         } else if !self.blob_exists(index) {
             self.insert_blob_at_index(index, blob)
@@ -683,10 +683,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut write_lock = self.critical.write();
         let mut keys_to_remove = vec![];
         for (key, value) in write_lock.iter() {
-            if let Some(epoch) = value.epoch() {
-                if epoch < cutoff_epoch {
-                    keys_to_remove.push(*key);
-                }
+            if let Some(epoch) = value.epoch()
+                && epoch < cutoff_epoch
+            {
+                keys_to_remove.push(*key);
             }
         }
         // Now remove keys

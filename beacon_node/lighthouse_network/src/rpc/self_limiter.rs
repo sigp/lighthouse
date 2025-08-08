@@ -130,24 +130,23 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         request_id: Id,
         req: RequestType<E>,
     ) -> Result<RPCSend<Id, E>, (QueuedRequest<Id, E>, Duration)> {
-        if let Some(active_request) = active_requests.get(&peer_id) {
-            if let Some(count) = active_request.get(&req.protocol()) {
-                if *count >= MAX_CONCURRENT_REQUESTS {
-                    debug!(
-                        %peer_id,
-                        protocol = %req.protocol(),
-                        "Self rate limiting due to the number of concurrent requests"
-                    );
-                    return Err((
-                        QueuedRequest {
-                            req,
-                            request_id,
-                            queued_at: timestamp_now(),
-                        },
-                        Duration::from_millis(WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS),
-                    ));
-                }
-            }
+        if let Some(active_request) = active_requests.get(&peer_id)
+            && let Some(count) = active_request.get(&req.protocol())
+            && *count >= MAX_CONCURRENT_REQUESTS
+        {
+            debug!(
+                %peer_id,
+                protocol = %req.protocol(),
+                "Self rate limiting due to the number of concurrent requests"
+            );
+            return Err((
+                QueuedRequest {
+                    req,
+                    request_id,
+                    queued_at: timestamp_now(),
+                },
+                Duration::from_millis(WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS),
+            ));
         }
 
         if let Some(limiter) = rate_limiter.as_mut() {
@@ -258,13 +257,13 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
 
     /// Informs the limiter that a response has been received.
     pub fn request_completed(&mut self, peer_id: &PeerId, protocol: Protocol) {
-        if let Some(active_requests) = self.active_requests.get_mut(peer_id) {
-            if let Entry::Occupied(mut entry) = active_requests.entry(protocol) {
-                if *entry.get() > 1 {
-                    *entry.get_mut() -= 1;
-                } else {
-                    entry.remove();
-                }
+        if let Some(active_requests) = self.active_requests.get_mut(peer_id)
+            && let Entry::Occupied(mut entry) = active_requests.entry(protocol)
+        {
+            if *entry.get() > 1 {
+                *entry.get_mut() -= 1;
+            } else {
+                entry.remove();
             }
         }
     }

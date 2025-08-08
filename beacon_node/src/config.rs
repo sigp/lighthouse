@@ -490,14 +490,15 @@ pub fn get_config<E: EthSpec>(
     );
 
     // Only append network config bootnodes if discovery is not disabled
-    if !client_config.network.disable_discovery {
-        if let Some(boot_nodes) = &eth2_network_config.boot_enr {
-            client_config
-                .network
-                .boot_nodes_enr
-                .extend_from_slice(boot_nodes)
-        }
+    if !client_config.network.disable_discovery
+        && let Some(boot_nodes) = &eth2_network_config.boot_enr
+    {
+        client_config
+            .network
+            .boot_nodes_enr
+            .extend_from_slice(boot_nodes)
     }
+
     client_config.chain.checkpoint_sync_url_timeout =
         clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 

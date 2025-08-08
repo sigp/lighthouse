@@ -144,11 +144,11 @@ impl TaskExecutor {
         if let Some(handle) = self.handle() {
             let fut = async move {
                 let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
-                if let Err(join_error) = task_handle.await {
-                    if let Ok(_panic) = join_error.try_into_panic() {
-                        let _ = shutdown_sender
-                            .try_send(ShutdownReason::Failure("Panic (fatal error)"));
-                    }
+                if let Err(join_error) = task_handle.await
+                    && let Ok(_panic) = join_error.try_into_panic()
+                {
+                    let _ =
+                        shutdown_sender.try_send(ShutdownReason::Failure("Panic (fatal error)"));
                 }
                 drop(timer);
             };

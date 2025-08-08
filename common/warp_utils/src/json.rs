@@ -20,12 +20,12 @@ pub fn json<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T,), Error =
     warp::header::optional::<String>(CONTENT_TYPE_HEADER)
         .and(warp::body::bytes())
         .and_then(|header: Option<String>, bytes: Bytes| async move {
-            if let Some(header) = header {
-                if header == SSZ_CONTENT_TYPE_HEADER {
-                    return Err(reject::unsupported_media_type(
-                        "The request's content-type is not supported".to_string(),
-                    ));
-                }
+            if let Some(header) = header
+                && header == SSZ_CONTENT_TYPE_HEADER
+            {
+                return Err(reject::unsupported_media_type(
+                    "The request's content-type is not supported".to_string(),
+                ));
             }
             Json::decode(bytes)
                 .map_err(|err| reject::custom_deserialize_error(format!("{:?}", err)))
@@ -38,12 +38,12 @@ pub fn json_no_body<T: DeserializeOwned + Default + Send>()
     warp::header::optional::<String>(CONTENT_TYPE_HEADER)
         .and(warp::body::bytes())
         .and_then(|header: Option<String>, bytes: Bytes| async move {
-            if let Some(header) = header {
-                if header == SSZ_CONTENT_TYPE_HEADER {
-                    return Err(reject::unsupported_media_type(
-                        "The request's content-type is not supported".to_string(),
-                    ));
-                }
+            if let Some(header) = header
+                && header == SSZ_CONTENT_TYPE_HEADER
+            {
+                return Err(reject::unsupported_media_type(
+                    "The request's content-type is not supported".to_string(),
+                ));
             }
 
             // Handle the case when the HTTP request has no body, i.e., without the -d header

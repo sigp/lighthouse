@@ -1060,13 +1060,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         // Beacon API block_gossip events
-        if let Some(event_handler) = chain.event_handler.as_ref() {
-            if event_handler.has_block_gossip_subscribers() {
-                event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
-                    slot: block.slot(),
-                    block: block_root,
-                })));
-            }
+        if let Some(event_handler) = chain.event_handler.as_ref()
+            && event_handler.has_block_gossip_subscribers()
+        {
+            event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
+                slot: block.slot(),
+                block: block_root,
+            })));
         }
 
         // Having checked the proposer index and the block root we can cache them.
@@ -1594,18 +1594,18 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * If we have block reward listeners, compute the block reward and push it to the
          * event handler.
          */
-        if let Some(ref event_handler) = chain.event_handler {
-            if event_handler.has_block_reward_subscribers() {
-                let mut reward_cache = Default::default();
-                let block_reward = chain.compute_block_reward(
-                    block.message(),
-                    block_root,
-                    &state,
-                    &mut reward_cache,
-                    true,
-                )?;
-                event_handler.register(EventKind::BlockReward(block_reward));
-            }
+        if let Some(ref event_handler) = chain.event_handler
+            && event_handler.has_block_reward_subscribers()
+        {
+            let mut reward_cache = Default::default();
+            let block_reward = chain.compute_block_reward(
+                block.message(),
+                block_root,
+                &state,
+                &mut reward_cache,
+                true,
+            )?;
+            event_handler.register(EventKind::BlockReward(block_reward));
         }
 
         /*

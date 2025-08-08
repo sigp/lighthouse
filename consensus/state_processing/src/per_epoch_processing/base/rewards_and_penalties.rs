@@ -190,16 +190,15 @@ fn get_attestation_deltas<E: EthSpec>(
                 .combine(inactivity_penalty_delta)?;
         }
 
-        if let ProposerRewardCalculation::Include = proposer_reward {
-            if let Some((proposer_index, proposer_delta)) = proposer_delta {
-                if include_validator_delta(proposer_index) {
-                    deltas
-                        .get_mut(proposer_index)
-                        .ok_or(Error::ValidatorStatusesInconsistent)?
-                        .inclusion_delay_delta
-                        .combine(proposer_delta)?;
-                }
-            }
+        if let ProposerRewardCalculation::Include = proposer_reward
+            && let Some((proposer_index, proposer_delta)) = proposer_delta
+            && include_validator_delta(proposer_index)
+        {
+            deltas
+                .get_mut(proposer_index)
+                .ok_or(Error::ValidatorStatusesInconsistent)?
+                .inclusion_delay_delta
+                .combine(proposer_delta)?;
         }
     }
 

@@ -509,10 +509,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         // This is meant to cover starting post-merge transition at genesis. Useful for
         // testing Capella forks and later.
         let head_block_hash = forkchoice_state.head_block_hash;
-        if let Some(genesis_pow_block) = self.block_by_number(0) {
-            if genesis_pow_block.block_hash() == head_block_hash {
-                self.terminal_block_hash = head_block_hash;
-            }
+        if let Some(genesis_pow_block) = self.block_by_number(0)
+            && genesis_pow_block.block_hash() == head_block_hash
+        {
+            self.terminal_block_hash = head_block_hash;
         }
 
         if let Some(payload) = self.pending_payloads.remove(&head_block_hash) {

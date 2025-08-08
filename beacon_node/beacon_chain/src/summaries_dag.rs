@@ -322,15 +322,15 @@ impl StateSummariesDAG {
         loop {
             if let Some(summary) = self.state_summaries_by_state_root.get(&state_root) {
                 // Detect cycles, including the case where `previous_state_root == state_root`.
-                if let Some(last_slot) = last_slot {
-                    if summary.slot >= last_slot {
-                        return Err(Error::CircularAncestorChain {
-                            state_root,
-                            previous_state_root: summary.previous_state_root,
-                            slot: summary.slot,
-                            last_slot,
-                        });
-                    }
+                if let Some(last_slot) = last_slot
+                    && summary.slot >= last_slot
+                {
+                    return Err(Error::CircularAncestorChain {
+                        state_root,
+                        previous_state_root: summary.previous_state_root,
+                        slot: summary.slot,
+                        last_slot,
+                    });
                 }
 
                 ancestors.push((state_root, summary.slot));

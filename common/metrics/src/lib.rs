@@ -422,10 +422,10 @@ pub trait TryExt {
 
 impl<T, E> TryExt for std::result::Result<T, E> {
     fn discard_timer_on_break(self, timer_opt: &mut Option<HistogramTimer>) -> Self {
-        if self.is_err() {
-            if let Some(timer) = timer_opt.take() {
-                timer.stop_and_discard();
-            }
+        if self.is_err()
+            && let Some(timer) = timer_opt.take()
+        {
+            timer.stop_and_discard();
         }
         self
     }
@@ -433,10 +433,10 @@ impl<T, E> TryExt for std::result::Result<T, E> {
 
 impl<T> TryExt for Option<T> {
     fn discard_timer_on_break(self, timer_opt: &mut Option<HistogramTimer>) -> Self {
-        if self.is_none() {
-            if let Some(timer) = timer_opt.take() {
-                timer.stop_and_discard();
-            }
+        if self.is_none()
+            && let Some(timer) = timer_opt.take()
+        {
+            timer.stop_and_discard();
         }
         self
     }

@@ -654,10 +654,10 @@ impl TestRig {
 
         loop {
             // Break if we've received the requested count of messages
-            if let Some(target_count) = count {
-                if events.len() >= target_count {
-                    break;
-                }
+            if let Some(target_count) = count
+                && events.len() >= target_count
+            {
+                break;
             }
 
             tokio::select! {

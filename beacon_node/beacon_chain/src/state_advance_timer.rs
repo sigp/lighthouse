@@ -241,14 +241,14 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                 beacon_chain.task_executor.clone().spawn_blocking(
                     move || {
                         // Signal block proposal for the next slot (if it happens to be waiting).
-                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
-                            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
-                                warn!(
-                                    error = ?e,
-                                    slot = %next_slot,
-                                    "Error signalling fork choice waiter"
-                                );
-                            }
+                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx
+                            && let Err(e) = tx.notify_fork_choice_complete(next_slot)
+                        {
+                            warn!(
+                                error = ?e,
+                                slot = %next_slot,
+                                "Error signalling fork choice waiter"
+                            );
                         }
                     },
                     "fork_choice_advance_signal_tx",

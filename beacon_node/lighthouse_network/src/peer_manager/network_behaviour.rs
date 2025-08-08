@@ -340,10 +340,10 @@ impl<E: EthSpec> PeerManager<E> {
     /// connects and the dial attempt later fails. To handle this, we only update the peer_db if
     /// the peer is not already connected.
     fn on_dial_failure(&mut self, peer_id: Option<PeerId>) {
-        if let Some(peer_id) = peer_id {
-            if !self.network_globals.peers.read().is_connected(&peer_id) {
-                self.inject_disconnect(&peer_id);
-            }
+        if let Some(peer_id) = peer_id
+            && !self.network_globals.peers.read().is_connected(&peer_id)
+        {
+            self.inject_disconnect(&peer_id);
         }
     }
 }

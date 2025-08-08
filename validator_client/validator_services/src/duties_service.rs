@@ -1362,15 +1362,14 @@ async fn poll_beacon_proposers<S: ValidatorStore, T: SlotClock + 'static>(
                     .proposers
                     .write()
                     .insert(current_epoch, (dependent_root, relevant_duties))
+                    && dependent_root != prior_dependent_root
                 {
-                    if dependent_root != prior_dependent_root {
-                        warn!(
-                            %prior_dependent_root,
-                            %dependent_root,
-                            msg = "this may happen from time to time",
-                            "Proposer duties re-org"
-                        )
-                    }
+                    warn!(
+                        %prior_dependent_root,
+                        %dependent_root,
+                        msg = "this may happen from time to time",
+                        "Proposer duties re-org"
+                    )
                 }
             }
             // Don't return early here, we still want to try and produce blocks using the cached values.
@@ -1433,21 +1432,20 @@ async fn notify_block_production_service<S: ValidatorStore>(
         .copied()
         .collect::<Vec<_>>();
 
-    if !non_doppelganger_proposers.is_empty() {
-        if let Err(e) = block_service_tx
+    if !non_doppelganger_proposers.is_empty()
+        && let Err(e) = block_service_tx
             .send(BlockServiceNotification {
                 slot: current_slot,
                 block_proposers: non_doppelganger_proposers,
             })
             .await
-        {
-            error!(
-                %current_slot,
-                error = %e,
-                "Failed to notify block service"
-            );
-        };
-    }
+    {
+        error!(
+            %current_slot,
+            error = %e,
+            "Failed to notify block service"
+        );
+    };
 }
 
 #[cfg(test)]

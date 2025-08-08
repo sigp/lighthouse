@@ -906,19 +906,17 @@ impl<E: EthSpec> Network<E> {
             MessageAcceptance::Accept => None,
             MessageAcceptance::Ignore => Some("ignore"),
             MessageAcceptance::Reject => Some("reject"),
-        } {
-            if let Some(client) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(propagation_source)
-                .map(|info| info.client().kind.as_ref())
-            {
-                metrics::inc_counter_vec(
-                    &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
-                    &[client, result],
-                )
-            }
+        } && let Some(client) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(propagation_source)
+            .map(|info| info.client().kind.as_ref())
+        {
+            metrics::inc_counter_vec(
+                &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
+                &[client, result],
+            )
         }
 
         self.gossipsub_mut().report_message_validation_result(
@@ -1000,12 +998,11 @@ impl<E: EthSpec> Network<E> {
         if let Err(response) = self
             .eth2_rpc_mut()
             .send_response(inbound_request_id, response.into())
+            && self.network_globals.peers.read().is_connected(&peer_id)
         {
-            if self.network_globals.peers.read().is_connected(&peer_id) {
-                error!(%peer_id, ?inbound_request_id, %response,
-                    "Request not found in RPC active requests"
-                );
-            }
+            error!(%peer_id, ?inbound_request_id, %response,
+                "Request not found in RPC active requests"
+            );
         }
     }
 

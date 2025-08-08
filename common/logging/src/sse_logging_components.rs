@@ -45,13 +45,12 @@ impl<S: Subscriber> Layer<S> for SSELoggingComponents {
             .get("fields")
             .and_then(|fields| fields.get("error_type"))
             .and_then(|val| val.as_str())
+            && error_type.eq_ignore_ascii_case("crit")
         {
-            if error_type.eq_ignore_ascii_case("crit") {
-                log_entry["level"] = json!("CRIT");
+            log_entry["level"] = json!("CRIT");
 
-                if let Some(Value::Object(map)) = log_entry.get_mut("fields") {
-                    map.remove("error_type");
-                }
+            if let Some(Value::Object(map)) = log_entry.get_mut("fields") {
+                map.remove("error_type");
             }
         }
 

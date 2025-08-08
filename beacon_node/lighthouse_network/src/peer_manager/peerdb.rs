@@ -413,12 +413,11 @@ impl<E: EthSpec> PeerDB<E> {
             .peers
             .iter()
             .filter_map(|(peer_id, info)| {
-                if let PeerConnectionStatus::Dialing { since } = info.connection_status() {
-                    if (*since) + std::time::Duration::from_secs(DIAL_TIMEOUT)
+                if let PeerConnectionStatus::Dialing { since } = info.connection_status()
+                    && (*since) + std::time::Duration::from_secs(DIAL_TIMEOUT)
                         < std::time::Instant::now()
-                    {
-                        return Some(*peer_id);
-                    }
+                {
+                    return Some(*peer_id);
                 }
                 None
             })

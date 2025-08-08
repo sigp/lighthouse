@@ -127,12 +127,12 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
         }
         Some("teku") => {
             let kind = ClientKind::Teku;
-            if agent_split.next().is_some() {
-                if let Some(agent_version) = agent_split.next() {
-                    version = agent_version.into();
-                    if let Some(agent_os_version) = agent_split.next() {
-                        os_version = agent_os_version.into();
-                    }
+            if agent_split.next().is_some()
+                && let Some(agent_version) = agent_split.next()
+            {
+                version = agent_version.into();
+                if let Some(agent_os_version) = agent_split.next() {
+                    os_version = agent_os_version.into();
                 }
             }
             (kind, version, os_version)
@@ -143,24 +143,24 @@ fn client_from_agent_version(agent_version: &str) -> (ClientKind, String, String
         }
         Some("Prysm") => {
             let kind = ClientKind::Prysm;
-            if agent_split.next().is_some() {
-                if let Some(agent_version) = agent_split.next() {
-                    version = agent_version.into();
-                    if let Some(agent_os_version) = agent_split.next() {
-                        os_version = agent_os_version.into();
-                    }
+            if agent_split.next().is_some()
+                && let Some(agent_version) = agent_split.next()
+            {
+                version = agent_version.into();
+                if let Some(agent_os_version) = agent_split.next() {
+                    os_version = agent_os_version.into();
                 }
             }
             (kind, version, os_version)
         }
         Some("nimbus") => {
             let kind = ClientKind::Nimbus;
-            if agent_split.next().is_some() {
-                if let Some(agent_version) = agent_split.next() {
-                    version = agent_version.into();
-                    if let Some(agent_os_version) = agent_split.next() {
-                        os_version = agent_os_version.into();
-                    }
+            if agent_split.next().is_some()
+                && let Some(agent_version) = agent_split.next()
+            {
+                version = agent_version.into();
+                if let Some(agent_os_version) = agent_split.next() {
+                    os_version = agent_os_version.into();
                 }
             }
             (kind, version, os_version)

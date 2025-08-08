@@ -3641,15 +3641,15 @@ pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStor
             .ok_or(StateSummaryIteratorError::MissingSummary(state_root))?;
 
         // Protect against infinite loops if the state summaries are not strictly descending
-        if let Some(previous_slot) = previous_slot {
-            if state_summary.slot >= previous_slot {
-                drop(split);
-                return Err(StateSummaryIteratorError::CircularSummaries {
-                    state_root,
-                    state_slot: state_summary.slot,
-                    previous_slot,
-                });
-            }
+        if let Some(previous_slot) = previous_slot
+            && state_summary.slot >= previous_slot
+        {
+            drop(split);
+            return Err(StateSummaryIteratorError::CircularSummaries {
+                state_root,
+                state_slot: state_summary.slot,
+                previous_slot,
+            });
         }
         previous_slot = Some(state_summary.slot);
 

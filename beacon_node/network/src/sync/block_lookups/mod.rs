@@ -365,15 +365,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // Ensure that awaiting parent exists, otherwise this lookup won't be able to make progress
-        if let Some(awaiting_parent) = awaiting_parent {
-            if !self
+        if let Some(awaiting_parent) = awaiting_parent
+            && !self
                 .single_block_lookups
                 .iter()
                 .any(|(_, lookup)| lookup.is_for_block(awaiting_parent))
-            {
-                warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
-                return false;
-            }
+        {
+            warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
+            return false;
         }
 
         // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce

@@ -77,10 +77,10 @@ pub async fn run<E: EthSpec>(
             node_id = ?enr.node_id(),
             "Adding bootnode"
         );
-        if enr != local_enr {
-            if let Err(e) = discv5.add_enr(enr) {
-                warn!(error = ?e, "Failed adding ENR");
-            }
+        if enr != local_enr
+            && let Err(e) = discv5.add_enr(enr)
+        {
+            warn!(error = ?e, "Failed adding ENR");
         }
     }
 

@@ -505,15 +505,14 @@ impl VerifiedSyncCommitteeMessage {
                 validator_index as usize,
             )
             .map_err(BeaconChainError::from)?
+            && !should_override_prev(&prev_root, &new_root)
         {
-            if !should_override_prev(&prev_root, &new_root) {
-                return Err(Error::PriorSyncCommitteeMessageKnown {
-                    validator_index,
-                    slot: sync_message.slot,
-                    prev_root,
-                    new_root,
-                });
-            }
+            return Err(Error::PriorSyncCommitteeMessageKnown {
+                validator_index,
+                slot: sync_message.slot,
+                prev_root,
+                new_root,
+            });
         }
 
         // The aggregate signature of the sync committee message is valid.

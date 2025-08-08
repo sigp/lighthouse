@@ -467,12 +467,12 @@ fn context_bytes<E: EthSpec>(
     resp: &RpcResponse<E>,
 ) -> Option<[u8; CONTEXT_BYTES_LEN]> {
     // Add the context bytes if required
-    if protocol.has_context_bytes() {
-        if let RpcResponse::Success(rpc_variant) = resp {
-            return rpc_variant
-                .slot()
-                .map(|slot| fork_context.context_bytes(slot.epoch(E::slots_per_epoch())));
-        }
+    if protocol.has_context_bytes()
+        && let RpcResponse::Success(rpc_variant) = resp
+    {
+        return rpc_variant
+            .slot()
+            .map(|slot| fork_context.context_bytes(slot.epoch(E::slots_per_epoch())));
     }
     None
 }

@@ -223,15 +223,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             Ok(()) => {
                 // Schedule another reconstruction batch if required and we have access to the
                 // channel for requeueing.
-                if let Some(tx) = opt_tx {
-                    if !db.get_anchor_info().all_historic_states_stored() {
-                        if let Err(e) = tx.send(Notification::Reconstruction) {
-                            error!(
-                                error = ?e,
-                                "Unable to requeue reconstruction notification"
-                            );
-                        }
-                    }
+                if let Some(tx) = opt_tx
+                    && !db.get_anchor_info().all_historic_states_stored()
+                    && let Err(e) = tx.send(Notification::Reconstruction)
+                {
+                    error!(
+                        error = ?e,
+                        "Unable to requeue reconstruction notification"
+                    );
                 }
             }
             Err(e) => {

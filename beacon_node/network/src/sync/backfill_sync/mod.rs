@@ -753,10 +753,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
                     debug!(batch = %id, %batch, "Advancing chain while processing a batch");
-                    if let Some(processing_id) = self.current_processing_batch {
-                        if id >= processing_id {
-                            self.current_processing_batch = None;
-                        }
+                    if let Some(processing_id) = self.current_processing_batch
+                        && id >= processing_id
+                    {
+                        self.current_processing_batch = None;
                     }
                 }
             }
