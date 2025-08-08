@@ -1517,6 +1517,23 @@ pub struct ForkChoiceNode {
     pub weight: u64,
     pub validity: Option<String>,
     pub execution_block_hash: Option<Hash256>,
+    pub extra_data: ExtraData,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExtraData {
+    pub target_root: Hash256,
+    pub justified_root: Hash256,
+    pub finalized_root: Hash256,
+    pub unrealized_justified_root: Option<Hash256>,
+    pub unrealized_finalized_root: Option<Hash256>,
+    pub unrealized_justified_epoch: Option<Epoch>,
+    pub unrealized_finalized_epoch: Option<Epoch>,
+    pub timestamp: u64,
+    pub execution_status: serde_json::Value,
+    pub weight: u64,
+    pub best_child: Option<usize>,
+    pub best_descendant: Option<usize>,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

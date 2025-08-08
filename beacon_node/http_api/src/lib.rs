@@ -46,10 +46,10 @@ use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
-    ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest, StateId as CoreStateId,
-    ValidatorBalancesRequestBody, ValidatorId, ValidatorIdentitiesRequestBody, ValidatorStatus,
-    ValidatorsRequestBody,
+    self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ExtraData,
+    ForkChoice, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest,
+    StateId as CoreStateId, ValidatorBalancesRequestBody, ValidatorId,
+    ValidatorIdentitiesRequestBody, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
@@ -2971,6 +2971,30 @@ pub fn serve<T: BeaconChainTypes>(
                                     .execution_status
                                     .block_hash()
                                     .map(|block_hash| block_hash.into_root()),
+                                extra_data: ExtraData {
+                                    target_root: node.target_root,
+                                    justified_root: node.justified_checkpoint.root,
+                                    finalized_root: node.finalized_checkpoint.root,
+                                    unrealized_justified_root: node
+                                        .unrealized_justified_checkpoint
+                                        .map(|checkpoint| checkpoint.root),
+                                    unrealized_finalized_root: node
+                                        .unrealized_finalized_checkpoint
+                                        .map(|checkpoint| checkpoint.root),
+                                    unrealized_justified_epoch: node
+                                        .unrealized_justified_checkpoint
+                                        .map(|checkpoint| checkpoint.epoch),
+                                    unrealized_finalized_epoch: node
+                                        .unrealized_finalized_checkpoint
+                                        .map(|checkpoint| checkpoint.epoch),
+                                    timestamp: timestamp_now().as_secs(),
+                                    execution_status: serde_json::Value::String(
+                                        node.execution_status.to_string(),
+                                    ),
+                                    weight: node.weight,
+                                    best_child: node.best_child,
+                                    best_descendant: node.best_descendant,
+                                },
                             }
                         })
                         .collect::<Vec<_>>();
