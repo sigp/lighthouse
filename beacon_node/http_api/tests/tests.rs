@@ -2976,7 +2976,6 @@ impl ApiTester {
                         execution_status: serde_json::Value::String(
                             node.execution_status.to_string(),
                         ),
-                        weight: node.weight,
                         best_child: node.best_child,
                         best_descendant: node.best_descendant,
                     },
