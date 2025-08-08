@@ -11,6 +11,7 @@ use itertools::izip;
 use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
+use tracing::instrument;
 use types::{
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
     EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
@@ -134,6 +135,7 @@ impl ValidatorInfo {
     }
 }
 
+#[instrument(skip_all)]
 pub fn process_epoch_single_pass<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,

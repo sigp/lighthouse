@@ -5,6 +5,7 @@ use kzg::{
 use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
+use tracing::instrument;
 use types::beacon_block_body::KzgCommitments;
 use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
@@ -163,6 +164,7 @@ pub fn verify_kzg_proof<E: EthSpec>(
 }
 
 /// Build data column sidecars from a signed beacon block and its blobs.
+#[instrument(skip_all, level = "debug", fields(blob_count = blobs.len()))]
 pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     blobs: &[&Blob<E>],
     cell_proofs: Vec<KzgProof>,

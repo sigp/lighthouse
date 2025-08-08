@@ -35,6 +35,7 @@ safe_arith = { workspace = true }
 smallvec = { workspace = true }
 ssz_types = { workspace = true }
 test_random_derive = { path = "../../common/test_random_derive" }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
 

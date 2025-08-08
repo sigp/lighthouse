@@ -6,6 +6,7 @@ use crate::{
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
+use tracing::instrument;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot};
 
 /// Fraction of the LRU cache to leave intact during culling.
@@ -292,6 +293,7 @@ impl<E: EthSpec> StateCache<E> {
         None
     }
 
+    #[instrument(skip(self), level = "debug")]
     pub fn get_by_block_root(
         &mut self,
         block_root: Hash256,

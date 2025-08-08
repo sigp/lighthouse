@@ -21,7 +21,7 @@ use lighthouse_network::PeerAction;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn, Span};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
@@ -97,6 +97,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Attempt to process a block received from a direct RPC request.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all, fields(?block_root), parent = None)]
     pub async fn process_rpc_block(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -243,6 +244,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Attempt to process a list of blobs received from a direct RPC request.
+    #[instrument(skip_all, fields(?block_root, outcome = tracing::field::Empty), parent = None)]
     pub async fn process_rpc_blobs(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -291,6 +293,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                Span::current().record("outcome", "imported");
                 debug!(
                     result = "imported block and blobs",
                     %slot,
@@ -300,6 +303,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+                Span::current().record("outcome", "missing_components");
                 debug!(
                     block_hash = %block_root,
                     %slot,
@@ -330,6 +334,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         });
     }
 
+    #[instrument(skip_all, fields(?block_root), parent = None)]
     pub async fn process_rpc_custody_columns(
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
@@ -415,6 +420,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
+    #[instrument(skip_all, fields(sync_type = ?sync_type, downloaded_blocks = downloaded_blocks.len(), imported_blocks = tracing::field::Empty), parent = None)]
     pub async fn process_chain_segment(
         &self,
         sync_type: ChainSegmentProcessId,
@@ -433,6 +439,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .await
                 {
                     (imported_blocks, Ok(_)) => {
+                        Span::current().record("imported_blocks", imported_blocks);
                         debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
@@ -447,6 +454,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                     }
                     (imported_blocks, Err(e)) => {
+                        Span::current().record("imported_blocks", imported_blocks);
                         debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
@@ -482,6 +490,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 match self.process_backfill_blocks(downloaded_blocks) {
                     (imported_blocks, Ok(_)) => {
+                        Span::current().record("imported_blocks", imported_blocks);
                         debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
@@ -523,6 +532,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
+    #[instrument(skip_all, fields(result = tracing::field::Empty))]
     async fn process_blocks<'a>(
         &self,
         downloaded_blocks: impl Iterator<Item = &'a RpcBlock<T::EthSpec>>,
@@ -535,6 +545,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {
+                Span::current().record("outcome", "success");
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if !imported_blocks.is_empty() {
                     self.chain.recompute_head_at_current_slot().await;
@@ -545,6 +556,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 imported_blocks,
                 error,
             } => {
+                Span::current().record("outcome", "failed");
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
                 if !imported_blocks.is_empty() {

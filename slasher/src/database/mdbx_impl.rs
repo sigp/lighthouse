@@ -44,7 +44,7 @@ impl Environment {
         Ok(Environment { env })
     }
 
-    pub fn create_databases(&self) -> Result<OpenDatabases, Error> {
+    pub fn create_databases(&self) -> Result<OpenDatabases<'_>, Error> {
         let txn = self.begin_rw_txn()?;
         txn.create_db(INDEXED_ATTESTATION_DB)?;
         txn.create_db(INDEXED_ATTESTATION_ID_DB)?;
@@ -77,7 +77,7 @@ impl Environment {
         })
     }
 
-    pub fn begin_rw_txn(&self) -> Result<RwTransaction, Error> {
+    pub fn begin_rw_txn(&self) -> Result<RwTransaction<'_>, Error> {
         let txn = self.env.begin_rw_txn()?;
         Ok(RwTransaction { txn })
     }
@@ -106,7 +106,7 @@ impl<'env> RwTransaction<'env> {
         Ok(())
     }
 
-    pub fn open_db(&self, name: &'static str) -> Result<Database, Error> {
+    pub fn open_db(&self, name: &'static str) -> Result<Database<'_>, Error> {
         let db = self.txn.open_db(Some(name))?;
         Ok(Database { db })
     }
