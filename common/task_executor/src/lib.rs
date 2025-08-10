@@ -1,19 +1,13 @@
 mod metrics;
-#[cfg(not(feature = "tracing"))]
 pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
+use tracing::debug;
 
 pub use tokio::task::JoinHandle;
-
-// Set up logging framework
-#[cfg(not(feature = "tracing"))]
-use slog::{debug, o};
-#[cfg(feature = "tracing")]
-use tracing::debug;
 
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -85,8 +79,11 @@ pub struct TaskExecutor {
     ///
     /// The task must provide a reason for shutting down.
     signal_tx: Sender<ShutdownReason>,
-    #[cfg(not(feature = "tracing"))]
-    log: slog::Logger,
+
+    /// The name of the service for inclusion in the logger output.
+    // FIXME(sproul): delete?
+    #[allow(dead_code)]
+    service_name: String,
 }
 
 impl TaskExecutor {
@@ -100,36 +97,24 @@ impl TaskExecutor {
     pub fn new<T: Into<HandleProvider>>(
         handle: T,
         exit: async_channel::Receiver<()>,
-        #[cfg(not(feature = "tracing"))] log: slog::Logger,
         signal_tx: Sender<ShutdownReason>,
+        service_name: String,
     ) -> Self {
         Self {
             handle_provider: handle.into(),
             exit,
             signal_tx,
-            #[cfg(not(feature = "tracing"))]
-            log,
+            service_name,
         }
     }
 
     /// Clones the task executor adding a service name.
-    #[cfg(not(feature = "tracing"))]
     pub fn clone_with_name(&self, service_name: String) -> Self {
         TaskExecutor {
             handle_provider: self.handle_provider.clone(),
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
-            log: self.log.new(o!("service" => service_name)),
-        }
-    }
-
-    /// Clones the task executor adding a service name.
-    #[cfg(feature = "tracing")]
-    pub fn clone(&self) -> Self {
-        TaskExecutor {
-            handle_provider: self.handle_provider.clone(),
-            exit: self.exit.clone(),
-            signal_tx: self.signal_tx.clone(),
+            service_name,
         }
     }
 
@@ -157,7 +142,7 @@ impl TaskExecutor {
     ) {
         let mut shutdown_sender = self.shutdown_sender();
         if let Some(handle) = self.handle() {
-            handle.spawn(async move {
+            let fut = async move {
                 let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
                 if let Err(join_error) = task_handle.await {
                     if let Ok(_panic) = join_error.try_into_panic() {
@@ -166,15 +151,16 @@ impl TaskExecutor {
                     }
                 }
                 drop(timer);
-            });
+            };
+            #[cfg(tokio_unstable)]
+            tokio::task::Builder::new()
+                .name(&format!("{name}-monitor"))
+                .spawn_on(fut, &handle)
+                .expect("Failed to spawn monitor task");
+            #[cfg(not(tokio_unstable))]
+            handle.spawn(fut);
         } else {
-            #[cfg(not(feature = "tracing"))]
-            debug!(
-                self.log,
-                "Couldn't spawn monitor task. Runtime shutting down"
-            );
-            #[cfg(feature = "tracing")]
-            debug!("Couldn't spawn monitor task. Runtime shutting down");
+            debug!("Couldn't spawn monitor task. Runtime shutting down")
         }
     }
 
@@ -216,11 +202,14 @@ impl TaskExecutor {
 
             int_gauge.inc();
             if let Some(handle) = self.handle() {
+                #[cfg(tokio_unstable)]
+                tokio::task::Builder::new()
+                    .name(name)
+                    .spawn_on(future, &handle)
+                    .expect("Failed to spawn task");
+                #[cfg(not(tokio_unstable))]
                 handle.spawn(future);
             } else {
-                #[cfg(not(feature = "tracing"))]
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-                #[cfg(feature = "tracing")]
                 debug!("Couldn't spawn task. Runtime shutting down");
             }
         }
@@ -248,34 +237,33 @@ impl TaskExecutor {
         name: &'static str,
     ) -> Option<tokio::task::JoinHandle<Option<R>>> {
         let exit = self.exit();
-
-        #[cfg(not(feature = "tracing"))]
-        let log = self.log.clone();
-
         if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
             // Task is shutdown before it completes if `exit` receives
             let int_gauge_1 = int_gauge.clone();
             int_gauge.inc();
             if let Some(handle) = self.handle() {
-                Some(handle.spawn(async move {
+                let fut = async move {
                     futures::pin_mut!(exit);
                     let result = match future::select(Box::pin(task), exit).await {
                         future::Either::Left((value, _)) => Some(value),
                         future::Either::Right(_) => {
-                            #[cfg(not(feature = "tracing"))]
-                            debug!(log, "Async task shutdown, exit received"; "task" => name);
-                            #[cfg(feature = "tracing")]
                             debug!(task = name, "Async task shutdown, exit received");
                             None
                         }
                     };
                     int_gauge_1.dec();
                     result
-                }))
+                };
+                #[cfg(tokio_unstable)]
+                return Some(
+                    tokio::task::Builder::new()
+                        .name(name)
+                        .spawn_on(fut, &handle)
+                        .expect("Failed to spawn task"),
+                );
+                #[cfg(not(tokio_unstable))]
+                Some(handle.spawn(fut))
             } else {
-                #[cfg(not(feature = "tracing"))]
-                debug!(log, "Couldn't spawn task. Runtime shutting down");
-                #[cfg(feature = "tracing")]
                 debug!("Couldn't spawn task. Runtime shutting down");
                 None
             }
@@ -299,18 +287,12 @@ impl TaskExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        #[cfg(not(feature = "tracing"))]
-        let log = self.log.clone();
-
         let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
 
         let join_handle = if let Some(handle) = self.handle() {
             handle.spawn_blocking(task)
         } else {
-            #[cfg(not(feature = "tracing"))]
-            debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-            #[cfg(feature = "tracing")]
             debug!("Couldn't spawn task. Runtime shutting down");
             return None;
         };
@@ -319,9 +301,6 @@ impl TaskExecutor {
             let result = match join_handle.await {
                 Ok(result) => Ok(result),
                 Err(error) => {
-                    #[cfg(not(feature = "tracing"))]
-                    debug!(log, "Blocking task ended unexpectedly"; "error" => %error);
-                    #[cfg(feature = "tracing")]
                     debug!(%error, "Blocking task ended unexpectedly");
                     Err(error)
                 }
@@ -354,44 +333,20 @@ impl TaskExecutor {
     ) -> Option<F::Output> {
         let timer = metrics::start_timer_vec(&metrics::BLOCK_ON_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
-        #[cfg(not(feature = "tracing"))]
-        let log = self.log.clone();
         let handle = self.handle()?;
         let exit = self.exit();
-        #[cfg(not(feature = "tracing"))]
-        debug!(
-            log,
-            "Starting block_on task";
-            "name" => name
-        );
-
-        #[cfg(feature = "tracing")]
         debug!(name, "Starting block_on task");
 
         handle.block_on(async {
             let output = tokio::select! {
                 output = future => {
-                    #[cfg(not(feature = "tracing"))]
-                    debug!(
-                        log,
-                        "Completed block_on task";
-                        "name" => name
-                    );
-                    #[cfg(feature = "tracing")]
                     debug!(
                         name,
                         "Completed block_on task"
                     );
                     Some(output)
-                },
+                }
                 _ = exit => {
-                    #[cfg(not(feature = "tracing"))]
-                    debug!(
-                        log,
-                        "Cancelled block_on task";
-                        "name" => name,
-                    );
-                    #[cfg(feature = "tracing")]
                     debug!(
                         name,
                         "Cancelled block_on task"
@@ -422,11 +377,5 @@ impl TaskExecutor {
     /// Get a channel to request shutting down.
     pub fn shutdown_sender(&self) -> Sender<ShutdownReason> {
         self.signal_tx.clone()
-    }
-
-    /// Returns a reference to the logger.
-    #[cfg(not(feature = "tracing"))]
-    pub fn log(&self) -> &slog::Logger {
-        &self.log
     }
 }

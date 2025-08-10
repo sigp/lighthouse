@@ -14,20 +14,20 @@ use eth2::{
 use eth2_keystore::KeystoreBuilder;
 use initialized_validators::key_cache::{KeyCache, CACHE_FILENAME};
 use initialized_validators::{InitializedValidators, OnDecryptFailure};
-use logging::test_logger;
+use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
-use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{tempdir, TempDir};
 use tokio::sync::oneshot;
-use validator_store::{Config as ValidatorStoreConfig, ValidatorStore};
+use types::ChainSpec;
+use validator_services::block_service::BlockService;
 use zeroize::Zeroizing;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -55,13 +55,14 @@ pub struct Web3SignerValidatorScenario {
 pub struct ApiTester {
     pub client: ValidatorClientHttpClient,
     pub initialized_validators: Arc<RwLock<InitializedValidators>>,
-    pub validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
+    pub validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     pub url: SensitiveUrl,
     pub api_token: String,
     pub test_runtime: TestRuntime,
     pub _server_shutdown: oneshot::Sender<()>,
     pub validator_dir: TempDir,
     pub secrets_dir: TempDir,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl ApiTester {
@@ -70,8 +71,19 @@ impl ApiTester {
     }
 
     pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
-        let log = test_logger();
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+        let genesis_validators_root = Hash256::repeat_byte(42);
+        let spec = Arc::new(E::default_spec());
+        Self::new_with_options(http_config, slot_clock, genesis_validators_root, spec).await
+    }
 
+    pub async fn new_with_options(
+        http_config: HttpConfig,
+        slot_clock: TestingSlotClock,
+        genesis_validators_root: Hash256,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join(PK_FILENAME);
@@ -82,7 +94,6 @@ impl ApiTester {
             validator_defs,
             validator_dir.path().into(),
             Default::default(),
-            log.clone(),
         )
         .await
         .unwrap();
@@ -95,26 +106,20 @@ impl ApiTester {
             ..Default::default()
         };
 
-        let spec = Arc::new(E::default_spec());
-
         let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
 
-        let slot_clock =
-            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
-
         let test_runtime = TestRuntime::default();
 
-        let validator_store = Arc::new(ValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(LighthouseValidatorStore::new(
             initialized_validators,
             slashing_protection,
-            Hash256::repeat_byte(42),
+            genesis_validators_root,
             spec.clone(),
-            Some(Arc::new(DoppelgangerService::new(log.clone()))),
+            Some(Arc::new(DoppelgangerService::default())),
             slot_clock.clone(),
             &config,
             test_runtime.task_executor.clone(),
-            log.clone(),
         ));
 
         validator_store
@@ -126,18 +131,16 @@ impl ApiTester {
         let context = Arc::new(Context {
             task_executor: test_runtime.task_executor.clone(),
             api_secret,
-            block_service: None,
+            block_service: None::<BlockService<LighthouseValidatorStore<_, _>, _>>,
             validator_dir: Some(validator_dir.path().into()),
             secrets_dir: Some(secrets_dir.path().into()),
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec,
+            spec: spec.clone(),
             config: http_config,
-            log,
             sse_logging_components: None,
             slot_clock,
-            _phantom: PhantomData,
         });
         let ctx = context;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -145,7 +148,7 @@ impl ApiTester {
             // It's not really interesting why this triggered, just that it happened.
             let _ = shutdown_rx.await;
         };
-        let (listening_socket, server) = super::serve(ctx, server_shutdown).unwrap();
+        let (listening_socket, server) = super::serve::<_, E>(ctx, server_shutdown).unwrap();
 
         tokio::spawn(server);
 
@@ -168,6 +171,7 @@ impl ApiTester {
             _server_shutdown: shutdown_tx,
             validator_dir,
             secrets_dir,
+            spec,
         }
     }
 
@@ -180,6 +184,7 @@ impl ApiTester {
             allow_keystore_export: true,
             store_passwords_in_secrets_dir: false,
             http_token_path: tempdir().unwrap().path().join(PK_FILENAME),
+            bn_long_timeouts: false,
         }
     }
 
@@ -255,7 +260,7 @@ impl ApiTester {
             .await
             .map(|res| ConfigAndPreset::Fulu(res.data))
             .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
 
         assert_eq!(result, expected);
 
@@ -644,7 +649,7 @@ impl ApiTester {
 
         assert_eq!(
             self.validator_store
-                .get_builder_proposals(&validator.voting_pubkey),
+                .get_builder_proposals_testing_only(&validator.voting_pubkey),
             builder_proposals
         );
 

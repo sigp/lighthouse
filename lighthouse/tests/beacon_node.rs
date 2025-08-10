@@ -1,14 +1,13 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
     DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
 };
 use beacon_node::{
     beacon_chain::graffiti_calculator::GraffitiOrigin,
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
 };
 use beacon_processor::BeaconProcessorConfig;
-use eth1::Eth1Endpoint;
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -115,11 +114,6 @@ fn staking_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.http_api.enabled);
-            assert!(config.sync_eth1_chain);
-            assert_eq!(
-                config.eth1.endpoint.get_endpoint().to_string(),
-                DEFAULT_EXECUTION_ENDPOINT
-            );
         });
 }
 
@@ -398,51 +392,24 @@ fn genesis_backfill_with_historic_flag() {
 // Tests for Eth1 flags.
 // DEPRECATED but should not crash
 #[test]
-fn dummy_eth1_flag() {
+fn eth1_blocks_per_log_query_flag() {
     CommandLineTest::new()
-        .flag("dummy-eth1", None)
+        .flag("eth1-blocks-per-log-query", Some("500"))
         .run_with_zero_port();
 }
 // DEPRECATED but should not crash
 #[test]
-fn eth1_flag() {
-    CommandLineTest::new()
-        .flag("eth1", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.sync_eth1_chain));
-}
-#[test]
-fn eth1_blocks_per_log_query_flag() {
-    CommandLineTest::new()
-        .flag("eth1-blocks-per-log-query", Some("500"))
-        .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.eth1.blocks_per_log_query, 500));
-}
-#[test]
 fn eth1_purge_cache_flag() {
     CommandLineTest::new()
         .flag("eth1-purge-cache", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.eth1.purge_cache));
+        .run_with_zero_port();
 }
-#[test]
-fn eth1_cache_follow_distance_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.eth1.cache_follow_distance, None);
-            assert_eq!(config.eth1.cache_follow_distance(), 3 * 2048 / 4);
-        });
-}
+// DEPRECATED but should not crash
 #[test]
 fn eth1_cache_follow_distance_manual() {
     CommandLineTest::new()
         .flag("eth1-cache-follow-distance", Some("128"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(config.eth1.cache_follow_distance, Some(128));
-            assert_eq!(config.eth1.cache_follow_distance(), 128);
-        });
+        .run_with_zero_port();
 }
 
 // Tests for Bellatrix flags.
@@ -755,8 +722,6 @@ fn test_builder_disable_ssz_flag() {
 }
 
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
-    use sensitive_url::SensitiveUrl;
-
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let execution_endpoint = "http://meow.cats";
     let jwt_file = "jwt-file";
@@ -772,15 +737,6 @@ fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_fl
             let el_config = config.execution_layer.as_ref().unwrap();
             assert_eq!(el_config.jwt_id, Some(id.to_string()));
             assert_eq!(el_config.jwt_version, Some(version.to_string()));
-            assert_eq!(
-                config.eth1.endpoint,
-                Eth1Endpoint::Auth {
-                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
-                    jwt_path: dir.path().join(jwt_file),
-                    jwt_id: Some(id.to_string()),
-                    jwt_version: Some(version.to_string()),
-                }
-            );
         });
 }
 #[test]
@@ -843,13 +799,6 @@ fn network_subscribe_all_data_column_subnets_flag() {
         .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
 }
 #[test]
-fn network_enable_sampling_flag() {
-    CommandLineTest::new()
-        .flag("enable-sampling", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.enable_sampling));
-}
-#[test]
 fn blob_publication_batches() {
     CommandLineTest::new()
         .flag("blob-publication-batches", Some("3"))
@@ -870,12 +819,6 @@ fn blob_publication_batch_interval() {
         });
 }
 
-#[test]
-fn network_enable_sampling_flag_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.enable_sampling));
-}
 #[test]
 fn network_subscribe_all_subnets_flag() {
     CommandLineTest::new()
@@ -1274,7 +1217,7 @@ fn default_backfill_rate_limiting_flag() {
 }
 #[test]
 fn default_boot_nodes() {
-    let number_of_boot_nodes = 15;
+    let number_of_boot_nodes = 17;
 
     CommandLineTest::new()
         .run_with_zero_port()
@@ -1883,6 +1826,21 @@ fn state_cache_size_flag() {
         .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(64)));
 }
 #[test]
+fn state_cache_headroom_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.state_cache_headroom, new_non_zero_usize(1)));
+}
+#[test]
+fn state_cache_headroom_flag() {
+    CommandLineTest::new()
+        .flag("state-cache-headroom", Some("16"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.state_cache_headroom, new_non_zero_usize(16))
+        });
+}
+#[test]
 fn historic_state_cache_size_flag() {
     CommandLineTest::new()
         .flag("historic-state-cache-size", Some("4"))
@@ -1912,19 +1870,40 @@ fn hdiff_buffer_cache_size_flag() {
         .flag("hdiff-buffer-cache-size", Some("1"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.store.hdiff_buffer_cache_size.get(), 1);
+            assert_eq!(config.store.cold_hdiff_buffer_cache_size.get(), 1);
         });
 }
 #[test]
 fn hdiff_buffer_cache_size_default() {
-    use beacon_node::beacon_chain::store::config::DEFAULT_HDIFF_BUFFER_CACHE_SIZE;
+    use beacon_node::beacon_chain::store::config::DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE;
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.store.hdiff_buffer_cache_size,
-                DEFAULT_HDIFF_BUFFER_CACHE_SIZE
+                config.store.cold_hdiff_buffer_cache_size,
+                DEFAULT_COLD_HDIFF_BUFFER_CACHE_SIZE
             );
+        });
+}
+#[test]
+fn hot_hdiff_buffer_cache_size_default() {
+    use beacon_node::beacon_chain::store::config::DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE;
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.store.hot_hdiff_buffer_cache_size,
+                DEFAULT_HOT_HDIFF_BUFFER_CACHE_SIZE
+            );
+        });
+}
+#[test]
+fn hot_hdiff_buffer_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("hot-hdiff-buffer-cache-size", Some("3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.store.hot_hdiff_buffer_cache_size.get(), 3);
         });
 }
 #[test]
@@ -1972,7 +1951,7 @@ fn prune_blobs_on_startup_false() {
 fn epochs_per_blob_prune_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(config.store.epochs_per_blob_prune == 1));
+        .with_config(|config| assert_eq!(config.store.epochs_per_blob_prune, 256));
 }
 #[test]
 fn epochs_per_blob_prune_on_startup_five() {
@@ -2416,20 +2395,20 @@ fn monitoring_endpoint() {
 
 // Tests for Logger flags.
 #[test]
-fn default_log_color_flag() {
+fn default_logfile_color_flag() {
     CommandLineTest::new()
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(!config.logger_config.log_color);
+            assert!(!config.logger_config.logfile_color);
         });
 }
 #[test]
-fn enabled_log_color_flag() {
+fn enabled_logfile_color_flag() {
     CommandLineTest::new()
-        .flag("log-color", None)
+        .flag("logfile-color", None)
         .run_with_zero_port()
         .with_config(|config| {
-            assert!(config.logger_config.log_color);
+            assert!(config.logger_config.logfile_color);
         });
 }
 #[test]
@@ -2484,26 +2463,15 @@ fn logfile_format_flag() {
             )
         });
 }
+// DEPRECATED but should not crash.
 #[test]
-fn sync_eth1_chain_default() {
+fn deprecated_logfile() {
     CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.sync_eth1_chain));
+        .flag("logfile", Some("test.txt"))
+        .run_with_zero_port();
 }
 
-#[test]
-fn sync_eth1_chain_execution_endpoints_flag() {
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    CommandLineTest::new_with_no_execution_endpoint()
-        .flag("execution-endpoints", Some("http://localhost:8551/"))
-        .flag(
-            "execution-jwt",
-            dir.path().join("jwt-file").as_os_str().to_str(),
-        )
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.sync_eth1_chain));
-}
-
+// DEPRECATED but should not crash.
 #[test]
 fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
@@ -2514,8 +2482,7 @@ fn sync_eth1_chain_disable_deposit_contract_sync_flag() {
             "execution-jwt",
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.sync_eth1_chain));
+        .run_with_zero_port();
 }
 
 #[test]
@@ -2584,7 +2551,20 @@ fn sync_tolerance_epochs() {
         .flag("sync-tolerance-epochs", Some("0"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.http_api.sync_tolerance_epochs, Some(0));
+            assert_eq!(config.chain.sync_tolerance_epochs, 0);
+        });
+}
+
+#[test]
+fn sync_tolerance_epochs_default() {
+    CommandLineTest::new()
+        .flag("http", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.sync_tolerance_epochs,
+                DEFAULT_SYNC_TOLERANCE_EPOCHS
+            );
         });
 }
 
@@ -2648,6 +2628,16 @@ fn invalid_gossip_verified_blocks_path() {
                 config.network.invalid_block_storage,
                 Some(PathBuf::from(path))
             )
+        });
+}
+
+#[test]
+fn advertise_false_custody_group_count() {
+    CommandLineTest::new()
+        .flag("advertise-false-custody-group-count", Some("64"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.advertise_false_custody_group_count, Some(64))
         });
 }
 
@@ -2730,7 +2720,7 @@ fn genesis_state_url_default() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.genesis_state_url, None);
-            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(180));
+            assert_eq!(config.genesis_state_url_timeout, Duration::from_secs(300));
         });
 }
 
@@ -2783,4 +2773,44 @@ fn data_column_publishing_delay_for_testing() {
                 Some(Duration::from_secs_f64(3.5f64))
             );
         });
+}
+
+#[test]
+fn invalid_block_roots_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut file =
+        File::create(dir.path().join("invalid-block-roots")).expect("Unable to create file");
+    file.write_all(b"2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f359, 2db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358, 0x3db899881ed8546476d0b92c6aa9110bea9a4cd0dbeb5519eb0ea69575f1f358")
+        .expect("Unable to write to file");
+    CommandLineTest::new()
+        .flag(
+            "invalid-block-roots",
+            dir.path().join("invalid-block-roots").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.invalid_block_roots.len(), 3))
+}
+
+#[test]
+fn invalid_block_roots_default_holesky() {
+    use beacon_node::beacon_chain::chain_config::INVALID_HOLESKY_BLOCK_ROOT;
+    CommandLineTest::new()
+        .flag("network", Some("holesky"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.chain.invalid_block_roots.len(), 1);
+            assert!(config
+                .chain
+                .invalid_block_roots
+                .contains(&*INVALID_HOLESKY_BLOCK_ROOT));
+        })
+}
+
+#[test]
+fn invalid_block_roots_default_mainnet() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.invalid_block_roots.is_empty());
+        })
 }

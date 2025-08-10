@@ -1,7 +1,9 @@
 use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::blob_sidecar::BlobIdentifier;
-use crate::data_column_sidecar::DataColumnIdentifier;
+use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
+use derivative::Derivative;
+use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -32,7 +34,8 @@ pub enum Domain {
 /// Lighthouse's internal configuration struct.
 ///
 /// Contains a mixture of "preset" and "config" values w.r.t to the EF definitions.
-#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Config name
@@ -203,6 +206,8 @@ pub struct ChainSpec {
     pub data_column_sidecar_subnet_count: u64,
     pub samples_per_slot: u64,
     pub custody_requirement: u64,
+    pub validator_custody_requirement: u64,
+    pub balance_per_additional_custody_group: u64,
 
     /*
      * Networking
@@ -210,10 +215,9 @@ pub struct ChainSpec {
     pub boot_nodes: Vec<String>,
     pub network_id: u8,
     pub target_aggregators_per_committee: u64,
-    pub gossip_max_size: u64,
+    pub max_payload_size: u64,
     max_request_blocks: u64,
     pub min_epochs_for_block_requests: u64,
-    pub max_chunk_size: u64,
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub attestation_propagation_slot_range: u64,
@@ -240,6 +244,12 @@ pub struct ChainSpec {
     max_blobs_per_block_electra: u64,
     blob_sidecar_subnet_count_electra: u64,
     max_request_blob_sidecars_electra: u64,
+
+    /*
+     * Networking Fulu
+     */
+    pub(crate) blob_schedule: BlobSchedule,
+    min_epochs_for_data_column_sidecars_requests: u64,
 
     /*
      * Networking Derived
@@ -276,25 +286,13 @@ impl ChainSpec {
         genesis_validators_root: Hash256,
     ) -> EnrForkId {
         EnrForkId {
-            fork_digest: self.fork_digest::<E>(slot, genesis_validators_root),
+            fork_digest: self
+                .compute_fork_digest(genesis_validators_root, slot.epoch(E::slots_per_epoch())),
             next_fork_version: self.next_fork_version::<E>(slot),
             next_fork_epoch: self
-                .next_fork_epoch::<E>(slot)
-                .map(|(_, e)| e)
+                .next_digest_epoch(slot.epoch(E::slots_per_epoch()))
                 .unwrap_or(self.far_future_epoch),
         }
-    }
-
-    /// Returns the `ForkDigest` for the given slot.
-    ///
-    /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
-    /// otherwise, returns the fork digest based on the slot.
-    pub fn fork_digest<E: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        let fork_name = self.fork_name_at_slot::<E>(slot);
-        Self::compute_fork_digest(
-            self.fork_version_for_name(fork_name),
-            genesis_validators_root,
-        )
     }
 
     /// Returns the `next_fork_version`.
@@ -356,6 +354,11 @@ impl ChainSpec {
             ForkName::Electra => self.electra_fork_version,
             ForkName::Fulu => self.fulu_fork_version,
         }
+    }
+
+    // This is `compute_fork_version` in the spec
+    pub fn fork_version_for_epoch(&self, epoch: Epoch) -> [u8; 4] {
+        self.fork_version_for_name(self.fork_name_at_epoch(epoch))
     }
 
     /// For a given fork name, return the epoch at which it activates.
@@ -440,8 +443,13 @@ impl ChainSpec {
             .is_some_and(|fulu_fork_epoch| block_epoch >= fulu_fork_epoch)
     }
 
-    /// Returns true if `FULU_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    /// Returns true if PeerDAS is scheduled. Alias for [`Self::is_fulu_scheduled`]
     pub fn is_peer_das_scheduled(&self) -> bool {
+        self.is_fulu_scheduled()
+    }
+
+    /// Returns true if `FULU_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_fulu_scheduled(&self) -> bool {
         self.fulu_fork_epoch
             .is_some_and(|fulu_fork_epoch| fulu_fork_epoch != self.far_future_epoch)
     }
@@ -549,18 +557,69 @@ impl ChainSpec {
     ///
     /// This is a digest primarily used for domain separation on the p2p layer.
     /// 4-bytes suffices for practical separation of forks/chains.
-    pub fn compute_fork_digest(
-        current_version: [u8; 4],
-        genesis_validators_root: Hash256,
-    ) -> [u8; 4] {
-        let mut result = [0; 4];
-        let root = Self::compute_fork_data_root(current_version, genesis_validators_root);
-        result.copy_from_slice(
+    pub fn compute_fork_digest(&self, genesis_validators_root: Hash256, epoch: Epoch) -> [u8; 4] {
+        let fork_version = self.fork_version_for_epoch(epoch);
+        let mut base_digest = [0u8; 4];
+        let root = Self::compute_fork_data_root(fork_version, genesis_validators_root);
+        base_digest.copy_from_slice(
             root.as_slice()
                 .get(0..4)
                 .expect("root hash is at least 4 bytes"),
         );
-        result
+
+        let Some(blob_parameters) = self.get_blob_parameters(epoch) else {
+            return base_digest;
+        };
+
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => {
+                // Concatenate epoch and max_blobs_per_block as u64 bytes
+                let mut input = Vec::with_capacity(16);
+                input.extend_from_slice(&blob_parameters.epoch.as_u64().to_le_bytes());
+                input.extend_from_slice(&blob_parameters.max_blobs_per_block.to_le_bytes());
+
+                // Hash the concatenated bytes
+                let hash = hash(&input);
+
+                // XOR the base digest with the first 4 bytes of the hash
+                let mut masked_digest = [0u8; 4];
+                for (i, (a, b)) in base_digest.iter().zip(hash.iter()).enumerate() {
+                    if let Some(x) = masked_digest.get_mut(i) {
+                        *x = a ^ b;
+                    }
+                }
+                masked_digest
+            }
+            _ => base_digest,
+        }
+    }
+
+    pub fn all_digest_epochs(&self) -> impl std::iter::Iterator<Item = Epoch> {
+        let mut relevant_epochs = ForkName::list_all_fork_epochs(self)
+            .into_iter()
+            .filter_map(|(_, epoch)| epoch)
+            .collect::<std::collections::HashSet<_>>();
+
+        if self.is_fulu_scheduled() {
+            for blob_parameters in &self.blob_schedule {
+                relevant_epochs.insert(blob_parameters.epoch);
+            }
+        }
+        let mut vec = relevant_epochs.into_iter().collect::<Vec<_>>();
+        vec.sort();
+        vec.into_iter()
+    }
+
+    pub fn next_digest_epoch(&self, epoch: Epoch) -> Option<Epoch> {
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => self
+                .all_digest_epochs()
+                .find(|digest_epoch| *digest_epoch > epoch),
+            _ => self
+                .fork_name_at_epoch(epoch)
+                .next_fork()
+                .and_then(|fork_name| self.fork_epoch(fork_name)),
+        }
     }
 
     /// Compute a domain by applying the given `fork_version`.
@@ -619,17 +678,6 @@ impl ChainSpec {
         }
     }
 
-    /// Returns the highest possible value for max_request_blocks based on enabled forks.
-    ///
-    /// This is useful for upper bounds in testing.
-    pub fn max_request_blocks_upper_bound(&self) -> usize {
-        if self.deneb_fork_epoch.is_some() {
-            self.max_request_blocks_deneb as usize
-        } else {
-            self.max_request_blocks as usize
-        }
-    }
-
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
         if fork_name.electra_enabled() {
             self.max_request_blob_sidecars_electra as usize
@@ -649,17 +697,58 @@ impl ChainSpec {
         }
     }
 
-    /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for the fork at `epoch`.
+    /// Return the value of `MAX_BLOBS_PER_BLOCK` for the given `epoch`.
+    /// NOTE: this function is *technically* not spec compliant, but
+    /// I'm told this is what the other clients are doing for `devnet-0`..
     pub fn max_blobs_per_block(&self, epoch: Epoch) -> u64 {
-        self.max_blobs_per_block_by_fork(self.fork_name_at_epoch(epoch))
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => self
+                .blob_schedule
+                .max_blobs_for_epoch(epoch)
+                .unwrap_or(self.max_blobs_per_block_electra),
+            _ => match self.electra_fork_epoch {
+                Some(electra_epoch) if epoch >= electra_epoch => self.max_blobs_per_block_electra,
+                _ => self.max_blobs_per_block,
+            },
+        }
     }
 
-    /// Return the value of `MAX_BLOBS_PER_BLOCK` appropriate for `fork`.
-    pub fn max_blobs_per_block_by_fork(&self, fork_name: ForkName) -> u64 {
-        if fork_name.electra_enabled() {
-            self.max_blobs_per_block_electra
+    /// Return the blob parameters at a given epoch.
+    fn get_blob_parameters(&self, epoch: Epoch) -> Option<BlobParameters> {
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => self
+                .blob_schedule
+                .blob_parameters_for_epoch(epoch)
+                .or_else(|| {
+                    Some(BlobParameters {
+                        epoch: self
+                            .electra_fork_epoch
+                            .expect("electra fork epoch must be set if fulu epoch is set"),
+                        max_blobs_per_block: self.max_blobs_per_block_electra,
+                    })
+                }),
+            _ => None,
+        }
+    }
+
+    // TODO(EIP-7892): remove this once we have fork-version changes on BPO forks
+    pub fn max_blobs_per_block_within_fork(&self, fork_name: ForkName) -> u64 {
+        if !fork_name.fulu_enabled() {
+            if fork_name.electra_enabled() {
+                self.max_blobs_per_block_electra
+            } else {
+                self.max_blobs_per_block
+            }
         } else {
-            self.max_blobs_per_block
+            // Find the max blobs per block in the fork schedule
+            // This logic will need to be more complex once there are forks beyond Fulu
+            let mut max_blobs_per_block = self.max_blobs_per_block_electra;
+            for entry in &self.blob_schedule {
+                if entry.max_blobs_per_block > max_blobs_per_block {
+                    max_blobs_per_block = entry.max_blobs_per_block;
+                }
+            }
+            max_blobs_per_block
         }
     }
 
@@ -691,29 +780,71 @@ impl ChainSpec {
     }
 
     /// Returns the number of column sidecars to sample per slot.
-    pub fn sampling_size(&self, custody_group_count: u64) -> Result<u64, String> {
+    pub fn sampling_size_columns(&self, custody_group_count: u64) -> Result<usize, String> {
+        let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
+
         let columns_per_custody_group = self
             .number_of_columns
             .safe_div(self.number_of_custody_groups)
             .map_err(|_| "number_of_custody_groups must be greater than 0")?;
 
-        let custody_column_count = columns_per_custody_group
-            .safe_mul(custody_group_count)
+        let sampling_size_columns = columns_per_custody_group
+            .safe_mul(sampling_size_groups)
             .map_err(|_| "Computing sampling size should not overflow")?;
 
-        Ok(std::cmp::max(custody_column_count, self.samples_per_slot))
+        Ok(sampling_size_columns as usize)
     }
 
-    pub fn custody_group_count(&self, is_supernode: bool) -> u64 {
-        if is_supernode {
-            self.number_of_custody_groups
-        } else {
-            self.custody_requirement
+    /// Returns the number of custody groups to sample per slot.
+    pub fn sampling_size_custody_groups(&self, custody_group_count: u64) -> Result<u64, String> {
+        Ok(std::cmp::max(custody_group_count, self.samples_per_slot))
+    }
+
+    /// Returns the min epoch for blob / data column sidecar requests based on the current epoch.
+    /// Switch to use the column sidecar config once the `blob_retention_epoch` has passed Fulu fork epoch.
+    pub fn min_epoch_data_availability_boundary(&self, current_epoch: Epoch) -> Option<Epoch> {
+        let fork_epoch = self.deneb_fork_epoch?;
+        let blob_retention_epoch =
+            current_epoch.saturating_sub(self.min_epochs_for_blob_sidecars_requests);
+        match self.fulu_fork_epoch {
+            Some(fulu_fork_epoch) if blob_retention_epoch > fulu_fork_epoch => Some(
+                current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests),
+            ),
+            _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
         }
     }
 
     pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
         (0..self.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new)
+    }
+
+    /// Worst-case compressed length for a given payload of size n when using snappy.
+    ///
+    /// https://github.com/google/snappy/blob/32ded457c0b1fe78ceb8397632c416568d6714a0/snappy.cc#L218C1-L218C47
+    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md#max_compressed_len
+    fn max_compressed_len_snappy(n: usize) -> Option<usize> {
+        32_usize.checked_add(n)?.checked_add(n / 6)
+    }
+
+    /// Max compressed length of a message that we receive over gossip.
+    pub fn max_compressed_len(&self) -> usize {
+        Self::max_compressed_len_snappy(self.max_payload_size as usize)
+            .expect("should not overflow")
+    }
+
+    /// Max allowed size of a raw, compressed message received over the network.
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/p2p-interface.md#max_compressed_len
+    pub fn max_message_size(&self) -> usize {
+        std::cmp::max(
+            // 1024 to account for framing + encoding overhead
+            Self::max_compressed_len_snappy(self.max_payload_size as usize)
+                .expect("should not overflow")
+                .safe_add(1024)
+                .expect("should not overflow"),
+            //1MB
+            1024 * 1024,
+        )
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -883,7 +1014,7 @@ impl ChainSpec {
              * Electra hard fork params
              */
             electra_fork_version: [0x05, 00, 00, 00],
-            electra_fork_epoch: None,
+            electra_fork_epoch: Some(Epoch::new(364032)),
             unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
@@ -919,6 +1050,8 @@ impl ChainSpec {
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
             samples_per_slot: 8,
+            validator_custody_requirement: 8,
+            balance_per_additional_custody_group: 32000000000,
 
             /*
              * Network specific
@@ -930,9 +1063,8 @@ impl ChainSpec {
             subnets_per_node: 2,
             maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            gossip_max_size: default_gossip_max_size(),
+            max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
-            max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
@@ -964,6 +1096,13 @@ impl ChainSpec {
             max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
             blob_sidecar_subnet_count_electra: default_blob_sidecar_subnet_count_electra(),
             max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
+
+            /*
+             * Networking Fulu specific
+             */
+            blob_schedule: BlobSchedule::default(),
+            min_epochs_for_data_column_sidecars_requests:
+                default_min_epochs_for_data_column_sidecars_requests(),
 
             /*
              * Application specific
@@ -1213,7 +1352,7 @@ impl ChainSpec {
              * Electra hard fork params
              */
             electra_fork_version: [0x05, 0x00, 0x00, 0x64],
-            electra_fork_epoch: None,
+            electra_fork_epoch: Some(Epoch::new(1337856)),
             unset_deposit_requests_start_index: u64::MAX,
             full_exit_request_amount: 0,
             min_activation_balance: option_wrapper(|| {
@@ -1235,7 +1374,7 @@ impl ChainSpec {
             })
             .expect("calculation does not overflow"),
             max_per_epoch_activation_exit_churn_limit: option_wrapper(|| {
-                u64::checked_pow(2, 8)?.checked_mul(u64::checked_pow(10, 9)?)
+                u64::checked_pow(2, 6)?.checked_mul(u64::checked_pow(10, 9)?)
             })
             .expect("calculation does not overflow"),
 
@@ -1249,6 +1388,8 @@ impl ChainSpec {
             data_column_sidecar_subnet_count: 128,
             number_of_columns: 128,
             samples_per_slot: 8,
+            validator_custody_requirement: 8,
+            balance_per_additional_custody_group: 32000000000,
 
             /*
              * Network specific
@@ -1260,9 +1401,8 @@ impl ChainSpec {
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
             maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
             target_aggregators_per_committee: 16,
-            gossip_max_size: default_gossip_max_size(),
+            max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: 33024,
-            max_chunk_size: default_max_chunk_size(),
             ttfb_timeout: default_ttfb_timeout(),
             resp_timeout: default_resp_timeout(),
             message_domain_invalid_snappy: default_message_domain_invalid_snappy(),
@@ -1278,7 +1418,7 @@ impl ChainSpec {
             max_request_data_column_sidecars: default_max_request_data_column_sidecars(),
             min_epochs_for_blob_sidecars_requests: 16384,
             blob_sidecar_subnet_count: default_blob_sidecar_subnet_count(),
-            max_blobs_per_block: default_max_blobs_per_block(),
+            max_blobs_per_block: 2,
 
             /*
              * Derived Deneb Specific
@@ -1291,9 +1431,16 @@ impl ChainSpec {
             /*
              * Networking Electra specific
              */
-            max_blobs_per_block_electra: default_max_blobs_per_block_electra(),
-            blob_sidecar_subnet_count_electra: default_blob_sidecar_subnet_count_electra(),
-            max_request_blob_sidecars_electra: default_max_request_blob_sidecars_electra(),
+            max_blobs_per_block_electra: 2,
+            blob_sidecar_subnet_count_electra: 2,
+            max_request_blob_sidecars_electra: 256,
+
+            /*
+             * Networking Fulu specific
+             */
+            blob_schedule: BlobSchedule::default(),
+            min_epochs_for_data_column_sidecars_requests:
+                default_min_epochs_for_data_column_sidecars_requests(),
 
             /*
              * Application specific
@@ -1311,6 +1458,119 @@ impl ChainSpec {
 impl Default for ChainSpec {
     fn default() -> Self {
         Self::mainnet()
+    }
+}
+
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct BlobParameters {
+    pub epoch: Epoch,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub max_blobs_per_block: u64,
+}
+
+// A wrapper around a vector of BlobParameters to ensure that the vector is reverse
+// sorted by epoch.
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Derivative, Clone)]
+#[derivative(PartialEq)]
+pub struct BlobSchedule {
+    schedule: Vec<BlobParameters>,
+    // This is a hack to prevent the blob schedule being serialized on the /eth/v1/config/spec
+    // endpoint prior to the Fulu fork being scheduled.
+    //
+    // We can remove this once Fulu is live on mainnet.
+    #[derivative(PartialEq = "ignore")]
+    skip_serializing: bool,
+}
+
+impl<'de> Deserialize<'de> for BlobSchedule {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let vec = Vec::<BlobParameters>::deserialize(deserializer)?;
+        Ok(BlobSchedule::new(vec))
+    }
+}
+
+impl BlobSchedule {
+    pub fn new(mut vec: Vec<BlobParameters>) -> Self {
+        // reverse sort by epoch
+        vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
+        Self {
+            schedule: vec,
+            skip_serializing: false,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.schedule.is_empty()
+    }
+
+    pub fn skip_serializing(&self) -> bool {
+        self.skip_serializing
+    }
+
+    pub fn set_skip_serializing(&mut self) {
+        self.skip_serializing = true;
+    }
+
+    pub fn max_blobs_for_epoch(&self, epoch: Epoch) -> Option<u64> {
+        self.schedule
+            .iter()
+            .find(|entry| epoch >= entry.epoch)
+            .map(|entry| entry.max_blobs_per_block)
+    }
+
+    pub fn blob_parameters_for_epoch(&self, epoch: Epoch) -> Option<BlobParameters> {
+        self.schedule
+            .iter()
+            .find(|entry| epoch >= entry.epoch)
+            .cloned()
+    }
+
+    pub const fn default() -> Self {
+        // TODO(EIP-7892): think about what the default should be
+        Self {
+            schedule: vec![],
+            skip_serializing: false,
+        }
+    }
+
+    pub fn as_vec(&self) -> &Vec<BlobParameters> {
+        &self.schedule
+    }
+}
+
+impl Serialize for BlobSchedule {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut schedule = self.schedule.clone();
+        // reversing the list to get an ascending order
+        schedule.reverse();
+        schedule.serialize(serializer)
+    }
+}
+
+impl<'a> IntoIterator for &'a BlobSchedule {
+    type Item = &'a BlobParameters;
+    type IntoIter = std::slice::Iter<'a, BlobParameters>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.schedule.iter()
+    }
+}
+
+impl IntoIterator for BlobSchedule {
+    type Item = BlobParameters;
+    type IntoIter = std::vec::IntoIter<BlobParameters>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.schedule.into_iter()
     }
 }
 
@@ -1434,18 +1694,15 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     gas_limit_adjustment_factor: u64,
 
-    #[serde(default = "default_gossip_max_size")]
+    #[serde(default = "default_max_payload_size")]
     #[serde(with = "serde_utils::quoted_u64")]
-    gossip_max_size: u64,
+    max_payload_size: u64,
     #[serde(default = "default_max_request_blocks")]
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blocks: u64,
     #[serde(default = "default_min_epochs_for_block_requests")]
     #[serde(with = "serde_utils::quoted_u64")]
     min_epochs_for_block_requests: u64,
-    #[serde(default = "default_max_chunk_size")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    max_chunk_size: u64,
     #[serde(default = "default_ttfb_timeout")]
     #[serde(with = "serde_utils::quoted_u64")]
     ttfb_timeout: u64,
@@ -1517,6 +1774,18 @@ pub struct Config {
     #[serde(default = "default_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
+    #[serde(default = "BlobSchedule::default")]
+    #[serde(skip_serializing_if = "BlobSchedule::skip_serializing")]
+    pub blob_schedule: BlobSchedule,
+    #[serde(default = "default_validator_custody_requirement")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    validator_custody_requirement: u64,
+    #[serde(default = "default_balance_per_additional_custody_group")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    balance_per_additional_custody_group: u64,
+    #[serde(default = "default_min_epochs_for_data_column_sidecars_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_data_column_sidecars_requests: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1525,7 +1794,6 @@ fn default_bellatrix_fork_version() -> [u8; 4] {
 }
 
 fn default_capella_fork_version() -> [u8; 4] {
-    // TODO: determine if the bellatrix example should be copied like this
     [0xff, 0xff, 0xff, 0xff]
 }
 
@@ -1580,16 +1848,12 @@ const fn default_gas_limit_adjustment_factor() -> u64 {
     1024
 }
 
-const fn default_gossip_max_size() -> u64 {
+const fn default_max_payload_size() -> u64 {
     10485760
 }
 
 const fn default_min_epochs_for_block_requests() -> u64 {
     33024
-}
-
-const fn default_max_chunk_size() -> u64 {
-    10485760
 }
 
 const fn default_ttfb_timeout() -> u64 {
@@ -1686,6 +1950,18 @@ const fn default_samples_per_slot() -> u64 {
     8
 }
 
+const fn default_validator_custody_requirement() -> u64 {
+    8
+}
+
+const fn default_balance_per_additional_custody_group() -> u64 {
+    32000000000
+}
+
+const fn default_min_epochs_for_data_column_sidecars_requests() -> u64 {
+    4096
+}
+
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
     RuntimeVariableList::<Hash256>::from_vec(
@@ -1711,15 +1987,21 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
-fn max_data_columns_by_root_request_common(max_request_data_column_sidecars: u64) -> usize {
-    let max_request_data_column_sidecars = max_request_data_column_sidecars as usize;
-    let empty_data_column_id = DataColumnIdentifier {
+fn max_data_columns_by_root_request_common(
+    max_request_blocks: u64,
+    number_of_columns: u64,
+) -> usize {
+    let max_request_blocks = max_request_blocks as usize;
+    let number_of_columns = number_of_columns as usize;
+
+    let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        index: 0,
+        columns: RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns),
     };
-    RuntimeVariableList::from_vec(
-        vec![empty_data_column_id; max_request_data_column_sidecars],
-        max_request_data_column_sidecars,
+
+    RuntimeVariableList::<DataColumnsByRootIdentifier>::from_vec(
+        vec![empty_data_columns_by_root_id; max_request_blocks],
+        max_request_blocks,
     )
     .as_ssz_bytes()
     .len()
@@ -1738,7 +2020,10 @@ fn default_max_blobs_by_root_request() -> usize {
 }
 
 fn default_data_columns_by_root_request() -> usize {
-    max_data_columns_by_root_request_common(default_max_request_data_column_sidecars())
+    max_data_columns_by_root_request_common(
+        default_max_request_blocks_deneb(),
+        default_number_of_columns(),
+    )
 }
 
 impl Default for Config {
@@ -1857,10 +2142,9 @@ impl Config {
 
             gas_limit_adjustment_factor: spec.gas_limit_adjustment_factor,
 
-            gossip_max_size: spec.gossip_max_size,
+            max_payload_size: spec.max_payload_size,
             max_request_blocks: spec.max_request_blocks,
             min_epochs_for_block_requests: spec.min_epochs_for_block_requests,
-            max_chunk_size: spec.max_chunk_size,
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
             attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
@@ -1886,6 +2170,11 @@ impl Config {
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             samples_per_slot: spec.samples_per_slot,
             custody_requirement: spec.custody_requirement,
+            blob_schedule: spec.blob_schedule.clone(),
+            validator_custody_requirement: spec.validator_custody_requirement,
+            balance_per_additional_custody_group: spec.balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests: spec
+                .min_epochs_for_data_column_sidecars_requests,
         }
     }
 
@@ -1938,9 +2227,8 @@ impl Config {
             deposit_network_id,
             deposit_contract_address,
             gas_limit_adjustment_factor,
-            gossip_max_size,
+            max_payload_size,
             min_epochs_for_block_requests,
-            max_chunk_size,
             ttfb_timeout,
             resp_timeout,
             message_domain_invalid_snappy,
@@ -1965,6 +2253,10 @@ impl Config {
             data_column_sidecar_subnet_count,
             samples_per_slot,
             custody_requirement,
+            ref blob_schedule,
+            validator_custody_requirement,
+            balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2009,9 +2301,8 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
-            gossip_max_size,
+            max_payload_size,
             min_epochs_for_block_requests,
-            max_chunk_size,
             ttfb_timeout,
             resp_timeout,
             message_domain_invalid_snappy,
@@ -2040,7 +2331,8 @@ impl Config {
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
             max_data_columns_by_root_request: max_data_columns_by_root_request_common(
-                max_request_data_column_sidecars,
+                max_request_blocks_deneb,
+                number_of_columns,
             ),
 
             number_of_columns,
@@ -2048,6 +2340,10 @@ impl Config {
             data_column_sidecar_subnet_count,
             samples_per_slot,
             custody_requirement,
+            blob_schedule: blob_schedule.clone(),
+            validator_custody_requirement,
+            balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests,
 
             ..chain_spec.clone()
         })
@@ -2186,6 +2482,7 @@ mod tests {
 mod yaml_tests {
     use super::*;
     use paste::paste;
+    use std::sync::Arc;
     use tempfile::NamedTempFile;
 
     #[test]
@@ -2232,6 +2529,235 @@ mod yaml_tests {
             .expect("error while opening the file");
         let from: Config = serde_yaml::from_reader(reader).expect("error while deserializing");
         assert_eq!(from, yamlconfig);
+    }
+
+    #[test]
+    fn blob_schedule_max_blobs_per_block() {
+        let spec_contents = r#"
+        PRESET_BASE: 'mainnet'
+        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
+        MIN_GENESIS_TIME: 1748264340
+        GENESIS_FORK_VERSION: 0x10355025
+        GENESIS_DELAY: 60
+        SECONDS_PER_SLOT: 12
+        SECONDS_PER_ETH1_BLOCK: 12
+        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+        SHARD_COMMITTEE_PERIOD: 256
+        ETH1_FOLLOW_DISTANCE: 2048
+        INACTIVITY_SCORE_BIAS: 4
+        INACTIVITY_SCORE_RECOVERY_RATE: 16
+        EJECTION_BALANCE: 16000000000
+        MIN_PER_EPOCH_CHURN_LIMIT: 4
+        CHURN_LIMIT_QUOTIENT: 65536
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
+        PROPOSER_SCORE_BOOST: 40
+        REORG_HEAD_WEIGHT_THRESHOLD: 20
+        REORG_PARENT_WEIGHT_THRESHOLD: 160
+        REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
+        DEPOSIT_CHAIN_ID: 7042643276
+        DEPOSIT_NETWORK_ID: 7042643276
+        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+
+        ALTAIR_FORK_VERSION: 0x20355025
+        ALTAIR_FORK_EPOCH: 0
+        BELLATRIX_FORK_VERSION: 0x30355025
+        BELLATRIX_FORK_EPOCH: 0
+        CAPELLA_FORK_VERSION: 0x40355025
+        CAPELLA_FORK_EPOCH: 0
+        DENEB_FORK_VERSION: 0x50355025
+        DENEB_FORK_EPOCH: 64
+        ELECTRA_FORK_VERSION: 0x60355025
+        ELECTRA_FORK_EPOCH: 128
+        FULU_FORK_VERSION: 0x70355025
+        FULU_FORK_EPOCH: 256
+        BLOB_SCHEDULE:
+          - EPOCH: 512
+            MAX_BLOBS_PER_BLOCK: 12
+          - EPOCH: 768
+            MAX_BLOBS_PER_BLOCK: 15
+          - EPOCH: 1024
+            MAX_BLOBS_PER_BLOCK: 18
+          - EPOCH: 1280
+            MAX_BLOBS_PER_BLOCK: 9
+          - EPOCH: 1584
+            MAX_BLOBS_PER_BLOCK: 20
+        "#;
+        let config: Config =
+            serde_yaml::from_str(spec_contents).expect("error while deserializing");
+        let spec =
+            ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
+
+        // test out max_blobs_per_block(epoch)
+        assert_eq!(
+            spec.max_blobs_per_block(Epoch::new(64)),
+            default_max_blobs_per_block()
+        );
+        assert_eq!(
+            spec.max_blobs_per_block(Epoch::new(127)),
+            default_max_blobs_per_block()
+        );
+        assert_eq!(
+            spec.max_blobs_per_block(Epoch::new(128)),
+            default_max_blobs_per_block_electra()
+        );
+        assert_eq!(
+            spec.max_blobs_per_block(Epoch::new(255)),
+            default_max_blobs_per_block_electra()
+        );
+        assert_eq!(
+            spec.max_blobs_per_block(Epoch::new(256)),
+            default_max_blobs_per_block_electra()
+        );
+        assert_eq!(
+            spec.max_blobs_per_block(Epoch::new(511)),
+            default_max_blobs_per_block_electra()
+        );
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(512)), 12);
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(767)), 12);
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(768)), 15);
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(1023)), 15);
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(1024)), 18);
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(1279)), 18);
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(1280)), 9);
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(1583)), 9);
+        assert_eq!(spec.max_blobs_per_block(Epoch::new(1584)), 20);
+        assert_eq!(
+            spec.max_blobs_per_block(Epoch::new(18446744073709551615)),
+            20
+        );
+
+        // blob schedule is reverse sorted by epoch
+        assert_eq!(
+            config.blob_schedule.as_vec(),
+            &vec![
+                BlobParameters {
+                    epoch: Epoch::new(1584),
+                    max_blobs_per_block: 20
+                },
+                BlobParameters {
+                    epoch: Epoch::new(1280),
+                    max_blobs_per_block: 9
+                },
+                BlobParameters {
+                    epoch: Epoch::new(1024),
+                    max_blobs_per_block: 18
+                },
+                BlobParameters {
+                    epoch: Epoch::new(768),
+                    max_blobs_per_block: 15
+                },
+                BlobParameters {
+                    epoch: Epoch::new(512),
+                    max_blobs_per_block: 12
+                },
+            ]
+        );
+
+        // test max_blobs_per_block_within_fork
+        assert_eq!(
+            spec.max_blobs_per_block_within_fork(ForkName::Deneb),
+            default_max_blobs_per_block()
+        );
+        assert_eq!(
+            spec.max_blobs_per_block_within_fork(ForkName::Electra),
+            default_max_blobs_per_block_electra()
+        );
+        assert_eq!(spec.max_blobs_per_block_within_fork(ForkName::Fulu), 20);
+
+        // Check that serialization is in ascending order
+        let yaml = serde_yaml::to_string(&spec.blob_schedule).expect("should serialize");
+
+        // Deserialize back to Vec<BlobParameters> to check order
+        let deserialized: Vec<BlobParameters> =
+            serde_yaml::from_str(&yaml).expect("should deserialize");
+
+        // Should be in ascending order by epoch
+        assert!(
+            deserialized.iter().map(|bp| bp.epoch.as_u64()).is_sorted(),
+            "BlobSchedule should serialize in ascending order by epoch"
+        );
+    }
+
+    #[test]
+    fn blob_schedule_fork_digest() {
+        let spec_contents = r#"
+        PRESET_BASE: 'mainnet'
+        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
+        MIN_GENESIS_TIME: 1748264340
+        GENESIS_FORK_VERSION: 0x10355025
+        GENESIS_DELAY: 60
+        SECONDS_PER_SLOT: 12
+        SECONDS_PER_ETH1_BLOCK: 12
+        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+        SHARD_COMMITTEE_PERIOD: 256
+        ETH1_FOLLOW_DISTANCE: 2048
+        INACTIVITY_SCORE_BIAS: 4
+        INACTIVITY_SCORE_RECOVERY_RATE: 16
+        EJECTION_BALANCE: 16000000000
+        MIN_PER_EPOCH_CHURN_LIMIT: 4
+        CHURN_LIMIT_QUOTIENT: 65536
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
+        PROPOSER_SCORE_BOOST: 40
+        REORG_HEAD_WEIGHT_THRESHOLD: 20
+        REORG_PARENT_WEIGHT_THRESHOLD: 160
+        REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
+        DEPOSIT_CHAIN_ID: 7042643276
+        DEPOSIT_NETWORK_ID: 7042643276
+        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+
+        ALTAIR_FORK_VERSION: 0x20355025
+        ALTAIR_FORK_EPOCH: 0
+        BELLATRIX_FORK_VERSION: 0x30355025
+        BELLATRIX_FORK_EPOCH: 0
+        CAPELLA_FORK_VERSION: 0x40355025
+        CAPELLA_FORK_EPOCH: 0
+        DENEB_FORK_VERSION: 0x50355025
+        DENEB_FORK_EPOCH: 0
+        ELECTRA_FORK_VERSION: 0x60000000
+        ELECTRA_FORK_EPOCH: 9
+        FULU_FORK_VERSION: 0x06000000
+        FULU_FORK_EPOCH: 100
+        BLOB_SCHEDULE:
+          - EPOCH: 9
+            MAX_BLOBS_PER_BLOCK: 9
+          - EPOCH: 100
+            MAX_BLOBS_PER_BLOCK: 100
+          - EPOCH: 150
+            MAX_BLOBS_PER_BLOCK: 175
+          - EPOCH: 200
+            MAX_BLOBS_PER_BLOCK: 200
+          - EPOCH: 250
+            MAX_BLOBS_PER_BLOCK: 275
+          - EPOCH: 300
+            MAX_BLOBS_PER_BLOCK: 300
+        "#;
+        let config: Config =
+            serde_yaml::from_str(spec_contents).expect("error while deserializing");
+        let spec =
+            ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
+
+        let genesis_validators_root = Hash256::from_slice(&[0; 32]);
+
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(100));
+        assert_eq!(digest, [0xdf, 0x67, 0x55, 0x7b]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(101));
+        assert_eq!(digest, [0xdf, 0x67, 0x55, 0x7b]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(150));
+        assert_eq!(digest, [0x8a, 0xb3, 0x8b, 0x59]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(199));
+        assert_eq!(digest, [0x8a, 0xb3, 0x8b, 0x59]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(200));
+        assert_eq!(digest, [0xd9, 0xb8, 0x14, 0x38]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(201));
+        assert_eq!(digest, [0xd9, 0xb8, 0x14, 0x38]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(250));
+        assert_eq!(digest, [0x4e, 0xf3, 0x2a, 0x62]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(299));
+        assert_eq!(digest, [0x4e, 0xf3, 0x2a, 0x62]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(300));
+        assert_eq!(digest, [0xca, 0x10, 0x0d, 0x64]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(301));
+        assert_eq!(digest, [0xca, 0x10, 0x0d, 0x64]);
     }
 
     #[test]
@@ -2311,9 +2837,8 @@ mod yaml_tests {
         check_default!(terminal_block_hash);
         check_default!(terminal_block_hash_activation_epoch);
         check_default!(bellatrix_fork_version);
-        check_default!(gossip_max_size);
+        check_default!(max_payload_size);
         check_default!(min_epochs_for_block_requests);
-        check_default!(max_chunk_size);
         check_default!(ttfb_timeout);
         check_default!(resp_timeout);
         check_default!(message_domain_invalid_snappy);
@@ -2337,6 +2862,80 @@ mod yaml_tests {
         assert_eq!(
             int_to_bytes4(ApplicationDomain::Builder.get_domain_constant()),
             [0, 0, 0, 1]
+        );
+    }
+
+    #[test]
+    fn test_max_network_limits_overflow() {
+        let mut spec = MainnetEthSpec::default_spec();
+        // Should not overflow
+        let _ = spec.max_message_size();
+        let _ = spec.max_compressed_len();
+
+        spec.max_payload_size *= 10;
+        // Should not overflow even with a 10x increase in max
+        let _ = spec.max_message_size();
+        let _ = spec.max_compressed_len();
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_deneb() {
+        type E = MainnetEthSpec;
+        let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+
+        // `min_epochs_for_data_sidecar_requests` cannot be earlier than Deneb fork epoch.
+        assert_eq!(
+            spec.deneb_fork_epoch,
+            spec.min_epoch_data_availability_boundary(Epoch::new(blob_retention_epochs / 2))
+        );
+
+        let current_epoch = Epoch::new(blob_retention_epochs * 2);
+        let expected_min_blob_epoch = current_epoch - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_min_blob_epoch),
+            spec.min_epoch_data_availability_boundary(current_epoch)
+        );
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_fulu() {
+        type E = MainnetEthSpec;
+        let spec = {
+            let mut spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+            // 4096 * 2 = 8192
+            spec.fulu_fork_epoch = Some(Epoch::new(spec.min_epochs_for_blob_sidecars_requests * 2));
+            // set a different value for testing purpose, 4096 / 2 = 2048
+            spec.min_epochs_for_data_column_sidecars_requests =
+                spec.min_epochs_for_blob_sidecars_requests / 2;
+            Arc::new(spec)
+        };
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+        let data_column_retention_epochs = spec.min_epochs_for_data_column_sidecars_requests;
+
+        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch still uses `min_epochs_for_blob_sidecars_requests`
+        let fulu_fork_epoch = spec.fulu_fork_epoch.unwrap();
+        let expected_blob_retention_epoch = fulu_fork_epoch - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_blob_retention_epoch),
+            spec.min_epoch_data_availability_boundary(fulu_fork_epoch)
+        );
+
+        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch + min_epochs_for_blob_sidecars_request
+        let blob_retention_epoch_after_fulu = fulu_fork_epoch + blob_retention_epochs;
+        let expected_blob_retention_epoch = blob_retention_epoch_after_fulu - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_blob_retention_epoch),
+            spec.min_epoch_data_availability_boundary(blob_retention_epoch_after_fulu)
+        );
+
+        // After the final blob retention epoch, `min_epochs_for_data_sidecar_requests` should be calculated
+        // using `min_epochs_for_data_column_sidecars_request`
+        let current_epoch = blob_retention_epoch_after_fulu + 1;
+        let expected_data_column_retention_epoch = current_epoch - data_column_retention_epochs;
+        assert_eq!(
+            Some(expected_data_column_retention_epoch),
+            spec.min_epoch_data_availability_boundary(current_epoch)
         );
     }
 }

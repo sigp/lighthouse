@@ -11,6 +11,7 @@ use itertools::izip;
 use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
+use tracing::instrument;
 use types::{
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
@@ -19,7 +20,7 @@ use types::{
     milhouse::Cow,
     ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
     EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
-    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator,
+    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator, Vector,
 };
 
 pub struct SinglePassConfig {
@@ -30,6 +31,7 @@ pub struct SinglePassConfig {
     pub pending_deposits: bool,
     pub pending_consolidations: bool,
     pub effective_balance_updates: bool,
+    pub proposer_lookahead: bool,
 }
 
 impl Default for SinglePassConfig {
@@ -48,6 +50,7 @@ impl SinglePassConfig {
             pending_deposits: true,
             pending_consolidations: true,
             effective_balance_updates: true,
+            proposer_lookahead: true,
         }
     }
 
@@ -60,6 +63,7 @@ impl SinglePassConfig {
             pending_deposits: false,
             pending_consolidations: false,
             effective_balance_updates: false,
+            proposer_lookahead: false,
         }
     }
 }
@@ -131,6 +135,7 @@ impl ValidatorInfo {
     }
 }
 
+#[instrument(skip_all)]
 pub fn process_epoch_single_pass<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -175,6 +180,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
     let mut earliest_exit_epoch = state.earliest_exit_epoch().ok();
     let mut exit_balance_to_consume = state.exit_balance_to_consume().ok();
+    let validators_in_consolidations = get_validators_in_consolidations(state);
 
     // Split the state into several disjoint mutable borrows.
     let (
@@ -317,17 +323,26 @@ pub fn process_epoch_single_pass<E: EthSpec>(
 
         // `process_effective_balance_updates`
         if conf.effective_balance_updates {
-            process_single_effective_balance_update(
-                validator_info.index,
-                *balance,
-                &mut validator,
-                validator_info.current_epoch_participation,
-                &mut next_epoch_cache,
-                progressive_balances,
-                effective_balances_ctxt,
-                state_ctxt,
-                spec,
-            )?;
+            if validators_in_consolidations.contains(&validator_info.index) {
+                process_single_dummy_effective_balance_update(
+                    validator_info.index,
+                    &validator,
+                    &mut next_epoch_cache,
+                    state_ctxt,
+                )?;
+            } else {
+                process_single_effective_balance_update(
+                    validator_info.index,
+                    *balance,
+                    &mut validator,
+                    validator_info.current_epoch_participation,
+                    &mut next_epoch_cache,
+                    progressive_balances,
+                    effective_balances_ctxt,
+                    state_ctxt,
+                    spec,
+                )?;
+            }
         }
     }
 
@@ -430,6 +445,7 @@ pub fn process_epoch_single_pass<E: EthSpec>(
     if fork_name.electra_enabled() && conf.pending_consolidations {
         process_pending_consolidations(
             state,
+            &validators_in_consolidations,
             &mut next_epoch_cache,
             effective_balances_ctxt,
             conf.effective_balance_updates,
@@ -449,7 +465,41 @@ pub fn process_epoch_single_pass<E: EthSpec>(
             next_epoch_cache.into_epoch_cache(next_epoch_activation_queue, spec)?;
     }
 
+    if conf.proposer_lookahead && fork_name.fulu_enabled() {
+        process_proposer_lookahead(state, spec)?;
+    }
+
     Ok(summary)
+}
+
+// TOOO(EIP-7917): use balances cache
+pub fn process_proposer_lookahead<E: EthSpec>(
+    state: &mut BeaconState<E>,
+    spec: &ChainSpec,
+) -> Result<(), Error> {
+    let mut lookahead = state.proposer_lookahead()?.clone().to_vec();
+
+    // Shift out proposers in the first epoch
+    lookahead.copy_within((E::slots_per_epoch() as usize).., 0);
+
+    let next_epoch = state
+        .current_epoch()
+        .safe_add(spec.min_seed_lookahead.as_u64())?
+        .safe_add(1)?;
+    let last_epoch_proposers = state.get_beacon_proposer_indices(next_epoch, spec)?;
+
+    // Fill in the last epoch with new proposer indices
+    let last_epoch_start = E::proposer_lookahead_slots().safe_sub(E::slots_per_epoch() as usize)?;
+    for (i, proposer) in last_epoch_proposers.into_iter().enumerate() {
+        let index = last_epoch_start.safe_add(i)?;
+        *lookahead
+            .get_mut(index)
+            .ok_or(Error::ProposerLookaheadOutOfBounds(index))? = proposer as u64;
+    }
+
+    *state.proposer_lookahead_mut()? = Vector::new(lookahead)?;
+
+    Ok(())
 }
 
 fn process_single_inactivity_update(
@@ -1026,12 +1076,38 @@ fn process_pending_deposits_for_validator(
     Ok(())
 }
 
+/// Return the set of validators referenced by consolidations, either as source or target.
+///
+/// This function is blind to whether the consolidations are valid and capable of being processed,
+/// it just returns the set of all indices present in consolidations. This is *sufficient* to
+/// make consolidations play nicely with effective balance updates. The algorithm used is:
+///
+/// - In the single pass: apply effective balance updates for all validators *not* referenced by
+///   consolidations.
+/// - Apply consolidations.
+/// - Apply effective balance updates for all validators previously skipped.
+///
+/// Prior to Electra, the empty set is returned.
+fn get_validators_in_consolidations<E: EthSpec>(state: &BeaconState<E>) -> BTreeSet<usize> {
+    let mut referenced_validators = BTreeSet::new();
+
+    if let Ok(pending_consolidations) = state.pending_consolidations() {
+        for pending_consolidation in pending_consolidations {
+            referenced_validators.insert(pending_consolidation.source_index as usize);
+            referenced_validators.insert(pending_consolidation.target_index as usize);
+        }
+    }
+
+    referenced_validators
+}
+
 /// We process pending consolidations after all of single-pass epoch processing, and then patch up
 /// the effective balances for affected validators.
 ///
 /// This is safe because processing consolidations does not depend on the `effective_balance`.
 fn process_pending_consolidations<E: EthSpec>(
     state: &mut BeaconState<E>,
+    validators_in_consolidations: &BTreeSet<usize>,
     next_epoch_cache: &mut PreEpochCache,
     effective_balances_ctxt: &EffectiveBalancesContext,
     perform_effective_balance_updates: bool,
@@ -1041,8 +1117,6 @@ fn process_pending_consolidations<E: EthSpec>(
     let mut next_pending_consolidation: usize = 0;
     let next_epoch = state.next_epoch()?;
     let pending_consolidations = state.pending_consolidations()?.clone();
-
-    let mut affected_validators = BTreeSet::new();
 
     for pending_consolidation in &pending_consolidations {
         let source_index = pending_consolidation.source_index as usize;
@@ -1069,9 +1143,6 @@ fn process_pending_consolidations<E: EthSpec>(
         decrease_balance(state, source_index, source_effective_balance)?;
         increase_balance(state, target_index, source_effective_balance)?;
 
-        affected_validators.insert(source_index);
-        affected_validators.insert(target_index);
-
         next_pending_consolidation.safe_add_assign(1)?;
     }
 
@@ -1087,7 +1158,7 @@ fn process_pending_consolidations<E: EthSpec>(
     // Re-process effective balance updates for validators affected by consolidations.
     let (validators, balances, _, current_epoch_participation, _, progressive_balances, _, _) =
         state.mutable_validator_fields()?;
-    for validator_index in affected_validators {
+    for &validator_index in validators_in_consolidations {
         let balance = *balances
             .get(validator_index)
             .ok_or(BeaconStateError::UnknownValidator(validator_index))?;
@@ -1127,6 +1198,28 @@ impl EffectiveBalancesContext {
             upward_threshold,
         })
     }
+}
+
+/// This function is called for validators that do not have their effective balance updated as
+/// part of the single-pass loop. For these validators we compute their true effective balance
+/// update after processing consolidations. However, to maintain the invariants of the
+/// `PreEpochCache` we must register _some_ effective balance for them immediately.
+fn process_single_dummy_effective_balance_update(
+    validator_index: usize,
+    validator: &Cow<Validator>,
+    next_epoch_cache: &mut PreEpochCache,
+    state_ctxt: &StateContext,
+) -> Result<(), Error> {
+    // Populate the effective balance cache with the current effective balance. This will be
+    // overriden when `process_single_effective_balance_update` is called.
+    let is_active_next_epoch = validator.is_active_at(state_ctxt.next_epoch);
+    let temporary_effective_balance = validator.effective_balance;
+    next_epoch_cache.update_effective_balance(
+        validator_index,
+        temporary_effective_balance,
+        is_active_next_epoch,
+    )?;
+    Ok(())
 }
 
 /// This function abstracts over phase0 and Electra effective balance processing.

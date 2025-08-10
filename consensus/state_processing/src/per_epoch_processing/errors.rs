@@ -19,9 +19,10 @@ pub enum EpochProcessingError {
     BeaconStateError(BeaconStateError),
     InclusionError(InclusionError),
     SszTypesError(ssz_types::Error),
+    BitfieldError(ssz::BitfieldError),
     ArithError(safe_arith::ArithError),
     InconsistentStateFork(InconsistentFork),
-    InvalidJustificationBit(ssz_types::Error),
+    InvalidJustificationBit(ssz::BitfieldError),
     InvalidFlagIndex(usize),
     MilhouseError(milhouse::Error),
     EpochCache(EpochCacheError),
@@ -29,6 +30,7 @@ pub enum EpochProcessingError {
     MissingEarliestExitEpoch,
     MissingExitBalanceToConsume,
     PendingDepositsLogicError,
+    ProposerLookaheadOutOfBounds(usize),
 }
 
 impl From<InclusionError> for EpochProcessingError {
@@ -46,6 +48,12 @@ impl From<BeaconStateError> for EpochProcessingError {
 impl From<ssz_types::Error> for EpochProcessingError {
     fn from(e: ssz_types::Error) -> EpochProcessingError {
         EpochProcessingError::SszTypesError(e)
+    }
+}
+
+impl From<ssz::BitfieldError> for EpochProcessingError {
+    fn from(e: ssz::BitfieldError) -> EpochProcessingError {
+        EpochProcessingError::BitfieldError(e)
     }
 }
 

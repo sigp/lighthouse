@@ -1,51 +1,32 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
 mod attestation_performance;
-pub mod attestation_rewards;
 mod block_packing_efficiency;
 mod block_rewards;
-mod standard_block_rewards;
-mod sync_committee_rewards;
+pub mod sync_state;
 
 use crate::{
-    types::{
-        DepositTreeSnapshot, Epoch, EthSpec, FinalizedExecutionBlock, GenericResponse, ValidatorId,
-    },
-    BeaconNodeHttpClient, DepositData, Error, Eth1Data, Hash256, Slot,
+    lighthouse::sync_state::SyncState,
+    types::{AdminPeer, Epoch, GenericResponse, ValidatorId},
+    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use store::{AnchorInfo, BlobInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
-pub use attestation_rewards::StandardAttestationRewards;
 pub use block_packing_efficiency::{
     BlockPackingEfficiency, BlockPackingEfficiencyQuery, ProposerInfo, UniqueAttestation,
 };
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
-pub use lighthouse_network::{types::SyncState, PeerInfo};
-pub use standard_block_rewards::StandardBlockReward;
-pub use sync_committee_rewards::SyncCommitteeReward;
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union
 // selector.
 four_byte_option_impl!(four_byte_option_u64, u64);
 four_byte_option_impl!(four_byte_option_hash256, Hash256);
-
-/// Information returned by `peers` and `connected_peers`.
-// TODO: this should be deserializable..
-#[derive(Debug, Clone, Serialize)]
-#[serde(bound = "E: EthSpec")]
-pub struct Peer<E: EthSpec> {
-    /// The Peer's ID
-    pub peer_id: String,
-    /// The PeerInfo associated with the peer.
-    pub peer_info: PeerInfo<E>,
-}
 
 /// The results of validators voting during an epoch.
 ///
@@ -175,18 +156,6 @@ pub struct ProcessHealth {
     pub pid_process_seconds_total: u64,
 }
 
-/// Indicates how up-to-date the Eth1 caches are.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Eth1SyncStatusData {
-    pub head_block_number: Option<u64>,
-    pub head_block_timestamp: Option<u64>,
-    pub latest_cached_block_number: Option<u64>,
-    pub latest_cached_block_timestamp: Option<u64>,
-    pub voting_target_timestamp: u64,
-    pub eth1_node_sync_status_percentage: f64,
-    pub lighthouse_is_cached_and_ready: bool,
-}
-
 /// A fully parsed eth1 deposit contract log.
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
 pub struct DepositLog {
@@ -197,50 +166,6 @@ pub struct DepositLog {
     pub index: u64,
     /// True if the signature is valid.
     pub signature_is_valid: bool,
-}
-
-/// A block of the eth1 chain.
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode)]
-pub struct Eth1Block {
-    pub hash: Hash256,
-    pub timestamp: u64,
-    pub number: u64,
-    #[ssz(with = "four_byte_option_hash256")]
-    pub deposit_root: Option<Hash256>,
-    #[ssz(with = "four_byte_option_u64")]
-    pub deposit_count: Option<u64>,
-}
-
-impl Eth1Block {
-    pub fn eth1_data(self) -> Option<Eth1Data> {
-        Some(Eth1Data {
-            deposit_root: self.deposit_root?,
-            deposit_count: self.deposit_count?,
-            block_hash: self.hash,
-        })
-    }
-}
-
-impl From<Eth1Block> for FinalizedExecutionBlock {
-    fn from(eth1_block: Eth1Block) -> Self {
-        Self {
-            deposit_count: eth1_block.deposit_count.unwrap_or(0),
-            deposit_root: eth1_block
-                .deposit_root
-                .unwrap_or_else(|| DepositTreeSnapshot::default().deposit_root),
-            block_hash: eth1_block.hash,
-            block_height: eth1_block.number,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct DatabaseInfo {
-    pub schema_version: u64,
-    pub config: StoreConfig,
-    pub split: Split,
-    pub anchor: AnchorInfo,
-    pub blob_info: BlobInfo,
 }
 
 impl BeaconNodeHttpClient {
@@ -323,76 +248,6 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET lighthouse/eth1/syncing`
-    pub async fn get_lighthouse_eth1_syncing(
-        &self,
-    ) -> Result<GenericResponse<Eth1SyncStatusData>, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("eth1")
-            .push("syncing");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/eth1/block_cache`
-    pub async fn get_lighthouse_eth1_block_cache(
-        &self,
-    ) -> Result<GenericResponse<Vec<Eth1Block>>, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("eth1")
-            .push("block_cache");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/eth1/deposit_cache`
-    pub async fn get_lighthouse_eth1_deposit_cache(
-        &self,
-    ) -> Result<GenericResponse<Vec<DepositLog>>, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("eth1")
-            .push("deposit_cache");
-
-        self.get(path).await
-    }
-
-    /// `GET lighthouse/staking`
-    pub async fn get_lighthouse_staking(&self) -> Result<bool, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("staking");
-
-        self.get_opt::<(), _>(path).await.map(|opt| opt.is_some())
-    }
-
-    /// `GET lighthouse/database/info`
-    pub async fn get_lighthouse_database_info(&self) -> Result<DatabaseInfo, Error> {
-        let mut path = self.server.full.clone();
-
-        path.path_segments_mut()
-            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
-            .push("database")
-            .push("info");
-
-        self.get(path).await
-    }
-
     /// `POST lighthouse/database/reconstruct`
     pub async fn post_lighthouse_database_reconstruct(&self) -> Result<String, Error> {
         let mut path = self.server.full.clone();
@@ -404,6 +259,30 @@ impl BeaconNodeHttpClient {
             .push("reconstruct");
 
         self.post_with_response(path, &()).await
+    }
+
+    /// `POST lighthouse/add_peer`
+    pub async fn post_lighthouse_add_peer(&self, req: AdminPeer) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("add_peer");
+
+        self.post_with_response(path, &req).await
+    }
+
+    /// `POST lighthouse/remove_peer`
+    pub async fn post_lighthouse_remove_peer(&self, req: AdminPeer) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("remove_peer");
+
+        self.post_with_response(path, &req).await
     }
 
     /*

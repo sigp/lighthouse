@@ -44,17 +44,18 @@ use super::chain_collection::{ChainCollection, SyncChainStatus};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
 use crate::status::ToStatusMessage;
-use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::network_context::{RpcResponseError, SyncNetworkContext};
 use crate::sync::BatchProcessResult;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerId, SyncInfo};
+use logging::crit;
 use lru_cache::LRUTimeCache;
-use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::{debug, trace, warn};
 use types::{Epoch, EthSpec, Hash256};
 
 /// For how long we store failed finalized chains to prevent retries.
@@ -74,23 +75,20 @@ pub struct RangeSync<T: BeaconChainTypes> {
     chains: ChainCollection<T>,
     /// Chains that have failed and are stored to prevent being retried.
     failed_chains: LRUTimeCache<Hash256>,
-    /// The syncing logger.
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> RangeSync<T>
 where
     T: BeaconChainTypes,
 {
-    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: slog::Logger) -> Self {
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
-            chains: ChainCollection::new(beacon_chain, log.clone()),
+            chains: ChainCollection::new(beacon_chain),
             failed_chains: LRUTimeCache::new(std::time::Duration::from_secs(
                 FAILED_CHAINS_EXPIRY_SECONDS,
             )),
             awaiting_head_peers: HashMap::new(),
-            log,
         }
     }
 
@@ -133,14 +131,13 @@ where
             RangeSyncType::Finalized => {
                 // Make sure we have not recently tried this chain
                 if self.failed_chains.contains(&remote_info.finalized_root) {
-                    debug!(self.log, "Disconnecting peer that belongs to previously failed chain";
-                        "failed_root" => %remote_info.finalized_root, "peer_id" => %peer_id);
+                    debug!(failed_root = ?remote_info.finalized_root, %peer_id,"Disconnecting peer that belongs to previously failed chain");
                     network.goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
                     return;
                 }
 
                 // Finalized chain search
-                debug!(self.log, "Finalization sync peer joined"; "peer_id" => %peer_id);
+                debug!(%peer_id, "Finalization sync peer joined");
                 self.awaiting_head_peers.remove(&peer_id);
 
                 // Because of our change in finalized sync batch size from 2 to 1 and our transition
@@ -171,8 +168,7 @@ where
                 if self.chains.is_finalizing_sync() {
                     // If there are finalized chains to sync, finish these first, before syncing head
                     // chains.
-                    trace!(self.log, "Waiting for finalized sync to complete";
-                        "peer_id" => %peer_id, "awaiting_head_peers" => &self.awaiting_head_peers.len());
+                    trace!(%peer_id, awaiting_head_peers = &self.awaiting_head_peers.len(),"Waiting for finalized sync to complete");
                     self.awaiting_head_peers.insert(peer_id, remote_info);
                     return;
                 }
@@ -229,7 +225,7 @@ where
                 }
             }
             Err(_) => {
-                trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                trace!(%chain_id, "BlocksByRange response for removed chain")
             }
         }
     }
@@ -259,7 +255,7 @@ where
             }
 
             Err(_) => {
-                trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                trace!(%chain_id, "BlocksByRange response for removed chain")
             }
         }
     }
@@ -279,9 +275,8 @@ where
     /// for this peer. If so we mark the batch as failed. The batch may then hit it's maximum
     /// retries. In this case, we need to remove the chain.
     fn remove_peer(&mut self, network: &mut SyncNetworkContext<T>, peer_id: &PeerId) {
-        for (removed_chain, sync_type, remove_reason) in self
-            .chains
-            .call_all(|chain| chain.remove_peer(peer_id, network))
+        for (removed_chain, sync_type, remove_reason) in
+            self.chains.call_all(|chain| chain.remove_peer(peer_id))
         {
             self.on_chain_removed(
                 removed_chain,
@@ -304,10 +299,11 @@ where
         batch_id: BatchId,
         chain_id: ChainId,
         request_id: Id,
+        err: RpcResponseError,
     ) {
         // check that this request is pending
         match self.chains.call_by_id(chain_id, |chain| {
-            chain.inject_error(network, batch_id, &peer_id, request_id)
+            chain.inject_error(network, batch_id, &peer_id, request_id, err)
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some((removed_chain, remove_reason)) = removed_chain {
@@ -321,7 +317,7 @@ where
                 }
             }
             Err(_) => {
-                trace!(self.log, "BlocksByRange response for removed chain"; "chain" => chain_id)
+                trace!(%chain_id, "BlocksByRange response for removed chain")
             }
         }
     }
@@ -335,14 +331,18 @@ where
         op: &'static str,
     ) {
         if remove_reason.is_critical() {
-            crit!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+            crit!(id = chain.id(), ?sync_type, reason = ?remove_reason, op, "Chain removed");
         } else {
-            debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+            debug!(id = chain.id(), ?sync_type, reason = ?remove_reason, op, "Chain removed");
         }
 
         if let RemoveChain::ChainFailed { blacklist, .. } = remove_reason {
             if RangeSyncType::Finalized == sync_type && blacklist {
-                warn!(self.log, "Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS; &chain);
+                warn!(
+                    id = chain.id(),
+                    "Chain failed! Syncing to its head won't be retried for at least the next {} seconds",
+                    FAILED_CHAINS_EXPIRY_SECONDS
+                );
                 self.failed_chains.insert(chain.target_head_root);
             }
         }
@@ -357,10 +357,11 @@ where
 
         let status = self.beacon_chain.status_message();
         let local = SyncInfo {
-            head_slot: status.head_slot,
-            head_root: status.head_root,
-            finalized_epoch: status.finalized_epoch,
-            finalized_root: status.finalized_root,
+            head_slot: *status.head_slot(),
+            head_root: *status.head_root(),
+            finalized_epoch: *status.finalized_epoch(),
+            finalized_root: *status.finalized_root(),
+            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
         };
 
         // update the state of the collection

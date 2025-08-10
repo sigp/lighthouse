@@ -78,8 +78,7 @@ Options:
           custom datadirs for different networks.
       --debug-level <LEVEL>
           Specifies the verbosity level used when emitting logs to the terminal.
-          [default: info] [possible values: info, debug, trace, warn, error,
-          crit]
+          [default: info] [possible values: info, debug, trace, warn, error]
       --discovery-port <PORT>
           The UDP port that discovery will listen on. Defaults to `port`
       --discovery-port6 <PORT>
@@ -118,20 +117,11 @@ Options:
       --epochs-per-blob-prune <EPOCHS>
           The epoch interval with which to prune blobs from Lighthouse's
           database when they are older than the data availability boundary
-          relative to the current epoch. [default: 1]
+          relative to the current epoch. [default: 256]
       --epochs-per-migration <N>
           The number of epochs to wait between running the migration of data
           from the hot DB to the cold DB. Less frequent runs can be useful for
           minimizing disk writes [default: 1]
-      --eth1-blocks-per-log-query <BLOCKS>
-          Specifies the number of blocks that a deposit log query should span.
-          This will reduce the size of responses from the Eth1 endpoint.
-          [default: 1000]
-      --eth1-cache-follow-distance <BLOCKS>
-          Specifies the distance between the Eth1 chain head and the last block
-          which should be imported into the cache. Setting this value lower can
-          help compensate for irregular Proof-of-Work block times, but setting
-          it too low can make the node vulnerable to re-orgs.
       --execution-endpoint <EXECUTION-ENDPOINT>
           Server endpoint for an execution layer JWT-authenticated HTTP JSON-RPC
           connection. Uses the same endpoint to populate the deposit cache.
@@ -167,15 +157,15 @@ Options:
           then this value will be ignored.
       --genesis-state-url-timeout <SECONDS>
           The timeout in seconds for the request to --genesis-state-url.
-          [default: 180]
+          [default: 300]
       --graffiti <GRAFFITI>
           Specify your custom graffiti to be included in blocks. Defaults to the
           current version and commit, truncated to fit in 32 bytes.
       --hdiff-buffer-cache-size <SIZE>
-          Number of hierarchical diff (hdiff) buffers to cache in memory. Each
-          buffer is around the size of a BeaconState so you should be cautious
-          about setting this value too high. This flag is irrelevant for most
-          nodes, which run with state pruning enabled. [default: 16]
+          Number of cold hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. This flag is irrelevant
+          for most nodes, which run with state pruning enabled. [default: 16]
       --hierarchy-exponents <EXPONENTS>
           Specifies the frequency for storing full state snapshots and
           hierarchical diffs in the freezer DB. Accepts a comma-separated list
@@ -188,6 +178,12 @@ Options:
       --historic-state-cache-size <SIZE>
           Specifies how many states from the freezer database should be cached
           in memory [default: 1]
+      --hot-hdiff-buffer-cache-size <SIZE>
+          Number of hot hierarchical diff (hdiff) buffers to cache in memory.
+          Each buffer is around the size of a BeaconState so you should be
+          cautious about setting this value too high. Setting this value higher
+          can reduce the time taken to store new states on disk at the cost of
+          higher memory usage. [default: 1]
       --http-address <ADDRESS>
           Set the listen address for the RESTful HTTP API server.
       --http-allow-origin <ORIGIN>
@@ -245,15 +241,11 @@ Options:
       --log-format <FORMAT>
           Specifies the log format used when emitting logs to the terminal.
           [possible values: JSON]
-      --logfile <FILE>
-          File path where the log file will be stored. Once it grows to the
-          value specified in `--logfile-max-size` a new log file is generated
-          where future logs are stored. Once the number of log files exceeds the
-          value specified in `--logfile-max-number` the oldest log file will be
-          overwritten.
       --logfile-debug-level <LEVEL>
           The verbosity level used when emitting logs to the log file. [default:
-          debug] [possible values: info, debug, trace, warn, error, crit]
+          debug] [possible values: info, debug, trace, warn, error]
+      --logfile-dir <DIR>
+          Directory path where the log file will be stored
       --logfile-format <FORMAT>
           Specifies the log format used when emitting logs to the logfile.
           [possible values: DEFAULT, JSON]
@@ -290,7 +282,7 @@ Options:
           monitoring-endpoint. Default: 60s
       --network <network>
           Name of the Eth2 chain Lighthouse will sync and follow. [possible
-          values: mainnet, gnosis, chiado, sepolia, holesky]
+          values: mainnet, gnosis, chiado, sepolia, holesky, hoodi]
       --network-dir <DIR>
           Data directory for network keys. Defaults to network/ inside the
           beacon node dir.
@@ -385,6 +377,9 @@ Options:
           Number of validators per chunk stored on disk.
       --slots-per-restore-point <SLOT_COUNT>
           DEPRECATED. This flag has no effect.
+      --state-cache-headroom <N>
+          Minimum number of states to cull from the state cache when it gets
+          full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
           Specifies the size of the state cache [default: 128]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
@@ -397,6 +392,9 @@ Options:
           database.
       --target-peers <target-peers>
           The target number of peers.
+      --telemetry-collector-url <URL>
+          URL of the OpenTelemetry collector to export tracing spans (e.g.,
+          http://localhost:4317). If not set, tracing export is disabled.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.
@@ -450,10 +448,6 @@ Flags:
           resource contention which degrades staking performance. Stakers should
           generally choose to avoid this flag since backfill sync is not
           required for staking.
-      --disable-deposit-contract-sync
-          Explicitly disables syncing of deposit logs from the execution node.
-          This overrides any previous option that depends on it. Useful if you
-          intend to run a non-validating beacon node.
       --disable-enr-auto-update
           Discovery automatically updates the nodes local ENR with an external
           IP address and port as seen by other peers on the network. This
@@ -495,8 +489,6 @@ Flags:
       --enable-private-discovery
           Lighthouse by default does not discover private IP addresses. Set this
           flag to enable connection attempts to local addresses.
-      --eth1-purge-cache
-          Purges the eth1 block and deposit caches
       --genesis-backfill
           Attempts to download blocks all the way back to genesis when
           checkpoint syncing.
@@ -517,8 +509,13 @@ Flags:
           all attestations are received for import.
       --light-client-server
           DEPRECATED
-      --log-color
-          Force outputting colors when emitting logs to the terminal.
+      --log-color [<log-color>]
+          Enables/Disables colors for logs in terminal. Set it to false to
+          disable colors. [default: true] [possible values: true, false]
+      --log-extra-info
+          If present, show module,file,line in logs
+      --logfile-color
+          Enables colors in logfile.
       --logfile-compress
           If present, compress old log files. This can help reduce the space
           needed to store old logs.

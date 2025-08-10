@@ -14,8 +14,8 @@ use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::HashSetDelay;
 use futures::prelude::*;
 use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
-use slog::{debug, error, o, warn};
 use slot_clock::SlotClock;
+use tracing::{debug, error, info, warn};
 use types::{
     AttestationData, EthSpec, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
     ValidatorSubscription,
@@ -107,27 +107,17 @@ pub struct SubnetService<T: BeaconChainTypes> {
 
     /// Whether this node is a block proposer-only node.
     proposer_only: bool,
-
-    /// The logger for the attestation service.
-    log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes> SubnetService<T> {
     /* Public functions */
 
     /// Establish the service based on the passed configuration.
-    pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
-        node_id: NodeId,
-        config: &NetworkConfig,
-        log: &slog::Logger,
-    ) -> Self {
-        let log = log.new(o!("service" => "subnet_service"));
-
+    pub fn new(beacon_chain: Arc<BeaconChain<T>>, node_id: NodeId, config: &NetworkConfig) -> Self {
         let slot_duration = beacon_chain.slot_clock.slot_duration();
 
         if config.subscribe_all_subnets {
-            slog::info!(log, "Subscribing to all subnets");
+            info!("Subscribing to all subnets");
         }
 
         // Build the list of known permanent subscriptions, so that we know not to subscribe or
@@ -194,7 +184,6 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             discovery_disabled: config.disable_discovery,
             subscribe_all_subnets: config.subscribe_all_subnets,
             proposer_only: config.proposer_only,
-            log,
         }
     }
 
@@ -257,9 +246,9 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                     ) {
                         Ok(subnet_id) => Subnet::Attestation(subnet_id),
                         Err(e) => {
-                            warn!(self.log,
-                                "Failed to compute subnet id for validator subscription";
-                                "error" => ?e,
+                            warn!(
+                                error = ?e,
+                                "Failed to compute subnet id for validator subscription"
                             );
                             continue;
                         }
@@ -287,10 +276,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                     if subscription.is_aggregator {
                         metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_AGGREGATOR_REQUESTS);
                         if let Err(e) = self.subscribe_to_subnet(exact_subnet) {
-                            warn!(self.log,
-                                "Subscription to subnet error";
-                                "error" => e,
-                            );
+                            warn!(error = e, "Subscription to subnet error");
                         }
                     }
                 }
@@ -305,10 +291,10 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                         ) {
                             Ok(subnet_ids) => subnet_ids,
                             Err(e) => {
-                                warn!(self.log,
-                                    "Failed to compute subnet id for sync committee subscription";
-                                    "error" => ?e,
-                                    "validator_index" => subscription.validator_index
+                                warn!(
+                                    error = ?e,
+                                    validator_index = subscription.validator_index,
+                                    "Failed to compute subnet id for sync committee subscription"
                                 );
                                 continue;
                             }
@@ -326,7 +312,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                             .slot_clock
                             .duration_to_slot(slot_required_until)
                         else {
-                            warn!(self.log, "Subscription to sync subnet error"; "error" => "Unable to determine duration to unsubscription slot", "validator_index" => subscription.validator_index);
+                            warn!(
+                                error = "Unable to determine duration to unsubscription slot",
+                                validator_index = subscription.validator_index,
+                                "Subscription to sync subnet error"
+                            );
                             continue;
                         };
 
@@ -337,11 +327,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                                 .now()
                                 .unwrap_or(Slot::from(0u64));
                             warn!(
-                                self.log,
-                                "Sync committee subscription is past expiration";
-                                "subnet" => ?subnet,
-                                "current_slot" => ?current_slot,
-                                "unsubscribe_slot" => ?slot_required_until,                           );
+                                ?subnet,
+                                ?current_slot,
+                                unsubscribe_slot = ?slot_required_until,
+                                "Sync committee subscription is past expiration"
+                            );
                             continue;
                         }
 
@@ -359,7 +349,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
         // required subnets.
         if !self.discovery_disabled {
             if let Err(e) = self.discover_peers_request(subnets_to_discover.into_iter()) {
-                warn!(self.log, "Discovery lookup request error"; "error" => e);
+                warn!(error = e, "Discovery lookup request error");
             };
         }
     }
@@ -432,9 +422,9 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                 } else {
                     // We may want to check the global PeerInfo to see estimated timeouts for each
                     // peer before they can be removed.
-                    warn!(self.log,
-                        "Not enough time for a discovery search";
-                        "subnet_id" => ?subnet,
+                    warn!(
+                        subnet_id = ?subnet,
+                        "Not enough time for a discovery search"
                     );
                     None
                 }
@@ -529,7 +519,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
             self.subscriptions
                 .insert_at(subnet, duration_to_unsubscribe);
             // We are not currently subscribed and have no waiting subscription, create one
-            debug!(self.log, "Subscribing to subnet"; "subnet" => ?subnet, "until" => ?slot_required_until);
+            debug!(
+                ?subnet,
+                until = ?slot_required_until,
+                "Subscribing to subnet"
+            );
             self.events
                 .push_back(SubnetServiceMessage::Subscribe(subnet));
 
@@ -588,9 +582,10 @@ impl<T: BeaconChainTypes> SubnetService<T> {
                     .insert_at(subnet, time_to_subscription_end);
 
                 // Inform of the subscription.
-                debug!(self.log, "Subscribing to subnet";
-                    "subnet" => ?subnet,
-                    "end_slot" => end_slot,
+                debug!(
+                    ?subnet,
+                    %end_slot,
+                    "Subscribing to subnet"
                 );
                 self.queue_event(SubnetServiceMessage::Subscribe(subnet));
             }
@@ -602,7 +597,7 @@ impl<T: BeaconChainTypes> SubnetService<T> {
     fn handle_removed_subnet(&mut self, subnet: Subnet) {
         if !self.subscriptions.contains_key(&subnet) {
             // Subscription no longer exists as short lived subnet
-            debug!(self.log, "Unsubscribing from subnet"; "subnet" => ?subnet);
+            debug!(?subnet, "Unsubscribing from subnet");
             self.queue_event(SubnetServiceMessage::Unsubscribe(subnet));
 
             // If this is a sync subnet, we need to remove it from our ENR.
@@ -619,7 +614,7 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         // Update the waker if needed.
         if let Some(waker) = &self.waker {
-            if waker.will_wake(cx.waker()) {
+            if !waker.will_wake(cx.waker()) {
                 self.waker = Some(cx.waker().clone());
             }
         } else {
@@ -639,7 +634,11 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
                 // Set the `end_slot` for the subscription to be `duty.slot + 1` so that we unsubscribe
                 // only at the end of the duty slot.
                 if let Err(e) = self.subscribe_to_subnet_immediately(subnet, slot + 1) {
-                    debug!(self.log, "Failed to subscribe to short lived subnet"; "subnet" => ?subnet, "err" => e);
+                    debug!(
+                        subnet = ?subnet,
+                        err = e,
+                        "Failed to subscribe to short lived subnet"
+                    );
                 }
                 self.waker
                     .as_ref()
@@ -647,7 +646,10 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
                     .wake_by_ref();
             }
             Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for scheduled subnet subscriptions"; "error"=> e);
+                error!(
+                    error = e,
+                    "Failed to check for scheduled subnet subscriptions"
+                );
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
@@ -663,7 +665,7 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
                     .wake_by_ref();
             }
             Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for subnet unsubscription times"; "error"=> e);
+                error!(error = e, "Failed to check for subnet unsubscription times");
             }
             Poll::Ready(None) | Poll::Pending => {}
         }
@@ -671,7 +673,10 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         // Poll to remove entries on expiration, no need to act on expiration events.
         if let Some(tracked_vals) = self.aggregate_validators_on_subnet.as_mut() {
             if let Poll::Ready(Some(Err(e))) = tracked_vals.poll_next_unpin(cx) {
-                error!(self.log, "Failed to check for aggregate validator on subnet expirations"; "error"=> e);
+                error!(
+                    error = e,
+                    "Failed to check for aggregate validator on subnet expirations"
+                );
             }
         }
 

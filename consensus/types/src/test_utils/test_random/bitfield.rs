@@ -3,7 +3,7 @@ use smallvec::smallvec;
 
 impl<N: Unsigned + Clone> TestRandom for BitList<N> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let initial_len = std::cmp::max(1, (N::to_usize() + 7) / 8);
+        let initial_len = std::cmp::max(1, N::to_usize().div_ceil(8));
         let mut raw_bytes = smallvec![0; initial_len];
         rng.fill_bytes(&mut raw_bytes);
 
@@ -24,7 +24,7 @@ impl<N: Unsigned + Clone> TestRandom for BitList<N> {
 
 impl<N: Unsigned + Clone> TestRandom for BitVector<N> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        let mut raw_bytes = smallvec![0; std::cmp::max(1, (N::to_usize() + 7) / 8)];
+        let mut raw_bytes = smallvec![0; std::cmp::max(1, N::to_usize().div_ceil(8))];
         rng.fill_bytes(&mut raw_bytes);
         // If N isn't divisible by 8
         // zero out bits greater than N

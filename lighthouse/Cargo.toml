@@ -1,10 +1,15 @@
 [package]
 name = "lighthouse"
-version = "7.0.0-beta.0"
+version = "7.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.83.0"
+rust-version = "1.88.0"
+
+# Prevent cargo-udeps from flagging the dummy package `target_check`, which exists only
+# to assert properties of the compilation target.
+[package.metadata.cargo-udeps.ignore]
+normal = ["target_check"]
 
 [features]
 default = ["slasher-lmdb", "beacon-node-leveldb"]
@@ -28,15 +33,13 @@ slasher-redb = ["slasher/redb"]
 beacon-node-leveldb = ["store/leveldb"]
 # Supports beacon node redb backend.
 beacon-node-redb = ["store/redb"]
+# Supports console subscriber for debugging
+console-subscriber = ["console-subscriber/default"]
+# Turns off jemalloc so that heaptrack may be used to analyse memory usage.
+heaptrack = []
 
-# Deprecated. This is now enabled by default on non windows targets.
+# Deprecated. This is now enabled by default on non windows targets (unless heaptrack is enabled).
 jemalloc = []
-
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-malloc_utils = { workspace = true, features = ["jemalloc"] }
-
-[target.'cfg(target_os = "windows")'.dependencies]
-malloc_utils = { workspace = true }
 
 [dependencies]
 account_manager = { "path" = "../account_manager" }
@@ -46,6 +49,7 @@ bls = { workspace = true }
 boot_node = { path = "../boot_node" }
 clap = { workspace = true }
 clap_utils = { workspace = true }
+console-subscriber = { workspace = true, optional = true }
 database_manager = { path = "../database_manager" }
 directory = { workspace = true }
 environment = { workspace = true }
@@ -56,22 +60,32 @@ lighthouse_version = { workspace = true }
 logging = { workspace = true }
 malloc_utils = { workspace = true }
 metrics = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 slasher = { workspace = true }
-slog = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
+tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+tracing-subscriber = { workspace = true }
 types = { workspace = true }
 unused_port = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 
+[target.'cfg(any(target_os = "windows", features = "heaptrack"))'.dependencies]
+malloc_utils = { workspace = true }
+
+[target.'cfg(not(any(target_os = "windows", features = "heaptrack")))'.dependencies]
+malloc_utils = { workspace = true, features = ["jemalloc"] }
+
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }
 beacon_processor = { workspace = true }
-eth1 = { workspace = true }
 eth2 = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_network = { workspace = true }
@@ -84,8 +98,3 @@ zeroize = { workspace = true }
 [[test]]
 name = "lighthouse_tests"
 path = "tests/main.rs"
-
-# Prevent cargo-udeps from flagging the dummy package `target_check`, which exists only
-# to assert properties of the compilation target.
-[package.metadata.cargo-udeps.ignore]
-normal = ["target_check"]

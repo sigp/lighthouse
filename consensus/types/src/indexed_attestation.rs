@@ -1,4 +1,7 @@
-use crate::{test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, VariableList};
+use crate::context_deserialize;
+use crate::{
+    test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, ForkName, VariableList,
+};
 use core::slice::Iter;
 use derivative::Derivative;
 use serde::{Deserialize, Serialize};
@@ -26,30 +29,28 @@ use tree_hash_derive::TreeHash;
             Encode,
             TestRandom,
             Derivative,
-            arbitrary::Arbitrary,
             TreeHash,
         ),
+        context_deserialize(ForkName),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
     )
 )]
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    TreeHash,
-    Encode,
-    Derivative,
-    Deserialize,
-    arbitrary::Arbitrary,
-    PartialEq,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, Derivative, Deserialize, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-#[arbitrary(bound = "E: EthSpec")]
 pub struct IndexedAttestation<E: EthSpec> {
     /// Lists validator registry indices, not committee indices.
     #[superstruct(only(Base), partial_getter(rename = "attesting_indices_base"))]

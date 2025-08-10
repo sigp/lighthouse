@@ -260,7 +260,7 @@ pub static UNAGGREGATED_ATTESTATION_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<H
     LazyLock::new(|| {
         try_create_histogram(
             "beacon_unaggregated_attestation_gossip_verification_seconds",
-            "Full runtime of aggregated attestation gossip verification",
+            "Full runtime of unaggregated attestation gossip verification",
         )
     });
 
@@ -370,7 +370,7 @@ pub static ATTESTATION_PROCESSING_STATE_SKIP_TIMES: LazyLock<Result<Histogram>> 
     LazyLock::new(|| {
         try_create_histogram(
             "beacon_attestation_processing_state_skip_seconds",
-            "Time spent on reading the state during attestation processing",
+            "Time spent on skipping the state during attestation processing",
         )
     });
 pub static ATTESTATION_PROCESSING_SIGNATURE_SETUP_TIMES: LazyLock<Result<Histogram>> =
@@ -601,22 +601,10 @@ pub static BALANCES_CACHE_MISSES: LazyLock<Result<IntCounter>> = LazyLock::new(|
 /*
  * Persisting BeaconChain components to disk
  */
-pub static PERSIST_HEAD: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_persist_head",
-        "Time taken to persist the canonical head",
-    )
-});
 pub static PERSIST_OP_POOL: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram(
         "beacon_persist_op_pool",
         "Time taken to persist the operations pool",
-    )
-});
-pub static PERSIST_ETH1_CACHE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
-    try_create_histogram(
-        "beacon_persist_eth1_cache",
-        "Time taken to persist the eth1 caches",
     )
 });
 pub static PERSIST_FORK_CHOICE: LazyLock<Result<Histogram>> = LazyLock::new(|| {
@@ -1346,13 +1334,14 @@ pub static BEACON_BLOCK_DELAY_OBSERVED_SLOT_START: LazyLock<Result<IntGauge>> =
         )
     });
 
-pub static BEACON_BLOB_DELAY_ALL_OBSERVED_SLOT_START: LazyLock<Result<IntGauge>> =
-    LazyLock::new(|| {
+pub static BEACON_BLOB_DELAY_ALL_OBSERVED_SLOT_START: LazyLock<Result<IntGauge>> = LazyLock::new(
+    || {
         try_create_int_gauge(
             "beacon_blob_delay_all_observed_slot_start",
-            "Duration between the start of the block's slot and the time the block was observed.",
+            "Duration between the start of the block's slot and the time when all blobs have been observed.",
         )
-    });
+    },
+);
 
 pub static BEACON_BLOCK_DELAY_CONSENSUS_VERIFICATION_TIME: LazyLock<Result<IntGauge>> =
     LazyLock::new(|| {
@@ -1662,28 +1651,41 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
 pub static BLOBS_FROM_EL_HIT_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_blobs_from_el_hit_total",
-        "Number of blob batches fetched from the execution layer",
+        "Number of non-empty blob batches fetched from the execution layer",
     )
 });
 
 pub static BLOBS_FROM_EL_MISS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
         "beacon_blobs_from_el_miss_total",
-        "Number of blob batches failed to fetch from the execution layer",
+        "Number of empty or incomplete blob responses from the execution layer",
     )
 });
 
-pub static BLOBS_FROM_EL_EXPECTED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
+pub static BLOBS_FROM_EL_ERROR_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(
-        "beacon_blobs_from_el_expected_total",
+        "beacon_blobs_from_el_error_total",
+        "Number of failed blob fetches from the execution layer",
+    )
+});
+
+pub static BLOBS_FROM_EL_EXPECTED: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
+        "beacon_blobs_from_el_expected",
         "Number of blobs expected from the execution layer",
+        Ok(vec![
+            0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0,
+        ]),
     )
 });
 
-pub static BLOBS_FROM_EL_RECEIVED_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
-    try_create_int_counter(
+pub static BLOBS_FROM_EL_RECEIVED: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram_with_buckets(
         "beacon_blobs_from_el_received_total",
         "Number of blobs fetched from the execution layer",
+        Ok(vec![
+            0.0, 3.0, 6.0, 9.0, 12.0, 18.0, 24.0, 30.0, 36.0, 42.0, 48.0,
+        ]),
     )
 });
 
@@ -1805,35 +1807,30 @@ pub static KZG_VERIFICATION_BATCH_TIMES: LazyLock<Result<Histogram>> = LazyLock:
         "Runtime of batched kzg verification",
     )
 });
+/// For reference on how the kzg data column verification buckets were set, here are some numbers for 48 blobs:
+/// * 1 column batch: 5.76 ms
+/// * 8 columns batch: 34.3 ms
+/// * 64 columns batch: 257 ms
+/// * 128 columns batch: 508 ms
 pub static KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES: LazyLock<Result<Histogram>> =
+    // 7 exponential buckets between 0.002 and 0.128 seconds, with more granularity on the lower end.
     LazyLock::new(|| {
-        try_create_histogram_with_buckets(
-            "beacon_kzg_verification_data_column_single_seconds",
-            "Runtime of single data column kzg verification",
-            Ok(vec![
-                0.0005, 0.001, 0.0015, 0.002, 0.003, 0.004, 0.005, 0.007, 0.01, 0.02, 0.05,
-            ]),
-        )
-    });
+            try_create_histogram_with_buckets(
+                "beacon_kzg_verification_data_column_single_seconds",
+                "Runtime of single data column kzg verification",
+                exponential_buckets(0.002, 2.0, 7),
+            )
+        });
 pub static KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES: LazyLock<Result<Histogram>> =
+    // 10 exponential buckets between 0.002 and 1.024 seconds, with more
+    // granularity on the lower end.
     LazyLock::new(|| {
-        try_create_histogram_with_buckets(
-            "beacon_kzg_verification_data_column_batch_seconds",
-            "Runtime of batched data column kzg verification",
-            Ok(vec![
-                0.002, 0.004, 0.006, 0.008, 0.01, 0.012, 0.015, 0.02, 0.03, 0.05, 0.07,
-            ]),
-        )
-    });
-
-pub static BLOCK_PRODUCTION_BLOBS_VERIFICATION_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(
-    || {
-        try_create_histogram(
-            "beacon_block_production_blobs_verification_seconds",
-            "Time taken to verify blobs against commitments and creating BlobSidecar objects in block production"
-    )
-    },
-);
+            try_create_histogram_with_buckets(
+                "beacon_kzg_verification_data_column_batch_seconds",
+                "Runtime of batched data column kzg verification",
+                exponential_buckets(0.002, 2.0, 10),
+            )
+        });
 
 /*
  * Data Availability cache metrics

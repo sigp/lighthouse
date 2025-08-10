@@ -1,6 +1,6 @@
 use crate::{metrics, ColumnIter, ColumnKeyIter, Key};
 use crate::{DBColumn, Error, KeyValueStoreOp};
-use parking_lot::{Mutex, MutexGuard, RwLock};
+use parking_lot::RwLock;
 use redb::TableDefinition;
 use std::collections::HashSet;
 use std::{borrow::BorrowMut, marker::PhantomData, path::Path};
@@ -13,7 +13,6 @@ pub const DB_FILE_NAME: &str = "database.redb";
 
 pub struct Redb<E: EthSpec> {
     db: RwLock<redb::Database>,
-    transaction_mutex: Mutex<()>,
     _phantom: PhantomData<E>,
 }
 
@@ -31,7 +30,6 @@ impl<E: EthSpec> Redb<E> {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let db_file = path.join(DB_FILE_NAME);
         let db = redb::Database::create(db_file)?;
-        let transaction_mutex = Mutex::new(());
 
         for column in DBColumn::iter() {
             Redb::<E>::create_table(&db, column.into())?;
@@ -39,7 +37,6 @@ impl<E: EthSpec> Redb<E> {
 
         Ok(Self {
             db: db.into(),
-            transaction_mutex,
             _phantom: PhantomData,
         })
     }
@@ -59,10 +56,6 @@ impl<E: EthSpec> Redb<E> {
         let mut opts = WriteOptions::new();
         opts.sync = true;
         opts
-    }
-
-    pub fn begin_rw_transaction(&self) -> MutexGuard<()> {
-        self.transaction_mutex.lock()
     }
 
     pub fn put_bytes_with_options(
@@ -211,7 +204,11 @@ impl<E: EthSpec> Redb<E> {
         mut_db.compact().map_err(Into::into).map(|_| ())
     }
 
-    pub fn iter_column_keys_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+    ) -> ColumnKeyIter<'_, K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
@@ -239,11 +236,11 @@ impl<E: EthSpec> Redb<E> {
     }
 
     /// Iterate through all keys and values in a particular column.
-    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<K> {
+    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K> {
         self.iter_column_keys_from(column, &vec![0; column.key_size()])
     }
 
-    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<K> {
+    pub fn iter_column_from<K: Key>(&self, column: DBColumn, from: &[u8]) -> ColumnIter<'_, K> {
         let table_definition: TableDefinition<'_, &[u8], &[u8]> =
             TableDefinition::new(column.into());
 
@@ -276,7 +273,7 @@ impl<E: EthSpec> Redb<E> {
         }
     }
 
-    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<K> {
+    pub fn iter_column<K: Key>(&self, column: DBColumn) -> ColumnIter<'_, K> {
         self.iter_column_from(column, &vec![0; column.key_size()])
     }
 

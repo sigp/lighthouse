@@ -10,6 +10,8 @@ X86_64_TAG = "x86_64-unknown-linux-gnu"
 BUILD_PATH_X86_64 = "target/$(X86_64_TAG)/release"
 AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
+RISCV64_TAG = "riscv64gc-unknown-linux-gnu"
+BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
 
@@ -31,6 +33,9 @@ PROFILE ?= release
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
 FORKS=phase0 altair bellatrix capella deneb electra fulu
+
+# List of all recent hard forks. This list is used to set env variables for http_api tests
+RECENT_FORKS=electra fulu
 
 # Extra flags for Cargo
 CARGO_INSTALL_EXTRA_FLAGS?=
@@ -67,6 +72,8 @@ build-aarch64:
 	# pages, which are commonly used by aarch64 systems.
 	# See: https://github.com/sigp/lighthouse/issues/5244
 	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lighthouse --target aarch64-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
+build-riscv64:
+	cross build --bin lighthouse --target riscv64gc-unknown-linux-gnu --features "portable,$(CROSS_FEATURES)" --profile "$(CROSS_PROFILE)" --locked
 
 build-lcli-x86_64:
 	cross build --bin lcli --target x86_64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
@@ -75,6 +82,39 @@ build-lcli-aarch64:
 	# pages, which are commonly used by aarch64 systems.
 	# See: https://github.com/sigp/lighthouse/issues/5244
 	JEMALLOC_SYS_WITH_LG_PAGE=16 cross build --bin lcli --target aarch64-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+build-lcli-riscv64:
+	cross build --bin lcli --target riscv64gc-unknown-linux-gnu --features "portable" --profile "$(CROSS_PROFILE)" --locked
+
+# extracts the current source date for reproducible builds
+SOURCE_DATE := $(shell git log -1 --pretty=%ct)
+
+# Default image for x86_64
+RUST_IMAGE_AMD64 ?= rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816
+
+# Reproducible build for x86_64
+build-reproducible-x86_64:
+	DOCKER_BUILDKIT=1 docker build \
+		--build-arg RUST_TARGET="x86_64-unknown-linux-gnu" \
+		--build-arg RUST_IMAGE=$(RUST_IMAGE_AMD64) \
+		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
+		-f Dockerfile.reproducible \
+		-t lighthouse:reproducible-amd64 .
+
+# Default image for arm64
+RUST_IMAGE_ARM64 ?= rust:1.88-bullseye@sha256:8b22455a7ce2adb1355067638284ee99d21cc516fab63a96c4514beaf370aa94
+
+# Reproducible build for aarch64
+build-reproducible-aarch64:
+	DOCKER_BUILDKIT=1 docker build \
+		--platform linux/arm64 \
+		--build-arg RUST_TARGET="aarch64-unknown-linux-gnu" \
+		--build-arg RUST_IMAGE=$(RUST_IMAGE_ARM64) \
+		--build-arg SOURCE_DATE=$(SOURCE_DATE) \
+		-f Dockerfile.reproducible \
+		-t lighthouse:reproducible-arm64 .
+
+# Build both architectures
+build-reproducible-all: build-reproducible-x86_64 build-reproducible-aarch64
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -95,30 +135,35 @@ build-release-tarballs:
 	$(call tarball_release_binary,$(BUILD_PATH_X86_64),$(X86_64_TAG),"")
 	$(MAKE) build-aarch64
 	$(call tarball_release_binary,$(BUILD_PATH_AARCH64),$(AARCH64_TAG),"")
+	$(MAKE) build-riscv64
+	$(call tarball_release_binary,$(BUILD_PATH_RISCV64),$(RISCV64_TAG),"")
+
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
 	cargo test --workspace --release --features "$(TEST_FEATURES)" \
- 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+ 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
+		--exclude http_api
 
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors, using nextest.
 nextest-release:
 	cargo nextest run --workspace --release --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
+		--exclude http_api
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
 	cargo test --workspace --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude network
+		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
 
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors, using nextest.
 nextest-debug:
 	cargo nextest run --workspace --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude network
+		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
 
 # Runs cargo-fmt (linter).
 cargo-fmt:
@@ -147,6 +192,13 @@ test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
+
+# Run the tests in the `beacon_chain` crate for all known forks.
+test-http-api: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
+
+test-http-api-%:
+	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p http_api
+
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
@@ -177,6 +229,9 @@ run-state-transition-tests:
 
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
+
+# Downloads and runs the nightly EF test vectors.
+test-ef-nightly: make-ef-tests-nightly run-ef-tests
 
 # Downloads and runs the EF test vectors with nextest.
 nextest-ef: make-ef-tests nextest-run-ef-tests
@@ -224,7 +279,7 @@ lint:
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
-	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
+	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint-full
 
 # Also run the lints on the optimized-only tests
 lint-full:
@@ -237,6 +292,10 @@ lint-full:
 # downloads which extracts into several GB of test vectors.
 make-ef-tests:
 	make -C $(EF_TESTS)
+
+# Download/extract the nightly EF test vectors.
+make-ef-tests-nightly:
+	CONSENSUS_SPECS_TEST_VERSION=nightly make -C $(EF_TESTS)
 
 # Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:

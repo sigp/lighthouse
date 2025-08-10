@@ -24,8 +24,8 @@ use state_processing::{
 use std::fmt::Debug;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
-    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconState,
-    BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
+    BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
+    BeaconState, BlindedPayload, ConsolidationRequest, Deposit, DepositRequest, ExecutionPayload,
     ForkVersionDecode, FullPayload, ProposerSlashing, SignedBlsToExecutionChange,
     SignedVoluntaryExit, SyncAggregate, WithdrawalRequest,
 };
@@ -171,7 +171,7 @@ impl<E: EthSpec> Operation<E> for Deposit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposits(state, &[self.clone()], spec)
+        process_deposits(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -194,7 +194,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
-            &[self.clone()],
+            std::slice::from_ref(self),
             VerifySignatures::True,
             &mut ctxt,
             spec,
@@ -217,7 +217,12 @@ impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_exits(state, &[self.clone()], VerifySignatures::True, spec)
+        process_exits(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -357,8 +362,8 @@ impl<E: EthSpec> Operation<E> for BeaconBlockBody<E, BlindedPayload<E>> {
                     BeaconBlockBody::Electra(inner.clone_as_blinded())
                 }
                 ForkName::Fulu => {
-                    let inner = <BeaconBlockBodyElectra<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
-                    BeaconBlockBody::Electra(inner.clone_as_blinded())
+                    let inner = <BeaconBlockBodyFulu<E, FullPayload<E>>>::from_ssz_bytes(bytes)?;
+                    BeaconBlockBody::Fulu(inner.clone_as_blinded())
                 }
                 _ => panic!(),
             })
@@ -438,7 +443,12 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+        process_bls_to_execution_changes(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -462,7 +472,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_withdrawal_requests(state, &[self.clone()], spec)
+        process_withdrawal_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -485,7 +495,7 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposit_requests(state, &[self.clone()], spec)
+        process_deposit_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -509,7 +519,7 @@ impl<E: EthSpec> Operation<E> for ConsolidationRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_consolidation_requests(state, &[self.clone()], spec)
+        process_consolidation_requests(state, std::slice::from_ref(self), spec)
     }
 }
 

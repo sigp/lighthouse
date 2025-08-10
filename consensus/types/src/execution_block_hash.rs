@@ -7,18 +7,8 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 
-#[derive(
-    arbitrary::Arbitrary,
-    Default,
-    Clone,
-    Copy,
-    Serialize,
-    Deserialize,
-    Eq,
-    PartialEq,
-    Hash,
-    Derivative,
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Derivative)]
 #[derivative(Debug = "transparent")]
 #[serde(transparent)]
 pub struct ExecutionBlockHash(#[serde(with = "serde_utils::b256_hex")] pub Hash256);
@@ -110,5 +100,24 @@ impl std::str::FromStr for ExecutionBlockHash {
 impl fmt::Display for ExecutionBlockHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<Hash256> for ExecutionBlockHash {
+    fn from(hash: Hash256) -> Self {
+        Self(hash)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_hash256() {
+        let hash = Hash256::random();
+        let ex_hash = ExecutionBlockHash::from(hash);
+
+        assert_eq!(ExecutionBlockHash(hash), ex_hash);
     }
 }

@@ -7,16 +7,17 @@ use std::{env, fs};
 use tempfile::TempDir;
 use unused_port::unused_tcp4_port;
 
-// This is not currently used due to the following breaking changes in geth that requires updating our tests:
-// 1. removal of `personal` namespace in v1.14.12: See #30704
-// 2. removal of `totalDifficulty` field from RPC in v1.14.11. See #30386.
-// const GETH_BRANCH: &str = "master";
+const GETH_BRANCH: &str = "master";
 const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
 
 pub fn build_result(repo_dir: &Path) -> Output {
     Command::new("make")
         .arg("geth")
         .current_dir(repo_dir)
+        // Geth now uses the commit hash from a GitHub runner environment variable if it detects a CI environment.
+        // We need to override this to successfully build Geth in Lighthouse workflows.
+        // See: https://github.com/ethereum/go-ethereum/blob/668c3a7278af399c0e776e92f1c721b5158388f2/internal/build/env.go#L95-L121
+        .env("CI", "false")
         .output()
         .expect("failed to make geth")
 }
@@ -30,14 +31,12 @@ pub fn build(execution_clients_dir: &Path) {
     }
 
     // Get the latest tag on the branch
-    // let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
-    // Using an older release due to breaking changes in recent releases. See comment on `GETH_BRANCH` const.
-    let release_tag = "v1.14.10";
-    build_utils::checkout(&repo_dir, dbg!(release_tag)).unwrap();
+    let last_release = build_utils::get_latest_release(&repo_dir, GETH_BRANCH).unwrap();
+    build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build geth
     build_utils::check_command_output(build_result(&repo_dir), || {
-        format!("geth make failed using release {release_tag}")
+        format!("geth make failed using release {last_release}")
     });
 }
 
@@ -102,7 +101,7 @@ impl GenericExecutionEngine for GethEngine {
             .arg(datadir.path().to_str().unwrap())
             .arg("--http")
             .arg("--http.api")
-            .arg("engine,eth,personal")
+            .arg("engine,eth")
             .arg("--http.port")
             .arg(http_port.to_string())
             .arg("--authrpc.port")

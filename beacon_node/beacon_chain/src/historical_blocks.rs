@@ -1,7 +1,6 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
 use crate::{metrics, BeaconChain, BeaconChainTypes};
 use itertools::Itertools;
-use slog::debug;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
     signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
@@ -12,6 +11,7 @@ use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
+use tracing::{debug, instrument};
 use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -63,6 +63,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
     ///
     /// Return the number of blocks successfully imported.
+    #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,
@@ -82,11 +83,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if blocks_to_import.len() != total_blocks {
             debug!(
-                self.log,
-                "Ignoring some historic blocks";
-                "oldest_block_slot" => anchor_info.oldest_block_slot,
-                "total_blocks" => total_blocks,
-                "ignored" => total_blocks.saturating_sub(blocks_to_import.len()),
+                oldest_block_slot = %anchor_info.oldest_block_slot,
+                total_blocks,
+                ignored = total_blocks.saturating_sub(blocks_to_import.len()),
+                "Ignoring some historic blocks"
             );
         }
 
@@ -94,27 +94,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(0);
         }
 
-        // Blobs are stored per block, and data columns are each stored individually
-        let n_blob_ops_per_block = if self.spec.is_peer_das_scheduled() {
-            // TODO(das): `available_block includes all sampled columns, but we only need to store
-            // custody columns. To be clarified in spec PR.
-            self.data_availability_checker.get_sampling_column_count()
-        } else {
-            1
-        };
-
-        let blob_batch_size = blocks_to_import
-            .iter()
-            .filter(|available_block| available_block.has_blobs())
-            .count()
-            .saturating_mul(n_blob_ops_per_block);
-
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
         let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
-        let mut blob_batch = Vec::<KeyValueStoreOp>::with_capacity(blob_batch_size);
+        let mut blob_batch = Vec::<KeyValueStoreOp>::new();
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
         let mut hot_batch = Vec::with_capacity(blocks_to_import.len());
         let mut signed_blocks = Vec::with_capacity(blocks_to_import.len());
@@ -148,7 +133,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 AvailableBlockData::Blobs(..) => {
                     new_oldest_blob_slot = Some(block.slot());
                 }
-                AvailableBlockData::DataColumns(_) | AvailableBlockData::DataColumnsRecv(_) => {
+                AvailableBlockData::DataColumns(_) => {
                     new_oldest_data_column_slot = Some(block.slot());
                 }
             }
@@ -167,6 +152,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_u64()..prev_block_slot.as_u64()).rev() {
+                debug!(%slot, ?block_root, "Storing frozen block to root mapping");
                 cold_batch.push(KeyValueStoreOp::PutKeyValue(
                     DBColumn::BeaconBlockRoots,
                     slot.to_be_bytes().to_vec(),
@@ -216,7 +202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
-            .filter(|&(_block, block_root)| (block_root != self.genesis_block_root))
+            .filter(|&(_block, block_root)| block_root != self.genesis_block_root)
             .map(|(block, block_root)| {
                 block_proposal_signature_set_from_parts(
                     block,

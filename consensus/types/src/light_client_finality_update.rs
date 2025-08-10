@@ -1,13 +1,13 @@
 use super::{EthSpec, FixedVector, Hash256, LightClientHeader, Slot, SyncAggregate};
+use crate::context_deserialize;
 use crate::ChainSpec;
 use crate::{
-    light_client_update::*, test_utils::TestRandom, ForkName, ForkVersionDeserialize,
+    light_client_update::*, test_utils::TestRandom, ContextDeserialize, ForkName,
     LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
     LightClientHeaderElectra, LightClientHeaderFulu, SignedBlindedBeaconBlock,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
 use ssz::{Decode, Encode};
 use ssz_derive::Decode;
 use ssz_derive::Encode;
@@ -28,21 +28,27 @@ use tree_hash_derive::TreeHash;
             Decode,
             Encode,
             TestRandom,
-            arbitrary::Arbitrary,
             TreeHash,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
+        context_deserialize(ForkName),
     )
 )]
-#[derive(
-    Debug, Clone, Serialize, Encode, TreeHash, Deserialize, arbitrary::Arbitrary, PartialEq,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, Serialize, Encode, TreeHash, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-#[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientFinalityUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
@@ -80,6 +86,7 @@ pub struct LightClientFinalityUpdate<E: EthSpec> {
     /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
+    #[superstruct(getter(copy))]
     pub signature_slot: Slot,
 }
 
@@ -180,6 +187,20 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         })
     }
 
+    pub fn get_attested_header_root<'a>(&'a self) -> Hash256 {
+        map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.attested_header.beacon.canonical_root()
+        })
+    }
+
+    pub fn get_finalized_header_root<'a>(&'a self) -> Hash256 {
+        map_light_client_finality_update_ref!(&'a _, self.to_ref(), |inner, cons| {
+            cons(inner);
+            inner.finalized_header.beacon.canonical_root()
+        })
+    }
+
     pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
         let finality_update = match fork_name {
             ForkName::Altair | ForkName::Bellatrix => {
@@ -228,25 +249,45 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
         if attested_slot > prev_slot {
             true
         } else {
-            attested_slot == prev_slot && signature_slot > *self.signature_slot()
+            attested_slot == prev_slot && signature_slot > self.signature_slot()
         }
     }
 }
 
-impl<E: EthSpec> ForkVersionDeserialize for LightClientFinalityUpdate<E> {
-    fn deserialize_by_fork<'de, D: Deserializer<'de>>(
-        value: Value,
-        fork_name: ForkName,
-    ) -> Result<Self, D::Error> {
-        if fork_name.altair_enabled() {
-            serde_json::from_value::<LightClientFinalityUpdate<E>>(value)
-                .map_err(serde::de::Error::custom)
-        } else {
-            Err(serde::de::Error::custom(format!(
-                "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
-                fork_name
-            )))
-        }
+impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientFinalityUpdate<E> {
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let convert_err = |e| {
+            serde::de::Error::custom(format!(
+                "LightClientFinalityUpdate failed to deserialize: {:?}",
+                e
+            ))
+        };
+        Ok(match context {
+            ForkName::Base => {
+                return Err(serde::de::Error::custom(format!(
+                    "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
+                    context
+                )))
+            }
+            ForkName::Altair | ForkName::Bellatrix => {
+                Self::Altair(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Capella => {
+                Self::Capella(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Deneb => {
+                Self::Deneb(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Electra => {
+                Self::Electra(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Fulu => {
+                Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+        })
     }
 }
 

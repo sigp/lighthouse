@@ -17,9 +17,6 @@ use strum::IntoEnumIterator;
 use types::DataColumnSubnetId;
 use types::EthSpec;
 
-pub const SUCCESS: &str = "SUCCESS";
-pub const FAILURE: &str = "FAILURE";
-
 #[derive(Debug, AsRefStr)]
 pub(crate) enum BlockSource {
     Gossip,
@@ -86,6 +83,15 @@ pub static BEACON_PROCESSOR_IMPORT_ERRORS_PER_TYPE: LazyLock<Result<IntCounterVe
             "beacon_processor_import_errors_total",
             "Total number of block components that were not verified",
             &["source", "component", "type"],
+        )
+    });
+pub static BEACON_PROCESSOR_GET_BLOCK_ROOTS_TIME: LazyLock<Result<HistogramVec>> =
+    LazyLock::new(|| {
+        try_create_histogram_vec_with_buckets(
+            "beacon_processor_get_block_roots_time_seconds",
+            "Time to complete get_block_roots when serving by_range requests",
+            decimal_buckets(-3, -1),
+            &["source"],
         )
     });
 
@@ -602,31 +608,6 @@ pub static BEACON_PROCESSOR_REPROCESSING_QUEUE_SENT_OPTIMISTIC_UPDATES: LazyLock
     )
 });
 
-/*
- * Sampling
- */
-pub static SAMPLE_DOWNLOAD_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "beacon_sampling_sample_verify_result_total",
-        "Total count of individual sample download results",
-        &["result"],
-    )
-});
-pub static SAMPLE_VERIFY_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "beacon_sampling_sample_verify_result_total",
-        "Total count of individual sample verify results",
-        &["result"],
-    )
-});
-pub static SAMPLING_REQUEST_RESULT: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
-    try_create_int_counter_vec(
-        "beacon_sampling_request_result_total",
-        "Total count of sample request results",
-        &["result"],
-    )
-});
-
 pub fn register_finality_update_error(error: &LightClientFinalityUpdateError) {
     inc_counter_vec(&GOSSIP_FINALITY_UPDATE_ERRORS_PER_TYPE, &[error.as_ref()]);
 }
@@ -671,13 +652,6 @@ pub(crate) fn register_process_result_metrics(
                 &[source.as_ref(), block_component, error.as_ref()],
             );
         }
-    }
-}
-
-pub fn from_result<T, E>(result: &std::result::Result<T, E>) -> &str {
-    match result {
-        Ok(_) => SUCCESS,
-        Err(_) => FAILURE,
     }
 }
 
@@ -771,7 +745,7 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
 
     let all_column_subnets =
         (0..network_globals.spec.data_column_sidecar_subnet_count).map(DataColumnSubnetId::new);
-    let custody_column_subnets = network_globals.sampling_subnets.iter();
+    let custody_column_subnets = network_globals.sampling_subnets();
 
     // Iterate all subnet values to set to zero the empty entries in peers_per_column_subnet
     for subnet in all_column_subnets {
@@ -785,7 +759,7 @@ pub fn update_sync_metrics<E: EthSpec>(network_globals: &Arc<NetworkGlobals<E>>)
     // Registering this metric is a duplicate for supernodes but helpful for fullnodes. This way
     // operators can monitor the health of only the subnets of their interest without complex
     // Grafana queries.
-    for subnet in custody_column_subnets {
+    for subnet in custody_column_subnets.iter() {
         set_gauge_entry(
             &PEERS_PER_CUSTODY_COLUMN_SUBNET,
             &[&format!("{subnet}")],

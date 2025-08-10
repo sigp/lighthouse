@@ -8,18 +8,17 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use crate::BeaconChainTypes;
+use crate::CustodyContext;
 use lru::LruCache;
 use parking_lot::RwLock;
-use slog::{debug, Logger};
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use tracing::{debug, debug_span, Span};
 use types::blob_sidecar::BlobIdentifier;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnIdentifier, DataColumnSidecar,
-    DataColumnSidecarList, Epoch, EthSpec, Hash256, RuntimeFixedVector, RuntimeVariableList,
-    SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
+    Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
 };
 
 /// This represents the components of a partially available block
@@ -32,12 +31,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
-    /// Receiver for data columns that are computed asynchronously;
-    ///
-    /// If `data_column_recv` is `Some`, it means data column computation or reconstruction has been
-    /// started. This can happen either via engine blobs fetching or data column reconstruction
-    /// (triggered when >= 50% columns are received via gossip).
-    pub data_column_recv: Option<oneshot::Receiver<DataColumnSidecarList<E>>>,
+    span: Span,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -94,6 +88,8 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Inserts a block into the cache.
     pub fn insert_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
+        let _guard = self.span.clone().entered();
+        debug!("Block added to pending components");
         *self.get_cached_block_mut() = Some(block)
     }
 
@@ -101,7 +97,9 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// Existing blob at the index will be replaced.
     pub fn insert_blob_at_index(&mut self, blob_index: usize, blob: KzgVerifiedBlob<E>) {
+        let _guard = self.span.clone().entered();
         if let Some(b) = self.get_cached_blobs_mut().get_mut(blob_index) {
+            debug!(blob_index, "Blob added to pending components");
             *b = Some(blob);
         }
     }
@@ -141,11 +139,17 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         kzg_verified_data_columns: I,
     ) -> Result<(), AvailabilityCheckError> {
+        let _guard = self.span.clone().entered();
         for data_column in kzg_verified_data_columns {
             if self.get_cached_data_column(data_column.index()).is_none() {
+                debug!(
+                    column_index = data_column.index(),
+                    "Data column added to pending components"
+                );
                 self.verified_data_columns.push(data_column);
             }
         }
+
         Ok(())
     }
 
@@ -165,13 +169,14 @@ impl<E: EthSpec> PendingComponents<E> {
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
     pub fn make_available<R>(
         &mut self,
-        custody_column_count: usize,
         spec: &Arc<ChainSpec>,
+        num_expected_columns: usize,
         recover: R,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError>
     where
         R: FnOnce(
             DietAvailabilityPendingExecutedBlock<E>,
+            &Span,
         ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
     {
         let Some(block) = &self.executed_block else {
@@ -180,14 +185,16 @@ impl<E: EthSpec> PendingComponents<E> {
         };
 
         let num_expected_blobs = block.num_blobs_expected();
-
         let blob_data = if num_expected_blobs == 0 {
             Some(AvailableBlockData::NoData)
         } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            match self.verified_data_columns.len().cmp(&custody_column_count) {
+            let num_received_columns = self.verified_data_columns.len();
+            match num_received_columns.cmp(&num_expected_columns) {
                 Ordering::Greater => {
                     // Should never happen
-                    return Err(AvailabilityCheckError::Unexpected("too many columns"));
+                    return Err(AvailabilityCheckError::Unexpected(format!(
+                        "too many columns got {num_received_columns} expected {num_expected_columns}"
+                    )));
                 }
                 Ordering::Equal => {
                     // Block is post-peerdas, and we got enough columns
@@ -199,13 +206,8 @@ impl<E: EthSpec> PendingComponents<E> {
                     Some(AvailableBlockData::DataColumns(data_columns))
                 }
                 Ordering::Less => {
-                    // The data_columns_recv is an infallible promise that we will receive all expected
-                    // columns, so we consider the block available.
-                    // We take the receiver as it can't be cloned, and make_available should never
-                    // be called again once it returns `Some`.
-                    self.data_column_recv
-                        .take()
-                        .map(AvailableBlockData::DataColumnsRecv)
+                    // Not enough data columns received yet
+                    None
                 }
             }
         } else {
@@ -214,7 +216,9 @@ impl<E: EthSpec> PendingComponents<E> {
             match num_received_blobs.cmp(&num_expected_blobs) {
                 Ordering::Greater => {
                     // Should never happen
-                    return Err(AvailabilityCheckError::Unexpected("too many blobs"));
+                    return Err(AvailabilityCheckError::Unexpected(format!(
+                        "too many blobs got {num_received_blobs} expected {num_expected_blobs}"
+                    )));
                 }
                 Ordering::Equal => {
                     let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
@@ -224,8 +228,12 @@ impl<E: EthSpec> PendingComponents<E> {
                         .flatten()
                         .map(|blob| blob.clone().to_blob())
                         .collect::<Vec<_>>();
-                    let blobs = RuntimeVariableList::new(blobs_vec, max_blobs)
-                        .map_err(|_| AvailabilityCheckError::Unexpected("over max_blobs"))?;
+                    let blobs_len = blobs_vec.len();
+                    let blobs = RuntimeVariableList::new(blobs_vec, max_blobs).map_err(|_| {
+                        AvailabilityCheckError::Unexpected(format!(
+                            "over max_blobs len {blobs_len} max {max_blobs}"
+                        ))
+                    })?;
                     Some(AvailableBlockData::Blobs(blobs))
                 }
                 Ordering::Less => {
@@ -252,14 +260,13 @@ impl<E: EthSpec> PendingComponents<E> {
                 .max(),
             // TODO(das): To be fixed with https://github.com/sigp/lighthouse/pull/6850
             AvailableBlockData::DataColumns(_) => None,
-            AvailableBlockData::DataColumnsRecv(_) => None,
         };
 
         let AvailabilityPendingExecutedBlock {
             block,
             import_data,
             payload_verification_outcome,
-        } = recover(block.clone())?;
+        } = recover(block.clone(), &self.span)?;
 
         let available_block = AvailableBlock {
             block_root: self.block_root,
@@ -268,6 +275,10 @@ impl<E: EthSpec> PendingComponents<E> {
             blobs_available_timestamp,
             spec: spec.clone(),
         };
+
+        self.span.in_scope(|| {
+            debug!("Block and all data components are available");
+        });
         Ok(Some(AvailableExecutedBlock::new(
             available_block,
             import_data,
@@ -277,13 +288,15 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns an empty `PendingComponents` object with the given block root.
     pub fn empty(block_root: Hash256, max_len: usize) -> Self {
+        let span = debug_span!(parent: None, "pending_components", %block_root);
+        let _guard = span.clone().entered();
         Self {
             block_root,
             verified_blobs: RuntimeFixedVector::new(vec![None; max_len]),
             verified_data_columns: vec![],
             executed_block: None,
             reconstruction_started: false,
-            data_column_recv: None,
+            span,
         }
     }
 
@@ -316,22 +329,18 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn status_str(
         &self,
         block_epoch: Epoch,
-        sampling_column_count: usize,
+        num_expected_columns: Option<usize>,
         spec: &ChainSpec,
     ) -> String {
         let block_count = if self.executed_block.is_some() { 1 } else { 0 };
         if spec.is_peer_das_enabled_for_epoch(block_epoch) {
-            let data_column_recv_count = if self.data_column_recv.is_some() {
-                1
-            } else {
-                0
-            };
             format!(
-                "block {} data_columns {}/{} data_columns_recv {}",
+                "block {} data_columns {}/{}",
                 block_count,
                 self.verified_data_columns.len(),
-                sampling_column_count,
-                data_column_recv_count,
+                num_expected_columns
+                    .map(|c| c.to_string())
+                    .unwrap_or("?".into())
             )
         } else {
             let num_expected_blobs = if let Some(block) = self.get_cached_block() {
@@ -342,7 +351,7 @@ impl<E: EthSpec> PendingComponents<E> {
             format!(
                 "block {} blobs {}/{}",
                 block_count,
-                self.verified_blobs.len(),
+                self.verified_blobs.iter().flatten().count(),
                 num_expected_blobs
             )
         }
@@ -357,8 +366,7 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// This cache holds a limited number of states in memory and reconstructs them
     /// from disk when necessary. This is necessary until we merge tree-states
     state_cache: StateLRUCache<T>,
-    /// The number of data columns the node is sampling via subnet sampling.
-    sampling_column_count: usize,
+    custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
 }
 
@@ -375,19 +383,15 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn new(
         capacity: NonZeroUsize,
         beacon_store: BeaconStore<T>,
-        sampling_column_count: usize,
+        custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
             state_cache: StateLRUCache::new(beacon_store, spec.clone()),
-            sampling_column_count,
+            custody_context,
             spec,
         })
-    }
-
-    pub fn sampling_column_count(&self) -> usize {
-        self.sampling_column_count
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
@@ -423,20 +427,21 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
-    /// Fetch a data column from the cache without affecting the LRU ordering
-    pub fn peek_data_column(
+    /// Fetch data columns of a given `block_root` from the cache without affecting the LRU ordering
+    pub fn peek_data_columns(
         &self,
-        data_column_id: &DataColumnIdentifier,
-    ) -> Result<Option<Arc<DataColumnSidecar<T::EthSpec>>>, AvailabilityCheckError> {
-        if let Some(pending_components) = self.critical.read().peek(&data_column_id.block_root) {
-            Ok(pending_components
-                .verified_data_columns
-                .iter()
-                .find(|data_column| data_column.as_data_column().index == data_column_id.index)
-                .map(|data_column| data_column.clone_arc()))
-        } else {
-            Ok(None)
-        }
+        block_root: Hash256,
+    ) -> Option<DataColumnSidecarList<T::EthSpec>> {
+        self.critical
+            .read()
+            .peek(&block_root)
+            .map(|pending_components| {
+                pending_components
+                    .verified_data_columns
+                    .iter()
+                    .map(|col| col.clone_arc())
+                    .collect()
+            })
     }
 
     pub fn peek_pending_components<R, F: FnOnce(Option<&PendingComponents<T::EthSpec>>) -> R>(
@@ -452,7 +457,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_blobs: I,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_blobs = kzg_verified_blobs.into_iter().peekable();
 
@@ -461,7 +465,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .map(|verified_blob| verified_blob.as_blob().epoch())
         else {
             // Verified blobs list should be non-empty.
-            return Err(AvailabilityCheckError::Unexpected("empty blobs"));
+            return Err(AvailabilityCheckError::Unexpected("empty blobs".to_owned()));
         };
 
         let mut fixed_blobs =
@@ -486,19 +490,20 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the blobs.
         pending_components.merge_blobs(fixed_blobs);
 
-        debug!(log, "Component added to data availability checker";
-            "component" => "blobs",
-            "block_root" => ?block_root,
-            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+        debug!(
+            component = "blobs",
+            ?block_root,
+            status = pending_components.status_str(epoch, None, &self.spec),
+            "Component added to data availability checker"
         );
 
-        if let Some(available_block) =
-            pending_components.make_available(self.sampling_column_count, &self.spec, |block| {
-                self.state_cache.recover_pending_executed_block(block)
-            })?
-        {
+        if let Some(available_block) = pending_components.make_available(
+            &self.spec,
+            self.custody_context
+                .num_of_data_columns_to_sample(epoch, &self.spec),
+            |block, span| self.state_cache.recover_pending_executed_block(block, span),
+        )? {
             // We keep the pending components in the availability cache during block import (#5845).
-            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components);
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
@@ -515,15 +520,17 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_data_columns: I,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_data_columns = kzg_verified_data_columns.into_iter().peekable();
         let Some(epoch) = kzg_verified_data_columns
             .peek()
             .map(|verified_blob| verified_blob.as_data_column().epoch())
         else {
-            // Verified data_columns list should be non-empty.
-            return Err(AvailabilityCheckError::Unexpected("empty columns"));
+            // No columns are processed. This can occur if all received columns were filtered out
+            // before this point, e.g. due to a CGC change that caused extra columns to be downloaded
+            // // before the new CGC took effect.
+            // Return `Ok` without marking the block as available.
+            return Ok(Availability::MissingComponents(block_root));
         };
 
         let mut write_lock = self.critical.write();
@@ -539,69 +546,22 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the data columns.
         pending_components.merge_data_columns(kzg_verified_data_columns)?;
 
-        debug!(log, "Component added to data availability checker";
-            "component" => "data_columns",
-            "block_root" => ?block_root,
-            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+        let num_expected_columns = self
+            .custody_context
+            .num_of_data_columns_to_sample(epoch, &self.spec);
+        debug!(
+            component = "data_columns",
+            ?block_root,
+            status = pending_components.status_str(epoch, Some(num_expected_columns), &self.spec),
+            "Component added to data availability checker"
         );
 
         if let Some(available_block) =
-            pending_components.make_available(self.sampling_column_count, &self.spec, |block| {
-                self.state_cache.recover_pending_executed_block(block)
+            pending_components.make_available(&self.spec, num_expected_columns, |block, span| {
+                self.state_cache.recover_pending_executed_block(block, span)
             })?
         {
             // We keep the pending components in the availability cache during block import (#5845).
-            // `data_column_recv` is returned as part of the available block and is no longer needed here.
-            write_lock.put(block_root, pending_components);
-            drop(write_lock);
-            Ok(Availability::Available(Box::new(available_block)))
-        } else {
-            write_lock.put(block_root, pending_components);
-            Ok(Availability::MissingComponents(block_root))
-        }
-    }
-
-    /// The `data_column_recv` parameter is a `Receiver` for data columns that are computed
-    /// asynchronously. This method is used if the EL already has the blobs and returns them via the
-    /// `getBlobsV1` engine method. More details in [fetch_blobs.rs](https://github.com/sigp/lighthouse/blob/44f8add41ea2252769bb967864af95b3c13af8ca/beacon_node/beacon_chain/src/fetch_blobs.rs).
-    pub fn put_computed_data_columns_recv(
-        &self,
-        block_root: Hash256,
-        block_epoch: Epoch,
-        data_column_recv: oneshot::Receiver<DataColumnSidecarList<T::EthSpec>>,
-        log: &Logger,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut write_lock = self.critical.write();
-
-        // Grab existing entry or create a new entry.
-        let mut pending_components = write_lock
-            .pop_entry(&block_root)
-            .map(|(_, v)| v)
-            .unwrap_or_else(|| {
-                PendingComponents::empty(
-                    block_root,
-                    self.spec.max_blobs_per_block(block_epoch) as usize,
-                )
-            });
-
-        // We have all the blobs from engine, and have started computing data columns. We store the
-        // receiver in `PendingComponents` for later use when importing the block.
-        // TODO(das): Error or log if we overwrite a prior receiver https://github.com/sigp/lighthouse/issues/6764
-        pending_components.data_column_recv = Some(data_column_recv);
-
-        debug!(log, "Component added to data availability checker";
-            "component" => "data_columns_recv",
-            "block_root" => ?block_root,
-            "status" => pending_components.status_str(block_epoch, self.sampling_column_count, &self.spec),
-        );
-
-        if let Some(available_block) =
-            pending_components.make_available(self.sampling_column_count, &self.spec, |block| {
-                self.state_cache.recover_pending_executed_block(block)
-            })?
-        {
-            // We keep the pending components in the availability cache during block import (#5845).
-            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components);
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
@@ -631,15 +591,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         };
 
         // If we're sampling all columns, it means we must be custodying all columns.
-        let custody_column_count = self.sampling_column_count();
         let total_column_count = self.spec.number_of_columns as usize;
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
             return ReconstructColumnsDecision::No("already started");
-        }
-        if custody_column_count != total_column_count {
-            return ReconstructColumnsDecision::No("not required for full node");
         }
         if received_column_count >= total_column_count {
             return ReconstructColumnsDecision::No("all columns received");
@@ -667,7 +623,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
-        log: &Logger,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut write_lock = self.critical.write();
         let epoch = executed_block.as_block().epoch();
@@ -689,20 +644,23 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         // Merge in the block.
         pending_components.merge_block(diet_executed_block);
 
-        debug!(log, "Component added to data availability checker";
-            "component" => "block",
-            "block_root" => ?block_root,
-            "status" => pending_components.status_str(epoch, self.sampling_column_count, &self.spec),
+        let num_expected_columns = self
+            .custody_context
+            .num_of_data_columns_to_sample(epoch, &self.spec);
+        debug!(
+            component = "block",
+            ?block_root,
+            status = pending_components.status_str(epoch, Some(num_expected_columns), &self.spec),
+            "Component added to data availability checker"
         );
 
         // Check if we have all components and entire set is consistent.
         if let Some(available_block) =
-            pending_components.make_available(self.sampling_column_count, &self.spec, |block| {
-                self.state_cache.recover_pending_executed_block(block)
+            pending_components.make_available(&self.spec, num_expected_columns, |block, span| {
+                self.state_cache.recover_pending_executed_block(block, span)
             })?
         {
             // We keep the pending components in the availability cache during block import (#5845).
-            // `data_column_recv` is returned as part of the available block and is no longer needed here.
             write_lock.put(block_root, pending_components);
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
@@ -765,27 +723,23 @@ mod test {
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         data_availability_checker::STATE_LRU_CAPACITY,
-        eth1_finalization_cache::Eth1FinalizationData,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
-
-    use logging::test_logger;
-    use slog::{info, Logger};
+    use logging::create_test_tracing_subscriber;
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
     use store::{database::interface::BeaconNodeBackend, HotColdDB, ItemStore, StoreConfig};
     use tempfile::{tempdir, TempDir};
+    use tracing::{debug_span, info};
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
-    const DEFAULT_TEST_CUSTODY_COLUMN_COUNT: usize = 8;
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,
         spec: Arc<ChainSpec>,
-        log: Logger,
     ) -> Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>> {
         let hot_path = db_path.path().join("hot_db");
         let cold_path = db_path.path().join("cold_db");
@@ -799,14 +753,12 @@ mod test {
             |_, _, _| Ok(()),
             config,
             spec,
-            log,
         )
         .expect("disk store should initialize")
     }
 
     // get a beacon chain harness advanced to just before deneb fork
     async fn get_deneb_chain<E: EthSpec>(
-        log: Logger,
         db_path: &TempDir,
     ) -> BeaconChainHarness<DiskHarnessType<E>> {
         let altair_fork_epoch = Epoch::new(1);
@@ -823,12 +775,11 @@ mod test {
         spec.deneb_fork_epoch = Some(deneb_fork_epoch);
         let spec = Arc::new(spec);
 
-        let chain_store = get_store_with_spec::<E>(db_path, spec.clone(), log.clone());
+        let chain_store = get_store_with_spec::<E>(db_path, spec.clone());
         let validators_keypairs =
             types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.clone())
-            .logger(log.clone())
             .keypairs(validators_keypairs)
             .fresh_disk_store(chain_store)
             .mock_execution_layer()
@@ -871,7 +822,6 @@ mod test {
         Cold: ItemStore<E>,
     {
         let chain = &harness.chain;
-        let log = chain.log.clone();
         let head = chain.head_snapshot();
         let parent_state = head.beacon_state.clone();
 
@@ -881,11 +831,6 @@ mod test {
             .get_blinded_block(&parent_root)
             .expect("should get block")
             .expect("should have block");
-
-        let parent_eth1_finalization_data = Eth1FinalizationData {
-            eth1_data: parent_block.message().body().eth1_data().clone(),
-            eth1_deposit_index: 0,
-        };
 
         let (signed_beacon_block_hash, (block, maybe_blobs), state) = harness
             .add_block_at_slot(target_slot, parent_state)
@@ -899,7 +844,7 @@ mod test {
         );
 
         // log kzg commitments
-        info!(log, "printing kzg commitments");
+        info!("printing kzg commitments");
         for comm in Vec::from(
             block
                 .message()
@@ -908,9 +853,9 @@ mod test {
                 .expect("should be deneb fork")
                 .clone(),
         ) {
-            info!(log, "kzg commitment"; "commitment" => ?comm);
+            info!(commitment = ?comm, "kzg commitment");
         }
-        info!(log, "done printing kzg commitments");
+        info!("done printing kzg commitments");
 
         let gossip_verified_blobs = if let Some((kzg_proofs, blobs)) = maybe_blobs {
             let sidecars =
@@ -933,8 +878,6 @@ mod test {
             block_root,
             state,
             parent_block,
-            parent_eth1_finalization_data,
-            confirmed_state_roots: vec![],
             consensus_context,
         };
 
@@ -967,17 +910,18 @@ mod test {
             EthSpec = E,
         >,
     {
-        let log = test_logger();
+        create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
-        let harness = get_deneb_chain(log.clone(), &chain_db_path).await;
+        let harness = get_deneb_chain(&chain_db_path).await;
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
+        let custody_context = Arc::new(CustodyContext::new(false));
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(
                 capacity_non_zero,
                 test_store,
-                DEFAULT_TEST_CUSTODY_COLUMN_COUNT,
+                custody_context,
                 spec.clone(),
             )
             .expect("should create cache"),
@@ -1003,7 +947,7 @@ mod test {
         );
         assert!(cache.critical.read().is_empty(), "cache should be empty");
         let availability = cache
-            .put_pending_executed_block(pending_block, harness.logger())
+            .put_pending_executed_block(pending_block)
             .expect("should put block");
         if blobs_expected == 0 {
             assert!(
@@ -1042,7 +986,7 @@ mod test {
         for (blob_index, gossip_blob) in blobs.into_iter().enumerate() {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), harness.logger())
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             if blob_index == blobs_expected - 1 {
                 assert!(matches!(availability, Availability::Available(_)));
@@ -1070,7 +1014,7 @@ mod test {
         for gossip_blob in blobs {
             kzg_verified_blobs.push(gossip_blob.into_inner());
             let availability = cache
-                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone(), harness.logger())
+                .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             assert!(
                 matches!(availability, Availability::MissingComponents(_)),
@@ -1079,7 +1023,7 @@ mod test {
             assert_eq!(cache.critical.read().len(), 1);
         }
         let availability = cache
-            .put_pending_executed_block(pending_block, harness.logger())
+            .put_pending_executed_block(pending_block)
             .expect("should put block");
         assert!(
             matches!(availability, Availability::Available(_)),
@@ -1147,7 +1091,7 @@ mod test {
 
             // put the block in the cache
             let availability = cache
-                .put_pending_executed_block(pending_block, harness.logger())
+                .put_pending_executed_block(pending_block)
                 .expect("should put block");
 
             // grab the diet block from the cache for later testing
@@ -1182,7 +1126,7 @@ mod test {
                 // reconstruct the pending block by replaying the block on the parent state
                 let recovered_pending_block = cache
                     .state_lru_cache()
-                    .recover_pending_executed_block(diet_block)
+                    .recover_pending_executed_block(diet_block, &debug_span!("test"))
                     .expect("should reconstruct pending block");
 
                 // assert the recovered state is the same as the original
@@ -1208,7 +1152,7 @@ mod test {
         // recover the pending block from the cache
         let recovered_pending_block = cache
             .state_lru_cache()
-            .recover_pending_executed_block(diet_block)
+            .recover_pending_executed_block(diet_block, &debug_span!("test"))
             .expect("should reconstruct pending block");
         // assert the recovered state is the same as the original
         assert_eq!(
@@ -1231,7 +1175,6 @@ mod test {
 mod pending_components_tests {
     use super::*;
     use crate::block_verification_types::BlockImportData;
-    use crate::eth1_finalization_cache::Eth1FinalizationData;
     use crate::test_utils::{generate_rand_block_and_blobs, test_spec, NumBlobs};
     use crate::PayloadVerificationOutcome;
     use fork_choice::PayloadVerificationStatus;
@@ -1319,11 +1262,6 @@ mod pending_components_tests {
                 block_root: Default::default(),
                 state: BeaconState::new(0, Default::default(), &ChainSpec::minimal()),
                 parent_block: dummy_parent,
-                parent_eth1_finalization_data: Eth1FinalizationData {
-                    eth1_data: Default::default(),
-                    eth1_deposit_index: 0,
-                },
-                confirmed_state_roots: vec![],
                 consensus_context: ConsensusContext::new(Slot::new(0)),
             },
             payload_verification_outcome: PayloadVerificationOutcome {

@@ -1,7 +1,8 @@
 use super::{
-    ChainSpec, ContributionAndProof, Domain, EthSpec, Fork, Hash256, SecretKey, Signature,
-    SignedRoot, SyncCommitteeContribution, SyncSelectionProof,
+    ChainSpec, ContributionAndProof, Domain, EthSpec, Fork, ForkName, Hash256, SecretKey,
+    Signature, SignedRoot, SyncCommitteeContribution, SyncSelectionProof,
 };
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -10,20 +11,14 @@ use tree_hash_derive::TreeHash;
 
 /// A Validators signed contribution proof to publish on the `sync_committee_contribution_and_proof`
 /// gossipsub topic.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    TreeHash,
-    arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct SignedContributionAndProof<E: EthSpec> {
     /// The `ContributionAndProof` that was signed.
     pub message: ContributionAndProof<E>,

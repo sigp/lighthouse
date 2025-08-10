@@ -47,6 +47,7 @@ use crate::common::update_progressive_balances_cache::{
 use crate::epoch_cache::initialize_epoch_cache;
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
+use tracing::instrument;
 
 /// The strategy to be used when validating the block's signatures.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
@@ -97,6 +98,7 @@ pub enum VerifyBlockRoot {
 /// re-calculating the root when it is already known. Note `block_root` should be equal to the
 /// tree hash root of the block, NOT the signing root of the block. This function takes
 /// care of mixing in the domain.
+#[instrument(skip_all)]
 pub fn per_block_processing<E: EthSpec, Payload: AbstractExecPayload<E>>(
     state: &mut BeaconState<E>,
     signed_block: &SignedBeaconBlock<E, Payload>,
@@ -517,7 +519,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     let epoch = state.current_epoch();
     let mut withdrawal_index = state.next_withdrawal_index()?;
     let mut validator_index = state.next_withdrawal_validator_index()?;
-    let mut withdrawals = vec![];
+    let mut withdrawals = Vec::<Withdrawal>::with_capacity(E::max_withdrawals_per_payload());
     let fork_name = state.fork_name_unchecked();
 
     // [New in Electra:EIP7251]
@@ -532,19 +534,27 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     break;
                 }
 
-                let withdrawal_balance = state.get_balance(withdrawal.validator_index as usize)?;
                 let validator = state.get_validator(withdrawal.validator_index as usize)?;
 
                 let has_sufficient_effective_balance =
                     validator.effective_balance >= spec.min_activation_balance;
-                let has_excess_balance = withdrawal_balance > spec.min_activation_balance;
+                let total_withdrawn = withdrawals
+                    .iter()
+                    .filter_map(|w| {
+                        (w.validator_index == withdrawal.validator_index).then_some(w.amount)
+                    })
+                    .safe_sum()?;
+                let balance = state
+                    .get_balance(withdrawal.validator_index as usize)?
+                    .safe_sub(total_withdrawn)?;
+                let has_excess_balance = balance > spec.min_activation_balance;
 
                 if validator.exit_epoch == spec.far_future_epoch
                     && has_sufficient_effective_balance
                     && has_excess_balance
                 {
                     let withdrawable_balance = std::cmp::min(
-                        withdrawal_balance.safe_sub(spec.min_activation_balance)?,
+                        balance.safe_sub(spec.min_activation_balance)?,
                         withdrawal.amount,
                     );
                     withdrawals.push(Withdrawal {
