@@ -1,9 +1,3 @@
-use super::{
-    config::OutboundRateLimiterConfig,
-    rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
-    BehaviourAction, Protocol, RPCSend, ReqId, RequestType, MAX_CONCURRENT_REQUESTS,
-};
-use crate::rpc::rate_limiter::RateLimiterItem;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
@@ -11,11 +5,10 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-
 use super::{
     config::OutboundRateLimiterConfig,
     rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
-    BehaviourAction, Protocol, RPCSend, ReqId, RequestType,
+    BehaviourAction, Protocol, RPCSend, ReqId, RequestType, MAX_CONCURRENT_REQUESTS,
 };
 use crate::rpc::rate_limiter::RateLimiterItem;
 use futures::FutureExt;
@@ -243,7 +236,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
 
         let mut failed_requests = Vec::new();
 
-        self.ready_requests.retain(|(req_peer_id, rpc_send)| {
+        self.ready_requests.retain(|(req_peer_id, rpc_send, _)| {
             if let RPCSend::Request(request_id, req) = rpc_send {
                 if req_peer_id == &peer_id {
                     failed_requests.push((*request_id, req.protocol()));
@@ -569,29 +562,28 @@ mod tests {
     /// Test that `peer_disconnected` returns the IDs of pending requests.
     #[tokio::test]
     async fn test_peer_disconnected_returns_failed_requests() {
-        let log = logging::test_logger();
         let fork_context = std::sync::Arc::new(ForkContext::new::<MainnetEthSpec>(
             Slot::new(0),
             Hash256::ZERO,
             &MainnetEthSpec::default_spec(),
         ));
         let config = OutboundRateLimiterConfig(RateLimiterConfig {
-            ping_quota: Quota::n_every(1, 2),
+            ping_quota: Quota::n_every(NonZeroU64::new(1).unwrap(), 2),
             ..Default::default()
         });
-        let mut limiter: SelfRateLimiter<RequestId, MainnetEthSpec> =
-            SelfRateLimiter::new(config, fork_context, log).unwrap();
+        let mut limiter: SelfRateLimiter<AppRequestId, MainnetEthSpec> =
+            SelfRateLimiter::new(Some(config), fork_context).unwrap();
         let peer_id = PeerId::random();
 
         for i in 1..=5u32 {
             let result = limiter.allows(
                 peer_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                AppRequestId::Sync(SyncRequestId::SingleBlock {
                     id: SingleLookupReqId {
                         req_id: i,
                         lookup_id: i,
                     },
-                })),
+                }),
                 RequestType::Ping(Ping { data: i as u64 }),
             );
 
@@ -626,9 +618,9 @@ mod tests {
             let (request_id, protocol) = failed_requests.remove(0);
             assert!(matches!(
                 request_id,
-                RequestId::Application(AppRequestId::Sync(SyncRequestId::SingleBlock {
+                AppRequestId::Sync(SyncRequestId::SingleBlock {
                     id: SingleLookupReqId { req_id, .. },
-                })) if req_id == i
+                }) if req_id == i
             ));
             assert_eq!(protocol, Protocol::Ping);
         }
