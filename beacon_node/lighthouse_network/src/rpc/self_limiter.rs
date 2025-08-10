@@ -1,10 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::{
-    collections::{hash_map::Entry, HashMap, VecDeque},
-    sync::Arc,
-    task::{Context, Poll},
-    time::Duration,
-};
 use super::{
     config::OutboundRateLimiterConfig,
     rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
@@ -15,6 +8,13 @@ use futures::FutureExt;
 use libp2p::{swarm::NotifyHandler, PeerId};
 use logging::crit;
 use smallvec::SmallVec;
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::{hash_map::Entry, HashMap, VecDeque},
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 use tokio_util::time::DelayQueue;
 use tracing::debug;
 use types::{EthSpec, ForkContext};
