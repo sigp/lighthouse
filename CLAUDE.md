@@ -158,7 +158,7 @@ Lighthouse is a modular Ethereum consensus client with two main components:
 - Use scoped rayon pools started by beacon processor for computational intensive tasks
 
 ### Locks
-- Take great care to avoid deadlocks when working with fork choice locks - seek detailed review ([reference](https://github.com/sigp/lighthouse/blob/40c2fd5ff4215bcc5c2eed00dcb40dedd6bcc88b/beacon_node/beacon_chain/src/canonical_head.rs#L9-L32))
+- Take great care to avoid deadlocks when working with fork choice locks - seek detailed review ([reference](beacon_node/beacon_chain/src/canonical_head.rs:9))
 - Keep lock scopes as narrow as possible to avoid blocking fast-responding functions like the networking stack
 
 ### Async Patterns
@@ -173,7 +173,7 @@ Lighthouse is a modular Ethereum consensus client with two main components:
 - Avoid using `span.enter()` or `span.entered()` in async tasks
 
 ### Database
-- Maintain schema continuity on `unstable` branch ([reference](https://github.com/sigp/lighthouse/pull/7661#discussion_r2176181303))
+- Maintain schema continuity on `unstable` branch
 - Database migrations must be backward compatible
 
 ### Consensus Crate
