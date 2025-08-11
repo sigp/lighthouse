@@ -2545,7 +2545,6 @@ fn get_blobs_disabled() {
 #[test]
 fn get_blobs_enabled() {
     CommandLineTest::new()
-        .flag("disable-get-blobs", None)
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.chain.disable_get_blobs);
