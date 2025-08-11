@@ -2,11 +2,11 @@
 //! required for the HTTP API.
 
 use crate::{
-    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
-    EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
+    Error as ServerError, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
+    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
 };
 use enr::{CombinedKey, Enr};
-use mediatype::{MediaType, MediaTypeList, names};
+use mediatype::{names, MediaType, MediaTypeList};
 use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -1581,7 +1581,7 @@ pub struct BroadcastValidationQuery {
 
 pub mod serde_status_code {
     use crate::StatusCode;
-    use serde::{Deserialize, Serialize, de::Error};
+    use serde::{de::Error, Deserialize, Serialize};
 
     pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
     where

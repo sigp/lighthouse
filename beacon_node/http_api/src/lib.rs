@@ -36,9 +36,9 @@ use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::beacon_response;
 use beacon_chain::{
-    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    WhenSlotSkipped, attestation_verification::VerifiedAttestation,
-    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
+    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
+    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
+    BeaconChainTypes, WhenSlotSkipped,
 };
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
@@ -54,14 +54,14 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
+use lighthouse_network::{types::SyncState, Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
-use logging::{SSELoggingComponents, crit};
+use logging::{crit, SSELoggingComponents};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 pub use publish_blocks::{
-    ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
+    publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
 };
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -82,8 +82,8 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::{
+    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
-    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
 };
 use tracing::{debug, error, info, warn};
 use types::{
@@ -96,15 +96,15 @@ use types::{
 };
 use validator::pubkey_to_validator_index;
 use version::{
-    ResponseIncludesVersion, V1, V2, V3, add_consensus_version_header, add_ssz_content_type_header,
+    add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
-    unsupported_version_rejection,
+    unsupported_version_rejection, ResponseIncludesVersion, V1, V2, V3,
 };
-use warp::Reply;
 use warp::http::StatusCode;
 use warp::hyper::Body;
 use warp::sse::Event;
-use warp::{Filter, Rejection, http::Response};
+use warp::Reply;
+use warp::{http::Response, Filter, Rejection};
 use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
