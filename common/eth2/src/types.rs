@@ -2,11 +2,11 @@
 //! required for the HTTP API.
 
 use crate::{
-    Error as ServerError, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
-    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
+    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use enr::{CombinedKey, Enr};
-use mediatype::{names, MediaType, MediaTypeList};
+use mediatype::{MediaType, MediaTypeList, names};
 use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -1115,7 +1115,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
                 return Err(serde::de::Error::custom(format!(
                     "SsePayloadAttributes failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Bellatrix => {
                 Self::V1(Deserialize::deserialize(deserializer).map_err(convert_err)?)
@@ -1517,11 +1517,11 @@ pub struct ForkChoiceNode {
     pub weight: u64,
     pub validity: Option<String>,
     pub execution_block_hash: Option<Hash256>,
-    pub extra_data: ExtraData,
+    pub extra_data: ForkChoiceExtraData,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ExtraData {
+pub struct ForkChoiceExtraData {
     pub target_root: Hash256,
     pub justified_root: Hash256,
     pub finalized_root: Hash256,
@@ -1529,10 +1529,10 @@ pub struct ExtraData {
     pub unrealized_finalized_root: Option<Hash256>,
     pub unrealized_justified_epoch: Option<Epoch>,
     pub unrealized_finalized_epoch: Option<Epoch>,
-    pub timestamp: u64,
+    pub timestamp: String,
     pub execution_status: serde_json::Value,
-    pub best_child: Option<usize>,
-    pub best_descendant: Option<usize>,
+    pub best_child: Option<Hash256>,
+    pub best_descendant: Option<Hash256>,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -1581,7 +1581,7 @@ pub struct BroadcastValidationQuery {
 
 pub mod serde_status_code {
     use crate::StatusCode;
-    use serde::{de::Error, Deserialize, Serialize};
+    use serde::{Deserialize, Serialize, de::Error};
 
     pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
     where

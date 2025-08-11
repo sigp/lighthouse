@@ -36,9 +36,9 @@ use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::beacon_response;
 use beacon_chain::{
-    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
-    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
-    BeaconChainTypes, WhenSlotSkipped,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    WhenSlotSkipped, attestation_verification::VerifiedAttestation,
+    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
 };
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
@@ -46,22 +46,22 @@ use builder_states::get_next_withdrawals;
 use bytes::Bytes;
 use directory::DEFAULT_ROOT_DIR;
 use eth2::types::{
-    self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ExtraData,
-    ForkChoice, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest,
+    self as api_types, BroadcastValidation, ContextDeserialize, EndpointVersion, ForkChoice,
+    ForkChoiceExtraData, ForkChoiceNode, LightClientUpdatesQuery, PublishBlockRequest,
     StateId as CoreStateId, ValidatorBalancesRequestBody, ValidatorId,
     ValidatorIdentitiesRequestBody, ValidatorStatus, ValidatorsRequestBody,
 };
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{types::SyncState, Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
+use lighthouse_network::{Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
 use lighthouse_version::version_with_platform;
-use logging::{crit, SSELoggingComponents};
+use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 pub use publish_blocks::{
-    publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
+    ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -82,8 +82,8 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
+    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
 };
 use tracing::{debug, error, info, warn};
 use types::{
@@ -96,15 +96,15 @@ use types::{
 };
 use validator::pubkey_to_validator_index;
 use version::{
-    add_consensus_version_header, add_ssz_content_type_header,
+    ResponseIncludesVersion, V1, V2, V3, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
-    unsupported_version_rejection, ResponseIncludesVersion, V1, V2, V3,
+    unsupported_version_rejection,
 };
+use warp::Reply;
 use warp::http::StatusCode;
 use warp::hyper::Body;
 use warp::sse::Event;
-use warp::Reply;
-use warp::{http::Response, Filter, Rejection};
+use warp::{Filter, Rejection, http::Response};
 use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
@@ -2971,7 +2971,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     .execution_status
                                     .block_hash()
                                     .map(|block_hash| block_hash.into_root()),
-                                extra_data: ExtraData {
+                                extra_data: ForkChoiceExtraData {
                                     target_root: node.target_root,
                                     justified_root: node.justified_checkpoint.root,
                                     finalized_root: node.finalized_checkpoint.root,
@@ -2987,12 +2987,18 @@ pub fn serve<T: BeaconChainTypes>(
                                     unrealized_finalized_epoch: node
                                         .unrealized_finalized_checkpoint
                                         .map(|checkpoint| checkpoint.epoch),
-                                    timestamp: timestamp_now().as_secs(),
+                                    timestamp: timestamp_now().as_secs().to_string(),
                                     execution_status: serde_json::Value::String(
                                         node.execution_status.to_string(),
                                     ),
-                                    best_child: node.best_child,
-                                    best_descendant: node.best_descendant,
+                                    best_child: node
+                                        .best_child
+                                        .and_then(|index| proto_array.nodes.get(index))
+                                        .map(|child| child.root),
+                                    best_descendant: node
+                                        .best_descendant
+                                        .and_then(|index| proto_array.nodes.get(index))
+                                        .map(|descendant| descendant.root),
                                 },
                             }
                         })
