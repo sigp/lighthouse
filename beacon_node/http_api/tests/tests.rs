@@ -1,31 +1,31 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
+    BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
     validator_monitor::timestamp_now,
-    BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
 use eth2::{
+    BeaconNodeHttpClient, Error,
+    Error::ServerMessage,
+    StatusCode, Timeouts,
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
     types::{
         BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
     },
-    BeaconNodeHttpClient, Error,
-    Error::ServerMessage,
-    StatusCode, Timeouts,
 };
 use execution_layer::expected_gas_limit;
 use execution_layer::test_utils::{
-    mock_builder_extra_data, mock_el_extra_data, MockBuilder, Operation,
     DEFAULT_BUILDER_PAYLOAD_VALUE_WEI, DEFAULT_GAS_LIMIT, DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI,
+    MockBuilder, Operation, mock_builder_extra_data, mock_el_extra_data,
 };
-use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
+use futures::stream::{Stream, StreamExt};
 use http_api::{
-    test_utils::{create_api_server, ApiServer},
     BlockId, StateId,
+    test_utils::{ApiServer, create_api_server},
 };
-use lighthouse_network::{types::SyncState, Enr, EnrExt, PeerId};
+use lighthouse_network::{Enr, EnrExt, PeerId, types::SyncState};
 use network::NetworkReceivers;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
@@ -40,9 +40,9 @@ use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
 use types::{
-    attestation::AttestationBase, AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash,
-    Hash256, Keypair, MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, SingleAttestation,
-    Slot,
+    AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
+    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, SingleAttestation, Slot,
+    attestation::AttestationBase,
 };
 
 type E = MainnetEthSpec;
@@ -1565,11 +1565,12 @@ impl ApiTester {
             .await
             .0;
 
-        assert!(self
-            .client
-            .post_beacon_blocks(&PublishBlockRequest::from(block))
-            .await
-            .is_err());
+        assert!(
+            self.client
+                .post_beacon_blocks(&PublishBlockRequest::from(block))
+                .await
+                .is_err()
+        );
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1592,11 +1593,12 @@ impl ApiTester {
             .await
             .0;
 
-        assert!(self
-            .client
-            .post_beacon_blocks_ssz(&PublishBlockRequest::from(block))
-            .await
-            .is_err());
+        assert!(
+            self.client
+                .post_beacon_blocks_ssz(&PublishBlockRequest::from(block))
+                .await
+                .is_err()
+        );
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1617,11 +1619,12 @@ impl ApiTester {
             .0
             .into();
 
-        assert!(self
-            .client
-            .post_beacon_blocks(&block_contents)
-            .await
-            .is_ok());
+        assert!(
+            self.client
+                .post_beacon_blocks(&block_contents)
+                .await
+                .is_ok()
+        );
 
         // Blinded deneb block contents is just the blinded block
         let blinded_block_contents = block_contents.signed_block().clone_as_blinded();
@@ -2956,7 +2959,7 @@ impl ApiTester {
                         .execution_status
                         .block_hash()
                         .map(|block_hash| block_hash.into_root()),
-                    extra_data: ExtraData {
+                    extra_data: ForkChoiceExtraData {
                         target_root: node.target_root,
                         justified_root: node.justified_checkpoint.root,
                         finalized_root: node.finalized_checkpoint.root,
@@ -2972,12 +2975,18 @@ impl ApiTester {
                         unrealized_finalized_epoch: node
                             .unrealized_finalized_checkpoint
                             .map(|checkpoint| checkpoint.epoch),
-                        timestamp: timestamp_now().as_secs(),
+                        timestamp: timestamp_now().as_secs().to_string(),
                         execution_status: serde_json::Value::String(
                             node.execution_status.to_string(),
                         ),
-                        best_child: node.best_child,
-                        best_descendant: node.best_descendant,
+                        best_child: node
+                            .best_child
+                            .and_then(|index| expected_proto_array.nodes.get(index))
+                            .map(|child| child.root),
+                        best_descendant: node
+                            .best_descendant
+                            .and_then(|index| expected_proto_array.nodes.get(index))
+                            .map(|descendant| descendant.root),
                     },
                 }
             })
@@ -4596,13 +4605,14 @@ impl ApiTester {
 
         // If this cache is empty, it indicates fallback was not used, so the payload came from the
         // mock builder.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
 
         self
     }
@@ -4641,13 +4651,14 @@ impl ApiTester {
         assert_eq!(payload.gas_limit(), builder_limit);
 
         // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -4681,13 +4692,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -4757,13 +4769,14 @@ impl ApiTester {
         assert_eq!(payload.fee_recipient(), test_fee_recipient);
 
         // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -4843,13 +4856,14 @@ impl ApiTester {
         assert_eq!(payload.parent_hash(), expected_parent_hash);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -4935,13 +4949,14 @@ impl ApiTester {
         assert_eq!(payload.prev_randao(), expected_prev_randao);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5025,13 +5040,14 @@ impl ApiTester {
         assert_eq!(payload.block_number(), expected_block_number);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5114,13 +5130,14 @@ impl ApiTester {
         assert!(payload.timestamp() > min_expected_timestamp);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5187,13 +5204,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5250,13 +5268,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5326,13 +5345,14 @@ impl ApiTester {
             .into();
 
         // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -5357,13 +5377,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5465,13 +5486,14 @@ impl ApiTester {
             .into();
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5506,13 +5528,14 @@ impl ApiTester {
             .into();
 
         // This cache should not be populated because fallback should not have been used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -5625,13 +5648,14 @@ impl ApiTester {
         assert_eq!(payload.fee_recipient(), expected_fee_recipient);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5703,13 +5727,14 @@ impl ApiTester {
             .into();
 
         // The builder's payload should've been chosen, so this cache should not be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -5771,13 +5796,14 @@ impl ApiTester {
             .into();
 
         // The local payload should've been chosen, so this cache should be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5839,13 +5865,14 @@ impl ApiTester {
             .into();
 
         // The local payload should've been chosen, so this cache should be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         // another way is to check for the extra data of the local EE
         assert_eq!(payload.extra_data(), mock_el_extra_data::<E>());
 
@@ -5906,13 +5933,14 @@ impl ApiTester {
             .into();
 
         // The builder's payload should've been chosen, so this cache should not be populated
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         // Another way is to check for the extra data of the mock builder
         assert_eq!(payload.extra_data(), mock_builder_extra_data::<E>());
 
@@ -5977,13 +6005,14 @@ impl ApiTester {
             .into();
 
         // The local payload should've been chosen because the builder's was invalid
-        assert!(self
-            .chain
-            .execution_layer
-            .as_ref()
-            .unwrap()
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+        assert!(
+            self.chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_some()
+        );
         self
     }
 
