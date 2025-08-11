@@ -327,7 +327,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // as we can still make progress.
         if blob_iter.next().is_some() {
             tracing::debug!(
-                remaining_blobs=?blob_iter.collect(),
+                remaining_blobs=?blob_iter.collect::<Vec<_>>(),
                 "Received sidecars that don't pair well",
             );
         }
@@ -775,7 +775,7 @@ mod tests {
 
         // THEN: Should fail with PeerFailure identifying the faulty peers
         assert!(result.is_err());
-        if let Err(super::CouplingError::PeerFailure {
+        if let Err(super::CouplingError::DataColumnPeerFailure {
             error,
             faulty_peers,
             action,
@@ -931,7 +931,7 @@ mod tests {
             let result = info.responses(&spec).unwrap();
             assert!(result.is_err());
 
-            if let Err(super::CouplingError::PeerFailure {
+            if let Err(super::CouplingError::DataColumnPeerFailure {
                 exceeded_retries, ..
             }) = &result
             {
@@ -946,7 +946,7 @@ mod tests {
 
         // THEN: Should fail with exceeded_retries = true
         assert!(result.is_err());
-        if let Err(super::CouplingError::PeerFailure {
+        if let Err(super::CouplingError::DataColumnPeerFailure {
             error: _,
             faulty_peers,
             action,
