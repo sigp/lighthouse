@@ -4,6 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Commands
 
+**Important**: Always branch from `unstable` and target `unstable` when creating pull requests.
+
 ### Building and Installation
 - `make install` - Build and install the main Lighthouse binary in release mode
 - `make install-lcli` - Build and install the `lcli` utility binary
@@ -18,10 +20,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `make test-ef` - Download and run Ethereum Foundation test vectors
 - `make test-full` - Complete test suite including linting, EF tests, and execution engine tests
 - `cargo test -p <package_name>` - Run tests for a specific package
+- `cargo test -p <package_name> <test_name>` - Run individual test (preferred during development iteration)
 - `FORK_NAME=electra cargo nextest run -p beacon_chain` - Run tests for specific fork
+
+**Note**: Full test suite takes ~20 minutes. When iterating, prefer running individual tests.
 
 ### Linting and Code Quality  
 - `make lint` - Run Clippy linter with project-specific rules
+- `make lint-full` - Run comprehensive linting including tests (recommended for thorough checking)
 - `make cargo-fmt` - Check code formatting with rustfmt
 - `make check-benches` - Typecheck benchmark code
 - `make audit` - Run security audit on dependencies
@@ -140,8 +146,11 @@ Lighthouse is a modular Ethereum consensus client with two main components:
 
 ## Development Patterns and Best Practices
 
-### Error Handling
-- Avoid functions that could panic at runtime (e.g., `expect` or `unwrap`)
+### Panics and Error Handling
+- **Panics should be avoided at all costs**
+- Always prefer returning a `Result` or `Option` over causing a panic (e.g., prefer `array.get(1)?` over `array[1]`)
+- Avoid `expect` or `unwrap` at runtime - only acceptable during startup when validating CLI flags or configurations
+- If you must make assumptions about panics, use `.expect("Helpful message")` instead of `.unwrap()` and provide detailed reasoning in nearby comments
 - Use proper error handling with `Result` types and graceful error propagation
 
 ### Rayon Usage
@@ -171,6 +180,11 @@ Lighthouse is a modular Ethereum consensus client with two main components:
 - Use safe math methods like `saturating_xxx` or `checked_xxx`
 - Critical that this crate behaves deterministically and MUST not have undefined behavior
 
+### TODOs and Comments
+- All `TODO` statements must be accompanied by a GitHub issue link
+- Prefer line (`//`) comments to block comments (`/* ... */`)
+- Use doc comments (`///`) before attributes for public items
+
 ## Code Examples
 
 ### Safe Math in Consensus Crate
@@ -184,13 +198,31 @@ let result = a.saturating_add(b);
 let result = a.checked_add(b).ok_or(ArithError::Overflow)?;
 ```
 
-### Proper Error Handling
+### Panics and Error Handling
 ```rust
-// ❌ Avoid - could panic
+// ❌ Avoid - could panic at runtime
 let value = some_result.unwrap();
+let item = array[1];
 
-// ✅ Preferred
+// ✅ Preferred - proper error handling
 let value = some_result.map_err(|e| CustomError::SomeVariant(e))?;
+let item = array.get(1)?;
+
+// ✅ Acceptable during startup for CLI/config validation
+let config_value = matches.get_one::<String>("required-flag")
+    .expect("Required flag must be present due to clap validation");
+
+// ✅ If you must make runtime assumptions, use expect with explanation
+let item = array.get(1).expect("Array always has at least 2 elements due to validation in constructor");
+// Detailed reasoning should be provided in nearby comments
+```
+
+### TODO Format
+```rust
+pub fn my_function(&mut self, _something: &[u8]) -> Result<String, Error> {
+    // TODO: Implement proper validation here
+    // https://github.com/sigp/lighthouse/issues/1234
+}
 ```
 
 ### Async Task Spawning for Blocking Work
