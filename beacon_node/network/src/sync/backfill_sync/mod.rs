@@ -962,7 +962,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers()
+                .synced_peers_for_epoch(batch_id, None)
                 .cloned()
                 .collect::<HashSet<_>>();
 
