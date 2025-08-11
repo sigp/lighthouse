@@ -7,7 +7,6 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 [dependencies]
 beacon_node_fallback = { workspace = true }
 bls = { workspace = true }
-either = { workspace = true }
 eth2 = { workspace = true }
 futures = { workspace = true }
 graffiti_file = { workspace = true }

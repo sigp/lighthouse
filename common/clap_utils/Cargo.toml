@@ -6,7 +6,6 @@ edition = { workspace = true }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-alloy-primitives = { workspace = true }
 clap = { workspace = true }
 dirs = { workspace = true }
 eth2_network_config = { workspace = true }

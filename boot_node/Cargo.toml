@@ -13,7 +13,6 @@ eth2_network_config = { workspace = true }
 ethereum_ssz = { workspace = true }
 hex = { workspace = true }
 lighthouse_network = { workspace = true }
-log = { workspace = true }
 logging = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }

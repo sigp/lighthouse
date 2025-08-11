@@ -1,7 +1,10 @@
 [package]
 name = "slashing_protection"
 version = "0.1.0"
-authors = ["Michael Sproul <michael@sigmaprime.io>", "pscott <scottpiriou@gmail.com>"]
+authors = [
+    "Michael Sproul <michael@sigmaprime.io>",
+    "pscott <scottpiriou@gmail.com>",
+]
 edition = { workspace = true }
 autotests = false
 
@@ -19,7 +22,6 @@ rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = { workspace = true }
-tracing = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]

@@ -8,9 +8,7 @@ edition = { workspace = true }
 libp2p-websocket = []
 
 [dependencies]
-alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
-bytes = { workspace = true }
 delay_map = { workspace = true }
 directory = { workspace = true }
 dirs = { workspace = true }

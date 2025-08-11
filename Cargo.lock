@@ -868,13 +868,11 @@ checksum = "bb97d56060ee67d285efb8001fec9d2a4c710c32efd2e14b5cbb5ba71930fc2d"
 name = "beacon_chain"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
  "bitvec 1.0.1",
  "bls",
  "criterion",
  "derivative",
  "eth2",
- "eth2_network_config",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
@@ -939,7 +937,6 @@ dependencies = [
  "environment",
  "eth2_config",
  "execution_layer",
- "genesis",
  "hex",
  "http_api",
  "hyper 1.6.0",
@@ -964,7 +961,6 @@ dependencies = [
  "clap",
  "eth2",
  "futures",
- "itertools 0.10.5",
  "sensitive_url",
  "serde",
  "slot_clock",
@@ -1157,7 +1153,6 @@ checksum = "8d696c370c750c948ada61c69a0ee2cbbb9c50b1019ddb86d9317157a99c2cae"
 name = "bls"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
  "arbitrary",
  "blst",
  "ethereum_hashing",
@@ -1166,7 +1161,6 @@ dependencies = [
  "fixed_bytes",
  "hex",
  "rand 0.9.2",
- "safe_arith",
  "serde",
  "tree_hash",
  "zeroize",
@@ -1212,7 +1206,6 @@ dependencies = [
  "ethereum_ssz",
  "hex",
  "lighthouse_network",
- "log",
  "logging",
  "serde",
  "tokio",
@@ -1527,7 +1520,6 @@ checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 name = "clap_utils"
 version = "0.1.0"
 dependencies = [
- "alloy-primitives",
  "clap",
  "dirs",
  "eth2_network_config",
@@ -1550,7 +1542,6 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_config",
- "ethereum_ssz",
  "execution_layer",
  "futures",
  "genesis",
@@ -1562,7 +1553,6 @@ dependencies = [
  "metrics",
  "monitoring_api",
  "network",
- "operation_pool",
  "rand 0.9.2",
  "sensitive_url",
  "serde",
@@ -1571,14 +1561,12 @@ dependencies = [
  "slasher",
  "slasher_service",
  "slot_clock",
- "state_processing",
  "store",
  "task_executor",
  "time",
  "timer",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "types",
 ]
 
@@ -1667,7 +1655,6 @@ dependencies = [
 name = "compare_fields"
 version = "0.2.0"
 dependencies = [
- "compare_fields_derive",
  "itertools 0.10.5",
 ]
 
@@ -2543,7 +2530,6 @@ dependencies = [
  "compare_fields_derive",
  "context_deserialize",
  "derivative",
- "eth2_network_config",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "execution_layer",
@@ -2551,7 +2537,6 @@ dependencies = [
  "fs2",
  "hex",
  "kzg",
- "logging",
  "rayon",
  "serde",
  "serde_json",
@@ -2803,7 +2788,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-appender",
- "tracing-log",
  "tracing-subscriber",
  "types",
 ]
@@ -2851,7 +2835,6 @@ name = "eth2"
 version = "0.1.0"
 dependencies = [
  "derivative",
- "either",
  "enr",
  "eth2_keystore",
  "ethereum_serde_utils",
@@ -2873,7 +2856,6 @@ dependencies = [
  "slashing_protection",
  "ssz_types",
  "test_random_derive",
- "tokio",
  "types",
  "zeroize",
 ]
@@ -3316,7 +3298,6 @@ dependencies = [
  "fork_choice",
  "futures",
  "hex",
- "logging",
  "reqwest 0.11.27",
  "sensitive_url",
  "serde_json",
@@ -3360,7 +3341,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "sha2 0.9.9",
  "slot_clock",
  "ssz_types",
  "state_processing",
@@ -3800,7 +3780,6 @@ dependencies = [
  "merkle_proof",
  "rayon",
  "state_processing",
- "tracing",
  "tree_hash",
  "types",
 ]
@@ -4299,7 +4278,6 @@ dependencies = [
  "bs58 0.4.0",
  "bytes",
  "directory",
- "either",
  "eth2",
  "ethereum_serde_utils",
  "ethereum_ssz",
@@ -5093,7 +5071,6 @@ dependencies = [
  "eth2",
  "eth2_network_config",
  "eth2_wallet",
- "ethereum_hashing",
  "ethereum_ssz",
  "execution_layer",
  "hex",
@@ -5694,10 +5671,8 @@ dependencies = [
 name = "lighthouse_network"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
  "alloy-rlp",
  "async-channel 1.9.0",
- "bytes",
  "delay_map",
  "directory",
  "dirs",
@@ -5750,12 +5725,8 @@ name = "lighthouse_validator_store"
 version = "0.1.0"
 dependencies = [
  "account_utils",
- "beacon_node_fallback",
  "doppelganger_service",
- "either",
- "environment",
  "eth2",
- "futures",
  "initialized_validators",
  "logging",
  "parking_lot 0.12.3",
@@ -5764,7 +5735,6 @@ dependencies = [
  "slashing_protection",
  "slot_clock",
  "task_executor",
- "tokio",
  "tracing",
  "types",
  "validator_metrics",
@@ -5868,7 +5838,6 @@ dependencies = [
  "chrono",
  "logroller",
  "metrics",
- "serde",
  "serde_json",
  "tokio",
  "tracing",
@@ -6389,7 +6358,6 @@ dependencies = [
 name = "network"
 version = "0.2.0"
 dependencies = [
- "alloy-primitives",
  "alloy-rlp",
  "anyhow",
  "async-channel 1.9.0",
@@ -6398,8 +6366,6 @@ dependencies = [
  "bls",
  "delay_map",
  "derivative",
- "eth2",
- "eth2_network_config",
  "ethereum_ssz",
  "execution_layer",
  "fnv",
@@ -6425,7 +6391,6 @@ dependencies = [
  "serde_json",
  "slot_clock",
  "smallvec",
- "ssz_types",
  "store",
  "strum",
  "task_executor",
@@ -8882,7 +8847,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "tracing",
  "types",
 ]
 
@@ -9044,7 +9008,6 @@ dependencies = [
  "ethereum_ssz_derive",
  "itertools 0.10.5",
  "leveldb",
- "logging",
  "lru",
  "metrics",
  "parking_lot 0.12.3",
@@ -9052,13 +9015,11 @@ dependencies = [
  "redb",
  "safe_arith",
  "serde",
- "smallvec",
  "state_processing",
  "strum",
  "superstruct",
  "tempfile",
  "tracing",
- "tracing-subscriber",
  "types",
  "xdelta3",
  "zstd 0.13.3",
@@ -9960,7 +9921,6 @@ dependencies = [
  "serde_yaml",
  "smallvec",
  "ssz_types",
- "state_processing",
  "superstruct",
  "swap_or_not_shuffle",
  "tempfile",
@@ -10304,7 +10264,6 @@ version = "0.1.0"
 dependencies = [
  "beacon_node_fallback",
  "bls",
- "either",
  "eth2",
  "futures",
  "graffiti_file",
@@ -10580,18 +10539,15 @@ version = "0.1.0"
 dependencies = [
  "account_utils",
  "async-channel 1.9.0",
- "environment",
  "eth2",
  "eth2_keystore",
  "eth2_network_config",
  "futures",
  "initialized_validators",
  "lighthouse_validator_store",
- "logging",
  "parking_lot 0.12.3",
  "reqwest 0.11.27",
  "serde",
- "serde_json",
  "serde_yaml",
  "slashing_protection",
  "slot_clock",

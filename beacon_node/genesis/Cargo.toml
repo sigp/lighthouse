@@ -11,6 +11,5 @@ int_to_bytes = { workspace = true }
 merkle_proof = { workspace = true }
 rayon = { workspace = true }
 state_processing = { workspace = true }
-tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }

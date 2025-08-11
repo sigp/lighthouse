@@ -23,7 +23,6 @@ environment = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
 eth2_wallet = { workspace = true }
-ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
 hex = { workspace = true }

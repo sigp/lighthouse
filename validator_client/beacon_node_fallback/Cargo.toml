@@ -12,7 +12,6 @@ path = "src/lib.rs"
 clap = { workspace = true }
 eth2 = { workspace = true }
 futures = { workspace = true }
-itertools = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }

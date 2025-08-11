@@ -12,7 +12,6 @@ portable = ["beacon_chain/portable"]
 test_logger = []
 
 [dependencies]
-alloy-primitives = { workspace = true }
 alloy-rlp = { workspace = true }
 anyhow = { workspace = true }
 async-channel = { workspace = true }
@@ -36,7 +35,6 @@ parking_lot = { workspace = true }
 rand = { workspace = true }
 slot_clock = { workspace = true }
 smallvec = { workspace = true }
-ssz_types = { workspace = true }
 store = { workspace = true }
 strum = { workspace = true }
 task_executor = { workspace = true }
@@ -48,8 +46,6 @@ types = { workspace = true }
 
 [dev-dependencies]
 bls = { workspace = true }
-eth2 = { workspace = true }
-eth2_network_config = { workspace = true }
 genesis = { workspace = true }
 gossipsub = { workspace = true }
 k256 = "0.13.4"

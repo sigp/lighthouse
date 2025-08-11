@@ -1,7 +1,10 @@
 [package]
 name = "state_processing"
 version = "0.2.0"
-authors = ["Paul Hauner <paul@paulhauner.com>", "Michael Sproul <michael@sigmaprime.io>"]
+authors = [
+    "Paul Hauner <paul@paulhauner.com>",
+    "Michael Sproul <michael@sigmaprime.io>",
+]
 edition = { workspace = true }
 
 [features]
