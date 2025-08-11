@@ -180,10 +180,43 @@ Lighthouse is a modular Ethereum consensus client with two main components:
 - Use safe math methods like `saturating_xxx` or `checked_xxx`
 - Critical that this crate behaves deterministically and MUST not have undefined behavior
 
+### Testing Patterns
+- **Use appropriate test types for the right scenarios**:
+  - **Unit tests** for single component edge cases and isolated logic
+  - **Integration tests** using [`BeaconChainHarness`](beacon_node/beacon_chain/src/test_utils.rs:668) for end-to-end workflows
+- **`BeaconChainHarness` guidelines**:
+  - Excellent for integration testing but slower than unit tests
+  - Prefer unit tests instead for testing edge cases of single components
+  - Reserve for testing component interactions and full workflows
+- **Mocking strategies**:
+  - Use `mockall` crate for unit test mocking
+  - Use `mockito` for HTTP API mocking (see [`validator_test_rig`](testing/validator_test_rig/src/mock_beacon_node.rs:20) for examples)
+- **Event-based testing for sync components**:
+  - Use [`TestRig`](beacon_node/network/src/sync/tests/mod.rs) pattern for testing sync components
+  - Sync components interact with the network and beacon chain via events (their public API), making event-based testing more suitable than using internal functions and mutating internal states
+  - Enables testing of complex state transitions and timing-sensitive scenarios
+- **Testing `BeaconChain` dependent components**:
+  - `BeaconChain` is difficult to create for TDD
+  - Create intermediate adapter structs to enable easy mocking
+  - See [`beacon_node/beacon_chain/src/fetch_blobs/tests.rs`](beacon_node/beacon_chain/src/fetch_blobs/tests.rs) for the adapter pattern
+- **Local testnet for manual/full E2E testing**:
+  - Use Kurtosis-based local testnet setup for comprehensive testing
+  - See [`scripts/local_testnet/README.md`](scripts/local_testnet/README.md) for setup instructions
+
 ### TODOs and Comments
 - All `TODO` statements must be accompanied by a GitHub issue link
 - Prefer line (`//`) comments to block comments (`/* ... */`)
 - Use doc comments (`///`) before attributes for public items
+- Keep documentation concise and clear - avoid verbose explanations
+- Provide examples in doc comments for public APIs when helpful
+
+## Logging Guidelines
+Use appropriate log levels for different scenarios:
+- **`crit`**: Critical issues with major impact to Lighthouse functionality - Lighthouse may not function correctly without resolving. Needs immediate attention.
+- **`error`**: Error cases that may have moderate impact to Lighthouse functionality. Expect to receive reports from users for this level.
+- **`warn`**: Unexpected code paths that don't have major impact - fully recoverable. Expect user reports if excessive warning logs occur.
+- **`info`**: High-level logs indicating beacon node status and block import status. Should not be used excessively.
+- **`debug`**: Events lower level than info useful for developers. Can also log errors expected during normal operation that users don't need to action.
 
 ## Code Examples
 
@@ -254,3 +287,10 @@ async fn process_block(&self, block: Block) -> Result<(), Error> {
     // meaningful computation
 }
 ```
+
+## Build and Development Notes
+- Full builds and tests take 5+ minutes - use large timeouts (300s+) for any `cargo build`, `cargo test`, or `make` commands
+- Use `cargo check` for faster iteration during development and always run after code changes
+- Prefer targeted package tests (`cargo test -p <package>`) and individual tests over full test suite when debugging specific issues
+- Always understand the broader codebase patterns before making changes
+- Minimum Supported Rust Version (MSRV) is documented in `lighthouse/Cargo.toml` - ensure Rust version meets or exceeds this requirement
