@@ -25,7 +25,7 @@ use std::sync::{
 };
 use task_executor::TaskExecutor;
 use tokio::time::{sleep, sleep_until, Instant};
-use tracing::{debug, error, warn};
+use tracing::{debug, debug_span, error, instrument, warn, Instrument};
 use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
@@ -253,7 +253,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                     },
                     "fork_choice_advance_signal_tx",
                 );
-            },
+            }
+            .instrument(debug_span!("fork_choice_advance")),
             "fork_choice_advance",
         );
     }
@@ -264,6 +265,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 /// slot then placed in the `state_cache` to be used for block verification.
 ///
 /// See the module-level documentation for rationale.
+#[instrument(skip_all)]
 fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Result<(), Error> {
     let current_slot = beacon_chain.slot()?;
 
