@@ -56,13 +56,14 @@ enum RangeBlockDataRequest<E: EthSpec> {
 #[derive(Debug)]
 pub(crate) enum CouplingError {
     InternalError(String),
-    /// The peer we requested the data from was faulty/malicious
-    PeerFailure {
+    /// The peer we requested the columns from was faulty/malicious
+    DataColumnPeerFailure {
         error: String,
         faulty_peers: Vec<(ColumnIndex, PeerId)>,
         action: PeerAction,
         exceeded_retries: bool,
     },
+    BlobPeerFailure(String),
 }
 
 impl<E: EthSpec> RangeBlockComponentsRequest<E> {
@@ -243,7 +244,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     spec,
                 );
 
-                if let Err(CouplingError::PeerFailure {
+                if let Err(CouplingError::DataColumnPeerFailure {
                     error: _,
                     faulty_peers,
                     action: _,
@@ -285,7 +286,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 pair_next_blob
             } {
                 blob_list.push(blob_iter.next().ok_or_else(|| {
-                    CouplingError::InternalError("Missing next blob".to_string())
+                    CouplingError::BlobPeerFailure("Missing next blob".to_string())
                 })?);
             }
 
@@ -293,12 +294,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             for blob in blob_list {
                 let blob_index = blob.index as usize;
                 let Some(blob_opt) = blobs_buffer.get_mut(blob_index) else {
-                    return Err(CouplingError::InternalError(
+                    return Err(CouplingError::BlobPeerFailure(
                         "Invalid blob index".to_string(),
                     ));
                 };
                 if blob_opt.is_some() {
-                    return Err(CouplingError::InternalError(
+                    return Err(CouplingError::BlobPeerFailure(
                         "Repeat blob index".to_string(),
                     ));
                 } else {
@@ -310,19 +311,21 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 max_blobs_per_block,
             )
             .map_err(|_| {
-                CouplingError::InternalError("Blobs returned exceeds max length".to_string())
+                CouplingError::BlobPeerFailure("Blobs returned exceeds max length".to_string())
             })?;
             responses.push(
                 RpcBlock::new(None, block, Some(blobs))
-                    .map_err(|e| CouplingError::InternalError(format!("{e:?}")))?,
+                    .map_err(|e| CouplingError::BlobPeerFailure(format!("{e:?}")))?,
             )
         }
 
-        // if accumulated sidecars is not empty, throw an error.
+        // if accumulated sidecars is not empty, log an error but return the responses
+        // as we can still make progress.
         if blob_iter.next().is_some() {
-            return Err(CouplingError::InternalError(
-                "Received sidecars that don't pair well".to_string(),
-            ));
+            tracing::debug!(
+                remaining_blobs=?blob_iter.collect(),
+                "Received sidecars that don't pair well",
+            );
         }
 
         Ok(responses)
@@ -349,9 +352,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 .insert(index, column)
                 .is_some()
             {
-                return Err(CouplingError::InternalError(format!(
-                    "Repeated column block_root {block_root:?} index {index}"
-                )));
+                // We can still proceed with extra columns, just log an error.
+                tracing::debug!(?block_root, ?index, "Repeated column for block_root");
+                continue;
             }
         }
 
@@ -366,7 +369,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
                 else {
                     let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
-                    return Err(CouplingError::PeerFailure {
+                    return Err(CouplingError::DataColumnPeerFailure {
                         error: format!("No columns for block {block_root:?} with data"),
                         faulty_peers: responsible_peers,
                         action: PeerAction::LowToleranceError,
@@ -388,7 +391,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     }
                 }
                 if !naughty_peers.is_empty() {
-                    return Err(CouplingError::PeerFailure {
+                    return Err(CouplingError::DataColumnPeerFailure {
                         error: format!("Peers did not return column for block_root {block_root:?} {naughty_peers:?}"),
                         faulty_peers: naughty_peers,
                         action: PeerAction::LowToleranceError,
