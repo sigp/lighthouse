@@ -723,7 +723,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 exceeded_retries,
             }) = &blocks_result
             {
-                // Remove the entry if its a peer failure **and** retry counter is exceeded
+                // Remove the entry if it's a peer failure **and** retry counter is exceeded
                 if *exceeded_retries {
                     debug!(
                         entry=?entry.key(),
@@ -733,8 +733,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     entry.remove();
                 };
             } else {
-                // also remove the entry only if it coupled successfully with
-                // or if its an internal error
+                // also remove the entry only if it coupled successfully
+                // or if it isn't a column peer failure.
                 entry.remove();
             }
             // If the request is finished, dequeue everything

@@ -981,6 +981,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     debug!(?batch_id, id, e, "Failed to retry partial batch");
                 }
             }
+        } else {
+            return Err(BackFillError::InvalidSyncState(
+                "Batch should exist to be retried".to_string(),
+            ));
         }
         Ok(())
     }

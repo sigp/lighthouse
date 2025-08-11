@@ -20,7 +20,7 @@ use crate::sync::network_context::MAX_COLUMN_RETRIES;
 ///
 /// This struct acts as temporary storage while multiple network responses arrive:
 /// - Blocks themselves (always required)
-/// - Blob sidecars (pre-Fulu fork)  
+/// - Blob sidecars (pre-Fulu fork)
 /// - Data columns (Fulu fork and later)
 ///
 /// It accumulates responses until all expected components are received, then couples
@@ -226,7 +226,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     data_columns.extend(data.clone())
                 }
 
+                // An "attempt" is complete here after we have received a response for all the
+                // requests we made. i.e. `req.to_finished()` returns Some for all requests.
                 *attempt += 1;
+
                 // Note: this assumes that only 1 peer is responsible for a column
                 // with a batch.
                 for (id, columns) in column_peers {
@@ -253,7 +256,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 {
                     for (_, peer) in faulty_peers.iter() {
                         // find the req id associated with the peer and
-                        // delete it from the entries
+                        // delete it from the entries as we are going to make
+                        // a separate attempt for those components.
                         requests.retain(|&k, _| k.peer != *peer);
                     }
                 }
@@ -352,7 +356,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 .insert(index, column)
                 .is_some()
             {
-                // We can still proceed with extra columns, just log an error.
+                // `DataColumnsByRangeRequestItems` ensures that we do not request any duplicated indices across all peers
+                // we request the data from.
+                // If there are duplicated indices, its likely a peer sending us the same index multiple times.
+                // However we can still proceed even if there are extra columns, just log an error.
                 tracing::debug!(?block_root, ?index, "Repeated column for block_root");
                 continue;
             }
@@ -381,6 +388,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 let mut custody_columns = vec![];
                 let mut naughty_peers = vec![];
                 for index in expects_custody_columns {
+                    // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
+                    // this column is in the set of `expects_custody_columns` and with the expected
+                    // block root, so for the expected epoch of this batch.
                     if let Some(data_column) = data_columns_by_index.remove(index) {
                         custody_columns.push(CustodyDataColumn::from_asserted_custody(data_column));
                     } else {
