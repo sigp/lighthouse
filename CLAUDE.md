@@ -151,7 +151,6 @@ Lighthouse is a modular Ethereum consensus client with two main components:
 ### Locks
 - Take great care to avoid deadlocks when working with fork choice locks - seek detailed review ([reference](https://github.com/sigp/lighthouse/blob/40c2fd5ff4215bcc5c2eed00dcb40dedd6bcc88b/beacon_node/beacon_chain/src/canonical_head.rs#L9-L32))
 - Keep lock scopes as narrow as possible to avoid blocking fast-responding functions like the networking stack
-- Consider using `try_lock()` patterns where appropriate to avoid blocking
 
 ### Async Patterns
 - Avoid blocking computations in async tasks
