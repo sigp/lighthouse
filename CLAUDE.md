@@ -171,3 +171,55 @@ Lighthouse is a modular Ethereum consensus client with two main components:
 ### Consensus Crate
 - Use safe math methods like `saturating_xxx` or `checked_xxx`
 - Critical that this crate behaves deterministically and MUST not have undefined behavior
+
+## Code Examples
+
+### Safe Math in Consensus Crate
+```rust
+// ❌ Avoid - could panic
+let result = a + b;
+
+// ✅ Preferred
+let result = a.saturating_add(b);
+// or
+let result = a.checked_add(b).ok_or(ArithError::Overflow)?;
+```
+
+### Proper Error Handling
+```rust
+// ❌ Avoid - could panic
+let value = some_result.unwrap();
+
+// ✅ Preferred
+let value = some_result.map_err(|e| CustomError::SomeVariant(e))?;
+```
+
+### Async Task Spawning for Blocking Work
+```rust
+// ❌ Avoid - blocking in async context
+async fn some_handler() {
+    let result = expensive_computation(); // blocks async runtime
+}
+
+// ✅ Preferred
+async fn some_handler() {
+    let result = tokio::task::spawn_blocking(|| {
+        expensive_computation()
+    }).await?;
+}
+```
+
+### Tracing Span Usage
+```rust
+// ❌ Avoid - span on simple getter
+#[instrument]
+fn get_head_block_root(&self) -> Hash256 {
+    self.head_block_root
+}
+
+// ✅ Preferred - span on meaningful operations
+#[instrument(skip(self))]
+async fn process_block(&self, block: Block) -> Result<(), Error> {
+    // meaningful computation
+}
+```
