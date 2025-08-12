@@ -186,8 +186,13 @@ impl<E: EthSpec> StateCache<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
+        // Do not attempt to rebase states prior to the finalized state. This method might be called
+        // with states on the hdiff grid prior to finalization, as part of the reconstruction of
+        // some later unfinalized state.
         if let Some(finalized_state) = &self.finalized_state {
-            state.rebase_on(&finalized_state.state, spec)?;
+            if state.slot() >= finalized_state.state.slot() {
+                state.rebase_on(&finalized_state.state, spec)?;
+            }
         }
         Ok(())
     }

@@ -910,6 +910,14 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("disable-get-blobs")
+                .long("disable-get-blobs")
+                .help("Disables the getBlobs optimisation to fetch blobs from the EL mempool")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("builder-header-timeout")
                 .long("builder-header-timeout")
                 .value_name("MILLISECONDS")
