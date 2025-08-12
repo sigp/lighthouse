@@ -1786,6 +1786,7 @@ checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 name = "context_deserialize"
 version = "0.1.0"
 dependencies = [
+ "context_deserialize_derive",
  "milhouse",
  "serde",
  "ssz_types",
@@ -2603,7 +2604,6 @@ dependencies = [
  "compare_fields",
  "compare_fields_derive",
  "context_deserialize",
- "context_deserialize_derive",
  "derivative",
  "eth2_network_config",
  "ethereum_ssz",
@@ -9897,7 +9897,6 @@ dependencies = [
  "compare_fields",
  "compare_fields_derive",
  "context_deserialize",
- "context_deserialize_derive",
  "criterion",
  "derivative",
  "eth2_interop_keypairs",

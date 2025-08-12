@@ -1,7 +1,10 @@
 [package]
 name = "types"
 version = "0.2.1"
-authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
+authors = [
+    "Paul Hauner <paul@paulhauner.com>",
+    "Age Manning <Age@AgeManning.com>",
+]
 edition = { workspace = true }
 
 [features]
@@ -28,7 +31,6 @@ bls = { workspace = true }
 compare_fields = { workspace = true }
 compare_fields_derive = { workspace = true }
 context_deserialize = { workspace = true }
-context_deserialize_derive = { workspace = true }
 derivative = { workspace = true }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }
 ethereum_hashing = { workspace = true }
