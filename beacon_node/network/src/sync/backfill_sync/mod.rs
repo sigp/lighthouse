@@ -1115,7 +1115,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ) -> bool {
         if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
             // Require peers on all sampling column subnets before sending batches
-            let peers_on_all_custody_subnets = network
+            network
                 .network_globals()
                 .sampling_subnets()
                 .iter()
@@ -1127,8 +1127,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         .good_range_sync_custody_subnet_peers(*subnet_id)
                         .count();
                     peer_count > 0
-                });
-            peers_on_all_custody_subnets
+                })
         } else {
             true
         }

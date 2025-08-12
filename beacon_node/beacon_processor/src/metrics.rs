@@ -132,6 +132,6 @@ pub static BEACON_PROCESSOR_QUEUE_TIME: LazyLock<Result<HistogramVec>> = LazyLoc
     try_create_histogram_vec(
         "beacon_processor_queue_time",
         "The delay between when a work event was queued in the beacon processor and when it was popped from the queue",
-        &["work_type"]
+        &["work_type"],
     )
 });

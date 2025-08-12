@@ -444,13 +444,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: BlocksByRangeRequest,
         failed_columns: &HashSet<ColumnIndex>,
     ) -> Result<(), String> {
-        let Some(requester) = self.components_by_range_requests.keys().find_map(|r| {
-            if r.id == id {
-                Some(r.requester)
-            } else {
-                None
-            }
-        }) else {
+        let Some(requester) = self
+            .components_by_range_requests
+            .keys()
+            .find_map(|r| if r.id == id { Some(r.requester) } else { None })
+        else {
             return Err("request id not present".to_string());
         };
 

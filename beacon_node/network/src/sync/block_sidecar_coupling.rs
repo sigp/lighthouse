@@ -195,7 +195,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             return None;
         };
 
-        let resp = match &mut self.block_data_request {
+        // Increment the attempt once this function returns the response or errors
+        match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => {
                 Some(Self::responses_with_blobs(blocks.to_vec(), vec![], spec))
             }
@@ -262,10 +263,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 Some(resp)
             }
-        };
-
-        // Increment the attempt once this function returns the response or errors
-        resp
+        }
     }
 
     fn responses_with_blobs(
@@ -467,12 +465,11 @@ mod tests {
         NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
     };
     use lighthouse_network::{
-        PeerId,
+        PeerAction, PeerId,
         service::api_types::{
             BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
             DataColumnsByRangeRequestId, Id, RangeRequestId,
         },
-        PeerAction, PeerId,
     };
     use rand::SeedableRng;
     use std::sync::Arc;
@@ -932,10 +929,9 @@ mod tests {
             if let Err(super::CouplingError::DataColumnPeerFailure {
                 exceeded_retries, ..
             }) = &result
+                && *exceeded_retries
             {
-                if *exceeded_retries {
-                    break;
-                }
+                break;
             }
         }
 
