@@ -1311,7 +1311,7 @@ async fn verify_and_process_gossip_data_sidecars(
                     );
                     harness.chain.verify_data_column_sidecar_for_gossip(
                         column_sidecar.into_inner(),
-                        *subnet_id,
+                        subnet_id,
                     )
                 })
                 .collect::<Result<Vec<_>, _>>()

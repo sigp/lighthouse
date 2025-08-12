@@ -6,6 +6,7 @@ use crate::{
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
+use tracing::instrument;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot};
 
 /// Fraction of the LRU cache to leave intact during culling.
@@ -185,8 +186,13 @@ impl<E: EthSpec> StateCache<E> {
         state: &mut BeaconState<E>,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
+        // Do not attempt to rebase states prior to the finalized state. This method might be called
+        // with states on the hdiff grid prior to finalization, as part of the reconstruction of
+        // some later unfinalized state.
         if let Some(finalized_state) = &self.finalized_state {
-            state.rebase_on(&finalized_state.state, spec)?;
+            if state.slot() >= finalized_state.state.slot() {
+                state.rebase_on(&finalized_state.state, spec)?;
+            }
         }
         Ok(())
     }
@@ -292,6 +298,7 @@ impl<E: EthSpec> StateCache<E> {
         None
     }
 
+    #[instrument(skip(self), level = "debug")]
     pub fn get_by_block_root(
         &mut self,
         block_root: Hash256,
