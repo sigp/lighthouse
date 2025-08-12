@@ -253,15 +253,17 @@ impl<E: EthSpec> PeerDB<E> {
     ///
     /// If `earliest_available_slot` info is not available, then return peer anyway assuming it has the
     /// required data.
+    ///
+    /// If `allowed_peers` is `Some`, then filters for the epoch only for those peers.
     pub fn synced_peers_for_epoch<'a>(
         &'a self,
         epoch: Epoch,
-        allowed_peers: &'a HashSet<PeerId>,
+        allowed_peers: Option<&'a HashSet<PeerId>>,
     ) -> impl Iterator<Item = &'a PeerId> {
         self.peers
             .iter()
             .filter(move |(peer_id, info)| {
-                allowed_peers.contains(peer_id)
+                allowed_peers.is_none_or(|allowed| allowed.contains(peer_id))
                     && info.is_connected()
                     && match info.sync_status() {
                         SyncStatus::Synced { info } => {
@@ -270,7 +272,9 @@ impl<E: EthSpec> PeerDB<E> {
                         SyncStatus::Advanced { info } => {
                             info.has_slot(epoch.end_slot(E::slots_per_epoch()))
                         }
-                        _ => false,
+                        SyncStatus::IrrelevantPeer
+                        | SyncStatus::Behind { .. }
+                        | SyncStatus::Unknown => false,
                     }
             })
             .map(|(peer_id, _)| peer_id)
@@ -320,20 +324,34 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Returns an iterator of all peers that are supposed to be custodying
-    /// the given subnet id that also belong to `allowed_peers`.
-    pub fn good_range_sync_custody_subnet_peer<'a>(
-        &'a self,
+    /// the given subnet id.
+    pub fn good_range_sync_custody_subnet_peers(
+        &self,
         subnet: DataColumnSubnetId,
-        allowed_peers: &'a HashSet<PeerId>,
-    ) -> impl Iterator<Item = &'a PeerId> {
+    ) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(move |(peer_id, info)| {
+            .filter(move |(_, info)| {
                 // The custody_subnets hashset can be populated via enr or metadata
-                let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
-                allowed_peers.contains(peer_id) && info.is_connected() && is_custody_subnet_peer
+                info.is_connected() && info.is_assigned_to_custody_subnet(&subnet)
             })
             .map(|(peer_id, _)| peer_id)
+    }
+
+    /// Returns `true` if the given peer is assigned to the given subnet.
+    /// else returns `false`
+    ///
+    /// Returns `false` if peer doesn't exist in peerdb.
+    pub fn is_good_range_sync_custody_subnet_peer(
+        &self,
+        subnet: DataColumnSubnetId,
+        peer: &PeerId,
+    ) -> bool {
+        if let Some(info) = self.peers.get(peer) {
+            info.is_connected() && info.is_assigned_to_custody_subnet(&subnet)
+        } else {
+            false
+        }
     }
 
     /// Gives the ids of all known disconnected peers.

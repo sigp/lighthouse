@@ -9,6 +9,7 @@
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::manager::BatchProcessResult;
 use crate::sync::network_context::{
     RangeRequestId, RpcRequestSendError, RpcResponseError, SyncNetworkContext,
@@ -28,7 +29,7 @@ use std::collections::{
 };
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
-use types::{Epoch, EthSpec};
+use types::{ColumnIndex, Epoch, EthSpec};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -209,9 +210,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     .network_globals
                     .peers
                     .read()
-                    .synced_peers()
+                    .synced_peers_for_epoch(self.to_be_downloaded, None)
                     .next()
                     .is_some()
+                    // backfill can't progress if we do not have peers in the required subnets post peerdas.
+                    && self.good_peers_on_sampling_subnets(self.to_be_downloaded, network)
                 {
                     // If there are peers to resume with, begin the resume.
                     debug!(start_epoch = ?self.current_start, awaiting_batches = self.batches.len(), processing_target = ?self.processing_target, "Resuming backfill sync");
@@ -305,6 +308,46 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         err: RpcResponseError,
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
+            if let RpcResponseError::BlockComponentCouplingError(coupling_error) = &err {
+                match coupling_error {
+                    CouplingError::DataColumnPeerFailure {
+                        error,
+                        faulty_peers,
+                        action,
+                        exceeded_retries,
+                    } => {
+                        debug!(?batch_id, error, "Block components coupling error");
+                        // Note: we don't fail the batch here because a `CouplingError` is
+                        // recoverable by requesting from other honest peers.
+                        let mut failed_columns = HashSet::new();
+                        let mut failed_peers = HashSet::new();
+                        for (column, peer) in faulty_peers {
+                            failed_columns.insert(*column);
+                            failed_peers.insert(*peer);
+                        }
+                        for peer in failed_peers.iter() {
+                            network.report_peer(*peer, *action, "failed to return columns");
+                        }
+
+                        // Only retry if peer failure **and** retries have been exceeded
+                        if !*exceeded_retries {
+                            return self.retry_partial_batch(
+                                network,
+                                batch_id,
+                                request_id,
+                                failed_columns,
+                                failed_peers,
+                            );
+                        }
+                    }
+                    CouplingError::BlobPeerFailure(msg) => {
+                        tracing::debug!(?batch_id, msg, "Blob peer failure");
+                    }
+                    CouplingError::InternalError(msg) => {
+                        error!(?batch_id, msg, "Block components coupling internal error");
+                    }
+                }
+            }
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
@@ -834,12 +877,16 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<(), BackFillError> {
+        if matches!(self.state(), BackFillState::Paused) {
+            return Err(BackFillError::Paused);
+        }
         if let Some(batch) = self.batches.get_mut(&batch_id) {
+            debug!(?batch_id, "Sending backfill batch");
             let synced_peers = self
                 .network_globals
                 .peers
                 .read()
-                .synced_peers()
+                .synced_peers_for_epoch(batch_id, None)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -895,6 +942,53 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         }
 
+        Ok(())
+    }
+
+    /// Retries partial column requests within the batch by creating new requests for the failed columns.
+    pub fn retry_partial_batch(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+        batch_id: BatchId,
+        id: Id,
+        failed_columns: HashSet<ColumnIndex>,
+        mut failed_peers: HashSet<PeerId>,
+    ) -> Result<(), BackFillError> {
+        if let Some(batch) = self.batches.get_mut(&batch_id) {
+            failed_peers.extend(&batch.failed_peers());
+            let req = batch.to_blocks_by_range_request().0;
+
+            let synced_peers = network
+                .network_globals()
+                .peers
+                .read()
+                .synced_peers_for_epoch(batch_id, None)
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            match network.retry_columns_by_range(
+                id,
+                &synced_peers,
+                &failed_peers,
+                req,
+                &failed_columns,
+            ) {
+                Ok(_) => {
+                    debug!(
+                        ?batch_id,
+                        id, "Retried column requests from different peers"
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    debug!(?batch_id, id, e, "Failed to retry partial batch");
+                }
+            }
+        } else {
+            return Err(BackFillError::InvalidSyncState(
+                "Batch should exist to be retried".to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -973,6 +1067,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return None;
         }
 
+        if !self.good_peers_on_sampling_subnets(self.to_be_downloaded, network) {
+            debug!("Waiting for peers to be available on custody column subnets");
+            return None;
+        }
+
         let batch_id = self.to_be_downloaded;
         // this batch could have been included already being an optimistic batch
         match self.batches.entry(batch_id) {
@@ -1002,6 +1101,36 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     .saturating_sub(BACKFILL_EPOCHS_PER_BATCH);
                 Some(batch_id)
             }
+        }
+    }
+
+    /// Checks all sampling column subnets for peers. Returns `true` if there is at least one peer in
+    /// every sampling column subnet.
+    ///
+    /// Returns `true` if peerdas isn't enabled for the epoch.
+    fn good_peers_on_sampling_subnets(
+        &self,
+        epoch: Epoch,
+        network: &SyncNetworkContext<T>,
+    ) -> bool {
+        if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
+            // Require peers on all sampling column subnets before sending batches
+            let peers_on_all_custody_subnets = network
+                .network_globals()
+                .sampling_subnets()
+                .iter()
+                .all(|subnet_id| {
+                    let peer_count = network
+                        .network_globals()
+                        .peers
+                        .read()
+                        .good_range_sync_custody_subnet_peers(*subnet_id)
+                        .count();
+                    peer_count > 0
+                });
+            peers_on_all_custody_subnets
+        } else {
+            true
         }
     }
 
