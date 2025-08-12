@@ -817,32 +817,44 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
-            if let RpcResponseError::BlockComponentCouplingError(CouplingError {
-                column_and_peer,
-                msg,
-            }) = &err
-            {
-                debug!(?batch_id, msg, "Block components coupling error");
-                // Note: we don't fail the batch here because a `CouplingError` is
-                // recoverable by requesting from other honest peers.
-                if let Some((column_and_peer, action)) = column_and_peer {
-                    let mut failed_columns = HashSet::new();
-                    let mut failed_peers = HashSet::new();
-                    for (column, peer) in column_and_peer {
-                        failed_columns.insert(*column);
-                        failed_peers.insert(*peer);
+            if let RpcResponseError::BlockComponentCouplingError(coupling_error) = &err {
+                match coupling_error {
+                    CouplingError::DataColumnPeerFailure {
+                        error,
+                        faulty_peers,
+                        action,
+                        exceeded_retries,
+                    } => {
+                        debug!(?batch_id, error, "Block components coupling error");
+                        // Note: we don't fail the batch here because a `CouplingError` is
+                        // recoverable by requesting from other honest peers.
+                        let mut failed_columns = HashSet::new();
+                        let mut failed_peers = HashSet::new();
+                        for (column, peer) in faulty_peers {
+                            failed_columns.insert(*column);
+                            failed_peers.insert(*peer);
+                        }
+                        for peer in failed_peers.iter() {
+                            network.report_peer(*peer, *action, "failed to return columns");
+                        }
+                        // Retry the failed columns if the column requests haven't exceeded the
+                        // max retries. Otherwise, remove treat it as a failed batch below.
+                        if !*exceeded_retries {
+                            return self.retry_partial_batch(
+                                network,
+                                batch_id,
+                                request_id,
+                                failed_columns,
+                                failed_peers,
+                            );
+                        }
                     }
-                    for peer in failed_peers.iter() {
-                        network.report_peer(*peer, *action, "failed to return columns");
+                    CouplingError::BlobPeerFailure(msg) => {
+                        tracing::debug!(?batch_id, msg, "Blob peer failure");
                     }
-
-                    return self.retry_partial_batch(
-                        network,
-                        batch_id,
-                        request_id,
-                        failed_columns,
-                        failed_peers,
-                    );
+                    CouplingError::InternalError(msg) => {
+                        tracing::error!(?batch_id, msg, "Block components coupling internal error");
+                    }
                 }
             }
             // A batch could be retried without the peer failing the request (disconnecting/
@@ -900,14 +912,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let (request, batch_type) = batch.to_blocks_by_range_request();
             let failed_peers = batch.failed_peers();
 
-            // TODO(das): we should request only from peers that are part of this SyncingChain.
-            // However, then we hit the NoPeer error frequently which causes the batch to fail and
-            // the SyncingChain to be dropped. We need to handle this case more gracefully.
             let synced_peers = network
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, &self.peers)
+                .synced_peers_for_epoch(batch_id, Some(&self.peers))
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -984,7 +993,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers()
+                .synced_peers_for_epoch(batch_id, Some(&self.peers))
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -1084,11 +1093,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .sampling_subnets()
                 .iter()
                 .all(|subnet_id| {
-                    let peer_count = network
-                        .network_globals()
+                    let peer_db = network.network_globals().peers.read();
+                    let peer_count = self
                         .peers
-                        .read()
-                        .good_range_sync_custody_subnet_peer(*subnet_id, &self.peers)
+                        .iter()
+                        .filter(|peer| {
+                            peer_db.is_good_range_sync_custody_subnet_peer(*subnet_id, peer)
+                        })
                         .count();
                     peer_count > 0
                 });
