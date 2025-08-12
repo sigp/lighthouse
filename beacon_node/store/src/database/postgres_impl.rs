@@ -1,8 +1,7 @@
-use crate::{DBColumn, Error, AsyncKeyValueStore};
+use crate::{DBColumn, Error};
 use sqlx::{PgPool, postgres::PgPoolOptions, Row};
 use types::EthSpec;
-use std::marker::PhantomData;
-use async_trait::async_trait;
+use std::{marker::PhantomData, time::Duration};
 
 #[derive(Clone)]
 pub struct PostgresDB<E: EthSpec> {
@@ -11,23 +10,23 @@ pub struct PostgresDB<E: EthSpec> {
 }
 
 impl<E: EthSpec> PostgresDB<E> {
-    pub async fn new(database_url: &str) -> Result<Self, Error> {
+    pub async fn open(database_url: &str) -> Result<Self, Error> {
         let db = PgPoolOptions::new()
-            .max_connections(10)
+            .max_connections(100)
+            .acquire_timeout(Duration::from_secs(10))
             .connect(database_url)
             .await
             .map_err(|e| Error::DBError { message: e.to_string() })?;
 
+        println!("Using Postgres backend🎯!!!");
+        
         Ok(Self {
             db,
             _phantom: PhantomData
         })
     }
-}
-
-#[async_trait]
-impl<E: EthSpec> AsyncKeyValueStore<E> for PostgresDB<E> {
-    async fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
+        
+    pub async fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
         let table = get_table_name(column);
         let key = key.to_vec();
 
@@ -41,7 +40,7 @@ impl<E: EthSpec> AsyncKeyValueStore<E> for PostgresDB<E> {
         Ok(row.map(|r| r.get::<Vec<u8>, _>("value")))
     }
 
-    async fn put_bytes(&self, column: DBColumn, key: &[u8], value: &[u8]) -> Result<(), Error> {
+    pub async fn put_bytes(&self, column: DBColumn, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let table = get_table_name(column);
         let key = key.to_vec();
         let value = value.to_vec();
@@ -60,10 +59,128 @@ impl<E: EthSpec> AsyncKeyValueStore<E> for PostgresDB<E> {
             .map_err(|e| Error::DBError { message: e.to_string() })
     }
 
-    async fn put_bytes_sync(&self, column: DBColumn, key: &[u8], value: &[u8]) -> Result<(), Error> {
-        self.put_bytes(column, key, value).await
+    pub async fn key_exists(&self, column: DBColumn, key: &[u8]) -> Result<bool, Error> {
+        let table = get_table_name(column);
+        let key = key.to_vec();
+
+        let query = format!("SELECT EXISTS (SELECT 1 FROM {} WHERE key = $1)", table);
+        let exists: (bool, ) = sqlx::query_as(&query)
+            .bind(key)
+            .fetch_one(&self.db)
+            .await
+            .map_err(|e| Error::DBError { message: e.to_string() })?;
+        Ok(exists.0)
+    }
+
+    pub async fn key_delete(&self, column: DBColumn, key: &[u8]) -> Result<(), Error> {
+        let table = get_table_name(column);
+        let key = key.to_vec();
+        let query = format!("DELETE FROM {} WHERE key = $1", table);
+
+        sqlx::query(&query)
+            .bind(key)
+            .execute(&self.db)
+            .await
+            .map(|_| ())
+            .map_err(|e| Error::DBError { message: e.to_string() })
+    }
+
+    // pub async fn do_atomically(){}
+
+    pub async fn compact(&self) -> Result<(), Error> {
+        // No-op for Postgres, but we can run VACUUM FULL
+        sqlx::query("VACUUM FULL")
+            .execute(&self.db)
+            .await
+            .map(|_| ())
+            .map_err(|e| Error::DBError { message: e.to_string() })
+    }
+
+    pub async fn compact_column(&self, column: DBColumn) -> Result<(), Error> {
+        let table = get_table_name(column);
+        let query = format!("VACUUM FULL {}", table);
+        sqlx::query(&query)
+            .execute(&self.db)
+            .await
+            .map(|_| ())
+            .map_err(|e| Error::DBError { message: e.to_string() })
+    }
+
+    pub async fn iter_column_keys_from(&self, column: DBColumn, start: &[u8]) -> Result<Vec<Vec<u8>>, Error> {
+        let table = get_table_name(column);
+        let query = format!("SELECT key FROM {} WHERE key >= $1 ORDER BY key ASC", table);
+        let rows = sqlx::query(&query)
+            .bind(start.to_vec())
+            .fetch_all(&self.db)
+            .await
+            .map_err(|e| Error::DBError { message: e.to_string() })?;
+        Ok(rows.into_iter().map(|r| r.get::<Vec<u8>, _>("key")).collect())
+    }
+
+    pub async fn iter_column_keys(&self, column: DBColumn) -> Result<Vec<Vec<u8>>, Error> {
+        let table = get_table_name(column);
+        let query = format!("SELECT key FROM {} ORDER BY key ASC", table);
+        let rows = sqlx::query(&query)
+            .fetch_all(&self.db)
+            .await
+            .map_err(|e| Error::DBError { message: e.to_string() })?;
+        Ok(rows.into_iter().map(|r| r.get::<Vec<u8>, _>("key")).collect())
+    }
+
+    pub async fn iter_column_from(&self, column: DBColumn, start: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Error> {
+        let table = get_table_name(column);
+        let query = format!("SELECT key, value FROM {} WHERE key >= $1 ORDER BY key ASC", table);
+        let rows = sqlx::query(&query)
+            .bind(start.to_vec())
+            .fetch_all(&self.db)
+            .await
+            .map_err(|e| Error::DBError { message: e.to_string() })?;
+        Ok(rows.into_iter().map(|r| (r.get("key"), r.get("value"))).collect())
+    }
+
+    pub async fn delete_batch(&self, column: DBColumn, keys: &[Vec<u8>]) -> Result<(), Error> {
+        let table = get_table_name(column);
+        let mut tx = self.db.begin().await
+            .map_err(|e| Error::DBError { message: e.to_string() })?;
+        let query = format!("DELETE FROM {} WHERE key = $1", table);
+        for key in keys {
+            sqlx::query(&query)
+                .bind(key.clone())
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| Error::DBError { message: e.to_string() })?;
+        }
+        tx.commit().await
+            .map_err(|e| Error::DBError { message: e.to_string() })
+    }
+
+    pub async fn delete_if<F>(&self, column: DBColumn, predicate: F) -> Result<(), Error>
+    where
+        F: Fn(&[u8], &[u8]) -> bool
+    {
+        let table = get_table_name(column);
+        let rows = sqlx::query(&format!("SELECT key, value FROM {}", table))
+            .fetch_all(&self.db)
+            .await
+            .map_err(|e| Error::DBError { message: e.to_string() })?;
+        let mut tx = self.db.begin().await
+            .map_err(|e| Error::DBError { message: e.to_string() })?;
+        for row in rows {
+            let key: Vec<u8> = row.get("key");
+            let value: Vec<u8> = row.get("value");
+            if predicate(&key, &value) {
+                sqlx::query(&format!("DELETE FROM {} WHERE key = $1", table))
+                    .bind(key)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| Error::DBError { message: e.to_string() })?;
+            }
+        }
+        tx.commit().await
+            .map_err(|e| Error::DBError { message: e.to_string() })
     }
 }
+
 
 pub fn get_table_name(column: DBColumn) -> &'static str {
     match column {

@@ -5,7 +5,7 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [features]
-default = ["leveldb"]
+default = ["postgres"]
 leveldb = ["dep:leveldb"]
 redb = ["dep:redb"]
 postgres = ["dep:sqlx"]

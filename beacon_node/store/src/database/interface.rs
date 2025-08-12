@@ -5,7 +5,6 @@ use crate::database::redb_impl;
 #[cfg(feature = "postgres")]
 use crate::database::postgres_impl;
 use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
-use crate::database::async_interface::AsyncKeyValueStore;
 use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
 use std::collections::HashSet;
 use std::path::Path;
@@ -31,10 +30,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::get_bytes(txn, column, key),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(ref txn) => {
-                // let rt = tokio::runtime::Runtime::new().expect("failed to build tokio runtime");
-                // rt.block_on(txn.get_bytes(column, key))
-
+            BeaconNodeBackend::PostgresDB(txn) => {
                 // Try to use the current Tokio runtime if available
                 match Handle::try_current() {
                     Ok(handle) => handle.block_on(txn.get_bytes(column, key)),
@@ -69,8 +65,6 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             ),
             #[cfg(feature = "postgres")]
             BeaconNodeBackend::PostgresDB(ref txn) => {
-                // let rt = tokio::runtime::Runtime::new().expect("Failed to block tokio runtime");
-                // rt.block_on(db.put_bytes(column, key, value))
                 match tokio::runtime::Handle::try_current() {
                     Ok(handle) => handle.block_on(txn.put_bytes(column, key, value)),
                     Err(_) => {
@@ -102,7 +96,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             ),
             #[cfg(feature = "postgres")]
             BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
+                todo!("postgres put_bytes_sync called, which should not happen!");
             }
         }
     }
@@ -127,8 +121,15 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_exists(txn, column, key),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
+            BeaconNodeBackend::PostgresDB(txn) => {
+                match tokio::runtime::Handle::try_current() {
+                    Ok(handle) => handle.block_on(txn.key_exists(column, key)),
+                    Err(_) => {
+                        let rt = tokio::runtime::Runtime::new()
+                            .map_err(|e| Error::DBError { message: e.to_string() })?;
+                        rt.block_on(txn.key_exists(column, key))
+                    }
+                }
             }
         }
     }
@@ -140,8 +141,15 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_delete(txn, column, key),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
+            BeaconNodeBackend::PostgresDB(txn) => {
+                match tokio::runtime::Handle::try_current() {
+                    Ok(handle) => handle.block_on(txn.key_delete(column, key)),
+                    Err(_) => {
+                        let rt = tokio::runtime::Runtime::new()
+                            .map_err(|e| Error::DBError { message: e.to_string() })?;
+                        rt.block_on(txn.key_delete(column, key))
+                    }
+                }
             }
         }
     }
@@ -166,9 +174,14 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
-            }
+            BeaconNodeBackend::PostgresDB(txn) => match tokio::runtime::Handle::try_current() {
+                Ok(handle) => handle.block_on(txn.compact()),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| Error::DBError { message: e.to_string() })?;
+                    rt.block_on(txn.compact())
+                }
+            },
         }
     }
 
@@ -187,9 +200,14 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 redb_impl::Redb::iter_column_keys_from(txn, _column, from)
             }
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
-            }
+            BeaconNodeBackend::PostgresDB(txn) => match tokio::runtime::Handle::try_current() {
+                Ok(handle) => handle.block_on(txn.iter_column_keys_from(column, start)),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| Error::DBError { message: e.to_string() })?;
+                    rt.block_on(txn.iter_column_keys_from(column, start))
+                }
+            },
         }
     }
 
@@ -200,9 +218,14 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_keys(txn, column),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
-            }
+            BeaconNodeBackend::PostgresDB(txn) => match tokio::runtime::Handle::try_current() {
+                Ok(handle) => handle.block_on(txn.iter_column_keys(column)),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| Error::DBError { message: e.to_string() })?;
+                    rt.block_on(txn.iter_column_keys(column))
+                }
+            },
         }
     }
 
@@ -215,9 +238,14 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
-            }
+            BeaconNodeBackend::PostgresDB(txn) => match tokio::runtime::Handle::try_current() {
+                Ok(handle) => handle.block_on(txn.iter_column_from(column, start)),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| Error::DBError { message: e.to_string() })?;
+                    rt.block_on(txn.iter_column_from(column, start))
+                }
+            },
         }
     }
 
@@ -228,9 +256,14 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
-            }
+            BeaconNodeBackend::PostgresDB(txn) => match tokio::runtime::Handle::try_current() {
+                Ok(handle) => handle.block_on(txn.compact_column(column)),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| Error::DBError { message: e.to_string() })?;
+                    rt.block_on(txn.compact_column(column))
+                }
+            },
         }
     }
 
@@ -241,9 +274,14 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_batch(txn, col, ops),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
-            }
+            BeaconNodeBackend::PostgresDB(txn) => match tokio::runtime::Handle::try_current() {
+                Ok(handle) => handle.block_on(txn.delete_batch(column, keys)),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| Error::DBError { message: e.to_string() })?;
+                    rt.block_on(txn.delete_batch(column, keys))
+                }
+            },
         }
     }
 
@@ -258,9 +296,14 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_if(txn, column, f),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::PostgresDB(_) => {
-                todo!("Implement PostgresDB logic");
-            }
+            BeaconNodeBackend::PostgresDB(txn) => match tokio::runtime::Handle::try_current() {
+                Ok(handle) => handle.block_on(txn.delete_if(column, predicate)),
+                Err(_) => {
+                    let rt = tokio::runtime::Runtime::new()
+                        .map_err(|e| Error::DBError { message: e.to_string() })?;
+                    rt.block_on(txn.delete_if(column, predicate))
+                }
+            },
         }
     }
 }
@@ -277,26 +320,29 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             DatabaseBackend::Redb => redb_impl::Redb::open(path).map(BeaconNodeBackend::Redb),
             #[cfg(feature = "postgres")]
             DatabaseBackend::PostgresDB => {
-                use crate::{database::postgres_impl::PostgresDB};
-                
-                let db_url = config
-                    .postgres_url
-                    .as_ref()
-                    .ok_or_else(|| Error::DBError {
-                        message: "Missing Postgres URL".into(),
-                    })?;
+                Err(Error::DBError {
+                    message: "PostgresDB requires async initialization> Use open_async()".into(),
+                })
+            }
+        }
+    }
 
-                // Create a Tokio runtime for sync context
-                let rt = tokio::runtime::Runtime::new()
+    #[cfg(feature = "postgres")]
+    pub async fn open_async(config: &StoreConfig, path: &Path) -> Result<Self, Error> {
+        metrics::inc_counter_vec(&metrics::DISK_DB_TYPE, &[&config.backend.to_string()]);
+        match config.backend {
+            DatabaseBackend::PostgresDB => {
+                let db_url = "postgres://postgres:admin@localhost:5432/postgres";
+                let db = postgres_impl::PostgresDB::open(db_url)
+                    .await
                     .map_err(|e| Error::DBError {
-                        message: format!("Failed to create tokio runtime: {}", e),
+                        message: format!("Failed to init PostgresDB: {:?}", e)
                     })?;
-                let db = rt.block_on(PostgresDB::new(db_url))
-                    .map_err(|e| Error::DBError {
-                        message: format!("Failed to init PostgresDB: {:?}", e),
-                    })?;
-
                 Ok(BeaconNodeBackend::PostgresDB(db))
+            }
+            _ => {
+                // fallback to the sync version for other backends
+                Self::open(config, path)
             }
         }
     }

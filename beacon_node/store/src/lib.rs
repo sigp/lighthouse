@@ -41,7 +41,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use strum::{EnumIter, EnumString, IntoStaticStr};
 pub use types::*;
-pub use database::async_interface::AsyncKeyValueStore;
 
 const DATA_COLUMN_DB_KEY_SIZE: usize = 32 + 8;
 
@@ -493,7 +492,7 @@ mod tests {
         }
     }
 
-    fn test_impl(store: impl ItemStore<MinimalEthSpec>) {
+    async fn test_impl(store: impl ItemStore<MinimalEthSpec>) {
         let key = Hash256::random();
         let item = StorableThing { a: 1, b: 42 };
 
@@ -513,11 +512,11 @@ mod tests {
         assert_eq!(store.get::<StorableThing>(&key).unwrap(), None);
     }
 
-    #[test]
-    fn simplediskdb() {
+    #[tokio::test]
+    async fn simplediskdb() {
         let dir = tempdir().unwrap();
         let path = dir.path();
-        let store = BeaconNodeBackend::open(&StoreConfig::default(), path).unwrap();
+        let store = BeaconNodeBackend::open_async(&StoreConfig::default(), path).await.unwrap();
 
         test_impl(store);
     }

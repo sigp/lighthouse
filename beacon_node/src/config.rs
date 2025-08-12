@@ -459,11 +459,6 @@ pub fn get_config<E: EthSpec>(
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
-    #[cfg(feature = "postgres")]
-    if let Some(url) = cli_args.get_one::<String>("postgres-url") {
-        client_config.store.postgres_url = Some(url.to_string());
-    }
-
     if let Some(malicious_withhold_count) =
         clap_utils::parse_optional(cli_args, "malicious-withhold-count")?
     {
