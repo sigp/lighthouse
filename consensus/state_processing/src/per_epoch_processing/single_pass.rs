@@ -11,6 +11,7 @@ use itertools::izip;
 use safe_arith::{SafeArith, SafeArithIter};
 use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
+use tracing::instrument;
 use types::{
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
@@ -134,6 +135,7 @@ impl ValidatorInfo {
     }
 }
 
+#[instrument(skip_all)]
 pub fn process_epoch_single_pass<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,

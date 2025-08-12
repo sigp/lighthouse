@@ -92,7 +92,7 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, error};
+use tracing::{debug, debug_span, error, info_span, instrument, Instrument, Span};
 use types::{
     data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
     BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
@@ -618,6 +618,7 @@ pub(crate) fn process_block_slash_info<T: BeaconChainTypes, TErr: BlockBlobError
 ///
 /// The given `chain_segment` must contain only blocks from the same epoch, otherwise an error
 /// will be returned.
+#[instrument(skip_all)]
 pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     mut chain_segment: Vec<(Hash256, RpcBlock<T::EthSpec>)>,
     chain: &BeaconChain<T>,
@@ -790,6 +791,7 @@ pub fn build_blob_data_column_sidecars<T: BeaconChainTypes>(
 ///
 /// Used to allow functions to accept blocks at various stages of verification.
 pub trait IntoExecutionPendingBlock<T: BeaconChainTypes>: Sized {
+    #[instrument(skip_all, level = "debug")]
     fn into_execution_pending_block(
         self,
         block_root: Hash256,
@@ -823,6 +825,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     /// on the p2p network.
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
+    #[instrument(name = "verify_gossip_block", skip_all)]
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
@@ -835,12 +838,17 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // The `SignedBeaconBlock` and `SignedBeaconBlockHeader` have the same canonical root,
         // but it's way quicker to calculate root of the header since the hash of the tree rooted
         // at `BeaconBlockBody` is already computed in the header.
-        Self::new_without_slasher_checks(block, &header, chain).map_err(|e| {
-            process_block_slash_info::<_, BlockError>(
-                chain,
-                BlockSlashInfo::from_early_error_block(header, e),
-            )
-        })
+        Self::new_without_slasher_checks(block, &header, chain)
+            .map_err(|e| {
+                process_block_slash_info::<_, BlockError>(
+                    chain,
+                    BlockSlashInfo::from_early_error_block(header, e),
+                )
+            })
+            .inspect(|block| {
+                let current_span = Span::current();
+                current_span.record("block_root", block.block_root.to_string());
+            })
     }
 
     /// As for new, but doesn't pass the block to the slasher.
@@ -1080,6 +1088,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for GossipVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
+    #[instrument(
+        name = "gossip_block_into_execution_pending_block_slashable",
+        level = "debug"
+        skip_all,
+    )]
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,
@@ -1185,6 +1198,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
     /// Finishes signature verification on the provided `GossipVerifedBlock`. Does not re-verify
     /// the proposer signature.
+    #[instrument(skip_all, level = "debug")]
     pub fn from_gossip_verified_block(
         from: GossipVerifiedBlock<T>,
         chain: &BeaconChain<T>,
@@ -1212,20 +1226,27 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         signature_verifier
             .include_all_signatures_except_proposal(block.as_ref(), &mut consensus_context)?;
 
-        if signature_verifier.verify().is_ok() {
-            Ok(Self {
-                block: MaybeAvailableBlock::AvailabilityPending {
+        let sig_verify_span = info_span!("signature_verify", result = "started").entered();
+        let result = signature_verifier.verify();
+        match result {
+            Ok(_) => {
+                sig_verify_span.record("result", "ok");
+                Ok(Self {
+                    block: MaybeAvailableBlock::AvailabilityPending {
+                        block_root: from.block_root,
+                        block,
+                    },
                     block_root: from.block_root,
-                    block,
-                },
-                block_root: from.block_root,
-                parent: Some(parent),
-                consensus_context,
-            })
-        } else {
-            Err(BlockError::InvalidSignature(
-                InvalidSignature::BlockBodySignatures,
-            ))
+                    parent: Some(parent),
+                    consensus_context,
+                })
+            }
+            Err(_) => {
+                sig_verify_span.record("result", "fail");
+                Err(BlockError::InvalidSignature(
+                    InvalidSignature::BlockBodySignatures,
+                ))
+            }
         }
     }
 
@@ -1250,6 +1271,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
+    #[instrument(
+        name = "sig_verified_block_into_execution_pending_block_slashable",
+        level = "debug"
+        skip_all,
+    )]
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,
@@ -1287,6 +1313,11 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignatureVerifiedBloc
 impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> {
     /// Verifies the `SignedBeaconBlock` by first transforming it into a `SignatureVerifiedBlock`
     /// and then using that implementation of `IntoExecutionPendingBlock` to complete verification.
+    #[instrument(
+        name = "rpc_block_into_execution_pending_block_slashable",
+        level = "debug"
+        skip_all,
+    )]
     fn into_execution_pending_block_slashable(
         self,
         block_root: Hash256,
@@ -1326,6 +1357,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// verification must be done upstream (e.g., via a `SignatureVerifiedBlock`
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
+    #[instrument(skip_all, level = "debug")]
     pub fn from_signature_verified_components(
         block: MaybeAvailableBlock<T::EthSpec>,
         block_root: Hash256,
@@ -1391,6 +1423,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         )?;
         let is_valid_merge_transition_block =
             is_merge_transition_block(&parent.pre_state, block.message().body());
+
         let payload_verification_future = async move {
             let chain = payload_notifier.chain.clone();
             let block = payload_notifier.block.clone();
@@ -1429,10 +1462,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         // Spawn the payload verification future as a new task, but don't wait for it to complete.
         // The `payload_verification_future` will be awaited later to ensure verification completed
         // successfully.
+        let current_span = Span::current();
         let payload_verification_handle = chain
             .task_executor
             .spawn_handle(
-                payload_verification_future,
+                payload_verification_future.instrument(current_span),
                 "execution_payload_verification",
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?;
@@ -1854,6 +1888,7 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
 /// Returns `Err(BlockError::ParentUnknown)` if the parent is not found, or if an error occurs
 /// whilst attempting the operation.
 #[allow(clippy::type_complexity)]
+#[instrument(skip_all, level = "debug", fields(parent_root = %block.parent_root()))]
 fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
     block: B,
     chain: &BeaconChain<T>,
@@ -1878,6 +1913,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         });
     }
 
+    let _db_read_span = debug_span!("block_processing_db_read").entered();
     let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
     let result = {
@@ -2031,6 +2067,7 @@ impl BlockBlobError for GossipDataColumnError {
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
 /// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
 /// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
+#[instrument(skip(state, spec), level = "debug")]
 pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobError>(
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,
@@ -2065,6 +2102,7 @@ pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobEr
 }
 
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
+#[instrument(skip(chain), level = "debug")]
 pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<'_, ValidatorPubkeyCache<T>>, BeaconChainError> {

@@ -14,7 +14,7 @@ use crate::{metrics, BeaconChainError};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use ssz_derive::{Decode, Encode};
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, instrument};
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
@@ -374,6 +374,7 @@ impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
+#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_blob_list<'a, E: EthSpec, I>(
     blob_iter: I,
     kzg: &'a Kzg,

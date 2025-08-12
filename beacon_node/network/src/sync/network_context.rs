@@ -45,7 +45,7 @@ use std::time::Duration;
 #[cfg(test)]
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, span, warn, Level};
+use tracing::{debug, error, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
@@ -267,12 +267,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         chain: Arc<BeaconChain<T>>,
         fork_context: Arc<ForkContext>,
     ) -> Self {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
         SyncNetworkContext {
             network_send,
             execution_engine_state: EngineState::Online, // always assume `Online` at the start
@@ -374,13 +368,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn status_peers<C: ToStatusMessage>(&self, chain: &C, peers: impl Iterator<Item = PeerId>) {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         let status_message = chain.status_message();
         for peer_id in peers {
             debug!(
@@ -551,7 +538,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Attempt to find all required custody peers before sending any request or creating an ID
         let columns_by_range_peers_to_request =
             if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                let column_indexes = self.network_globals().sampling_columns();
+                let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
+                let column_indexes = self
+                    .chain
+                    .sampling_columns_for_epoch(epoch)
+                    .iter()
+                    .cloned()
+                    .collect();
                 Some(self.select_columns_by_range_peers_to_request(
                     &column_indexes,
                     peers,
@@ -602,18 +595,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .transpose()?;
 
+        let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
             data_column_requests.map(|data_column_requests| {
                 (
                     data_column_requests,
-                    self.network_globals()
-                        .sampling_columns()
-                        .clone()
-                        .iter()
-                        .copied()
-                        .collect(),
+                    self.chain.sampling_columns_for_epoch(epoch).to_vec(),
                 )
             }),
         );
@@ -774,13 +763,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::Pending("no peers"));
         };
 
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         match self.chain.get_block_process_status(&block_root) {
             // Unknown block, continue request to download
             BlockProcessStatus::Unknown => {}
@@ -880,13 +862,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Ok(LookupRequestResult::Pending("no peers"));
         };
 
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         let imported_blob_indexes = self
             .chain
             .data_availability_checker
@@ -951,13 +926,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: DataColumnsByRootSingleBlockRequest,
         expect_max_responses: bool,
     ) -> Result<LookupRequestResult<DataColumnsByRootRequestId>, &'static str> {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         let id = DataColumnsByRootRequestId {
             id: self.next_id(),
             requester,
@@ -1002,24 +970,22 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block_root: Hash256,
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Result<LookupRequestResult, RpcRequestSendError> {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         let custody_indexes_imported = self
             .chain
             .data_availability_checker
             .cached_data_column_indexes(&block_root)
             .unwrap_or_default();
 
+        let current_epoch = self.chain.epoch().map_err(|e| {
+            RpcRequestSendError::InternalError(format!("Unable to read slot clock {:?}", e))
+        })?;
+
         // Include only the blob indexes not yet imported (received through gossip)
         let custody_indexes_to_fetch = self
-            .network_globals()
-            .sampling_columns()
-            .into_iter()
+            .chain
+            .sampling_columns_for_epoch(current_epoch)
+            .iter()
+            .copied()
             .filter(|index| !custody_indexes_imported.contains(index))
             .collect::<Vec<_>>();
 
@@ -1205,26 +1171,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     pub fn update_execution_engine_state(&mut self, engine_state: EngineState) {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         debug!(past_state = ?self.execution_engine_state, new_state = ?engine_state, "Sync's view on execution engine state updated");
         self.execution_engine_state = engine_state;
     }
 
     /// Terminates the connection with the peer and bans them.
     pub fn goodbye_peer(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         self.network_send
             .send(NetworkMessage::GoodbyePeer {
                 peer_id,
@@ -1238,13 +1190,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Reports to the scoring algorithm the behaviour of a peer.
     pub fn report_peer(&self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         debug!(%peer_id, %action, %msg, "Sync reporting peer");
         self.network_send
             .send(NetworkMessage::ReportPeer {
@@ -1260,13 +1205,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Subscribes to core topics.
     pub fn subscribe_core_topics(&self) {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         self.network_send
             .send(NetworkMessage::SubscribeCoreTopics)
             .unwrap_or_else(|e| {
@@ -1276,13 +1214,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Sends an arbitrary network message.
     fn send_network_msg(&self, msg: NetworkMessage<T::EthSpec>) -> Result<(), &'static str> {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         self.network_send.send(msg).map_err(|_| {
             debug!("Could not send message to the network service");
             "Network channel send Failed"
@@ -1507,13 +1438,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         resp: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
     ) -> Option<CustodyByRootResult<T::EthSpec>> {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         // Note: need to remove the request to borrow self again below. Otherwise we can't
         // do nested requests
         let Some(mut request) = self.custody_by_root_requests.remove(&id.requester) else {
@@ -1533,13 +1457,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: ActiveCustodyRequest<T>,
         result: CustodyRequestResult<T::EthSpec>,
     ) -> Option<CustodyByRootResult<T::EthSpec>> {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         let result = result
             .map_err(RpcResponseError::CustodyRequestError)
             .transpose();
@@ -1567,13 +1484,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Result<(), SendErrorProcessor> {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         let beacon_processor = self
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
@@ -1606,13 +1516,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         blobs: FixedBlobSidecarList<T::EthSpec>,
         seen_timestamp: Duration,
     ) -> Result<(), SendErrorProcessor> {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         let beacon_processor = self
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
@@ -1644,13 +1547,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), SendErrorProcessor> {
-        let span = span!(
-            Level::INFO,
-            "SyncNetworkContext",
-            service = "network_context"
-        );
-        let _enter = span.enter();
-
         let beacon_processor = self
             .beacon_processor_if_enabled()
             .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;

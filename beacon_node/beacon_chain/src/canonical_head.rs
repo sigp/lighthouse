@@ -57,7 +57,7 @@ use store::{
     iter::StateRootsIterator, Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig,
 };
 use task_executor::{JoinHandle, ShutdownReason};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 use types::*;
 
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
@@ -473,6 +473,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     ///
     /// This method replaces the old `BeaconChain::fork_choice` method.
+    #[instrument(skip_all, level = "debug")]
     pub async fn recompute_head_at_current_slot(self: &Arc<Self>) {
         match self.slot() {
             Ok(current_slot) => self.recompute_head_at_slot(current_slot).await,

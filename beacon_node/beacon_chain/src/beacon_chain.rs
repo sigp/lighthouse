@@ -126,7 +126,7 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, debug_span, error, info, info_span, instrument, trace, warn, Span};
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
@@ -2206,10 +2206,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    #[instrument(skip_all, level = "trace")]
     pub fn verify_data_column_sidecar_for_gossip(
         self: &Arc<Self>,
         data_column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
-        subnet_id: u64,
+        subnet_id: DataColumnSubnetId,
     ) -> Result<GossipVerifiedDataColumn<T>, GossipDataColumnError> {
         metrics::inc_counter(&metrics::DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES);
@@ -2218,6 +2219,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    #[instrument(skip_all, level = "trace")]
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
         blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
@@ -2854,8 +2856,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Filter uninteresting blocks from the chain segment in a blocking task.
         let chain = self.clone();
+        let filter_chain_segment = debug_span!("filter_chain_segment");
         let filtered_chain_segment_future = self.spawn_blocking_handle(
-            move || chain.filter_chain_segment(chain_segment),
+            move || {
+                let _guard = filter_chain_segment.enter();
+                chain.filter_chain_segment(chain_segment)
+            },
             "filter_chain_segment",
         );
         let mut filtered_chain_segment = match filtered_chain_segment_future.await {
@@ -2886,8 +2892,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
             let chain = self.clone();
+            let current_span = Span::current();
             let signature_verification_future = self.spawn_blocking_handle(
-                move || signature_verify_chain_segment(blocks, &chain),
+                move || {
+                    let _guard = current_span.enter();
+                    signature_verify_chain_segment(blocks, &chain)
+                },
                 "signature_verify_chain_segment",
             );
 
@@ -2977,10 +2987,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError> {
         let chain = self.clone();
+        let span = Span::current();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
                 move || {
+                    let _guard = span.enter();
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
@@ -3009,7 +3021,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                     }
                 },
-                "payload_verification_handle",
+                "gossip_block_verification_handle",
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?
             .await
@@ -3018,6 +3030,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the blob in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         blob: GossipVerifiedBlob<T>,
@@ -3091,6 +3104,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    #[instrument(skip_all, level = "debug")]
     pub async fn process_rpc_blobs(
         self: &Arc<Self>,
         slot: Slot,
@@ -3386,6 +3400,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
+    #[instrument(skip_all, fields(block_root = ?block_root, block_source = %block_source))]
     pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         block_root: Hash256,
@@ -3502,6 +3517,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// get a fully `ExecutedBlock`.
     ///
     /// An error is returned if the verification handle couldn't be awaited.
+    #[instrument(skip_all, level = "debug")]
     pub async fn into_executed_block(
         self: Arc<Self>,
         execution_pending_block: ExecutionPendingBlock<T>,
@@ -3550,6 +3566,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Checks if the block is available, and imports immediately if so, otherwise caches the block
     /// in the data availability checker.
+    #[instrument(skip_all)]
     async fn check_block_availability_and_import(
         self: &Arc<Self>,
         block: AvailabilityPendingExecutedBlock<T::EthSpec>,
@@ -3597,7 +3614,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let availability = self
             .data_availability_checker
-            .put_gossip_verified_data_columns(block_root, data_columns)?;
+            .put_gossip_verified_data_columns(block_root, slot, data_columns)?;
 
         self.process_availability(slot, availability, publish_fn)
             .await
@@ -3688,9 +3705,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // This slot value is purely informative for the consumers of
         // `AvailabilityProcessingStatus::MissingComponents` to log an error with a slot.
-        let availability = self
-            .data_availability_checker
-            .put_rpc_custody_columns(block_root, custody_columns)?;
+        let availability = self.data_availability_checker.put_rpc_custody_columns(
+            block_root,
+            slot,
+            custody_columns,
+        )?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await
@@ -3748,6 +3767,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    #[instrument(skip_all)]
     pub async fn import_available_block(
         self: &Arc<Self>,
         block: Box<AvailableExecutedBlock<T::EthSpec>>,
@@ -3776,11 +3796,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // TODO(das) record custody column available timestamp
 
-        // import
-        let chain = self.clone();
-        let block_root = self
-            .spawn_blocking_handle(
+        let block_root = {
+            // Capture the current span before moving into the blocking task
+            let current_span = tracing::Span::current();
+            let chain = self.clone();
+            self.spawn_blocking_handle(
                 move || {
+                    // Enter the captured span in the blocking thread
+                    let _guard = current_span.enter();
                     chain.import_block(
                         block,
                         block_root,
@@ -3792,7 +3815,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
                 "payload_verification_handle",
             )
-            .await??;
+            .await??
+        };
 
         // Remove block components from da_checker AFTER completing block import. Then we can assert
         // the following invariant:
@@ -3816,6 +3840,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
     #[allow(clippy::too_many_arguments)]
+    #[instrument(skip_all)]
     fn import_block(
         &self,
         signed_block: AvailableBlock<T::EthSpec>,
@@ -3853,6 +3878,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Only take a write lock if there are new keys to import.
             if state.validators().len() > pubkey_cache.len() {
+                let _pubkey_span = debug_span!(
+                    "pubkey_cache_update",
+                    new_validators = tracing::field::Empty,
+                    cache_len_before = pubkey_cache.len()
+                )
+                .entered();
+
                 parking_lot::RwLockUpgradableReadGuard::upgrade(pubkey_cache)
                     .import_new_pubkeys(&state)?
             } else {
@@ -3866,6 +3898,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // However, latency between the VC and the BN might cause the VC to produce attestations at
         // a previous slot.
         if state.current_epoch().saturating_add(1_u64) >= current_epoch {
+            let _attester_span = debug_span!("attester_cache_update").entered();
             self.attester_cache
                 .maybe_cache_state(&state, block_root, &self.spec)
                 .map_err(BeaconChainError::from)?;
@@ -4010,6 +4043,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
 
+        let db_span = info_span!("persist_blocks_and_blobs").entered();
+
         if let Err(e) = self.store.do_atomically_with_block_and_blobs_cache(ops) {
             error!(
                 msg = "Restoring fork choice from disk",
@@ -4021,6 +4056,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .err()
                 .unwrap_or(e.into()));
         }
+
+        drop(db_span);
 
         // The fork choice write-lock is dropped *after* the on-disk database has been updated.
         // This prevents inconsistency between the two at the expense of concurrency.
@@ -4156,6 +4193,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Process a block for the validator monitor, including all its constituent messages.
+    #[instrument(skip_all, level = "debug")]
     fn import_block_update_validator_monitor(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
@@ -4250,6 +4288,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Iterate through the attestations in the block and register them as "observed".
     ///
     /// This will stop us from propagating them on the gossip network.
+    #[instrument(skip_all, level = "debug")]
     fn import_block_observe_attestations(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
@@ -4312,6 +4351,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// If a slasher is configured, provide the attestations from the block.
+    #[instrument(skip_all, level = "debug")]
     fn import_block_update_slasher(
         &self,
         block: BeaconBlockRef<T::EthSpec>,
@@ -4410,6 +4450,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     // For the current and next epoch of this state, ensure we have the shuffling from this
     // block in our cache.
+    #[instrument(skip_all, level = "debug")]
     fn import_block_update_shuffling_cache(
         &self,
         block_root: Hash256,
@@ -7112,6 +7153,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // return in ascending slot order
         roots.reverse();
         roots
+    }
+
+    /// Returns a list of column indices that should be sampled for a given epoch.
+    /// Used for data availability sampling in PeerDAS.
+    pub fn sampling_columns_for_epoch(&self, epoch: Epoch) -> &[ColumnIndex] {
+        self.data_availability_checker
+            .custody_context()
+            .sampling_columns_for_epoch(epoch, &self.spec)
     }
 }
 

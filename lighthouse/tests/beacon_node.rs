@@ -2533,6 +2533,25 @@ fn light_client_server_disabled() {
 }
 
 #[test]
+fn get_blobs_disabled() {
+    CommandLineTest::new()
+        .flag("disable-get-blobs", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.disable_get_blobs);
+        });
+}
+
+#[test]
+fn get_blobs_enabled() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.chain.disable_get_blobs);
+        });
+}
+
+#[test]
 fn light_client_http_server_disabled() {
     CommandLineTest::new()
         .flag("http", None)

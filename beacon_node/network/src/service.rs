@@ -35,7 +35,7 @@ use strum::IntoStaticStr;
 use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
-use tracing::{debug, error, info, info_span, trace, warn, Instrument};
+use tracing::{debug, error, info, trace, warn};
 use types::{
     EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
     ValidatorSubscription,
@@ -464,7 +464,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     }
                 }
             }
-        }.instrument(info_span!("", service = "network"));
+        };
         executor.spawn(service_fut, "network");
     }
 

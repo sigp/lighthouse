@@ -28,8 +28,8 @@ use std::time::Duration;
 use types::{
     Attestation, AttestationRef, AttesterSlashing, AttesterSlashingRef, BeaconBlock, BeaconState,
     BlobSidecar, BlobsList, BlockImportSource, Checkpoint, DataColumnSidecarList,
-    ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof, ProposerPreparationData,
-    SignedBeaconBlock, Slot, Uint256,
+    DataColumnSubnetId, ExecutionBlockHash, Hash256, IndexedAttestation, KzgProof,
+    ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
 // When set to true, cache any states fetched from the db.
@@ -520,7 +520,8 @@ impl<E: EthSpec> Tester<E> {
             let gossip_verified_data_columns = columns
                 .into_iter()
                 .map(|column| {
-                    GossipVerifiedDataColumn::new(column.clone(), column.index, &self.harness.chain)
+                    let subnet_id = DataColumnSubnetId::from_column_index(column.index, &self.spec);
+                    GossipVerifiedDataColumn::new(column.clone(), subnet_id, &self.harness.chain)
                         .unwrap_or_else(|_| {
                             data_column_success = false;
                             GossipVerifiedDataColumn::__new_for_testing(column)
