@@ -228,7 +228,9 @@ let result = a + b;
 // ✅ Preferred
 let result = a.saturating_add(b);
 // or
-let result = a.checked_add(b).ok_or(ArithError::Overflow)?;
+use safe_arith::SafeArith;
+
+let result = a.safe_add(b)?;
 ```
 
 ### Panics and Error Handling
