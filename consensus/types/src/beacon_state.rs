@@ -2535,11 +2535,17 @@ impl<E: EthSpec> BeaconState<E> {
 
     pub fn rebase_caches_on(&mut self, base: &Self, spec: &ChainSpec) -> Result<(), Error> {
         // Use pubkey cache from `base` if it contains superior information (likely if our cache is
-        // uninitialized).
+        // uninitialized). Be careful not to use a cache which has *more* validators than expected,
+        // as other code expects `self.pubkey_cache().len() <= self.validators.len()`.
         let num_validators = self.validators().len();
         let pubkey_cache = self.pubkey_cache_mut();
         let base_pubkey_cache = base.pubkey_cache();
-        if pubkey_cache.len() < base_pubkey_cache.len() && pubkey_cache.len() < num_validators {
+
+        let current_cache_is_incomplete = pubkey_cache.len() < num_validators;
+        let base_cache_is_compatible = base_pubkey_cache.len() <= num_validators;
+        let base_cache_is_superior = base_pubkey_cache.len() > pubkey_cache.len();
+
+        if current_cache_is_incomplete && base_cache_is_compatible && base_cache_is_superior {
             *pubkey_cache = base_pubkey_cache.clone();
         }
 
