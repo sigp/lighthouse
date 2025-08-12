@@ -48,8 +48,8 @@ members = [
     "common/validator_dir",
     "common/warp_utils",
     "common/workspace_members",
-    "consensus/context_deserialize",
-    "consensus/context_deserialize_derive",
+    "consensus/context_deserialize/context_deserialize",
+    "consensus/context_deserialize/context_deserialize_derive",
     "consensus/fixed_bytes",
     "consensus/fork_choice",
     "consensus/int_to_bytes",
@@ -123,8 +123,10 @@ clap_utils = { path = "common/clap_utils" }
 compare_fields = { path = "common/compare_fields" }
 compare_fields_derive = { path = "common/compare_fields_derive" }
 console-subscriber = "0.4"
-context_deserialize = { path = "consensus/context_deserialize" }
-context_deserialize_derive = { path = "consensus/context_deserialize_derive" }
+context_deserialize = { path = "consensus/context_deserialize/context_deserialize", features = [
+    "all",
+] }
+context_deserialize_derive = { path = "consensus/context_deserialize/context_deserialize_derive" }
 criterion = "0.5"
 delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }

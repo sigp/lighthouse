@@ -18,7 +18,6 @@ bls = { workspace = true }
 compare_fields = { workspace = true }
 compare_fields_derive = { workspace = true }
 context_deserialize = { workspace = true }
-context_deserialize_derive = { workspace = true }
 derivative = { workspace = true }
 eth2_network_config = { workspace = true }
 ethereum_ssz = { workspace = true }
