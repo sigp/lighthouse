@@ -8,7 +8,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
-use tree_hash::{TreeHash, BYTES_PER_CHUNK};
+use tree_hash::{BYTES_PER_CHUNK, TreeHash};
 use tree_hash_derive::TreeHash;
 
 pub type KzgCommitments<E> =

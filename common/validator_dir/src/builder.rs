@@ -1,10 +1,10 @@
 use crate::{Error as DirError, ValidatorDir};
 use bls::get_withdrawal_credentials;
-use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
+use deposit_contract::{Error as DepositError, encode_eth1_tx_data};
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
 use filesystem::create_with_600_perms;
-use rand::{distributions::Alphanumeric, Rng};
-use std::fs::{create_dir_all, File};
+use rand::{Rng, distr::Alphanumeric};
+use std::fs::{File, create_dir_all};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use types::{ChainSpec, DepositData, Hash256, Keypair, Signature};
@@ -314,7 +314,7 @@ pub fn write_password_to_file<P: AsRef<Path>>(path: P, bytes: &[u8]) -> Result<(
 /// Generates a random keystore with a random password.
 fn random_keystore() -> Result<(Keystore, PlainText), Error> {
     let keypair = Keypair::random();
-    let password: PlainText = rand::thread_rng()
+    let password: PlainText = rand::rng()
         .sample_iter(&Alphanumeric)
         .take(DEFAULT_PASSWORD_LEN)
         .map(char::from)

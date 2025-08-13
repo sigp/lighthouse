@@ -5,7 +5,7 @@ use regex::bytes::Regex;
 use serde::Serialize;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::U256, VariableList};
+use ssz_types::{VariableList, typenum::U256};
 use std::fmt::Display;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -15,10 +15,10 @@ use superstruct::superstruct;
 use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
-    blob_sidecar::BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar,
-    DataColumnsByRootIdentifier, Epoch, EthSpec, ForkContext, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList,
-    SignedBeaconBlock, Slot,
+    ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
+    ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
+    blob_sidecar::BlobSidecar,
 };
 
 /// Maximum length of error message.
@@ -784,7 +784,16 @@ impl std::fmt::Display for RpcErrorResponse {
 
 impl std::fmt::Display for StatusMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}, Earliest available slot: {:?}", self.fork_digest(), self.finalized_root(), self.finalized_epoch(), self.head_root(), self.head_slot(), self.earliest_available_slot())
+        write!(
+            f,
+            "Status Message: Fork Digest: {:?}, Finalized Root: {}, Finalized Epoch: {}, Head Root: {}, Head Slot: {}, Earliest available slot: {:?}",
+            self.fork_digest(),
+            self.finalized_root(),
+            self.finalized_epoch(),
+            self.head_root(),
+            self.head_slot(),
+            self.earliest_available_slot()
+        )
     }
 }
 

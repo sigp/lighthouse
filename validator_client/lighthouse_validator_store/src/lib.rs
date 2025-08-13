@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use signing_method::Error as SigningError;
 use signing_method::{SignableMessage, SigningContext, SigningMethod};
 use slashing_protection::{
-    interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
+    InterchangeError, NotSafe, Safe, SlashingDatabase, interchange::Interchange,
 };
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
@@ -17,13 +17,13 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tracing::{error, info, warn};
 use types::{
-    graffiti::GraffitiString, AbstractExecPayload, Address, AggregateAndProof, Attestation,
-    BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
-    Graffiti, Hash256, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData,
-    SignedVoluntaryExit, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
-    VoluntaryExit,
+    AbstractExecPayload, Address, AggregateAndProof, Attestation, BeaconBlock, BlindedPayload,
+    ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork, Graffiti, Hash256,
+    PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData, SignedVoluntaryExit,
+    Slot, SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData, VoluntaryExit,
+    graffiti::GraffitiString,
 };
 use validator_store::{
     DoppelgangerStatus, Error as ValidatorStoreError, ProposalData, SignedBlock, UnsignedBlock,
@@ -693,11 +693,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore for LighthouseValidatorS
                 // If builder boost factor is set to 100 it should be treated
                 // as None to prevent unnecessary calculations that could
                 // lead to loss of information.
-                if factor == 100 {
-                    None
-                } else {
-                    Some(factor)
-                }
+                if factor == 100 { None } else { Some(factor) }
             })
     }
 

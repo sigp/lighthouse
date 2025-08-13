@@ -4,8 +4,8 @@ mod mdbx_impl;
 mod redb_impl;
 
 use crate::{
-    metrics, AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Database,
-    Error, ProposerSlashingStatus,
+    AttesterRecord, AttesterSlashingStatus, CompactAttesterRecord, Config, Database, Error,
+    ProposerSlashingStatus, metrics,
 };
 use byteorder::{BigEndian, ByteOrder};
 use interface::{Environment, OpenDatabases, RwTransaction};

@@ -1,13 +1,13 @@
 #![cfg(test)]
-use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::EnrExt;
 use lighthouse_network::Multiaddr;
+use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::{NetworkConfig, NetworkEvent};
 use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info_span, Instrument};
+use tracing::{Instrument, debug, error, info_span};
 use tracing_subscriber::EnvFilter;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
@@ -72,12 +72,18 @@ impl std::ops::DerefMut for Libp2pInstance {
 }
 
 #[allow(unused)]
-pub fn build_tracing_subscriber(level: &str, enabled: bool) {
+pub fn build_tracing_subscriber(
+    level: &str,
+    enabled: bool,
+) -> Option<tracing::subscriber::DefaultGuard> {
     if enabled {
-        tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::try_new(level).unwrap())
-            .try_init()
-            .unwrap();
+        Some(tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::try_new(level).unwrap())
+                .finish(),
+        ))
+    } else {
+        None
     }
 }
 

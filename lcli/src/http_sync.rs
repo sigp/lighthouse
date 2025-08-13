@@ -2,8 +2,8 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{
-    types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
     BeaconNodeHttpClient, Error, SensitiveUrl, Timeouts,
+    types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
 };
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
@@ -64,11 +64,11 @@ pub async fn run_async<T: EthSpec>(
         next_block_id = BlockId::Root(block.parent_root());
         blocks.push((block.slot(), publish_block_req));
 
-        if let Some(ref common_ancestor_block) = maybe_common_ancestor_block {
-            if common_ancestor_block == &next_block_id {
-                println!("reached known common ancestor: {next_block_id:?}");
-                break;
-            }
+        if let Some(ref common_ancestor_block) = maybe_common_ancestor_block
+            && common_ancestor_block == &next_block_id
+        {
+            println!("reached known common ancestor: {next_block_id:?}");
+            break;
         }
 
         let block_exists_in_target = target
@@ -86,12 +86,13 @@ pub async fn run_async<T: EthSpec>(
     for (slot, block) in blocks.iter().rev() {
         println!("posting block at slot {slot}");
         if let Err(e) = target.post_beacon_blocks(block).await {
-            if let Error::ServerMessage(ref e) = e {
-                if e.code == 202 {
-                    println!("duplicate block detected while posting block at slot {slot}");
-                    continue;
-                }
+            if let Error::ServerMessage(ref e) = e
+                && e.code == 202
+            {
+                println!("duplicate block detected while posting block at slot {slot}");
+                continue;
             }
+
             return Err(format!("error posting {slot}: {e:?}"));
         } else {
             println!("success");

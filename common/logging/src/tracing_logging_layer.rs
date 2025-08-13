@@ -3,13 +3,13 @@ use crate::utils::is_ascii_control;
 use chrono::prelude::*;
 use serde_json::{Map, Value};
 use std::io::Write;
+use tracing::Subscriber;
 use tracing::field::Field;
 use tracing::span::Id;
-use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing_subscriber::Layer;
 use tracing_subscriber::layer::Context;
 use tracing_subscriber::registry::LookupSpan;
-use tracing_subscriber::Layer;
 
 const FIXED_MESSAGE_WIDTH: usize = 44;
 const ALIGNED_LEVEL_WIDTH: usize = 5;
@@ -405,7 +405,7 @@ fn parse_field(val: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use crate::tracing_logging_layer::{build_log_text, FieldVisitor};
+    use crate::tracing_logging_layer::{FieldVisitor, build_log_text};
     use std::io::Write;
 
     struct Buffer {

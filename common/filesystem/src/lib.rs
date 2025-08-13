@@ -95,7 +95,7 @@ pub fn restrict_file_permissions<P: AsRef<Path>>(path: P) -> Result<(), Error> {
     #[cfg(windows)]
     {
         use winapi::um::winnt::PSID;
-        use windows_acl::acl::{AceType, ACL};
+        use windows_acl::acl::{ACL, AceType};
         use windows_acl::helper::sid_to_string;
 
         let path_str = path

@@ -1,4 +1,4 @@
-use crate::{database::CURRENT_SCHEMA_VERSION, Error, SlasherDB};
+use crate::{Error, SlasherDB, database::CURRENT_SCHEMA_VERSION};
 use types::EthSpec;
 
 impl<E: EthSpec> SlasherDB<E> {

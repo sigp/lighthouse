@@ -13,15 +13,15 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
+    Error as ApiError,
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
-    Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
 use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
@@ -29,7 +29,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::graffiti::GraffitiString;
 use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
@@ -330,9 +330,11 @@ impl ApiTester {
 
         // Ensure the server lists all of these newly created validators.
         for validator in &response {
-            assert!(server_vals
-                .iter()
-                .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey));
+            assert!(
+                server_vals
+                    .iter()
+                    .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey)
+            );
         }
 
         /*
@@ -556,16 +558,17 @@ impl ApiTester {
             enabled
         );
 
-        assert!(self
-            .client
-            .get_lighthouse_validators()
-            .await
-            .unwrap()
-            .data
-            .into_iter()
-            .find(|v| v.voting_pubkey == validator.voting_pubkey)
-            .map(|v| v.enabled == enabled)
-            .unwrap());
+        assert!(
+            self.client
+                .get_lighthouse_validators()
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|v| v.voting_pubkey == validator.voting_pubkey)
+                .map(|v| v.enabled == enabled)
+                .unwrap()
+        );
 
         // Check the server via an individual request.
         assert_eq!(

@@ -1,13 +1,13 @@
 use crate::BeaconChain;
 use crate::BeaconChainTypes;
-use execution_layer::{http::ENGINE_GET_CLIENT_VERSION_V1, CommitPrefix, ExecutionLayer};
+use execution_layer::{CommitPrefix, ExecutionLayer, http::ENGINE_GET_CLIENT_VERSION_V1};
 use logging::crit;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
 use std::{fmt::Debug, time::Duration};
 use task_executor::TaskExecutor;
 use tracing::{debug, error, warn};
-use types::{EthSpec, Graffiti, GRAFFITI_BYTES_LEN};
+use types::{EthSpec, GRAFFITI_BYTES_LEN, Graffiti};
 
 const ENGINE_VERSION_AGE_LIMIT_EPOCH_MULTIPLE: u32 = 6; // 6 epochs
 const ENGINE_VERSION_CACHE_REFRESH_EPOCH_MULTIPLE: u32 = 2; // 2 epochs
@@ -84,7 +84,9 @@ impl<T: BeaconChainTypes> GraffitiCalculator<T> {
                 let Some(execution_layer) = self.execution_layer.as_ref() else {
                     // Return default graffiti if there is no execution layer. This
                     // shouldn't occur if we're actually producing blocks.
-                    crit!("No execution layer available for graffiti calculation during block production!");
+                    crit!(
+                        "No execution layer available for graffiti calculation during block production!"
+                    );
                     return default_graffiti;
                 };
 
@@ -221,15 +223,15 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
     use crate::ChainConfig;
-    use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
+    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use execution_layer::EngineCapabilities;
+    use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use std::sync::Arc;
     use std::sync::LazyLock;
     use std::time::Duration;
     use tracing::info;
-    use types::{ChainSpec, Graffiti, Keypair, MinimalEthSpec, GRAFFITI_BYTES_LEN};
+    use types::{ChainSpec, GRAFFITI_BYTES_LEN, Graffiti, Keypair, MinimalEthSpec};
 
     const VALIDATOR_COUNT: usize = 48;
     /// A cached set of keys.

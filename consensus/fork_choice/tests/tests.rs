@@ -17,9 +17,9 @@ use std::time::Duration;
 use store::MemoryStore;
 use types::SingleAttestation;
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, IndexedAttestation, MainnetEthSpec,
-    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
+    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, FixedBytesExtended,
+    ForkName, Hash256, IndexedAttestation, MainnetEthSpec, RelativeEpoch, SignedBeaconBlock, Slot,
+    SubnetId, test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;
@@ -752,10 +752,10 @@ async fn invalid_attestation_empty_bitfield() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| match attestation {
-                IndexedAttestation::Base(ref mut att) => {
+                IndexedAttestation::Base(att) => {
                     att.attesting_indices = vec![].into();
                 }
-                IndexedAttestation::Electra(ref mut att) => {
+                IndexedAttestation::Electra(att) => {
                     att.attesting_indices = vec![].into();
                 }
             },

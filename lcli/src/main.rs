@@ -11,7 +11,7 @@ mod state_root;
 mod transition_blocks;
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use clap_utils::{parse_optional, FLAG_HEADER};
+use clap_utils::{FLAG_HEADER, parse_optional};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::Eth2NetworkConfig;
 use parse_ssz::run_parse_ssz;
