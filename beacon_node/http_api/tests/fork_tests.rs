@@ -1,16 +1,16 @@
 //! Tests for API behaviour across fork boundaries.
 use beacon_chain::{
-    test_utils::{RelativeSyncCommittee, DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME},
     StateSkipConfig,
+    test_utils::{DEFAULT_ETH1_BLOCK_HASH, HARNESS_GENESIS_TIME, RelativeSyncCommittee},
 };
 use eth2::types::{IndexedErrorMessage, StateId, SyncSubcommittee};
 use execution_layer::test_utils::generate_genesis_header;
-use genesis::{bls_withdrawal_credentials, InteropGenesisBuilder};
+use genesis::{InteropGenesisBuilder, bls_withdrawal_credentials};
 use http_api::test_utils::*;
 use std::collections::HashSet;
 use types::{
-    test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
     Address, ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, MinimalEthSpec, Slot,
+    test_utils::{generate_deterministic_keypair, generate_deterministic_keypairs},
 };
 
 type E = MinimalEthSpec;

@@ -1,13 +1,14 @@
 use crate::local_network::LocalNetworkParams;
 use crate::local_network::TERMINAL_BLOCK;
-use crate::{checks, LocalNetwork};
+use crate::{LocalNetwork, checks};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
 use futures::prelude::*;
 use node_test_rig::{
+    ApiTopic, ValidatorFiles,
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_validator_config, ApiTopic, ValidatorFiles,
+    testing_validator_config,
 };
 use rayon::prelude::*;
 use std::cmp::max;
@@ -17,7 +18,7 @@ use std::time::Duration;
 
 use environment::tracing_common;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use logging::build_workspace_filter;
 use tokio::time::sleep;

@@ -2,7 +2,7 @@
 
 use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
-    auth::Auth, http::JSONRPC_VERSION, ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status,
+    ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status, auth::Auth, http::JSONRPC_VERSION,
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
@@ -23,16 +23,16 @@ use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
 use tracing::info;
 use types::{ChainSpec, EthSpec, ExecutionBlockHash, Uint256};
-use warp::{http::StatusCode, Filter, Rejection};
+use warp::{Filter, Rejection, http::StatusCode};
 
 use crate::EngineCapabilities;
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
-    generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block,
-    mock_el_extra_data, static_valid_tx, Block, ExecutionBlockGenerator,
+    Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
+    generate_genesis_header, generate_pow_block, mock_el_extra_data, static_valid_tx,
 };
 pub use hook::Hook;
-pub use mock_builder::{mock_builder_extra_data, MockBuilder, Operation};
+pub use mock_builder::{MockBuilder, Operation, mock_builder_extra_data};
 pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;

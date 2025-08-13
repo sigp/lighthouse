@@ -1,38 +1,38 @@
+use crate::Client;
 use crate::compute_light_client_updates::{
-    compute_light_client_updates, LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
+    LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY, compute_light_client_updates,
 };
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
-use crate::Client;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
+    BeaconChain, BeaconChainTypes, MigratorConfig, ServerSentEventHandler,
     builder::{BeaconChainBuilder, Witness},
     slot_clock::{SlotClock, SystemTimeSlotClock},
     state_advance_timer::spawn_state_advance_timer,
     store::{HotColdDB, ItemStore, StoreConfig},
-    BeaconChain, BeaconChainTypes, MigratorConfig, ServerSentEventHandler,
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
 use eth2::{
-    types::{BlockId, StateId},
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
+    types::{BlockId, StateId},
 };
-use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::ExecutionLayer;
+use execution_layer::test_utils::generate_genesis_header;
 use futures::channel::mpsc::Receiver;
-use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
-use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
+use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
+use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
-use rand::rngs::{OsRng, StdRng};
 use rand::SeedableRng;
+use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
 use slasher_service::SlasherService;
 use std::path::{Path, PathBuf};
@@ -44,8 +44,8 @@ use timer::spawn_timer;
 use tracing::{debug, info, warn};
 use types::data_column_custody_group::get_custody_groups_ordered;
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, BlobSidecarList, ChainSpec, EthSpec,
-    ExecutionBlockHash, Hash256, SignedBeaconBlock,
+    BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
+    SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -208,7 +208,8 @@ where
             .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
-                StdRng::from_rng(OsRng).map_err(|e| format!("Failed to create RNG: {:?}", e))?,
+                StdRng::try_from_rng(&mut OsRng)
+                    .map_err(|e| format!("Failed to create RNG: {:?}", e))?,
             ));
 
         let builder = if let Some(slasher) = self.slasher.clone() {
@@ -297,37 +298,37 @@ where
                 // It doesn't make sense to try and sync the chain if we can't
                 // verify blob availability by downloading blobs from the P2P
                 // network. The user should do a checkpoint sync instead.
-                if !config.allow_insecure_genesis_sync {
-                    if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
-                        let now = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .map_err(|e| format!("Unable to read system time: {e:}"))?
-                            .as_secs();
-                        let genesis_time = genesis_state.genesis_time();
-                        let deneb_time = genesis_time
-                            + (deneb_fork_epoch.as_u64()
-                                * E::slots_per_epoch()
-                                * spec.seconds_per_slot);
-
-                        // Shrink the blob availability window so users don't start
-                        // a sync right before blobs start to disappear from the P2P
-                        // network.
-                        let reduced_p2p_availability_epochs = spec
-                            .min_epochs_for_blob_sidecars_requests
-                            .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
-                        let blob_availability_window = reduced_p2p_availability_epochs
+                if !config.allow_insecure_genesis_sync
+                    && let Some(deneb_fork_epoch) = spec.deneb_fork_epoch
+                {
+                    let now = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .map_err(|e| format!("Unable to read system time: {e:}"))?
+                        .as_secs();
+                    let genesis_time = genesis_state.genesis_time();
+                    let deneb_time = genesis_time
+                        + (deneb_fork_epoch.as_u64()
                             * E::slots_per_epoch()
-                            * spec.seconds_per_slot;
+                            * spec.seconds_per_slot);
 
-                        if now > deneb_time + blob_availability_window {
-                            return Err(
+                    // Shrink the blob availability window so users don't start
+                    // a sync right before blobs start to disappear from the P2P
+                    // network.
+                    let reduced_p2p_availability_epochs = spec
+                        .min_epochs_for_blob_sidecars_requests
+                        .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
+                    let blob_availability_window = reduced_p2p_availability_epochs
+                        * E::slots_per_epoch()
+                        * spec.seconds_per_slot;
+
+                    if now > deneb_time + blob_availability_window {
+                        return Err(
                                     "Syncing from genesis is insecure and incompatible with data availability checks. \
                                     You should instead perform a checkpoint sync from a trusted node using the --checkpoint-sync-url option. \
                                     For a list of public endpoints, see: https://eth-clients.github.io/checkpoint-sync-endpoints/ \
                                     Alternatively, use --allow-insecure-genesis-sync if the risks are understood."
                                         .to_string(),
                                 );
-                        }
                     }
                 }
 
@@ -445,7 +446,7 @@ where
                 builder.weak_subjectivity_state(state, block, blobs, genesis_state)?
             }
             ClientGenesis::DepositContract => {
-                return Err("Loading genesis from deposit contract no longer supported".to_string())
+                return Err("Loading genesis from deposit contract no longer supported".to_string());
             }
             ClientGenesis::FromStore => builder.resume_from_db()?,
         };

@@ -159,8 +159,10 @@ fn valid_multiple_validators_not_surrounding() {
 #[test]
 fn invalid_source_exceeds_target() {
     StreamTest {
-        cases: vec![Test::single(attestation_data_builder(1, 0))
-            .expect_invalid_att(InvalidAttestation::SourceExceedsTarget)],
+        cases: vec![
+            Test::single(attestation_data_builder(1, 0))
+                .expect_invalid_att(InvalidAttestation::SourceExceedsTarget),
+        ],
         ..StreamTest::default()
     }
     .run()

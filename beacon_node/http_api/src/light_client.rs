@@ -1,6 +1,6 @@
 use crate::version::{
-    add_consensus_version_header, add_ssz_content_type_header, beacon_response,
-    ResponseIncludesVersion,
+    ResponseIncludesVersion, add_consensus_version_header, add_ssz_content_type_header,
+    beacon_response,
 };
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::{
@@ -11,9 +11,9 @@ use ssz::Encode;
 use std::sync::Arc;
 use types::{BeaconResponse, EthSpec, ForkName, Hash256, LightClientBootstrap};
 use warp::{
+    Rejection,
     hyper::{Body, Response},
     reply::Reply,
-    Rejection,
 };
 
 const MAX_REQUEST_LIGHT_CLIENT_UPDATES: u64 = 128;

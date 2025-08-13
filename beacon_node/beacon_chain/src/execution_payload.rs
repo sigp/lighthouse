@@ -310,7 +310,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             ExecutionStatus::Invalid(_) => {
                 return Err(BlockError::ParentExecutionPayloadInvalid {
                     parent_root: parent_block.root,
-                })
+                });
             }
         };
 

@@ -1,6 +1,6 @@
 use crate::chunked_vector::{
-    load_variable_list_from_db, load_vector_from_db, BlockRootsChunked, HistoricalRoots,
-    HistoricalSummaries, RandaoMixes, StateRootsChunked,
+    BlockRootsChunked, HistoricalRoots, HistoricalSummaries, RandaoMixes, StateRootsChunked,
+    load_variable_list_from_db, load_vector_from_db,
 };
 use crate::{DBColumn, Error, KeyValueStore, KeyValueStoreOp};
 use ssz::{Decode, DecodeError, Encode};
@@ -232,13 +232,12 @@ impl<E: EthSpec> PartialBeaconState<E> {
         spec: &ChainSpec,
     ) -> Result<(), Error> {
         let slot = self.slot();
-        if let Ok(historical_summaries) = self.historical_summaries_mut() {
-            if historical_summaries.is_none() {
-                *historical_summaries =
-                    Some(load_variable_list_from_db::<HistoricalSummaries, E, _>(
-                        store, slot, spec,
-                    )?);
-            }
+        if let Ok(historical_summaries) = self.historical_summaries_mut()
+            && historical_summaries.is_none()
+        {
+            *historical_summaries = Some(load_variable_list_from_db::<HistoricalSummaries, E, _>(
+                store, slot, spec,
+            )?);
         }
         Ok(())
     }

@@ -3,19 +3,19 @@ use super::score::{PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
 use crate::discovery::Eth2Enr;
 use crate::{rpc::MetaData, types::Subnet};
+use PeerConnectionStatus::*;
 use discv5::Enr;
 use eth2::types::{PeerDirection, PeerState};
 use libp2p::core::multiaddr::{Multiaddr, Protocol};
 use serde::{
-    ser::{SerializeStruct, Serializer},
     Serialize,
+    ser::{SerializeStruct, Serializer},
 };
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Instant;
 use strum::AsRefStr;
 use types::{DataColumnSubnetId, EthSpec};
-use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
 #[derive(Clone, Debug, Serialize)]
@@ -95,15 +95,15 @@ impl<E: EthSpec> PeerInfo<E> {
         if let Some(meta_data) = &self.meta_data {
             match subnet {
                 Subnet::Attestation(id) => {
-                    return meta_data.attnets().get(**id as usize).unwrap_or(false)
+                    return meta_data.attnets().get(**id as usize).unwrap_or(false);
                 }
                 Subnet::SyncCommittee(id) => {
                     return meta_data
                         .syncnets()
-                        .is_ok_and(|s| s.get(**id as usize).unwrap_or(false))
+                        .is_ok_and(|s| s.get(**id as usize).unwrap_or(false));
                 }
                 Subnet::DataColumn(subnet_id) => {
-                    return self.is_assigned_to_custody_subnet(subnet_id)
+                    return self.is_assigned_to_custody_subnet(subnet_id);
                 }
             }
         }
@@ -179,10 +179,10 @@ impl<E: EthSpec> PeerInfo<E> {
     pub fn long_lived_subnet_count(&self) -> usize {
         if let Some(meta_data) = self.meta_data.as_ref() {
             return meta_data.attnets().num_set_bits();
-        } else if let Some(enr) = self.enr.as_ref() {
-            if let Ok(attnets) = enr.attestation_bitfield::<E>() {
-                return attnets.num_set_bits();
-            }
+        } else if let Some(enr) = self.enr.as_ref()
+            && let Ok(attnets) = enr.attestation_bitfield::<E>()
+        {
+            return attnets.num_set_bits();
         }
         0
     }
@@ -247,20 +247,20 @@ impl<E: EthSpec> PeerInfo<E> {
             if !meta_data.attnets().is_zero() && !self.subnets.is_empty() {
                 return true;
             }
-            if let Ok(sync) = meta_data.syncnets() {
-                if !sync.is_zero() {
-                    return true;
-                }
+            if let Ok(sync) = meta_data.syncnets()
+                && !sync.is_zero()
+            {
+                return true;
             }
         }
 
         // We may not have the metadata but may have an ENR. Lets check that
-        if let Some(enr) = self.enr.as_ref() {
-            if let Ok(attnets) = enr.attestation_bitfield::<E>() {
-                if !attnets.is_zero() && !self.subnets.is_empty() {
-                    return true;
-                }
-            }
+        if let Some(enr) = self.enr.as_ref()
+            && let Ok(attnets) = enr.attestation_bitfield::<E>()
+            && !attnets.is_zero()
+            && !self.subnets.is_empty()
+        {
+            return true;
         }
         false
     }

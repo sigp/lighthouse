@@ -10,7 +10,7 @@ pub use reqwest::{StatusCode, Url};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use task_executor::TaskExecutor;
-use tokio::time::{interval_at, Instant};
+use tokio::time::{Instant, interval_at};
 use tracing::{debug, error, info};
 use types::*;
 

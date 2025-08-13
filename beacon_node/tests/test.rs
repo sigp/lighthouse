@@ -2,9 +2,10 @@
 
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{
+    LocalBeaconNode,
     environment::{Environment, EnvironmentBuilder},
     eth2::types::StateId,
-    testing_client_config, LocalBeaconNode,
+    testing_client_config,
 };
 use types::{EthSpec, MinimalEthSpec, Slot};
 

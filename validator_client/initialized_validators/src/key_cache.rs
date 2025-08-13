@@ -5,8 +5,8 @@ use eth2_keystore::json_keystore::{
     Sha256Checksum,
 };
 use eth2_keystore::{
-    decrypt, default_kdf, encrypt, keypair_from_secret, Error as KeystoreError, PlainText, Uuid,
-    ZeroizeHash, IV_SIZE, SALT_SIZE,
+    Error as KeystoreError, IV_SIZE, PlainText, SALT_SIZE, Uuid, ZeroizeHash, decrypt, default_kdf,
+    encrypt, keypair_from_secret,
 };
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -65,8 +65,8 @@ impl KeyCache {
     }
 
     pub fn init_crypto() -> Crypto {
-        let salt = rand::thread_rng().gen::<[u8; SALT_SIZE]>();
-        let iv = rand::thread_rng().gen::<[u8; IV_SIZE]>().to_vec().into();
+        let salt = rand::rng().random::<[u8; SALT_SIZE]>();
+        let iv = rand::rng().random::<[u8; IV_SIZE]>().to_vec().into();
 
         let kdf = default_kdf(salt.to_vec());
         let cipher = Cipher::Aes128Ctr(Aes128Ctr { iv });

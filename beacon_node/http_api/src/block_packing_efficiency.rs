@@ -4,7 +4,7 @@ use eth2::lighthouse::{
 };
 use parking_lot::Mutex;
 use state_processing::{
-    per_epoch_processing::EpochProcessingSummary, BlockReplayError, BlockReplayer,
+    BlockReplayError, BlockReplayer, per_epoch_processing::EpochProcessingSummary,
 };
 use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;

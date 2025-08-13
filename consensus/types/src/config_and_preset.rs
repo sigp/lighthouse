@@ -1,6 +1,6 @@
 use crate::{
-    consts::altair, consts::deneb, AltairPreset, BasePreset, BellatrixPreset, CapellaPreset,
-    ChainSpec, Config, DenebPreset, ElectraPreset, EthSpec, FuluPreset,
+    AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config, DenebPreset,
+    ElectraPreset, EthSpec, FuluPreset, consts::altair, consts::deneb,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};

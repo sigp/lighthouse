@@ -1,4 +1,4 @@
-use metrics::{try_create_int_counter, IntCounter, Result as MetricsResult};
+use metrics::{IntCounter, Result as MetricsResult, try_create_int_counter};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_subscriber::EnvFilter;
@@ -14,7 +14,7 @@ mod utils;
 
 pub use sse_logging_components::SSELoggingComponents;
 pub use tracing_libp2p_discv5_logging_layer::{
-    create_libp2p_discv5_tracing_layer, Libp2pDiscv5TracingLayer,
+    Libp2pDiscv5TracingLayer, create_libp2p_discv5_tracing_layer,
 };
 pub use tracing_logging_layer::LoggingLayer;
 pub use tracing_metrics_layer::MetricsLayer;

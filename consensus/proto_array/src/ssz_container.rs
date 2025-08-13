@@ -1,10 +1,10 @@
 use crate::proto_array::ProposerBoost;
 use crate::{
+    Error, JustifiedBalances,
     proto_array::{ProtoArray, ProtoNodeV17},
     proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
-    Error, JustifiedBalances,
 };
-use ssz::{four_byte_option_impl, Encode};
+use ssz::{Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use superstruct::superstruct;

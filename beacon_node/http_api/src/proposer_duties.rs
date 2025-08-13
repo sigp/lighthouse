@@ -2,8 +2,8 @@
 
 use crate::state_id::StateId;
 use beacon_chain::{
-    beacon_proposer_cache::{compute_proposer_duties_from_head, ensure_state_is_in_epoch},
     BeaconChain, BeaconChainError, BeaconChainTypes,
+    beacon_proposer_cache::{compute_proposer_duties_from_head, ensure_state_is_in_epoch},
 };
 use eth2::types::{self as api_types};
 use safe_arith::SafeArith;
@@ -121,7 +121,7 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
             return Err(warp_utils::reject::custom_server_error(format!(
                 "head epoch {} is later than request epoch {}",
                 head_epoch, request_epoch
-            )))
+            )));
         }
     };
 
