@@ -1,6 +1,6 @@
-use super::protocol::ProtocolId;
 use super::RPCError;
 use super::RequestType;
+use super::protocol::ProtocolId;
 use crate::rpc::codec::SSZSnappyOutboundCodec;
 use crate::rpc::protocol::Encoding;
 use futures::future::BoxFuture;

@@ -1,12 +1,12 @@
 use crate::{
-    filesystem::{create, Error as FilesystemError},
     LockedWallet,
+    filesystem::{Error as FilesystemError, create},
 };
-use eth2_wallet::{bip39::Mnemonic, Error as WalletError, Uuid, Wallet, WalletBuilder};
+use eth2_wallet::{Error as WalletError, Uuid, Wallet, WalletBuilder, bip39::Mnemonic};
 use lockfile::LockfileError;
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fs::{create_dir_all, read_dir, File};
+use std::fs::{File, create_dir_all, read_dir};
 use std::io;
 use std::path::{Path, PathBuf};
 

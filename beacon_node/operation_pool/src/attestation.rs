@@ -6,9 +6,9 @@ use state_processing::common::{
 };
 use std::collections::HashMap;
 use types::{
+    Attestation, BeaconState, BitList, ChainSpec, EthSpec,
     beacon_state::BeaconStateBase,
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
-    Attestation, BeaconState, BitList, ChainSpec, EthSpec,
 };
 
 pub const PROPOSER_REWARD_DENOMINATOR: u64 =
@@ -30,7 +30,7 @@ impl<'a, E: EthSpec> AttMaxCover<'a, E> {
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
-        if let BeaconState::Base(ref base_state) = state {
+        if let BeaconState::Base(base_state) = state {
             Self::new_for_base(att, state, base_state, total_active_balance, spec)
         } else {
             Self::new_for_altair_or_later(att, state, reward_cache, spec)

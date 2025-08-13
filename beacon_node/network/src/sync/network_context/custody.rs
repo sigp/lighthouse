@@ -1,11 +1,11 @@
 use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
-use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::BeaconChainTypes;
+use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
-use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_network::PeerId;
+use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_tracing::SPAN_OUTGOING_CUSTODY_REQUEST;
 use lru_cache::LRUTimeCache;
 use parking_lot::RwLock;
@@ -13,9 +13,9 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
-use tracing::{debug, debug_span, field, warn, Span};
+use tracing::{Span, debug, debug_span, field, warn};
 use types::EthSpec;
-use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
+use types::{DataColumnSidecar, Hash256, data_column_sidecar::ColumnIndex};
 
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
 
@@ -279,7 +279,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                             active_request_count_by_peer.get(peer).copied().unwrap_or(0)
                                 + columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
                             // Random factor to break ties, otherwise the PeerID breaks ties
-                            rand::thread_rng().gen::<u32>(),
+                            rand::rng().random::<u32>(),
                             *peer,
                         )
                     })

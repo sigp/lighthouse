@@ -1,5 +1,7 @@
-use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
 use super::AvailableBlockData;
+use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
+use crate::BeaconChainTypes;
+use crate::CustodyContext;
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
@@ -7,15 +9,13 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
-use crate::BeaconChainTypes;
-use crate::CustodyContext;
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::{debug, debug_span, Span};
+use tracing::{Span, debug, debug_span};
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
@@ -125,10 +125,10 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn merge_single_blob(&mut self, index: usize, blob: KzgVerifiedBlob<E>) {
         if let Some(cached_block) = self.get_cached_block() {
             let block_commitment_opt = cached_block.get_commitments().get(index).copied();
-            if let Some(block_commitment) = block_commitment_opt {
-                if block_commitment == *blob.get_commitment() {
-                    self.insert_blob_at_index(index, blob)
-                }
+            if let Some(block_commitment) = block_commitment_opt
+                && block_commitment == *blob.get_commitment()
+            {
+                self.insert_blob_at_index(index, blob)
             }
         } else if !self.blob_exists(index) {
             self.insert_blob_at_index(index, blob)
@@ -684,10 +684,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut write_lock = self.critical.write();
         let mut keys_to_remove = vec![];
         for (key, value) in write_lock.iter() {
-            if let Some(epoch) = value.epoch() {
-                if epoch < cutoff_epoch {
-                    keys_to_remove.push(*key);
-                }
+            if let Some(epoch) = value.epoch()
+                && epoch < cutoff_epoch
+            {
+                keys_to_remove.push(*key);
             }
         }
         // Now remove keys
@@ -730,8 +730,8 @@ mod test {
     use logging::create_test_tracing_subscriber;
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
-    use store::{database::interface::BeaconNodeBackend, HotColdDB, ItemStore, StoreConfig};
-    use tempfile::{tempdir, TempDir};
+    use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
+    use tempfile::{TempDir, tempdir};
     use tracing::{debug_span, info};
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
@@ -906,10 +906,10 @@ mod test {
     where
         E: EthSpec,
         T: BeaconChainTypes<
-            HotStore = BeaconNodeBackend<E>,
-            ColdStore = BeaconNodeBackend<E>,
-            EthSpec = E,
-        >,
+                HotStore = BeaconNodeBackend<E>,
+                ColdStore = BeaconNodeBackend<E>,
+                EthSpec = E,
+            >,
     {
         create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
@@ -1175,13 +1175,13 @@ mod test {
 #[cfg(test)]
 mod pending_components_tests {
     use super::*;
-    use crate::block_verification_types::BlockImportData;
-    use crate::test_utils::{generate_rand_block_and_blobs, test_spec, NumBlobs};
     use crate::PayloadVerificationOutcome;
+    use crate::block_verification_types::BlockImportData;
+    use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
     use types::{

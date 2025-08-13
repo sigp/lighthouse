@@ -42,7 +42,7 @@ async fn runs_without_error() {
 mod release_tests {
     use super::*;
     use crate::{
-        per_slot_processing::per_slot_processing, EpochProcessingError, SlotProcessingError,
+        EpochProcessingError, SlotProcessingError, per_slot_processing::per_slot_processing,
     };
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
     use std::sync::Arc;

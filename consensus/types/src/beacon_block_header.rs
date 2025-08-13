@@ -1,7 +1,7 @@
 use crate::test_utils::TestRandom;
 use crate::*;
 
-use context_deserialize_derive::context_deserialize;
+use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

@@ -152,8 +152,8 @@ impl ForkContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chain_spec::{BlobParameters, BlobSchedule};
     use crate::MainnetEthSpec;
+    use crate::chain_spec::{BlobParameters, BlobSchedule};
 
     type E = MainnetEthSpec;
 
@@ -238,9 +238,11 @@ mod tests {
         );
 
         let invalid_digest = [9, 9, 9, 9];
-        assert!(context
-            .get_fork_from_context_bytes(invalid_digest)
-            .is_none());
+        assert!(
+            context
+                .get_fork_from_context_bytes(invalid_digest)
+                .is_none()
+        );
     }
 
     #[test]

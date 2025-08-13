@@ -1,7 +1,7 @@
-use deposit_contract::{encode_eth1_tx_data, BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS};
+use deposit_contract::{BYTECODE, CONTRACT_DEPLOY_GAS, DEPOSIT_GAS, encode_eth1_tx_data};
 use ethers_core::types::{
-    transaction::{eip2718::TypedTransaction, eip2930::AccessList},
     Address, Bytes, Eip1559TransactionRequest, TransactionRequest, U256,
+    transaction::{eip2718::TypedTransaction, eip2930::AccessList},
 };
 use types::{DepositData, EthSpec, FixedBytesExtended, Hash256, Keypair, Signature};
 

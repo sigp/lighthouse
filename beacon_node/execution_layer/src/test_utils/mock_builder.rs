@@ -7,8 +7,8 @@ use eth2::types::{
     ProposerData, StateId, ValidatorId,
 };
 use eth2::{
-    BeaconNodeHttpClient, Timeouts, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
-    SSZ_CONTENT_TYPE_HEADER,
+    BeaconNodeHttpClient, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+    Timeouts,
 };
 use fork_choice::ForkchoiceUpdateParameters;
 use parking_lot::RwLock;

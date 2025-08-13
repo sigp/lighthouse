@@ -144,11 +144,11 @@ impl TaskExecutor {
         if let Some(handle) = self.handle() {
             let fut = async move {
                 let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
-                if let Err(join_error) = task_handle.await {
-                    if let Ok(_panic) = join_error.try_into_panic() {
-                        let _ = shutdown_sender
-                            .try_send(ShutdownReason::Failure("Panic (fatal error)"));
-                    }
+                if let Err(join_error) = task_handle.await
+                    && let Ok(_panic) = join_error.try_into_panic()
+                {
+                    let _ =
+                        shutdown_sender.try_send(ShutdownReason::Failure("Panic (fatal error)"));
                 }
                 drop(timer);
             };
@@ -282,7 +282,7 @@ impl TaskExecutor {
         &self,
         task: F,
         name: &'static str,
-    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>>>
+    ) -> Option<impl Future<Output = Result<R, tokio::task::JoinError>> + Send + 'static + use<F, R>>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -367,7 +367,7 @@ impl TaskExecutor {
 
     /// Returns a future that completes when `async-channel::Sender` is dropped or () is sent,
     /// which translates to the exit signal being triggered.
-    pub fn exit(&self) -> impl Future<Output = ()> {
+    pub fn exit(&self) -> impl Future<Output = ()> + 'static {
         let exit = self.exit.clone();
         async move {
             let _ = exit.recv().await;

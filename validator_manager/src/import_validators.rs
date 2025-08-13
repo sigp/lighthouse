@@ -5,7 +5,7 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use derivative::Derivative;
 use eth2::lighthouse_vc::types::KeystoreJsonStr;
-use eth2::{lighthouse_vc::std_types::ImportKeystoreStatus, SensitiveUrl};
+use eth2::{SensitiveUrl, lighthouse_vc::std_types::ImportKeystoreStatus};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -279,38 +279,38 @@ async fn run(config: ImportConfig) -> Result<(), String> {
 
     for (i, validator) in validators.into_iter().enumerate() {
         match validator.upload(&http_client, ignore_duplicates).await {
-            Ok(status) => {
-                match status.status {
-                    ImportKeystoreStatus::Imported => {
-                        eprintln!("Uploaded keystore {} of {} to the VC", i + 1, count)
-                    }
-                    ImportKeystoreStatus::Duplicate => {
-                        if ignore_duplicates {
-                            eprintln!("Re-uploaded keystore {} of {} to the VC", i + 1, count)
-                        } else {
-                            eprintln!(
-                                "Keystore {} of {} was uploaded to the VC, but it was a duplicate. \
-                                Exiting now, use --{} to allow duplicates.",
-                                i + 1, count, IGNORE_DUPLICATES_FLAG
-                            );
-                            return Err(DETECTED_DUPLICATE_MESSAGE.to_string());
-                        }
-                    }
-                    ImportKeystoreStatus::Error => {
+            Ok(status) => match status.status {
+                ImportKeystoreStatus::Imported => {
+                    eprintln!("Uploaded keystore {} of {} to the VC", i + 1, count)
+                }
+                ImportKeystoreStatus::Duplicate => {
+                    if ignore_duplicates {
+                        eprintln!("Re-uploaded keystore {} of {} to the VC", i + 1, count)
+                    } else {
                         eprintln!(
-                            "Upload of keystore {} of {} failed with message: {:?}. \
+                            "Keystore {} of {} was uploaded to the VC, but it was a duplicate. \
+                                Exiting now, use --{} to allow duplicates.",
+                            i + 1,
+                            count,
+                            IGNORE_DUPLICATES_FLAG
+                        );
+                        return Err(DETECTED_DUPLICATE_MESSAGE.to_string());
+                    }
+                }
+                ImportKeystoreStatus::Error => {
+                    eprintln!(
+                        "Upload of keystore {} of {} failed with message: {:?}. \
                                 A potential solution is run this command again \
                                 using the --{} flag, however care should be taken to ensure \
                                 that there are no duplicate deposits submitted.",
-                            i + 1,
-                            count,
-                            status.message,
-                            IGNORE_DUPLICATES_FLAG
-                        );
-                        return Err(format!("Upload failed with {:?}", status.message));
-                    }
+                        i + 1,
+                        count,
+                        status.message,
+                        IGNORE_DUPLICATES_FLAG
+                    );
+                    return Err(format!("Upload failed with {:?}", status.message));
                 }
-            }
+            },
             e @ Err(UploadError::InvalidPublicKey) => {
                 eprintln!("Validator {} has an invalid public key", i);
                 return Err(format!("{:?}", e));
@@ -384,8 +384,8 @@ pub mod tests {
     use super::*;
     use crate::create_validators::tests::TestBuilder as CreateTestBuilder;
     use std::fs::{self, File};
-    use tempfile::{tempdir, TempDir};
-    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use tempfile::{TempDir, tempdir};
+    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
 
     const VC_TOKEN_FILE_NAME: &str = "vc_token.json";
 

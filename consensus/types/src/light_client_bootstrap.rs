@@ -1,9 +1,9 @@
 use crate::context_deserialize;
 use crate::{
-    light_client_update::*, test_utils::TestRandom, BeaconState, ChainSpec, ContextDeserialize,
-    EthSpec, FixedVector, ForkName, Hash256, LightClientHeader, LightClientHeaderAltair,
-    LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderElectra,
-    LightClientHeaderFulu, SignedBlindedBeaconBlock, Slot, SyncCommittee,
+    BeaconState, ChainSpec, ContextDeserialize, EthSpec, FixedVector, ForkName, Hash256,
+    LightClientHeader, LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+    LightClientHeaderElectra, LightClientHeaderFulu, SignedBlindedBeaconBlock, Slot, SyncCommittee,
+    light_client_update::*, test_utils::TestRandom,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -110,7 +110,7 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientBootstrap decoding for {fork_name} not implemented"
-                )))
+                )));
             }
         };
 
@@ -235,7 +235,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientBootstrap
                 return Err(serde::de::Error::custom(format!(
                     "LightClientBootstrap failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(Deserialize::deserialize(deserializer).map_err(convert_err)?)

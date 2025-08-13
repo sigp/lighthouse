@@ -3,8 +3,8 @@ use crate::decode::{ssz_decode_file, ssz_decode_state, yaml_decode_file};
 use serde::Deserialize;
 use tree_hash::Hash256;
 use types::{
-    light_client_update, BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb,
-    BeaconBlockBodyElectra, BeaconBlockBodyFulu, BeaconState, FixedVector, FullPayload, Unsigned,
+    BeaconBlockBody, BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra,
+    BeaconBlockBodyFulu, BeaconState, FixedVector, FullPayload, Unsigned, light_client_update,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -160,7 +160,7 @@ impl<E: EthSpec> LoadCase for KzgInclusionMerkleProofValidity<E> {
                 return Err(Error::InternalError(format!(
                     "KZG inclusion merkle proof validity test skipped for {:?}",
                     fork_name
-                )))
+                )));
             }
             ForkName::Deneb => {
                 ssz_decode_file::<BeaconBlockBodyDeneb<E>>(&path.join("object.ssz_snappy"))?.into()
@@ -274,7 +274,7 @@ impl<E: EthSpec> LoadCase for BeaconBlockBodyMerkleProofValidity<E> {
                 return Err(Error::InternalError(format!(
                     "Beacon block body merkle proof validity test skipped for {:?}",
                     fork_name
-                )))
+                )));
             }
             ForkName::Capella => {
                 ssz_decode_file::<BeaconBlockBodyCapella<E>>(&path.join("object.ssz_snappy"))?

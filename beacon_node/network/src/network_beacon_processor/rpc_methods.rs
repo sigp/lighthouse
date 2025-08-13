@@ -1,10 +1,10 @@
 use crate::metrics;
-use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use itertools::{process_results, Itertools};
+use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
@@ -19,10 +19,10 @@ use lighthouse_tracing::{
 };
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tracing::{debug, error, field, instrument, warn, Span};
+use tracing::{Span, debug, error, field, instrument, warn};
 use types::blob_sidecar::BlobIdentifier;
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
@@ -389,7 +389,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .flat_map(|id| id.columns.clone())
             .unique()
             .collect::<Vec<_>>();
-        self.record_data_column_request_in_span(&peer_id, &requested_columns, Span::current());
+        self.record_data_column_request_in_span(
+            &peer_id,
+            &requested_columns,
+            None,
+            Span::current(),
+        );
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -794,7 +799,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(e) => {
                     if matches!(
                         e,
-                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
                         if matches!(**boxed_error, execution_layer::Error::EngineError(_))
                     ) {
                         warn!(
@@ -1089,14 +1094,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         peer_id: &PeerId,
         requested_indices: &[ColumnIndex],
+        epoch_opt: Option<Epoch>,
         span: Span,
     ) {
-        // FIXME: change to custody columns instead of sampling columns once 7792 is merged.
         let non_custody_indices = {
-            let sampling_columns = self.network_globals.sampling_columns.read();
+            let custody_columns = self
+                .chain
+                .data_availability_checker
+                .custody_context()
+                .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
             requested_indices
                 .iter()
-                .filter(|subnet_id| !sampling_columns.contains(subnet_id))
+                .filter(|subnet_id| !custody_columns.contains(subnet_id))
                 .collect::<Vec<_>>()
         };
         span.record("non_custody_indices", field::debug(non_custody_indices));
@@ -1119,7 +1128,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) {
-        self.record_data_column_request_in_span(&peer_id, &req.columns, Span::current());
+        let epoch = Slot::new(req.start_slot).epoch(T::EthSpec::slots_per_epoch());
+        self.record_data_column_request_in_span(
+            &peer_id,
+            &req.columns,
+            Some(epoch),
+            Span::current(),
+        );
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,

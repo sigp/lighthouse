@@ -1,13 +1,13 @@
-use crate::common::read_wallet_name_from_cli;
 use crate::WALLETS_DIR_FLAG;
+use crate::common::read_wallet_name_from_cli;
 use account_utils::{
-    is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
-    STDIN_INPUTS_FLAG,
+    STDIN_INPUTS_FLAG, is_password_sufficiently_complex, random_password, read_password_from_user,
+    strip_off_newlines,
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2_wallet::{
-    bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
+    bip39::{Language, Mnemonic, MnemonicType},
 };
 use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use filesystem::create_with_600_perms;

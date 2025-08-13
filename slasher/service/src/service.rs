@@ -1,25 +1,25 @@
 use beacon_chain::{
-    observed_operations::ObservationOutcome, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes, observed_operations::ObservationOutcome,
 };
 use directory::size_of_dir;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use slasher::{
-    metrics::{self, SLASHER_DATABASE_SIZE, SLASHER_RUN_TIME},
     Slasher,
+    metrics::{self, SLASHER_DATABASE_SIZE, SLASHER_RUN_TIME},
 };
 use slot_clock::SlotClock;
 use state_processing::{
+    VerifyOperation,
     per_block_processing::errors::{
         AttesterSlashingInvalid, BlockOperationError, ProposerSlashingInvalid,
     },
-    VerifyOperation,
 };
-use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::time::{interval_at, Duration, Instant};
+use tokio::time::{Duration, Instant, interval_at};
 use tracing::{debug, error, info, trace, warn};
 use types::{AttesterSlashing, Epoch, EthSpec, ProposerSlashing};
 
@@ -211,15 +211,14 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             beacon_chain.import_attester_slashing(verified_slashing);
 
             // Publish to the network if broadcast is enabled.
-            if slasher.config().broadcast {
-                if let Err(e) =
+            if slasher.config().broadcast
+                && let Err(e) =
                     Self::publish_attester_slashing(beacon_chain, network_sender, slashing)
-                {
-                    debug!(
-                        error = ?e,
-                        "Unable to publish attester slashing"
-                    );
-                }
+            {
+                debug!(
+                    error = ?e,
+                    "Unable to publish attester slashing"
+                );
             }
         }
     }
@@ -260,15 +259,14 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             };
             beacon_chain.import_proposer_slashing(verified_slashing);
 
-            if slasher.config().broadcast {
-                if let Err(e) =
+            if slasher.config().broadcast
+                && let Err(e) =
                     Self::publish_proposer_slashing(beacon_chain, network_sender, slashing)
-                {
-                    debug!(
-                        error = ?e,
-                        "Unable to publish proposer slashing"
-                    );
-                }
+            {
+                debug!(
+                    error = ?e,
+                    "Unable to publish proposer slashing"
+                );
             }
         }
     }

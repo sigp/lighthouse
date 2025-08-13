@@ -8,25 +8,25 @@ use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::OutboundFramed;
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
-use futures::prelude::*;
 use futures::SinkExt;
+use futures::prelude::*;
+use libp2p::PeerId;
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
 use libp2p::swarm::{ConnectionId, Stream};
-use libp2p::PeerId;
 use logging::crit;
 use smallvec::SmallVec;
 use std::{
-    collections::{hash_map::Entry, VecDeque},
+    collections::{VecDeque, hash_map::Entry},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use tokio::time::{sleep, Sleep};
-use tokio_util::time::{delay_queue, DelayQueue};
+use tokio::time::{Sleep, sleep};
+use tokio_util::time::{DelayQueue, delay_queue};
 use tracing::{debug, trace};
 use types::{EthSpec, ForkContext, Slot};
 
@@ -848,23 +848,22 @@ where
         }
 
         // Check if we have completed sending a goodbye, disconnect.
-        if let HandlerState::ShuttingDown(_) = self.state {
-            if self.dial_queue.is_empty()
-                && self.outbound_substreams.is_empty()
-                && self.inbound_substreams.is_empty()
-                && self.events_out.is_empty()
-                && self.dial_negotiated == 0
-            {
-                debug!(
-                    peer_id = %self.peer_id,
-                    connection_id = %self.connection_id,
-                    "Goodbye sent, Handler deactivated"
-                );
-                self.state = HandlerState::Deactivated;
-                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    HandlerEvent::Close(RPCError::Disconnected),
-                ));
-            }
+        if let HandlerState::ShuttingDown(_) = self.state
+            && self.dial_queue.is_empty()
+            && self.outbound_substreams.is_empty()
+            && self.inbound_substreams.is_empty()
+            && self.events_out.is_empty()
+            && self.dial_negotiated == 0
+        {
+            debug!(
+                peer_id = %self.peer_id,
+                connection_id = %self.connection_id,
+                "Goodbye sent, Handler deactivated"
+            );
+            self.state = HandlerState::Deactivated;
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                HandlerEvent::Close(RPCError::Disconnected),
+            ));
         }
 
         Poll::Pending

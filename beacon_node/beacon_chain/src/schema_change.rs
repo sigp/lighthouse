@@ -7,9 +7,9 @@ mod migration_schema_v27;
 
 use crate::beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
-use store::hot_cold_store::{HotColdDB, HotColdDBError};
-use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
 use store::Error as StoreError;
+use store::hot_cold_store::{HotColdDB, HotColdDBError};
+use store::metadata::{CURRENT_SCHEMA_VERSION, SchemaVersion};
 
 /// Migrate the database from one schema version to another, applying all requisite mutations.
 pub fn migrate_schema<T: BeaconChainTypes>(

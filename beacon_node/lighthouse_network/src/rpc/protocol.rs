@@ -1030,7 +1030,7 @@ impl RPCError {
     /// Used for metrics.
     pub fn as_static_str(&self) -> &'static str {
         match self {
-            RPCError::ErrorResponse(ref code, ..) => code.into(),
+            RPCError::ErrorResponse(code, ..) => code.into(),
             e => e.into(),
         }
     }

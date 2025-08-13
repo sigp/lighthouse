@@ -1,6 +1,6 @@
+use crate::ForkName;
 use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::ForkName;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

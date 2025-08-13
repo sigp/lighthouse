@@ -1,10 +1,9 @@
 use crate::beacon_block_body::KzgCommitments;
 use crate::{
-    test_utils::TestRandom, ChainSpec, ContextDeserialize, EthSpec,
-    ExecutionPayloadHeaderBellatrix, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef,
-    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, SignedRoot,
-    Uint256,
+    ChainSpec, ContextDeserialize, EthSpec, ExecutionPayloadHeaderBellatrix,
+    ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
+    ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
+    ExecutionRequests, ForkName, ForkVersionDecode, SignedRoot, Uint256, test_utils::TestRandom,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -87,7 +86,7 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
             ForkName::Altair | ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "unsupported fork for ExecutionPayloadHeader: {fork_name}",
-                )))
+                )));
             }
             ForkName::Bellatrix => {
                 BuilderBid::Bellatrix(BuilderBidBellatrix::from_ssz_bytes(bytes)?)
