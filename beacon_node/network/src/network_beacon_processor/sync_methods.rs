@@ -10,7 +10,8 @@ use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
-    HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
+    ExecutionPayloadError, HistoricalBlockError, NotifyExecutionLayer,
+    validator_monitor::get_slot_delay_ms,
 };
 use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
@@ -774,7 +775,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
             }
             ref err @ BlockError::ExecutionPayloadError(ref epe) => {
-                if !epe.penalize_peer() {
+                if matches!(epe, ExecutionPayloadError::RejectedByExecutionEngine { .. }) {
+                    debug!(
+                        error = ?err,
+                        "Invalid execution payload rejected by EE"
+                    );
+                    Err(ChainSegmentFailed {
+                        message: format!(
+                            "Peer sent a block containing invalid execution payload. Reason: {:?}",
+                            err
+                        ),
+                        peer_action: Some(PeerAction::LowToleranceError),
+                    })
+                } else if !epe.penalize_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
                     // Pause the syncing while the EL recovers
                     debug!(
