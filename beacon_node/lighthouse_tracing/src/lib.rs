@@ -1,5 +1,9 @@
 use tracing::Subscriber;
 
+use std::collections::HashSet;
+use tracing::span::Id;
+use tracing_subscriber::Layer;
+
 /// DA checker spans
 pub const SPAN_PENDING_COMPONENTS: &str = "pending_components";
 /// Gossip methods root spans
@@ -26,7 +30,9 @@ pub const SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str =
     "handle_light_client_optimistic_update";
 pub const SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE: &str = "handle_light_client_finality_update";
 
-// All allowed root span names
+// Only allowed root spans and its descendants are exported to the tracing backend, so that we don't
+// get a lot of noise from code paths that are not instrumented.
+// When a new root span is added, it should be added to this list.
 pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
     SPAN_PENDING_COMPONENTS,
     SPAN_PROCESS_GOSSIP_DATA_COLUMN,
@@ -49,10 +55,6 @@ pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
     SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
     SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
 ];
-
-use std::collections::HashSet;
-use tracing::span::Id;
-use tracing_subscriber::Layer;
 
 /// A filtering layer that wraps another layer and only forwards spans from allowed root spans and their descendants
 pub struct AllowedRootSpanLayer<L> {
