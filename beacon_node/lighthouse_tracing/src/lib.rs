@@ -106,6 +106,7 @@ where
 
         if should_allow {
             self.mark_span_allowed(id.clone());
+            // FIXME: this panics!
             self.inner.on_new_span(attrs, id, ctx);
         }
     }
