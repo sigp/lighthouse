@@ -413,8 +413,15 @@ impl<E: EthSpec> Operation<E> for WithdrawalsPayload<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        // TODO(EIP-7732): implement separate gloas and non-gloas variants of process_withdrawals
-        process_withdrawals::<_, FullPayload<_>>(state, self.payload.to_ref(), spec)
+        if state.fork_name_unchecked().gloas_enabled() {
+            process_withdrawals::gloas::process_withdrawals(state, spec)
+        } else {
+            process_withdrawals::capella::process_withdrawals::<_, FullPayload<_>>(
+                state,
+                self.payload.to_ref(),
+                spec,
+            )
+        }
     }
 }
 
