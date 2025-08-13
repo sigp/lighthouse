@@ -330,8 +330,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             debug!("including head peer");
             self.add_peer_or_create_chain(
                 local_epoch,
-                peer_sync_info.head_root,
-                peer_sync_info.head_slot,
+                peer_sync_info.clone(),
                 peer_id,
                 RangeSyncType::Head,
                 network,
@@ -456,8 +455,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     pub fn add_peer_or_create_chain(
         &mut self,
         start_epoch: Epoch,
-        target_head_root: Hash256,
-        target_head_slot: Slot,
+        remote_info: SyncInfo,
         peer: PeerId,
         sync_type: RangeSyncType,
         network: &mut SyncNetworkContext<T>,
@@ -468,12 +466,15 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             &mut self.head_chains
         };
 
+        let target_head_root = remote_info.head_root;
+        let target_head_slot = remote_info.head_slot;
+
         match collection
             .iter_mut()
-            .find(|(_, chain)| chain.has_same_target(target_head_slot, target_head_root))
+            .find(|(_, chain)| chain.has_same_target(&remote_info))
         {
             Some((&id, chain)) => {
-                debug!(peer_id = %peer, ?sync_type, id, "Adding peer to known chain");
+                debug!(peer_id = %peer, ?sync_type, id, len=chain.available_peers(),"Adding peer to known chain");
                 debug_assert_eq!(chain.target_head_root, target_head_root);
                 debug_assert_eq!(chain.target_head_slot, target_head_slot);
                 if let Err(remove_reason) = chain.add_peer(network, peer) {
@@ -495,12 +496,15 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                     start_epoch,
                     target_head_slot,
                     target_head_root,
+                    remote_info.finalized_epoch,
+                    remote_info.finalized_root,
                     peer,
                     sync_type.into(),
                 );
 
                 debug!(
                     peer_id = peer_rpr,
+                    total_chains = collection.len(),
                     ?sync_type,
                     id,
                     %start_epoch,
