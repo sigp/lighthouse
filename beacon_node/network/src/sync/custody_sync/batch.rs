@@ -10,9 +10,6 @@ use crate::sync::BatchOperationOutcome;
 use lighthouse_network::{rpc::methods::DataColumnsByRangeRequest, service::api_types::Id, PeerId};
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
-/// Error type of a batch in a wrong state.
-// Such errors should never be encountered.
-
 /// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: usize = 10;
@@ -276,7 +273,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         }
     }
 
-    /// Verifies if an incoming block belongs to this batch.
+    /// Verifies if an incoming column belongs to this batch.
     pub fn is_expecting_data_column(&self, request_id: &Id) -> bool {
         if let CustodyBatchState::Downloading(expected_id) = &self.state {
             return expected_id == request_id;

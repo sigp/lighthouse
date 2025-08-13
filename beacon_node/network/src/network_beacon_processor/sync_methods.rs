@@ -423,7 +423,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let sent_columns = downloaded_columns.len();
         let result = match self
             .chain
-            .import_historical_data_column_batch(downloaded_columns)
+            .import_historical_data_column_batch(process_id, downloaded_columns)
         {
             Ok(imported_columns) => {
                 // metrics::inc_counter(

@@ -4157,6 +4157,47 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/finalize
+    let post_lighthouse_increase_custody_count = warp::path("lighthouse")
+        .and(warp::path("custody_count"))
+        .and(warp::path::end())
+        .and(warp_utils::json::json())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |request_data: api_types::IncreaseCustodyCount,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let effective_epoch = chain
+                        .canonical_head
+                        .cached_head()
+                        .head_slot()
+                        .epoch(T::EthSpec::slots_per_epoch());
+
+                    let cgc = chain
+                        .data_availability_checker
+                        .custody_context()
+                        .custody_group_count_at_head(&chain.spec);
+
+                    let sampling_count = chain
+                        .data_availability_checker
+                        .custody_context()
+                        .num_of_custody_groups_to_sample(Some(effective_epoch), &chain.spec);
+                    publish_network_message(
+                        &network_tx,
+                        NetworkMessage::CustodyCountChanged {
+                            new_custody_group_count: cgc + 2,
+                            sampling_count: sampling_count + 2,
+                        },
+                    )?;
+                    Ok(())
+                })
+            },
+        );
+
     // POST lighthouse/compaction
     let post_lighthouse_compaction = warp::path("lighthouse")
         .and(warp::path("compaction"))

@@ -14,7 +14,7 @@ use crate::network_beacon_processor::TestBeaconChainType;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::SingleLookupId;
-use crate::sync::block_sidecar_coupling::CouplingError;
+use crate::sync::block_sidecar_coupling::{CouplingError, RangeDataColumnBatchRequest};
 use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
@@ -196,7 +196,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// A mapping of active DataColumnsByRange requests
     data_columns_by_range_requests:
         ActiveRequests<DataColumnsByRangeRequestId, DataColumnsByRangeRequestItems<T::EthSpec>>,
-    /// A mapping of active DataColumnsByRange requests
+
+    /// A mapping of active DataColumnsByRange requests for custody sync
     custody_sync_data_columns_by_range_requests: ActiveRequests<
         CustodySyncDataColumnsByRangeRequestId,
         DataColumnsByRangeRequestItems<T::EthSpec>,
@@ -207,6 +208,10 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// BlocksByRange requests paired with other ByRange requests for data components
     components_by_range_requests:
         FnvHashMap<ComponentsByRangeRequestId, RangeBlockComponentsRequest<T::EthSpec>>,
+
+    /// A batch of data columns by range request for custody sync
+    custody_sync_data_column_batch_requests:
+        FnvHashMap<CustodySyncByRangeRequestId, RangeDataColumnBatchRequest<T::EthSpec>>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -293,6 +298,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ),
             custody_by_root_requests: <_>::default(),
             components_by_range_requests: FnvHashMap::default(),
+            custody_sync_data_column_batch_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
             fork_context,
@@ -323,6 +329,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
             components_by_range_requests: _,
+            custody_sync_data_column_batch_requests: _,
             execution_engine_state: _,
             network_beacon_processor: _,
             chain: _,
@@ -433,6 +440,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             custody_sync_data_columns_by_range_requests,
             // components_by_range_requests is a meta request of various _by_range requests
             components_by_range_requests: _,
+            custody_sync_data_column_batch_requests: _,
             execution_engine_state: _,
             network_beacon_processor: _,
             chain: _,
@@ -1689,7 +1697,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// data column by range requests sent by the custody sync algorithm
-    pub fn custody_sync_data_column_by_range_request(
+    pub fn custody_sync_data_columns_batch_request(
         &mut self,
         request: DataColumnsByRangeRequest,
         epoch: Epoch,
@@ -1751,6 +1759,54 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id.id)
     }
 
+    /// Received a blocks by range or blobs by range response for a request that couples blocks '
+    /// and blobs.
+    pub fn custody_data_columns_batch_response(
+        &mut self,
+        custody_sync_request_id: CustodySyncByRangeRequestId,
+        data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
+    ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
+        let Entry::Occupied(mut entry) = self
+            .custody_sync_data_column_batch_requests
+            .entry(custody_sync_request_id)
+        else {
+            metrics::inc_counter_vec(
+                &metrics::SYNC_UNKNOWN_NETWORK_REQUESTS,
+                &["range_data_columns"],
+            );
+            return None;
+        };
+
+        if let Err(e) = {
+            let request = entry.get_mut();
+            data_columns.and_then(|(data_columns, _)| {
+                request
+                    .add_custody_columns(custody_sync_request_id, data_columns.clone())
+                    .map_err(|e| {
+                        RpcResponseError::BlockComponentCouplingError(CouplingError {
+                            msg: e,
+                            column_and_peer: None,
+                        })
+                    })
+            })
+        } {
+            entry.remove();
+            return Some(Err(e));
+        }
+
+        if let Some(data_column_result) = entry.get_mut().responses(&self.chain.spec) {
+            if data_column_result.is_ok() {
+                // remove the entry only if it coupled successfully with
+                // no errors
+                entry.remove();
+            }
+            // If the request is finished, dequeue everything
+            Some(data_column_result.map_err(RpcResponseError::BlockComponentCouplingError))
+        } else {
+            None
+        }
+    }
+
     fn send_custody_sync_data_columns_by_range_request(
         &mut self,
         peer_id: PeerId,
@@ -1771,7 +1827,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
-        // TODO dont forget these logs
+        // TODO(custody-sync) dont forget these logs
         // debug!(
         //     method = "DataColumnsByRange",
         //     slots = request.count,

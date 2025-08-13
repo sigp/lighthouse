@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use crate::{BeaconChain, BeaconChainTypes};
 use store::{Error as StoreError, KeyValueStore};
-use types::{DataColumnSidecarList, Hash256};
+use types::{DataColumnSidecarList, Epoch, EthSpec, Hash256};
 
 #[derive(Debug)]
 pub enum HistoricalDataColumnError {
@@ -34,14 +36,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The data columns block roots and proposer signatures are verified with the existing
     /// block stored in the DB. This function assumes that KZG proofs have already been verified.
     ///
+    /// This function requires that the data column sidecar list contains columns for a full epoch.
+    ///
     /// Return the number of `data_columns` successfully imported.
     pub fn import_historical_data_column_batch(
         &self,
+        epoch: Epoch,
         historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<usize, HistoricalDataColumnError> {
         let mut total_imported = 0;
         let expected_imported = historical_data_column_sidecar_list.len();
         let mut ops = vec![];
+
+        let mut slots_to_update = epoch
+            .slot_iter(T::EthSpec::slots_per_epoch())
+            .collect::<HashSet<_>>();
 
         if historical_data_column_sidecar_list.is_empty() {
             return Ok(total_imported);
@@ -49,6 +58,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         for data_column_sidecar in historical_data_column_sidecar_list {
             let block_root = data_column_sidecar.block_root();
+            let slot = data_column_sidecar.slot();
+            slots_to_update.remove(&slot);
 
             let Some(block) = self.store.get_blinded_block(&block_root)? else {
                 let error = HistoricalDataColumnError::NoBlockFound {
@@ -88,13 +99,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 continue;
             }
-
             self.store
                 .data_column_as_kv_store_ops(&block_root, data_column_sidecar, &mut ops);
             total_imported += 1;
         }
 
         self.store.blobs_db.do_atomically(ops)?;
+
+        if slots_to_update.is_empty() {
+            self.store.put_data_column_custody_info(Some(
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            ))?;
+        } else {
+            // TODO(custody-sync)
+            // we need to tell custody sync to retry this epoch.
+        }
 
         tracing::debug!(total_imported, "Imported historical data columns");
 

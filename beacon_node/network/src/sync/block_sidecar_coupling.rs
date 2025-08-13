@@ -3,7 +3,8 @@ use beacon_chain::{
 };
 use lighthouse_network::{
     service::api_types::{
-        BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
+        BlobsByRangeRequestId, BlocksByRangeRequestId, CustodySyncByRangeRequestId,
+        DataColumnsByRangeRequestId,
     },
     PeerAction, PeerId,
 };
@@ -36,6 +37,145 @@ enum RangeBlockDataRequest<E: EthSpec> {
         column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
         expected_custody_columns: Vec<ColumnIndex>,
     },
+}
+
+pub struct RangeDataColumnBatchRequest<E: EthSpec> {
+    requests: HashMap<
+        CustodySyncByRangeRequestId,
+        ByRangeRequest<CustodySyncByRangeRequestId, DataColumnSidecarList<E>>,
+    >,
+    /// The column indices corresponding to the request
+    column_peers: HashMap<CustodySyncByRangeRequestId, Vec<ColumnIndex>>,
+    expected_custody_columns: Vec<ColumnIndex>,
+}
+
+impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
+    pub fn add_custody_columns(
+        &mut self,
+        req_id: CustodySyncByRangeRequestId,
+        columns: Vec<Arc<DataColumnSidecar<E>>>,
+    ) -> Result<(), String> {
+        let req = self
+            .requests
+            .get_mut(&req_id)
+            .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
+        req.finish(req_id, columns)
+    }
+
+    pub fn responses(
+        &mut self,
+        // column_to_peer: HashMap<u64, PeerId>,
+        // expects_custody_columns: &[ColumnIndex],
+        _spec: &ChainSpec,
+    ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
+        // TODO(custody-sync)
+        // Group data columns by block_root and index
+        // let mut data_columns_by_block =
+        //     HashMap::<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>::new();
+
+        // let data_columns =
+
+        // for column in data_columns.clone() {
+        //     let block_root = column.block_root();
+        //     let index = column.index;
+        //     if data_columns_by_block
+        //         .entry(block_root)
+        //         .or_default()
+        //         .insert(index, column)
+        //         .is_some()
+        //     {
+        //         return Some(Err(CouplingError {
+        //             msg: format!("Repeated column block_root {block_root:?} index {index}"),
+        //             column_and_peer: None,
+        //         }));
+        //     }
+        // }
+
+        // // Now iterate all blocks ensuring that the block roots of each block and data column match,
+        // // plus we have columns for our custody requirements
+        // let mut rpc_blocks = Vec::with_capacity(blocks.len());
+
+        // for block in blocks {
+        //     let block_root = get_block_root(&block);
+        //     rpc_blocks.push(if block.num_expected_blobs() > 0 {
+        //         let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root)
+        //         else {
+        //             // This PR ignores the fix from https://github.com/sigp/lighthouse/pull/5675
+        //             // which allows blobs to not match blocks.
+        //             // TODO(das): on the initial version of PeerDAS the beacon chain does not check
+        //             // rpc custody requirements and dropping this check can allow the block to have
+        //             // an inconsistent DB.
+
+        //             // For now, we always assume that the block peer is right.
+        //             // This is potentially dangerous as we can get isolated on a chain with a
+        //             // malicious block peer.
+        //             // TODO: fix this by checking the proposer signature before downloading columns.
+        //             let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
+        //             return Err(CouplingError {
+        //                 msg: format!("No columns for block {block_root:?} with data"),
+        //                 column_and_peer: Some((responsible_peers, PeerAction::LowToleranceError)),
+        //             });
+        //         };
+
+        //         let mut custody_columns = vec![];
+        //         let mut naughty_peers = vec![];
+        //         for index in expects_custody_columns {
+        //             if let Some(data_column) = data_columns_by_index.remove(index) {
+        //                 // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
+        //                 // this column is in the set of `expects_custody_columns` and with the expected
+        //                 // block root, so for the expected epoch of this batch.
+        //                 custody_columns.push(CustodyDataColumn::from_asserted_custody(data_column));
+        //             } else {
+        //                 // Penalize the peer for claiming to have the columns but not returning
+        //                 // them
+        //                 let Some(responsible_peer) = column_to_peer.get(index) else {
+        //                     return Err(CouplingError {
+        //                         msg: format!("Internal error, no request made for column {}", index),
+        //                         column_and_peer: None,
+        //                     });
+        //                 };
+        //                 naughty_peers.push((*index, *responsible_peer));
+        //             }
+        //         }
+        //         if !naughty_peers.is_empty() {
+        //             return Err(CouplingError {
+        //                 msg: format!("Peers did not return column for block_root {block_root:?} {naughty_peers:?}"),
+        //                 column_and_peer: Some((naughty_peers, PeerAction::LowToleranceError)),
+        //             });
+        //         }
+
+        //         // Assert that there are no columns left
+        //         if !data_columns_by_index.is_empty() {
+        //             let remaining_indices = data_columns_by_index.keys().collect::<Vec<_>>();
+        //             // log the error but don't return an error, we can still progress with extra columns.
+        //             tracing::error!(
+        //                 ?block_root,
+        //                 ?remaining_indices,
+        //                 "Not all columns consumed for block"
+        //             );
+        //         }
+
+        //         RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, spec)
+        //             .map_err(|e| CouplingError {
+        //                 msg: format!("{:?}", e),
+        //                 column_and_peer: None,
+        //             })?
+        //     } else {
+        //         // Block has no data, expects zero columns
+        //         RpcBlock::new_without_blobs(Some(block_root), block)
+        //     });
+        // }
+
+        // // Assert that there are no columns left for other blocks
+        // if !data_columns_by_block.is_empty() {
+        //     let remaining_roots = data_columns_by_block.keys().collect::<Vec<_>>();
+        //     // log the error but don't return an error, we can still progress with responses.
+        //     // this is most likely an internal error with overrequesting or a client bug.
+        //     tracing::error!(?remaining_roots, "Not all columns consumed for block");
+        // }
+
+        todo!()
+    }
 }
 
 #[derive(Debug)]

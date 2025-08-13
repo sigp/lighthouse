@@ -2774,7 +2774,7 @@ async fn test_import_historical_data_columns_batch() {
     for data_column_sidecars in data_columns_list {
         harness
             .chain
-            .import_historical_data_column_batch(data_column_sidecars)
+            .import_historical_data_column_batch(Epoch::new(0), data_column_sidecars)
             .unwrap();
     }
     let block_root_iter = harness
@@ -2863,7 +2863,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
     for data_column_sidecars in data_columns_list {
         let error = harness
             .chain
-            .import_historical_data_column_batch(data_column_sidecars)
+            .import_historical_data_column_batch(Epoch::new(0), data_column_sidecars)
             .unwrap_err();
 
         println!("{:?}", error);
@@ -2946,7 +2946,7 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
     for data_column_sidecars in data_columns_list {
         let error = harness
             .chain
-            .import_historical_data_column_batch(data_column_sidecars)
+            .import_historical_data_column_batch(Epoch::new(0), data_column_sidecars)
             .unwrap_err();
 
         assert!(matches!(
@@ -3027,7 +3027,7 @@ async fn test_import_historical_data_columns_batch_invalid_signature() {
     for data_column_sidecars in data_columns_list {
         let error = harness
             .chain
-            .import_historical_data_column_batch(data_column_sidecars)
+            .import_historical_data_column_batch(Epoch::new(0), data_column_sidecars)
             .unwrap_err();
 
         assert!(matches!(

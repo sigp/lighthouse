@@ -47,7 +47,7 @@ use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
 use crate::sync::custody_sync::CustodySync;
-use crate::sync::network_context::PeerGroup;
+use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
@@ -55,6 +55,7 @@ use beacon_chain::{
 };
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
+use lighthouse_network::service::api_types::CustodySyncByRangeRequestId;
 use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
     CustodySyncDataColumnsByRangeRequestId, DataColumnsByRangeRequestId,
@@ -71,7 +72,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, info_span, trace, Instrument};
 use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, ForkContext, Hash256,
+    SignedBeaconBlock, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -1309,6 +1311,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
+    // TODO(custody-sync) do we need this
     fn on_custody_sync_data_columns_by_range_response(
         &mut self,
         id: CustodySyncDataColumnsByRangeRequestId,
@@ -1319,27 +1322,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.network
                 .on_custody_sync_data_columns_by_range_response(id, peer_id, data_columns)
         {
-            match resp {
-                Ok((data_columns, _)) => {
-                    let _ = self.custody_sync.on_data_column_response(
-                        &mut self.network,
-                        id.parent_request_id.epoch,
-                        &peer_id,
-                        id.id,
-                        data_columns,
-                    );
-                    // TODO(custody-sync)
-                }
-                Err(e) => {
-                    let _ = self.custody_sync.inject_error(
-                        &mut self.network,
-                        id.parent_request_id.epoch,
-                        &peer_id,
-                        id.id,
-                        e,
-                    );
-                }
-            };
+            self.on_custody_sync_data_columns_batch_response(id.parent_request_id, peer_id, resp)
         }
     }
 
@@ -1426,6 +1409,45 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
                 },
+            }
+        }
+    }
+
+    /// Handles receiving a response for a custody range sync request that has colums.
+    fn on_custody_sync_data_columns_batch_response(
+        &mut self,
+        custody_sync_request_id: CustodySyncByRangeRequestId,
+        peer_id: PeerId,
+        data_columns: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
+    ) {
+        if let Some(resp) = self
+            .network
+            .custody_data_columns_batch_response(custody_sync_request_id, data_columns)
+        {
+            match resp {
+                Ok(data_columns) => {
+                    match self.custody_sync.on_data_column_response(
+                        &mut self.network,
+                        custody_sync_request_id,
+                        &peer_id,
+                        data_columns,
+                    ) {
+                        Ok(ProcessResult::SyncCompleted) => todo!(), // update sync status
+                        Ok(ProcessResult::Successful) => {}
+                        Err(_) => todo!(),
+                    }
+                }
+                Err(e) => {
+                    match self.custody_sync.inject_error(
+                        &mut self.network,
+                        custody_sync_request_id,
+                        &peer_id,
+                        e,
+                    ) {
+                        Ok(_) => {}
+                        Err(_) => self.update_sync_state(),
+                    }
+                }
             }
         }
     }

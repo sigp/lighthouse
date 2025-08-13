@@ -1479,6 +1479,12 @@ pub struct ManualFinalizationRequestData {
     pub block_root: Hash256,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IncreaseCustodyCount {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub count: u64,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AdminPeer {
     pub enr: String,
