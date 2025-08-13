@@ -937,7 +937,7 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use kzg::{trusted_setup::get_trusted_setup, Bytes48, CellRef, KzgBlobRef, TrustedSetup};
+    use kzg::{trusted_setup::get_trusted_setup, Bytes48, CellRef, KzgBlobRef};
     use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]
@@ -1056,10 +1056,7 @@ mod test {
     }
 
     fn load_kzg() -> Result<Kzg, String> {
-        let trusted_setup: TrustedSetup =
-            serde_json::from_reader(get_trusted_setup().as_slice())
-                .map_err(|e| format!("Unable to read trusted setup file: {e:?}"))?;
-        Kzg::new_from_trusted_setup(trusted_setup)
+        Kzg::new_from_trusted_setup(&get_trusted_setup())
             .map_err(|e| format!("Failed to load trusted setup: {e:?}"))
     }
 }
