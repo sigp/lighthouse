@@ -1,4 +1,4 @@
-use crate::{block_hash::calculate_execution_block_hash, metrics, Error};
+use crate::{Error, block_hash::calculate_execution_block_hash, metrics};
 
 use crate::versioned_hashes::verify_versioned_hashes;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;

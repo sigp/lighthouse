@@ -6,8 +6,8 @@ use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
-    build_blob_data_column_sidecars, AvailabilityProcessingStatus, BeaconChain, BeaconChainError,
-    BeaconChainTypes, BlockError, IntoGossipVerifiedBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
+    IntoGossipVerifiedBlock, NotifyExecutionLayer, build_blob_data_column_sidecars,
 };
 use eth2::types::{
     BlobsBundle, BroadcastValidation, ErrorMessage, ExecutionPayloadAndBlobs, FullPayloadContents,
@@ -20,8 +20,8 @@ use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info, warn};
@@ -32,7 +32,7 @@ use types::{
     FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::http::StatusCode;
-use warp::{reply::Response, Rejection, Reply};
+use warp::{Rejection, Reply, reply::Response};
 
 pub type UnverifiedBlobs<T> = Option<(
     KzgProofs<<T as BeaconChainTypes>::EthSpec>,

@@ -4,33 +4,33 @@ use crate::data_column_verification::CustodyDataColumn;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::{BeaconBlockResponseWrapper, get_block_root};
+use crate::{
+    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
+    StateSkipConfig,
+    builder::{BeaconChainBuilder, Witness},
+};
 pub use crate::{
+    BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
     beacon_chain::{BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
     single_attestation::single_attestation_to_attestation,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
-    BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
-use crate::{
-    builder::{BeaconChainBuilder, Witness},
-    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
-    StateSkipConfig,
-};
-use crate::{get_block_root, BeaconBlockResponseWrapper};
 use bls::get_withdrawal_credentials;
 use eth2::types::SignedBlockContentsTuple;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
+    ExecutionLayer,
     auth::JwtKey,
     test_utils::{
-        ExecutionBlockGenerator, MockBuilder, MockExecutionLayer, DEFAULT_JWT_SECRET,
-        DEFAULT_TERMINAL_BLOCK,
+        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, ExecutionBlockGenerator, MockBuilder,
+        MockExecutionLayer,
     },
-    ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
-pub use genesis::{InteropGenesisBuilder, DEFAULT_ETH1_BLOCK_HASH};
+pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
 use kzg::trusted_setup::get_trusted_setup;
 use kzg::{Kzg, TrustedSetup};
@@ -38,9 +38,9 @@ use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
-use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -54,14 +54,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
-use store::{config::StoreConfig, HotColdDB, ItemStore, MemoryStore};
+use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
-use task_executor::{test_utils::TestRuntime, ShutdownReason};
+use task_executor::{ShutdownReason, test_utils::TestRuntime};
 use tree_hash::TreeHash;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
-pub use types::test_utils::generate_deterministic_keypairs;
 use types::test_utils::TestRandom;
+pub use types::test_utils::generate_deterministic_keypairs;
 use types::{typenum::U4294967296, *};
 
 // 4th September 2019
@@ -722,7 +722,7 @@ where
     pub fn set_mock_builder(
         &mut self,
         beacon_url: SensitiveUrl,
-    ) -> impl futures::Future<Output = ()> {
+    ) -> impl futures::Future<Output = ()> + 'static {
         let mock_el = self
             .mock_execution_layer
             .as_ref()
@@ -894,7 +894,9 @@ where
             let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
             if heads.is_empty() {
                 let nodes = &fork_choice.proto_array().core_proto_array().nodes;
-                panic!("Expected to know head block root {head_block_root:?}, but heads is empty. Nodes: {nodes:#?}");
+                panic!(
+                    "Expected to know head block root {head_block_root:?}, but heads is empty. Nodes: {nodes:#?}"
+                );
             } else {
                 panic!(
                     "Expected to know head block root {head_block_root:?}, known heads {heads:#?}"
@@ -931,7 +933,7 @@ where
         // If we produce two blocks for the same slot, they hash up to the same value and
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
-        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+        let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -990,7 +992,7 @@ where
         // If we produce two blocks for the same slot, they hash up to the same value and
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
-        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+        let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -3206,7 +3208,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=max_blobs),
+                NumBlobs::Random => rng.random_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -3226,7 +3228,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=max_blobs),
+                NumBlobs::Random => rng.random_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -3245,7 +3247,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadFulu<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=max_blobs),
+                NumBlobs::Random => rng.random_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };

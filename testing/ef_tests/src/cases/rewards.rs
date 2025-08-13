@@ -7,12 +7,11 @@ use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_epoch_processing::base::rewards_and_penalties::ProposerRewardCalculation;
 use state_processing::{
-    per_epoch_processing::{
-        altair,
-        base::{self, rewards_and_penalties::AttestationDelta, ValidatorStatuses},
-        Delta,
-    },
     EpochProcessingError,
+    per_epoch_processing::{
+        Delta, altair,
+        base::{self, ValidatorStatuses, rewards_and_penalties::AttestationDelta},
+    },
 };
 use types::BeaconState;
 

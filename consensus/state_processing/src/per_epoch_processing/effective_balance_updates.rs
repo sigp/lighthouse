@@ -1,5 +1,5 @@
 use super::errors::EpochProcessingError;
-use crate::per_epoch_processing::single_pass::{process_epoch_single_pass, SinglePassConfig};
+use crate::per_epoch_processing::single_pass::{SinglePassConfig, process_epoch_single_pass};
 use safe_arith::SafeArith;
 use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;

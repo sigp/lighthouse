@@ -2,7 +2,7 @@
 
 use eth2_wallet::Error as WalletError;
 use eth2_wallet::{Uuid, Wallet};
-use std::fs::{copy as copy_file, remove_file, File};
+use std::fs::{File, copy as copy_file, remove_file};
 use std::io;
 use std::path::{Path, PathBuf};
 

@@ -1,4 +1,4 @@
-use super::{rate_limiter::Quota, Protocol};
+use super::{Protocol, rate_limiter::Quota};
 use std::num::NonZeroU64;
 use std::{
     fmt::{Debug, Display},

@@ -9,7 +9,7 @@ mod reward_cache;
 mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
-pub use attestation::{earliest_attestation_validators, AttMaxCover, PROPOSER_REWARD_DENOMINATOR};
+pub use attestation::{AttMaxCover, PROPOSER_REWARD_DENOMINATOR, earliest_attestation_validators};
 pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
@@ -25,21 +25,22 @@ use crate::sync_aggregate_id::SyncAggregateId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
 use parking_lot::{RwLock, RwLockWriteGuard};
+use rand::rng;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
-    get_slashable_indices_modular, verify_exit, VerifySignatures,
+    VerifySignatures, get_slashable_indices_modular, verify_exit,
 };
 use state_processing::{SigVerifiedOp, VerifyOperation};
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::marker::PhantomData;
 use std::ptr;
 use types::{
-    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, AbstractExecPayload,
-    Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
+    AbstractExecPayload, Attestation, AttestationData, AttesterSlashing, BeaconState,
+    BeaconStateError, ChainSpec, Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate,
+    SyncCommitteeContribution, Validator, sync_aggregate::Error as SyncAggregateError,
+    typenum::Unsigned,
 };
 
 type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
@@ -612,7 +613,7 @@ impl<E: EthSpec> OperationPool<E> {
             |address_change| address_change.as_inner().clone(),
             usize::MAX,
         );
-        changes.shuffle(&mut thread_rng());
+        changes.shuffle(&mut rng());
         changes
     }
 
@@ -790,11 +791,11 @@ mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{
-        test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
+        BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee, test_spec,
     };
     use maplit::hashset;
     use state_processing::epoch_cache::initialize_epoch_cache;
-    use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
+    use state_processing::{VerifyOperation, common::get_attesting_indices_from_state};
     use std::collections::BTreeSet;
     use std::sync::{Arc, LazyLock};
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;

@@ -1,11 +1,11 @@
 use crate::{
+    JustifiedBalances,
     error::Error,
     proto_array::{
-        calculate_committee_fraction, InvalidationOperation, Iter, ProposerBoost, ProtoArray,
-        ProtoNode,
+        InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+        calculate_committee_fraction,
     },
     ssz_container::SszContainer,
-    JustifiedBalances,
 };
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -705,24 +705,22 @@ impl ProtoArrayForkChoice {
 
                     // If the invalid root was boosted, apply the weight to it and
                     // ancestors.
-                    if let Some(proposer_score_boost) = spec.proposer_score_boost {
-                        if self.proto_array.previous_proposer_boost.root == node.root {
-                            // Compute the score based upon the current balances. We can't rely on
-                            // the `previous_proposr_boost.score` since it is set to zero with an
-                            // invalid node.
-                            let proposer_score = calculate_committee_fraction::<E>(
-                                &self.balances,
-                                proposer_score_boost,
-                            )
-                            .ok_or("Failed to compute proposer boost")?;
-                            // Store the score we've applied here so it can be removed in
-                            // a later call to `apply_score_changes`.
-                            self.proto_array.previous_proposer_boost.score = proposer_score;
-                            // Apply this boost to this node.
-                            restored_weight = restored_weight
-                                .checked_add(proposer_score)
-                                .ok_or("Overflow when adding boost to weight")?;
-                        }
+                    if let Some(proposer_score_boost) = spec.proposer_score_boost
+                        && self.proto_array.previous_proposer_boost.root == node.root
+                    {
+                        // Compute the score based upon the current balances. We can't rely on
+                        // the `previous_proposr_boost.score` since it is set to zero with an
+                        // invalid node.
+                        let proposer_score =
+                            calculate_committee_fraction::<E>(&self.balances, proposer_score_boost)
+                                .ok_or("Failed to compute proposer boost")?;
+                        // Store the score we've applied here so it can be removed in
+                        // a later call to `apply_score_changes`.
+                        self.proto_array.previous_proposer_boost.score = proposer_score;
+                        // Apply this boost to this node.
+                        restored_weight = restored_weight
+                            .checked_add(proposer_score)
+                            .ok_or("Overflow when adding boost to weight")?;
                     }
 
                     // Add the restored weight to the node and all ancestors.
@@ -864,7 +862,7 @@ impl ProtoArrayForkChoice {
     pub fn iter_block_roots(
         &self,
         block_root: &Hash256,
-    ) -> impl Iterator<Item = (Hash256, Slot)> + use<'_> {
+    ) -> impl Iterator<Item = (Hash256, Slot)> + '_ {
         self.proto_array.iter_block_roots(block_root)
     }
 

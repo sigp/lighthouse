@@ -3,10 +3,10 @@
 
 use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
 pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest};
+use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
 use super::range_sync::ByRangeRequestType;
-use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 #[cfg(test)]
@@ -54,6 +54,9 @@ use types::{
 
 pub mod custody;
 mod requests;
+
+/// Max retries for block components after which we fail the batch.
+pub const MAX_COLUMN_RETRIES: usize = 3;
 
 #[derive(Debug)]
 pub enum RpcEvent<T> {
@@ -435,19 +438,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// the batch.
     pub fn retry_columns_by_range(
         &mut self,
-        request_id: Id,
+        id: Id,
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
         request: BlocksByRangeRequest,
         failed_columns: &HashSet<ColumnIndex>,
     ) -> Result<(), String> {
-        let Some(requester) = self.components_by_range_requests.keys().find_map(|r| {
-            if r.id == request_id {
-                Some(r.requester)
-            } else {
-                None
-            }
-        }) else {
+        let Some(requester) = self
+            .components_by_range_requests
+            .keys()
+            .find_map(|r| if r.id == id { Some(r.requester) } else { None })
+        else {
             return Err("request id not present".to_string());
         };
 
@@ -455,6 +456,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         debug!(
             ?failed_columns,
+            ?id,
+            ?requester,
             "Retrying only failed column requests from other peers"
         );
 
@@ -469,10 +472,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|e| format!("{:?}", e))?;
 
         // Reuse the id for the request that received partially correct responses
-        let id = ComponentsByRangeRequestId {
-            id: request_id,
-            requester,
-        };
+        let id = ComponentsByRangeRequestId { id, requester };
 
         let data_column_requests = columns_by_range_peers_to_request
             .into_iter()
@@ -683,18 +683,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             match range_block_component {
                 RangeBlockComponent::Block(req_id, resp) => resp.and_then(|(blocks, _)| {
                     request.add_blocks(req_id, blocks).map_err(|e| {
-                        RpcResponseError::BlockComponentCouplingError(CouplingError {
-                            msg: e,
-                            column_and_peer: None,
-                        })
+                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
+                            e,
+                        ))
                     })
                 }),
                 RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|(blobs, _)| {
                     request.add_blobs(req_id, blobs).map_err(|e| {
-                        RpcResponseError::BlockComponentCouplingError(CouplingError {
-                            msg: e,
-                            column_and_peer: None,
-                        })
+                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
+                            e,
+                        ))
                     })
                 }),
                 RangeBlockComponent::CustodyColumns(req_id, resp) => {
@@ -702,10 +700,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         request
                             .add_custody_columns(req_id, custody_columns)
                             .map_err(|e| {
-                                RpcResponseError::BlockComponentCouplingError(CouplingError {
-                                    msg: e,
-                                    column_and_peer: None,
-                                })
+                                RpcResponseError::BlockComponentCouplingError(
+                                    CouplingError::InternalError(e),
+                                )
                             })
                     })
                 }
@@ -715,10 +712,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Some(Err(e));
         }
 
-        if let Some(blocks_result) = entry.get_mut().responses(&self.chain.spec) {
-            if blocks_result.is_ok() {
-                // remove the entry only if it coupled successfully with
-                // no errors
+        let range_req = entry.get_mut();
+        if let Some(blocks_result) = range_req.responses(&self.chain.spec) {
+            if let Err(CouplingError::DataColumnPeerFailure {
+                action: _,
+                error,
+                faulty_peers: _,
+                exceeded_retries,
+            }) = &blocks_result
+            {
+                // Remove the entry if it's a peer failure **and** retry counter is exceeded
+                if *exceeded_retries {
+                    debug!(
+                        entry=?entry.key(),
+                        msg = error,
+                        "Request exceeded max retries, failing batch"
+                    );
+                    entry.remove();
+                };
+            } else {
+                // also remove the entry only if it coupled successfully
+                // or if it isn't a column peer failure.
                 entry.remove();
             }
             // If the request is finished, dequeue everything
@@ -779,7 +793,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             BlockProcessStatus::ExecutionValidated { .. } => {
                 return Ok(LookupRequestResult::NoRequestNeeded(
                     "block execution validated",
-                ))
+                ));
             }
         }
 

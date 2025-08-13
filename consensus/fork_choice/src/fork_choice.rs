@@ -17,10 +17,10 @@ use std::time::Duration;
 use superstruct::superstruct;
 use tracing::{debug, instrument, warn};
 use types::{
-    consts::bellatrix::INTERVALS_PER_SLOT, AbstractExecPayload, AttestationShufflingId,
-    AttesterSlashingRef, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, ExecPayload, ExecutionBlockHash, FixedBytesExtended, Hash256,
-    IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
+    FixedBytesExtended, Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::bellatrix::INTERVALS_PER_SLOT,
 };
 
 #[derive(Debug)]
@@ -870,7 +870,7 @@ where
                             block_slot: block.slot(),
                             block_root,
                             payload_verification_status,
-                        })
+                        });
                     }
                 }
             }

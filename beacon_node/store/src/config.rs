@@ -7,8 +7,8 @@ use ssz_derive::{Decode, Encode};
 use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use strum::{Display, EnumString, EnumVariantNames};
-use types::non_zero_usize::new_non_zero_usize;
 use types::EthSpec;
+use types::non_zero_usize::new_non_zero_usize;
 use zstd::{Decoder, Encoder};
 
 #[cfg(all(feature = "redb", not(feature = "leveldb")))]

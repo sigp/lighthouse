@@ -1,10 +1,11 @@
 use crate::checks::epoch_delay;
 use kzg::trusted_setup::get_trusted_setup;
 use node_test_rig::{
+    ClientConfig, ClientGenesis, LocalBeaconNode, LocalExecutionNode, LocalValidatorClient,
+    MockExecutionConfig, MockServerConfig, ValidatorConfig, ValidatorFiles,
     environment::RuntimeContext,
-    eth2::{types::StateId, BeaconNodeHttpClient},
-    testing_client_config, ClientConfig, ClientGenesis, LocalBeaconNode, LocalExecutionNode,
-    LocalValidatorClient, MockExecutionConfig, MockServerConfig, ValidatorConfig, ValidatorFiles,
+    eth2::{BeaconNodeHttpClient, types::StateId},
+    testing_client_config,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;

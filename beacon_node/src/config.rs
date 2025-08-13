@@ -1,12 +1,12 @@
-use account_utils::{read_input_from_user, STDIN_INPUTS_FLAG};
+use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
+use beacon_chain::TrustedSetup;
 use beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
-    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
-    DEFAULT_RE_ORG_PARENT_THRESHOLD, INVALID_HOLESKY_BLOCK_ROOT,
+    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
+    DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
 };
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
-use beacon_chain::TrustedSetup;
-use clap::{parser::ValueSource, ArgMatches, Id};
+use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
@@ -15,7 +15,7 @@ use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
 use http_api::TlsConfig;
 use lighthouse_network::ListenAddress;
-use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
+use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
 use sensitive_url::SensitiveUrl;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -494,14 +494,15 @@ pub fn get_config<E: EthSpec>(
     );
 
     // Only append network config bootnodes if discovery is not disabled
-    if !client_config.network.disable_discovery {
-        if let Some(boot_nodes) = &eth2_network_config.boot_enr {
-            client_config
-                .network
-                .boot_nodes_enr
-                .extend_from_slice(boot_nodes)
-        }
+    if !client_config.network.disable_discovery
+        && let Some(boot_nodes) = &eth2_network_config.boot_enr
+    {
+        client_config
+            .network
+            .boot_nodes_enr
+            .extend_from_slice(boot_nodes)
     }
+
     client_config.chain.checkpoint_sync_url_timeout =
         clap_utils::parse_required::<u64>(cli_args, "checkpoint-sync-url-timeout")?;
 
@@ -928,18 +929,18 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
             IpAddr::V4(v4_addr) => match &maybe_ipv4 {
                 Some(first_ipv4_addr) => {
                     return Err(format!(
-                                "When setting the --listen-address option twice, use an IPv4 address and an IPv6 address. \
+                        "When setting the --listen-address option twice, use an IPv4 address and an IPv6 address. \
                                 Got two IPv4 addresses {first_ipv4_addr} and {v4_addr}"
-                            ));
+                    ));
                 }
                 None => maybe_ipv4 = Some(v4_addr),
             },
             IpAddr::V6(v6_addr) => match &maybe_ipv6 {
                 Some(first_ipv6_addr) => {
                     return Err(format!(
-                                "When setting the --listen-address option twice, use an IPv4 address and an IPv6 address. \
+                        "When setting the --listen-address option twice, use an IPv4 address and an IPv6 address. \
                                 Got two IPv6 addresses {first_ipv6_addr} and {v6_addr}"
-                            ));
+                    ));
                 }
                 None => maybe_ipv6 = Some(v6_addr),
             },
@@ -1012,7 +1013,9 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
         (None, Some(ipv6)) => {
             // A single ipv6 address was provided. Set the ports
             if cli_args.value_source("port6") == Some(ValueSource::CommandLine) {
-                warn!("When listening only over IPv6, use the --port flag. The value of --port6 will be ignored.");
+                warn!(
+                    "When listening only over IPv6, use the --port flag. The value of --port6 will be ignored."
+                );
             }
 
             // If we are only listening on ipv6 and the user has specified --port6, lets just use
@@ -1026,11 +1029,15 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
                 .unwrap_or(port);
 
             if maybe_disc6_port.is_some() {
-                warn!("When listening only over IPv6, use the --discovery-port flag. The value of --discovery-port6 will be ignored.")
+                warn!(
+                    "When listening only over IPv6, use the --discovery-port flag. The value of --discovery-port6 will be ignored."
+                )
             }
 
             if maybe_quic6_port.is_some() {
-                warn!("When listening only over IPv6, use the --quic-port flag. The value of --quic-port6 will be ignored.")
+                warn!(
+                    "When listening only over IPv6, use the --quic-port flag. The value of --quic-port6 will be ignored."
+                )
             }
 
             // use zero ports if required. If not, use the specific udp port. If none given, use
@@ -1248,7 +1255,11 @@ pub fn set_network_config(
             })
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
         if config.trusted_peers.len() >= config.target_peers {
-            warn!( target_peers = config.target_peers, trusted_peers = config.trusted_peers.len(),"More trusted peers than the target peer limit. This will prevent efficient peer selection criteria.");
+            warn!(
+                target_peers = config.target_peers,
+                trusted_peers = config.trusted_peers.len(),
+                "More trusted peers than the target peer limit. This will prevent efficient peer selection criteria."
+            );
         }
     }
 
@@ -1378,7 +1389,7 @@ pub fn set_network_config(
                     let addr_str = format!("{addr}:{port}");
                     match addr_str.to_socket_addrs() {
                         Err(_e) => {
-                            return Err(format!("Failed to parse or resolve address {addr}."))
+                            return Err(format!("Failed to parse or resolve address {addr}."));
                         }
                         Ok(resolved_addresses) => {
                             for socket_addr in resolved_addresses {

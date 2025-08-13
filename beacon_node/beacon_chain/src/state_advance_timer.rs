@@ -15,17 +15,17 @@
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
 };
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, sleep_until, Instant};
-use tracing::{debug, debug_span, error, instrument, warn, Instrument};
+use tokio::time::{Instant, sleep, sleep_until};
+use tracing::{Instrument, debug, debug_span, error, instrument, warn};
 use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
@@ -241,14 +241,14 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                 beacon_chain.task_executor.clone().spawn_blocking(
                     move || {
                         // Signal block proposal for the next slot (if it happens to be waiting).
-                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
-                            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
-                                warn!(
-                                    error = ?e,
-                                    slot = %next_slot,
-                                    "Error signalling fork choice waiter"
-                                );
-                            }
+                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx
+                            && let Err(e) = tx.notify_fork_choice_complete(next_slot)
+                        {
+                            warn!(
+                                error = ?e,
+                                slot = %next_slot,
+                                "Error signalling fork choice waiter"
+                            );
                         }
                     },
                     "fork_choice_advance_signal_tx",

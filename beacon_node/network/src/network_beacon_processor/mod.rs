@@ -1,10 +1,10 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
-use beacon_chain::blob_verification::{observe_gossip_blob, GossipBlobError};
+use beacon_chain::blob_verification::{GossipBlobError, observe_gossip_blob};
 use beacon_chain::block_verification_types::RpcBlock;
-use beacon_chain::data_column_verification::{observe_gossip_data_column, GossipDataColumnError};
+use beacon_chain::data_column_verification::{GossipDataColumnError, observe_gossip_data_column};
 use beacon_chain::fetch_blobs::{
-    fetch_and_process_engine_blobs, EngineGetBlobsOutput, FetchEngineBlobError,
+    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
 };
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
@@ -13,14 +13,14 @@ use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
 };
+use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
     LightClientUpdatesByRangeRequest,
 };
-use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::{
-    rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
+    rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
 use rand::prelude::SliceRandom;
 use std::path::PathBuf;
@@ -922,7 +922,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Permute the blobs and split them into batches.
                 // The hope is that we won't need to publish some blobs because we will receive them
                 // on gossip from other nodes.
-                blobs.shuffle(&mut rand::thread_rng());
+                blobs.shuffle(&mut rand::rng());
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let mut publish_count = 0usize;
@@ -1004,7 +1004,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 // Permute the columns and split them into batches.
                 // The hope is that we won't need to publish some columns because we will receive them
                 // on gossip from other nodes.
-                data_columns_to_publish.shuffle(&mut rand::thread_rng());
+                data_columns_to_publish.shuffle(&mut rand::rng());
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let blob_publication_batches = chain.config.blob_publication_batches;

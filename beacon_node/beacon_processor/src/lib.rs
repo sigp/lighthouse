@@ -44,8 +44,8 @@ use crate::work_reprocessing_queue::{
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
-use logging::crit;
 use logging::TimeLatch;
+use logging::crit;
 use parking_lot::Mutex;
 pub use scheduler::work_reprocessing_queue;
 use serde::{Deserialize, Serialize};
@@ -69,8 +69,8 @@ use types::{
 };
 use work_reprocessing_queue::IgnoredRpcBlock;
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock,
-    QueuedUnaggregate, ReadyWork,
+    QueuedAggregate, QueuedLightClientUpdate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler,
 };
 
 mod metrics;

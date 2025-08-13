@@ -1,8 +1,8 @@
 use crate::{
+    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, PersistedForkChoiceStoreV17,
     beacon_chain::FORK_CHOICE_DB_KEY,
     persisted_fork_choice::{PersistedForkChoiceV17, PersistedForkChoiceV28},
     summaries_dag::{DAGStateSummary, StateSummariesDAG},
-    BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, PersistedForkChoiceStoreV17,
 };
 use fork_choice::{ForkChoice, ForkChoiceStore, ResetPayloadStatuses};
 use std::sync::Arc;

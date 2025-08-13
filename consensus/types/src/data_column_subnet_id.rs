@@ -1,6 +1,6 @@
 //! Identifies each data column subnet by an integer identifier.
-use crate::data_column_sidecar::ColumnIndex;
 use crate::ChainSpec;
+use crate::data_column_sidecar::ColumnIndex;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};

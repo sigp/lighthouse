@@ -32,7 +32,6 @@ jobs:
             matrix:
                 arch: [aarch64-unknown-linux-gnu,
                        x86_64-unknown-linux-gnu,
-                       x86_64-apple-darwin,
                        aarch64-apple-darwin,
                        x86_64-windows]
                 include:
@@ -41,9 +40,6 @@ jobs:
                         profile: maxperf
                     -   arch: x86_64-unknown-linux-gnu
                         runner: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "release", "large"]') || 'ubuntu-latest'  }}
-                        profile: maxperf
-                    -   arch: x86_64-apple-darwin
-                        runner: macos-13
                         profile: maxperf
                     -   arch: aarch64-apple-darwin
                         runner: macos-14
@@ -93,10 +89,6 @@ jobs:
             - name: Move cross-compiled binary
               if:  contains(matrix.arch, 'unknown-linux-gnu')
               run: mv target/${{ matrix.arch }}/${{ matrix.profile }}/lighthouse ~/.cargo/bin/lighthouse
-
-            - name: Build Lighthouse for x86_64-apple-darwin
-              if:   matrix.arch == 'x86_64-apple-darwin'
-              run:  cargo install --path lighthouse --force --locked --features portable,gnosis --profile ${{ matrix.profile }}
 
             - name: Build Lighthouse for aarch64-apple-darwin
               if:   matrix.arch == 'aarch64-apple-darwin'
@@ -244,7 +236,6 @@ jobs:
 
                   | System | Architecture | Binary | PGP Signature |
                   |:---:|:---:|:---:|:---|
-                  | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/apple/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/apple" ><img src="https://cdn.simpleicons.org/apple" width="32" alt="Apple logo">  </picture> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-apple-darwin.tar.gz.asc) |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/apple/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/apple" ><img src="https://cdn.simpleicons.org/apple" width="32" alt="Apple logo">  </picture> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-apple-darwin.tar.gz.asc) |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/linux/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/linux/black" ><img src="https://cdn.simpleicons.org/linux" width="32" alt="Linux logo"> </picture> | x86_64 | [lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-x86_64-unknown-linux-gnu.tar.gz.asc) |
                   | <picture> <source media="(prefers-color-scheme: dark)" srcset="https://cdn.simpleicons.org/raspberrypi/white" > <source media="(prefers-color-scheme: light)" srcset="https://cdn.simpleicons.org/raspberrypi/black" > <img src="https://cdn.simpleicons.org/raspberrypi" width="32" alt="Raspberrypi logo"> </picture> | aarch64 | [lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz) | [PGP Signature](https://github.com/${{ env.REPO_NAME }}/releases/download/${{ env.VERSION }}/lighthouse-${{ env.VERSION }}-aarch64-unknown-linux-gnu.tar.gz.asc) |

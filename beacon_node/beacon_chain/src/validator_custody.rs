@@ -6,7 +6,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::atomic::{AtomicU64, Ordering},
 };
-use types::data_column_custody_group::{compute_columns_for_custody_group, CustodyIndex};
+use types::data_column_custody_group::{CustodyIndex, compute_columns_for_custody_group};
 use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
 
 /// A delay before making the CGC change effective to the data availability checker.
@@ -283,15 +283,14 @@ impl<E: EthSpec> CustodyContext<E> {
     ///
     /// See also: [`Self::num_of_custody_groups_to_sample`].
     fn custody_group_count_at_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
-        let custody_group_count = if self.current_is_supernode {
+        if self.current_is_supernode {
             spec.number_of_custody_groups
         } else {
             self.validator_registrations
                 .read()
                 .custody_requirement_at_epoch(epoch)
                 .unwrap_or(spec.custody_requirement)
-        };
-        custody_group_count
+        }
     }
 
     /// Returns the count of custody groups this node must _sample_ for a block at `epoch` to import.
@@ -360,8 +359,8 @@ impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
 
 #[cfg(test)]
 mod tests {
+    use rand::rng;
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
     use types::MainnetEthSpec;
 
     use super::*;
@@ -627,7 +626,7 @@ mod tests {
 
         // initialise ordered columns
         let mut all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
-        all_custody_groups_ordered.shuffle(&mut thread_rng());
+        all_custody_groups_ordered.shuffle(&mut rng());
 
         custody_context
             .init_ordered_data_columns_from_custody_groups(
