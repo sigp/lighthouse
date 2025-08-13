@@ -1,10 +1,11 @@
 use kzg::{
-    Blob as KzgBlob, Bytes48, Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs,
-    Error as KzgError, Kzg, CELLS_PER_EXT_BLOB,
+    Blob as KzgBlob, Bytes48, CELLS_PER_EXT_BLOB, Cell as KzgCell, CellRef as KzgCellRef,
+    CellsAndKzgProofs, Error as KzgError, Kzg,
 };
 use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
+use tracing::instrument;
 use types::beacon_block_body::KzgCommitments;
 use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
@@ -163,6 +164,7 @@ pub fn verify_kzg_proof<E: EthSpec>(
 }
 
 /// Build data column sidecars from a signed beacon block and its blobs.
+#[instrument(skip_all, level = "debug", fields(blob_count = blobs.len()))]
 pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     blobs: &[&Blob<E>],
     cell_proofs: Vec<KzgProof>,
@@ -421,10 +423,11 @@ mod test {
     use bls::Signature;
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
-    use kzg::{trusted_setup::get_trusted_setup, Kzg, KzgCommitment, TrustedSetup};
+    use kzg::{Kzg, KzgCommitment, TrustedSetup, trusted_setup::get_trusted_setup};
     use types::{
-        beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec,
-        EmptyBlock, EthSpec, ForkName, FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+        BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec, EmptyBlock, EthSpec, ForkName,
+        FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+        beacon_block_body::KzgCommitments,
     };
 
     type E = MainnetEthSpec;

@@ -1,5 +1,5 @@
 use crate::version::inconsistent_fork_rejection;
-use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
+use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
 use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlobIndicesQuery;
@@ -419,9 +419,9 @@ impl BlockId {
                 },
             )
         } else {
-            Err(warp_utils::reject::custom_server_error(
-                format!("Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found.")
-            ))
+            Err(warp_utils::reject::custom_server_error(format!(
+                "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found."
+            )))
         }
     }
 }

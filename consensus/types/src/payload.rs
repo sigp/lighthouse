@@ -49,6 +49,7 @@ pub trait ExecPayload<E: EthSpec>: Debug + Clone + PartialEq + Hash + TreeHash +
 }
 
 /// `ExecPayload` functionality the requires ownership.
+#[cfg(feature = "arbitrary")]
 pub trait OwnedExecPayload<E: EthSpec>:
     ExecPayload<E>
     + Default
@@ -61,7 +62,7 @@ pub trait OwnedExecPayload<E: EthSpec>:
     + 'static
 {
 }
-
+#[cfg(feature = "arbitrary")]
 impl<E: EthSpec, P> OwnedExecPayload<E> for P where
     P: ExecPayload<E>
         + Default
@@ -71,6 +72,25 @@ impl<E: EthSpec, P> OwnedExecPayload<E> for P where
         + Decode
         + TestRandom
         + for<'a> arbitrary::Arbitrary<'a>
+        + 'static
+{
+}
+
+/// `ExecPayload` functionality the requires ownership.
+#[cfg(not(feature = "arbitrary"))]
+pub trait OwnedExecPayload<E: EthSpec>:
+    ExecPayload<E> + Default + Serialize + DeserializeOwned + Encode + Decode + TestRandom + 'static
+{
+}
+#[cfg(not(feature = "arbitrary"))]
+impl<E: EthSpec, P> OwnedExecPayload<E> for P where
+    P: ExecPayload<E>
+        + Default
+        + Serialize
+        + DeserializeOwned
+        + Encode
+        + Decode
+        + TestRandom
         + 'static
 {
 }
@@ -135,11 +155,14 @@ pub trait AbstractExecPayload<E: EthSpec>:
             TestRandom,
             TreeHash,
             Derivative,
-            arbitrary::Arbitrary,
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
         ssz(struct_behaviour = "transparent"),
     ),
     ref_attributes(
@@ -152,10 +175,14 @@ pub trait AbstractExecPayload<E: EthSpec>:
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct FullPayload<E: EthSpec> {
     #[superstruct(
@@ -278,18 +305,10 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
             FullPayload::Bellatrix(_) => Err(Error::IncorrectStateVariant),
-            FullPayload::Capella(ref inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
-            FullPayload::Deneb(ref inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
-            FullPayload::Electra(ref inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
-            FullPayload::Fulu(ref inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
+            FullPayload::Capella(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
+            FullPayload::Deneb(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
+            FullPayload::Electra(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
+            FullPayload::Fulu(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
         }
     }
 
@@ -298,9 +317,9 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
             FullPayload::Bellatrix(_) | FullPayload::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
-            FullPayload::Deneb(ref inner) => Ok(inner.execution_payload.blob_gas_used),
-            FullPayload::Electra(ref inner) => Ok(inner.execution_payload.blob_gas_used),
-            FullPayload::Fulu(ref inner) => Ok(inner.execution_payload.blob_gas_used),
+            FullPayload::Deneb(inner) => Ok(inner.execution_payload.blob_gas_used),
+            FullPayload::Electra(inner) => Ok(inner.execution_payload.blob_gas_used),
+            FullPayload::Fulu(inner) => Ok(inner.execution_payload.blob_gas_used),
         }
     }
 
@@ -496,11 +515,14 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
             TestRandom,
             TreeHash,
             Derivative,
-            arbitrary::Arbitrary
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
         ssz(struct_behaviour = "transparent"),
     ),
     ref_attributes(
@@ -512,10 +534,14 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
-#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BlindedPayload<E: EthSpec> {
     #[superstruct(
@@ -616,14 +642,10 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
             BlindedPayload::Bellatrix(_) => Err(Error::IncorrectStateVariant),
-            BlindedPayload::Capella(ref inner) => {
-                Ok(inner.execution_payload_header.withdrawals_root)
-            }
-            BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.withdrawals_root),
-            BlindedPayload::Electra(ref inner) => {
-                Ok(inner.execution_payload_header.withdrawals_root)
-            }
-            BlindedPayload::Fulu(ref inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Capella(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Deneb(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Electra(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Fulu(inner) => Ok(inner.execution_payload_header.withdrawals_root),
         }
     }
 
@@ -632,9 +654,9 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
             BlindedPayload::Bellatrix(_) | BlindedPayload::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
-            BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
-            BlindedPayload::Electra(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
-            BlindedPayload::Fulu(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
+            BlindedPayload::Deneb(inner) => Ok(inner.execution_payload_header.blob_gas_used),
+            BlindedPayload::Electra(inner) => Ok(inner.execution_payload_header.blob_gas_used),
+            BlindedPayload::Fulu(inner) => Ok(inner.execution_payload_header.blob_gas_used),
         }
     }
 

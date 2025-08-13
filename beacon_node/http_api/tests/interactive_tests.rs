@@ -1,10 +1,10 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use beacon_chain::{
+    ChainConfig,
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
     test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
-    ChainConfig,
 };
-use beacon_processor::{work_reprocessing_queue::ReprocessQueueMessage, Work, WorkEvent};
+use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};

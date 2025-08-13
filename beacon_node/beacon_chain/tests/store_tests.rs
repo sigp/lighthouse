@@ -7,20 +7,21 @@ use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
-    get_kzg, mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
-    BlockStrategy, DiskHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
+    mock_execution_layer_from_parts, test_spec,
 };
 use beacon_chain::{
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
+    NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
-    migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
-    BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
+    migrate::MigratorConfig,
 };
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
-use rand::rngs::StdRng;
 use rand::Rng;
+use rand::rngs::StdRng;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::{state_advance::complete_state_advance, BlockReplayer};
+use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -28,13 +29,13 @@ use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
-use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
+use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
+    BlobInfo, DBColumn, HotColdDB, StoreConfig,
     hdiff::HierarchyConfig,
     iter::{BlockRootsIterator, StateRootsIterator},
-    BlobInfo, DBColumn, HotColdDB, StoreConfig,
 };
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use tracing::info;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
@@ -297,7 +298,7 @@ async fn randomised_skips() {
     let mut head_slot = 0;
 
     for slot in 1..=num_slots {
-        if rng.gen_bool(0.8) {
+        if rng.random_bool(0.8) {
             harness
                 .extend_chain(
                     1,
@@ -410,13 +411,15 @@ async fn randao_genesis_storage() {
         .await;
 
     // Check that genesis value is still present
-    assert!(harness
-        .chain
-        .head_snapshot()
-        .beacon_state
-        .randao_mixes()
-        .iter()
-        .any(|x| *x == genesis_value));
+    assert!(
+        harness
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .randao_mixes()
+            .iter()
+            .any(|x| *x == genesis_value)
+    );
 
     // Then upon adding one more block, it isn't
     harness.advance_slot();
@@ -427,13 +430,15 @@ async fn randao_genesis_storage() {
             AttestationStrategy::AllValidators,
         )
         .await;
-    assert!(!harness
-        .chain
-        .head_snapshot()
-        .beacon_state
-        .randao_mixes()
-        .iter()
-        .any(|x| *x == genesis_value));
+    assert!(
+        !harness
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .randao_mixes()
+            .iter()
+            .any(|x| *x == genesis_value)
+    );
 
     check_finalization(&harness, num_slots);
     check_split_slot(&harness, store);
@@ -2238,7 +2243,15 @@ async fn weak_subjectivity_sync_easy() {
     let num_initial_slots = E::slots_per_epoch() * 11;
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
     let slots = (1..num_initial_slots).map(Slot::new).collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+}
+
+#[tokio::test]
+async fn weak_subjectivity_sync_single_block_batches() {
+    let num_initial_slots = E::slots_per_epoch() * 11;
+    let checkpoint_slot = Slot::new(E::slots_per_epoch() * 9);
+    let slots = (1..num_initial_slots).map(Slot::new).collect();
+    weak_subjectivity_sync_test(slots, checkpoint_slot, Some(1)).await
 }
 
 #[tokio::test]
@@ -2252,7 +2265,7 @@ async fn weak_subjectivity_sync_unaligned_advanced_checkpoint() {
             slot <= checkpoint_slot - 3 || slot > checkpoint_slot
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
 }
 
 #[tokio::test]
@@ -2266,7 +2279,7 @@ async fn weak_subjectivity_sync_unaligned_unadvanced_checkpoint() {
             slot <= checkpoint_slot || slot > checkpoint_slot + 3
         })
         .collect();
-    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
 }
 
 // Regression test for https://github.com/sigp/lighthouse/issues/4817
@@ -2278,10 +2291,27 @@ async fn weak_subjectivity_sync_skips_at_genesis() {
     let end_slot = E::slots_per_epoch() * 4;
     let slots = (start_slot..end_slot).map(Slot::new).collect();
     let checkpoint_slot = Slot::new(E::slots_per_epoch() * 2);
-    weak_subjectivity_sync_test(slots, checkpoint_slot).await
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
 }
 
-async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
+// Checkpoint sync from the genesis state.
+//
+// This is a regression test for a bug we had involving the storage of the genesis state in the hot
+// DB.
+#[tokio::test]
+async fn weak_subjectivity_sync_from_genesis() {
+    let start_slot = 1;
+    let end_slot = E::slots_per_epoch() * 2;
+    let slots = (start_slot..end_slot).map(Slot::new).collect();
+    let checkpoint_slot = Slot::new(0);
+    weak_subjectivity_sync_test(slots, checkpoint_slot, None).await
+}
+
+async fn weak_subjectivity_sync_test(
+    slots: Vec<Slot>,
+    checkpoint_slot: Slot,
+    backfill_batch_size: Option<usize>,
+) {
     // Build an initial chain on one harness, representing a synced node with full history.
     let num_final_blocks = E::slots_per_epoch() * 2;
 
@@ -2367,7 +2397,15 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
+    let chain_config = ChainConfig {
+        // Set reconstruct_historic_states to true from the start in the genesis case. This makes
+        // some of the later checks more uniform across the genesis/non-genesis cases.
+        reconstruct_historic_states: checkpoint_slot == 0,
+        ..ChainConfig::default()
+    };
+
     let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
+        .chain_config(chain_config)
         .store(store.clone())
         .custom_spec(test_spec::<E>().into())
         .task_executor(harness.chain.task_executor.clone())
@@ -2381,7 +2419,6 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         .store_migrator_config(MigratorConfig::default().blocking())
         .slot_clock(slot_clock)
         .shutdown_sender(shutdown_tx)
-        .chain_config(ChainConfig::default())
         .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
         .rng(Box::new(StdRng::seed_from_u64(42)))
@@ -2449,96 +2486,145 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
         assert_eq!(state.update_tree_hash_cache().unwrap(), state_root);
     }
 
-    // Forwards iterator from 0 should fail as we lack blocks.
-    assert!(matches!(
-        beacon_chain.forwards_iter_block_roots(Slot::new(0)),
-        Err(BeaconChainError::HistoricalBlockOutOfRange { .. })
-    ));
-
-    // Simulate processing of a `StatusMessage` with an older finalized epoch by calling
-    // `block_root_at_slot` with an old slot for which we don't know the block root. It should
-    // return `None` rather than erroring.
-    assert_eq!(
-        beacon_chain
-            .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
-            .unwrap(),
-        None
-    );
-
-    // Simulate querying the API for a historic state that is unknown. It should also return
-    // `None` rather than erroring.
-    assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None);
-
-    // Supply blocks backwards to reach genesis. Omit the genesis block to check genesis handling.
-    let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
-        .iter()
-        .filter(|s| s.beacon_block.slot() != 0)
-        .map(|s| s.beacon_block.clone())
-        .collect::<Vec<_>>();
-
-    let mut available_blocks = vec![];
-    for blinded in historical_blocks {
-        let block_root = blinded.canonical_root();
-        let full_block = harness
-            .chain
-            .get_block(&block_root)
-            .await
-            .expect("should get block")
-            .expect("should get block");
-
-        if let MaybeAvailableBlock::Available(block) = harness
-            .chain
-            .data_availability_checker
-            .verify_kzg_for_rpc_block(
-                harness.build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
-            )
-            .expect("should verify kzg")
-        {
-            available_blocks.push(block);
-        }
+    if checkpoint_slot != 0 {
+        // Forwards iterator from 0 should fail as we lack blocks (unless checkpoint slot is 0).
+        assert!(matches!(
+            beacon_chain.forwards_iter_block_roots(Slot::new(0)),
+            Err(BeaconChainError::HistoricalBlockOutOfRange { .. })
+        ));
+    } else {
+        assert_eq!(
+            beacon_chain
+                .forwards_iter_block_roots(Slot::new(0))
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap(),
+            (wss_block_root, Slot::new(0))
+        );
     }
 
-    // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
-    // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
-    let mut batch_with_invalid_first_block =
-        available_blocks.iter().map(clone_block).collect::<Vec<_>>();
-    batch_with_invalid_first_block[0] = {
-        let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
-        let mut corrupt_block = (*block).clone();
-        *corrupt_block.signature_mut() = Signature::empty();
-        AvailableBlock::__new_for_testing(block_root, Arc::new(corrupt_block), data, Arc::new(spec))
-    };
+    // The checks in this block only make sense if some data is missing as a result of the
+    // checkpoint sync, i.e. if we are not just checkpoint syncing from genesis.
+    if checkpoint_slot != 0 {
+        // Simulate processing of a `StatusMessage` with an older finalized epoch by calling
+        // `block_root_at_slot` with an old slot for which we don't know the block root. It should
+        // return `None` rather than erroring.
+        assert_eq!(
+            beacon_chain
+                .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+                .unwrap(),
+            None
+        );
 
-    // Importing the invalid batch should error.
-    assert!(matches!(
-        beacon_chain
-            .import_historical_block_batch(batch_with_invalid_first_block)
-            .unwrap_err(),
-        HistoricalBlockError::InvalidSignature
-    ));
+        // Simulate querying the API for a historic state that is unknown. It should also return
+        // `None` rather than erroring.
+        assert_eq!(beacon_chain.state_root_at_slot(Slot::new(1)).unwrap(), None);
 
-    let available_blocks_slots = available_blocks
-        .iter()
-        .map(|block| (block.block().slot(), block.block().canonical_root()))
-        .collect::<Vec<_>>();
-    info!(
-        ?available_blocks_slots,
-        "wss_block_slot" = wss_block.slot().as_usize(),
-        "Importing historical block batch"
-    );
+        // Supply blocks backwards to reach genesis. Omit the genesis block to check genesis handling.
+        let historical_blocks = chain_dump[..wss_block.slot().as_usize()]
+            .iter()
+            .filter(|s| s.beacon_block.slot() != 0)
+            .map(|s| s.beacon_block.clone())
+            .collect::<Vec<_>>();
 
-    // Importing the batch with valid signatures should succeed.
-    let available_blocks_dup = available_blocks.iter().map(clone_block).collect::<Vec<_>>();
-    assert_eq!(beacon_chain.store.get_oldest_block_slot(), wss_block.slot());
-    beacon_chain
-        .import_historical_block_batch(available_blocks_dup)
-        .unwrap();
+        let mut available_blocks = vec![];
+        for blinded in historical_blocks {
+            let block_root = blinded.canonical_root();
+            let full_block = harness
+                .chain
+                .get_block(&block_root)
+                .await
+                .expect("should get block")
+                .expect("should get block");
+
+            if let MaybeAvailableBlock::Available(block) = harness
+                .chain
+                .data_availability_checker
+                .verify_kzg_for_rpc_block(
+                    harness
+                        .build_rpc_block_from_store_blobs(Some(block_root), Arc::new(full_block)),
+                )
+                .expect("should verify kzg")
+            {
+                available_blocks.push(block);
+            }
+        }
+
+        // Corrupt the signature on the 1st block to ensure that the backfill processor is checking
+        // signatures correctly. Regression test for https://github.com/sigp/lighthouse/pull/5120.
+        let mut batch_with_invalid_first_block =
+            available_blocks.iter().map(clone_block).collect::<Vec<_>>();
+        batch_with_invalid_first_block[0] = {
+            let (block_root, block, data) = clone_block(&available_blocks[0]).deconstruct();
+            let mut corrupt_block = (*block).clone();
+            *corrupt_block.signature_mut() = Signature::empty();
+            AvailableBlock::__new_for_testing(
+                block_root,
+                Arc::new(corrupt_block),
+                data,
+                Arc::new(spec),
+            )
+        };
+
+        // Importing the invalid batch should error.
+        assert!(matches!(
+            beacon_chain
+                .import_historical_block_batch(batch_with_invalid_first_block)
+                .unwrap_err(),
+            HistoricalBlockError::InvalidSignature
+        ));
+        assert_eq!(beacon_chain.store.get_oldest_block_slot(), wss_block.slot());
+
+        let batch_size = backfill_batch_size.unwrap_or(available_blocks.len());
+
+        for batch in available_blocks.rchunks(batch_size) {
+            let available_blocks_slots = batch
+                .iter()
+                .map(|block| (block.block().slot(), block.block().canonical_root()))
+                .collect::<Vec<_>>();
+            info!(
+                ?available_blocks_slots,
+                "wss_block_slot" = wss_block.slot().as_usize(),
+                "Importing historical block batch"
+            );
+
+            // Importing the batch with valid signatures should succeed.
+            let available_blocks_batch1 = batch.iter().map(clone_block).collect::<Vec<_>>();
+            beacon_chain
+                .import_historical_block_batch(available_blocks_batch1)
+                .unwrap();
+
+            // We should be able to load the block root at the `oldest_block_slot`.
+            //
+            // This is a regression test for: https://github.com/sigp/lighthouse/issues/7690
+            let oldest_block_imported = &batch[0];
+            let (oldest_block_slot, oldest_block_root) =
+                if oldest_block_imported.block().parent_root() == beacon_chain.genesis_block_root {
+                    (Slot::new(0), beacon_chain.genesis_block_root)
+                } else {
+                    available_blocks_slots[0]
+                };
+            assert_eq!(
+                beacon_chain.store.get_oldest_block_slot(),
+                oldest_block_slot
+            );
+            assert_eq!(
+                beacon_chain
+                    .block_root_at_slot(oldest_block_slot, WhenSlotSkipped::None)
+                    .unwrap()
+                    .unwrap(),
+                oldest_block_root
+            );
+
+            // Resupplying the blocks should not fail, they can be safely ignored.
+            let available_blocks_batch2 = batch.iter().map(clone_block).collect::<Vec<_>>();
+            beacon_chain
+                .import_historical_block_batch(available_blocks_batch2)
+                .unwrap();
+        }
+    }
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
-
-    // Resupplying the blocks should not fail, they can be safely ignored.
-    beacon_chain
-        .import_historical_block_batch(available_blocks)
-        .unwrap();
 
     // Sanity check for non-aligned WSS starts, to make sure the WSS block is persisted properly
     if wss_block_slot != wss_state_slot {
@@ -2579,10 +2665,12 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
 
         // Prune_payloads is set to false in the default config, so the payload should exist
         if block.message().execution_payload().is_ok() {
-            assert!(beacon_chain
-                .store
-                .execution_payload_exists(&block_root)
-                .unwrap(),);
+            assert!(
+                beacon_chain
+                    .store
+                    .execution_payload_exists(&block_root)
+                    .unwrap(),
+            );
         }
 
         prev_block_root = block_root;
@@ -2615,7 +2703,11 @@ async fn weak_subjectivity_sync_test(slots: Vec<Slot>, checkpoint_slot: Slot) {
     assert_eq!(store.get_anchor_info().anchor_slot, wss_aligned_slot);
     assert_eq!(
         store.get_anchor_info().state_upper_limit,
-        Slot::new(u64::MAX)
+        if checkpoint_slot == 0 {
+            Slot::new(0)
+        } else {
+            Slot::new(u64::MAX)
+        }
     );
     info!(anchor = ?store.get_anchor_info(), "anchor pre");
 
@@ -3072,7 +3164,11 @@ async fn schema_downgrade_to_min_version(
         )
         .await;
 
-    let min_version = SchemaVersion(22);
+    let min_version = if spec.is_fulu_scheduled() {
+        SchemaVersion(27)
+    } else {
+        SchemaVersion(22)
+    };
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -3533,10 +3629,12 @@ async fn prune_historic_states() {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
     for &(state_root, slot) in &first_epoch_state_roots {
-        assert!(store
-            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
-            .unwrap()
-            .is_some());
+        assert!(
+            store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap()
+                .is_some()
+        );
     }
 
     store
@@ -3705,11 +3803,13 @@ async fn replay_from_split_state() {
     let anchor_slot = store.get_anchor_info().anchor_slot;
     assert_eq!(split.slot, 3 * E::slots_per_epoch());
     assert_eq!(anchor_slot, 0);
-    assert!(store
-        .hierarchy
-        .storage_strategy(split.slot, anchor_slot)
-        .unwrap()
-        .is_replay_from());
+    assert!(
+        store
+            .hierarchy
+            .storage_strategy(split.slot, anchor_slot)
+            .unwrap()
+            .is_replay_from()
+    );
 
     // Close the database and reopen it.
     drop(store);

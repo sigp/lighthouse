@@ -27,7 +27,7 @@ use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionRequests, KzgProofs,
 };
-use types::{Graffiti, GRAFFITI_BYTES_LEN};
+use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
 pub mod auth;
 pub mod http;

@@ -1,3 +1,4 @@
+use crate::VerifySignatures;
 use crate::per_block_processing::{
     errors::{
         AttesterSlashingValidationError, BlsExecutionChangeValidationError, ExitValidationError,
@@ -6,18 +7,17 @@ use crate::per_block_processing::{
     verify_attester_slashing, verify_bls_to_execution_change, verify_exit,
     verify_proposer_slashing,
 };
-use crate::VerifySignatures;
 use arbitrary::Arbitrary;
 use derivative::Derivative;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use test_random_derive::TestRandom;
 use types::{
-    test_utils::TestRandom, AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk,
-    AttesterSlashingRefOnDisk, BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion,
-    ProposerSlashing, SignedBlsToExecutionChange, SignedVoluntaryExit,
+    AttesterSlashing, AttesterSlashingBase, AttesterSlashingOnDisk, AttesterSlashingRefOnDisk,
+    BeaconState, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, ProposerSlashing,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, test_utils::TestRandom,
 };
 
 const MAX_FORKS_VERIFIED_AGAINST: usize = 2;
@@ -260,11 +260,12 @@ impl<E: EthSpec> VerifyOperation<E> for ProposerSlashing {
     #[allow(clippy::arithmetic_side_effects)]
     fn verification_epochs(&self) -> SmallVec<[Epoch; MAX_FORKS_VERIFIED_AGAINST]> {
         // Only need a single epoch because the slots of the two headers must be equal.
-        smallvec![self
-            .signed_header_1
-            .message
-            .slot
-            .epoch(E::slots_per_epoch())]
+        smallvec![
+            self.signed_header_1
+                .message
+                .slot
+                .epoch(E::slots_per_epoch())
+        ]
     }
 }
 
@@ -417,8 +418,8 @@ impl TransformPersist for SignedBlsToExecutionChange {
 mod test {
     use super::*;
     use types::{
-        test_utils::{SeedableRng, TestRandom, XorShiftRng},
         MainnetEthSpec,
+        test_utils::{SeedableRng, TestRandom, XorShiftRng},
     };
 
     type E = MainnetEthSpec;

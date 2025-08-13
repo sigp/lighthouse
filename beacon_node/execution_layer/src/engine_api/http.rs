@@ -226,7 +226,7 @@ pub mod deposit_methods {
     use super::Log;
     use crate::HttpJsonRpc;
     use serde::{Deserialize, Serialize};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use std::fmt;
     use std::ops::Range;
     use std::str::FromStr;
@@ -1392,7 +1392,7 @@ impl HttpJsonRpc {
 mod test {
     use super::auth::JwtKey;
     use super::*;
-    use crate::test_utils::{MockServer, DEFAULT_JWT_SECRET};
+    use crate::test_utils::{DEFAULT_JWT_SECRET, MockServer};
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;

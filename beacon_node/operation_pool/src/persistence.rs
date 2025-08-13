@@ -1,8 +1,8 @@
+use crate::OpPoolError;
+use crate::OperationPool;
 use crate::attestation_storage::AttestationMap;
 use crate::bls_to_execution_changes::{BlsToExecutionChanges, ReceivedPreCapella};
 use crate::sync_aggregate_id::SyncAggregateId;
-use crate::OpPoolError;
-use crate::OperationPool;
 use derivative::Derivative;
 use parking_lot::RwLock;
 use ssz::{Decode, Encode};
@@ -86,15 +86,15 @@ impl<E: EthSpec> PersistedOperationPool<E> {
         let proposer_slashings = operation_pool
             .proposer_slashings
             .read()
-            .iter()
-            .map(|(_, slashing)| slashing.clone())
+            .values()
+            .cloned()
             .collect();
 
         let voluntary_exits = operation_pool
             .voluntary_exits
             .read()
-            .iter()
-            .map(|(_, exit)| exit.clone())
+            .values()
+            .cloned()
             .collect();
 
         let bls_to_execution_changes = operation_pool

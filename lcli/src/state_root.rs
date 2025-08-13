@@ -2,7 +2,7 @@ use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
-use eth2::{types::StateId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
+use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts, types::StateId};
 use eth2_network_config::Eth2NetworkConfig;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};

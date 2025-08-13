@@ -1,11 +1,11 @@
 use super::{EthSpec, FixedVector, Hash256, Slot, SyncAggregate, SyncCommittee};
+use crate::LightClientHeader;
 use crate::context_deserialize;
 use crate::light_client_header::LightClientHeaderElectra;
-use crate::LightClientHeader;
 use crate::{
-    beacon_state, test_utils::TestRandom, ChainSpec, ContextDeserialize, Epoch, ForkName,
-    LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
-    LightClientHeaderFulu, SignedBlindedBeaconBlock,
+    ChainSpec, ContextDeserialize, Epoch, ForkName, LightClientHeaderAltair,
+    LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderFulu,
+    SignedBlindedBeaconBlock, beacon_state, test_utils::TestRandom,
 };
 use derivative::Derivative;
 use safe_arith::ArithError;
@@ -112,20 +112,27 @@ impl From<milhouse::Error> for Error {
             Decode,
             Encode,
             TestRandom,
-            arbitrary::Arbitrary,
             TreeHash,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
         context_deserialize(ForkName),
     )
 )]
-#[derive(Debug, Clone, Serialize, Encode, TreeHash, arbitrary::Arbitrary, PartialEq)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, Encode, TreeHash, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-#[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
@@ -192,7 +199,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientUpdate<E>
                 return Err(serde::de::Error::custom(format!(
                     "LightClientUpdate failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(Deserialize::deserialize(deserializer).map_err(convert_err)?)
@@ -369,7 +376,7 @@ impl<E: EthSpec> LightClientUpdate<E> {
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientUpdate decoding for {fork_name} not implemented"
-                )))
+                )));
             }
         };
 

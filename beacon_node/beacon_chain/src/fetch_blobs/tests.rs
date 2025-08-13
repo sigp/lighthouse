@@ -1,10 +1,9 @@
-use crate::data_column_verification::KzgVerifiedDataColumn;
+use crate::AvailabilityProcessingStatus;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
 use crate::fetch_blobs::{
-    fetch_and_process_engine_blobs_inner, EngineGetBlobsOutput, FetchEngineBlobError,
+    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs_inner,
 };
-use crate::test_utils::{get_kzg, EphemeralHarnessType};
-use crate::AvailabilityProcessingStatus;
+use crate::test_utils::{EphemeralHarnessType, get_kzg};
 use bls::Signature;
 use eth2::types::BlobsBundle;
 use execution_layer::json_structures::{BlobAndProof, BlobAndProofV1, BlobAndProofV2};
@@ -22,6 +21,7 @@ type T = EphemeralHarnessType<E>;
 
 mod get_blobs_v2 {
     use super::*;
+    use types::ColumnIndex;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_in_block() {
@@ -37,12 +37,12 @@ mod get_blobs_v2 {
         mock_adapter.expect_get_blobs_v2().times(0);
         mock_adapter.expect_process_engine_blobs().times(0);
 
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             Arc::new(block),
-            custody_columns.clone(),
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -62,12 +62,12 @@ mod get_blobs_v2 {
         mock_get_blobs_v2_response(&mut mock_adapter, None);
 
         // Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns.clone(),
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -90,12 +90,12 @@ mod get_blobs_v2 {
         mock_adapter.expect_process_engine_blobs().times(0);
 
         // Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns.clone(),
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -123,12 +123,12 @@ mod get_blobs_v2 {
         mock_adapter.expect_process_engine_blobs().times(0);
 
         // Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns.clone(),
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -156,18 +156,18 @@ mod get_blobs_v2 {
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         // All data columns already seen on gossip
         mock_adapter
-            .expect_known_for_proposal()
+            .expect_data_column_known_for_proposal()
             .returning(|_| Some(hashset![0, 1, 2]));
         // No blobs should be processed
         mock_adapter.expect_process_engine_blobs().times(0);
 
         // **WHEN**: Trigger `fetch_blobs` on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns.clone(),
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -192,29 +192,24 @@ mod get_blobs_v2 {
         // All blobs returned, fork choice doesn't contain block
         mock_get_blobs_v2_response(&mut mock_adapter, Some(blobs_and_proofs));
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
-        mock_adapter.expect_known_for_proposal().returning(|_| None);
+        mock_adapter
+            .expect_data_column_known_for_proposal()
+            .returning(|_| None);
         mock_adapter
             .expect_cached_data_column_indexes()
             .returning(|_| None);
-        mock_adapter
-            .expect_verify_data_columns_kzg()
-            .returning(|c| {
-                Ok(c.into_iter()
-                    .map(KzgVerifiedDataColumn::__new_for_testing)
-                    .collect())
-            });
         mock_process_engine_blobs_result(
             &mut mock_adapter,
             Ok(AvailabilityProcessingStatus::Imported(block_root)),
         );
 
         // Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns.clone(),
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -256,8 +251,9 @@ mod get_blobs_v2 {
 
 mod get_blobs_v1 {
     use super::*;
-    use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
     use crate::block_verification_types::AsBlock;
+    use std::collections::HashSet;
+    use types::ColumnIndex;
 
     const ELECTRA_FORK: ForkName = ForkName::Electra;
 
@@ -274,12 +270,12 @@ mod get_blobs_v1 {
         mock_adapter.expect_get_blobs_v1().times(0);
 
         // WHEN: Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             Arc::new(block_no_blobs),
-            custody_columns,
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -301,12 +297,12 @@ mod get_blobs_v1 {
         mock_get_blobs_v1_response(&mut mock_adapter, vec![None; expected_blob_count]);
 
         // WHEN: Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns,
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -331,10 +327,13 @@ mod get_blobs_v1 {
         mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
         // AND block is not imported into fork choice
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
-        // AND all blobs returned are valid
+        // AND all blobs have not yet been seen
         mock_adapter
-            .expect_verify_blob_for_gossip()
-            .returning(|b| Ok(GossipVerifiedBlob::__assumed_valid(b.clone())));
+            .expect_cached_blob_indexes()
+            .returning(|_| None);
+        mock_adapter
+            .expect_blobs_known_for_proposal()
+            .returning(|_, _| None);
         // Returned blobs should be processed
         mock_process_engine_blobs_result(
             &mut mock_adapter,
@@ -344,12 +343,12 @@ mod get_blobs_v1 {
         );
 
         // WHEN: Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns,
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -384,12 +383,12 @@ mod get_blobs_v1 {
         mock_fork_choice_contains_block(&mut mock_adapter, vec![block.canonical_root()]);
 
         // WHEN: Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns,
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -414,25 +413,30 @@ mod get_blobs_v1 {
         // **GIVEN**:
         // All blobs returned
         let blob_and_proof_opts = blobs_and_proofs.into_iter().map(Some).collect::<Vec<_>>();
+        let all_blob_indices = blob_and_proof_opts
+            .iter()
+            .enumerate()
+            .map(|(i, _)| i as u64)
+            .collect::<HashSet<_>>();
+
         mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
         // block not yet imported into fork choice
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         // All blobs already seen on gossip
-        mock_adapter.expect_verify_blob_for_gossip().returning(|b| {
-            Err(GossipBlobError::RepeatBlob {
-                proposer: b.block_proposer_index(),
-                slot: b.slot(),
-                index: b.index,
-            })
-        });
+        mock_adapter
+            .expect_cached_blob_indexes()
+            .returning(|_| None);
+        mock_adapter
+            .expect_blobs_known_for_proposal()
+            .returning(move |_, _| Some(all_blob_indices.clone()));
 
         // **WHEN**: Trigger `fetch_blobs` on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns,
+            &custody_columns,
             publish_fn,
         )
         .await
@@ -460,20 +464,23 @@ mod get_blobs_v1 {
         mock_get_blobs_v1_response(&mut mock_adapter, blob_and_proof_opts);
         mock_fork_choice_contains_block(&mut mock_adapter, vec![]);
         mock_adapter
-            .expect_verify_blob_for_gossip()
-            .returning(|b| Ok(GossipVerifiedBlob::__assumed_valid(b.clone())));
+            .expect_cached_blob_indexes()
+            .returning(|_| None);
+        mock_adapter
+            .expect_blobs_known_for_proposal()
+            .returning(|_, _| None);
         mock_process_engine_blobs_result(
             &mut mock_adapter,
             Ok(AvailabilityProcessingStatus::Imported(block_root)),
         );
 
         // Trigger fetch blobs on the block
-        let custody_columns = hashset![0, 1, 2];
+        let custody_columns: [ColumnIndex; 3] = [0, 1, 2];
         let processing_status = fetch_and_process_engine_blobs_inner(
             mock_adapter,
             block_root,
             block,
-            custody_columns,
+            &custody_columns,
             publish_fn,
         )
         .await

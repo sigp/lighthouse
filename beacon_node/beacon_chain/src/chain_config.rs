@@ -96,8 +96,6 @@ pub struct ChainConfig {
     pub enable_light_client_server: bool,
     /// The number of data columns to withhold / exclude from publishing when proposing a block.
     pub malicious_withhold_count: usize,
-    /// Enable peer sampling on blocks.
-    pub enable_sampling: bool,
     /// Number of batches that the node splits blobs or data columns into during publication.
     /// This doesn't apply if the node is the block proposer. For PeerDAS only.
     pub blob_publication_batches: usize,
@@ -116,6 +114,8 @@ pub struct ChainConfig {
     /// On Holesky there is a block which is added to this set by default but which can be removed
     /// by using `--invalid-block-roots ""`.
     pub invalid_block_roots: HashSet<Hash256>,
+    /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
+    pub disable_get_blobs: bool,
 }
 
 impl Default for ChainConfig {
@@ -148,13 +148,13 @@ impl Default for ChainConfig {
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: true,
             malicious_withhold_count: 0,
-            enable_sampling: false,
             blob_publication_batches: 4,
             blob_publication_batch_interval: Duration::from_millis(300),
             sync_tolerance_epochs: DEFAULT_SYNC_TOLERANCE_EPOCHS,
             block_publishing_delay: None,
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
+            disable_get_blobs: false,
         }
     }
 }

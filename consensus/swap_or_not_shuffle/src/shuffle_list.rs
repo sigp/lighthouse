@@ -96,8 +96,7 @@ pub fn shuffle_list(
     loop {
         buf.set_round(r);
 
-        let pivot = buf.raw_pivot() as usize % list_size;
-
+        let pivot = (buf.raw_pivot() % list_size as u64) as usize;
         let mirror = (pivot + 1) >> 1;
 
         buf.mix_in_position(pivot >> 8);

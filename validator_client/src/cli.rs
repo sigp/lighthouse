@@ -1,8 +1,8 @@
 use beacon_node_fallback::ApiTopic;
 use clap::builder::ArgPredicate;
 pub use clap::{FromArgMatches, Parser};
-use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
+use clap_utils::get_color_style;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::Address;
@@ -397,7 +397,7 @@ pub struct ValidatorClient {
     #[clap(
         long,
         value_name = "INTEGER",
-        default_value_t = 36_000_000,
+        default_value_t = 45_000_000,
         requires = "builder_proposals",
         help = "The gas limit to be used in all builder proposals for all validators managed \
                 by this validator client. Note this will not necessarily be used if the gas limit \

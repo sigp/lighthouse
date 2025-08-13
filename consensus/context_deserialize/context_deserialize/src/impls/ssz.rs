@@ -1,10 +1,13 @@
-use crate::serde::de::Error;
 use crate::ContextDeserialize;
-use serde::de::Deserializer;
-use serde::Deserialize;
-use ssz_types::length::{Fixed, Variable};
-use ssz_types::typenum::Unsigned;
-use ssz_types::{Bitfield, FixedVector};
+use serde::{
+    de::{Deserializer, Error},
+    Deserialize,
+};
+use ssz_types::{
+    length::{Fixed, Variable},
+    typenum::Unsigned,
+    Bitfield, FixedVector,
+};
 
 impl<'de, C, T, N> ContextDeserialize<'de, C> for FixedVector<T, N>
 where
