@@ -28,9 +28,6 @@ env:
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
   TEST_FEATURES: portable
-  # FIXME: sccache disabled
-  RUSTC_WRAPPER: ""
-  SCCACHE_CACHE_SIZE: 0
 jobs:
   check-labels:
     runs-on: ubuntu-latest
