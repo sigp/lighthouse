@@ -837,25 +837,13 @@ impl<E: EthSpec> Encode for LightClientUpdateResponseChunk<E> {
     fn ssz_bytes_len(&self) -> usize {
         0_u64.ssz_bytes_len()
             + self.response_chunk.context.len()
-            + match &self.response_chunk.payload {
-                LightClientUpdate::Altair(lc) => lc.ssz_bytes_len(),
-                LightClientUpdate::Capella(lc) => lc.ssz_bytes_len(),
-                LightClientUpdate::Deneb(lc) => lc.ssz_bytes_len(),
-                LightClientUpdate::Electra(lc) => lc.ssz_bytes_len(),
-                LightClientUpdate::Fulu(lc) => lc.ssz_bytes_len(),
-            }
+            + self.response_chunk.payload.ssz_bytes_len()
     }
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         buf.extend_from_slice(&self.response_chunk_len.to_le_bytes());
         buf.extend_from_slice(&self.response_chunk.context);
-        match &self.response_chunk.payload {
-            LightClientUpdate::Altair(lc) => lc.ssz_append(buf),
-            LightClientUpdate::Capella(lc) => lc.ssz_append(buf),
-            LightClientUpdate::Deneb(lc) => lc.ssz_append(buf),
-            LightClientUpdate::Electra(lc) => lc.ssz_append(buf),
-            LightClientUpdate::Fulu(lc) => lc.ssz_append(buf),
-        };
+        self.response_chunk.payload.ssz_append(buf);
     }
 }
 

@@ -1003,7 +1003,7 @@ impl BeaconNodeHttpClient {
         path.query_pairs_mut()
             .append_pair("count", &count.to_string());
 
-        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
             .await
     }
 
