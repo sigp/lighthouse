@@ -313,17 +313,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             };
 
             // Skip if slot is >= fulu_start_slot
-            if let (Some(slot), Some(fulu_slot)) = (slot, fulu_start_slot) {
-                if slot >= fulu_slot {
-                    debug!(
-                        %peer_id,
-                        request_root = %root,
-                        %slot,
-                        %fulu_slot,
-                        "BlobsByRoot request is at or after Fulu slot, returning empty response"
-                    );
-                    continue;
-                }
+            if let (Some(slot), Some(fulu_slot)) = (slot, fulu_start_slot)
+                && slot >= fulu_slot
+            {
+                debug!(
+                    %peer_id,
+                    request_root = %root,
+                    %slot,
+                    %fulu_slot,
+                    "BlobsByRoot request is at or after Fulu slot, returning empty response"
+                );
+                continue;
             }
 
             // First attempt to get the blobs from the RPC cache.
@@ -348,17 +348,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         'inner: for blob_sidecar in blobs_sidecar_list.iter() {
                             if blob_sidecar.index == *index {
                                 // Check for Fulu slot
-                                if let Some(fulu_slot) = fulu_start_slot {
-                                    if blob_sidecar.slot() >= fulu_slot {
-                                        debug!(
-                                            %peer_id,
-                                            request_root = %root,
-                                            blob_slot = %blob_sidecar.slot(),
-                                            %fulu_slot,
-                                            "BlobsByRoot request is at or after Fulu slot, returning empty response"
-                                        );
-                                        break 'inner;
-                                    }
+                                if let Some(fulu_slot) = fulu_start_slot
+                                    && blob_sidecar.slot() >= fulu_slot
+                                {
+                                    debug!(
+                                        %peer_id,
+                                        request_root = %root,
+                                        blob_slot = %blob_sidecar.slot(),
+                                        %fulu_slot,
+                                        "BlobsByRoot request is at or after Fulu slot, returning empty response"
+                                    );
+                                    break 'inner;
                                 }
 
                                 self.send_response(
