@@ -2,6 +2,7 @@ use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    validator_monitor::timestamp_now,
 };
 use eth2::{
     BeaconNodeHttpClient, Error,
