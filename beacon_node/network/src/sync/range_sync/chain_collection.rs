@@ -9,13 +9,13 @@ use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use fnv::FnvHashMap;
-use lighthouse_network::service::api_types::Id;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
+use lighthouse_network::service::api_types::Id;
 use logging::crit;
 use smallvec::SmallVec;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tracing::{debug, error};
 use types::EthSpec;
@@ -93,7 +93,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 if let Some(index) = syncing_head_ids
                     .iter()
                     .enumerate()
-                    .find(|(_, &chain_id)| &chain_id == id)
+                    .find(|&(_, &chain_id)| &chain_id == id)
                     .map(|(i, _)| i)
                 {
                     // a syncing head chain was removed

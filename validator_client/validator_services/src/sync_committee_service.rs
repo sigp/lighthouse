@@ -1,16 +1,16 @@
 use crate::duties_service::DutiesService;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use eth2::types::BlockId;
-use futures::future::join_all;
 use futures::future::FutureExt;
+use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, sleep_until, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{debug, error, info, trace, warn};
 use types::{
     ChainSpec, EthSpec, Hash256, PublicKeyBytes, Slot, SyncCommitteeSubscription,

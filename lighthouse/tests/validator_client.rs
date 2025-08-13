@@ -1,4 +1,4 @@
-use beacon_node_fallback::{beacon_node_health::BeaconNodeSyncDistanceTiers, ApiTopic};
+use beacon_node_fallback::{ApiTopic, beacon_node_health::BeaconNodeSyncDistanceTiers};
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};

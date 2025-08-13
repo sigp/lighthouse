@@ -38,8 +38,8 @@ use super::block_lookups::BlockLookups;
 use super::network_context::{
     CustodyByRootResult, RangeBlockComponent, RangeRequestId, RpcEvent, SyncNetworkContext,
 };
-use super::peer_sync_info::{remote_sync_type, PeerSyncType};
-use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
+use super::peer_sync_info::{PeerSyncType, remote_sync_type};
+use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
@@ -53,6 +53,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
 use futures::StreamExt;
+use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
@@ -60,7 +61,6 @@ use lighthouse_network::service::api_types::{
     SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
-use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
@@ -248,7 +248,10 @@ pub fn spawn<T: BeaconChainTypes>(
     fork_context: Arc<ForkContext>,
 ) {
     assert!(
-        beacon_chain.spec.max_request_blocks(fork_context.current_fork_name()) as u64 >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        beacon_chain
+            .spec
+            .max_request_blocks(fork_context.current_fork_name()) as u64
+            >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
 

@@ -1,5 +1,5 @@
 use crate::blob_verification::{
-    verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList,
+    GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list,
 };
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
@@ -7,7 +7,7 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext};
+use crate::{BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext, metrics};
 use kzg::Kzg;
 use slot_clock::SlotClock;
 use std::fmt;
@@ -28,8 +28,8 @@ mod overflow_lru_cache;
 mod state_lru_cache;
 
 use crate::data_column_verification::{
-    verify_kzg_for_data_column_list_with_scoring, CustodyDataColumn, GossipVerifiedDataColumn,
-    KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+    CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
+    KzgVerifiedDataColumn, verify_kzg_for_data_column_list_with_scoring,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -837,13 +837,13 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{
-        generate_rand_block_and_data_columns, get_kzg, EphemeralHarnessType, NumBlobs,
-    };
     use crate::CustodyContext;
+    use crate::test_utils::{
+        EphemeralHarnessType, NumBlobs, generate_rand_block_and_data_columns, get_kzg,
+    };
+    use rand::SeedableRng;
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
-    use rand::SeedableRng;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::collections::HashSet;
     use std::sync::Arc;

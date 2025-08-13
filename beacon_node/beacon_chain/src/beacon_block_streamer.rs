@@ -1,14 +1,14 @@
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, BlockProcessStatus, metrics};
 use execution_layer::{ExecutionLayer, ExecutionPayloadBodyV1};
 use logging::crit;
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::{DatabaseBlock, ExecutionPayloadDeneb};
 use tokio::sync::{
-    mpsc::{self, UnboundedSender},
     RwLock,
+    mpsc::{self, UnboundedSender},
 };
-use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
+use tokio_stream::{Stream, wrappers::UnboundedReceiverStream};
 use tracing::{debug, error};
 use types::{
     ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, Hash256, SignedBeaconBlock,
@@ -106,7 +106,7 @@ fn reconstruct_default_header_block<E: EthSpec>(
                 "Block with fork variant {} has execution payload",
                 fork
             ))
-            .into())
+            .into());
         }
     };
 
@@ -683,7 +683,7 @@ impl From<Error> for BeaconChainError {
 #[cfg(test)]
 mod tests {
     use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-    use crate::test_utils::{test_spec, BeaconChainHarness, EphemeralHarnessType};
+    use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
     use execution_layer::test_utils::Block;
     use std::sync::Arc;
     use std::sync::LazyLock;

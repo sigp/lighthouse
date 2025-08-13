@@ -1,6 +1,6 @@
 use crate::{
     test_utils::{
-        MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
+        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, MockServer,
     },
     *,
 };
@@ -168,10 +168,11 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         assert_eq!(payload.prev_randao(), prev_randao);
 
         // Ensure the payload cache is empty.
-        assert!(self
-            .el
-            .get_payload_by_root(&payload.tree_hash_root())
-            .is_none());
+        assert!(
+            self.el
+                .get_payload_by_root(&payload.tree_hash_root())
+                .is_none()
+        );
         let builder_params = BuilderParams {
             pubkey: PublicKeyBytes::empty(),
             slot,

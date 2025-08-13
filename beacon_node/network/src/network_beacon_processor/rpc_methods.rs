@@ -1,10 +1,10 @@
 use crate::metrics;
-use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use itertools::{process_results, Itertools};
+use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
@@ -12,7 +12,7 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, instrument, warn};
@@ -708,7 +708,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(e) => {
                     if matches!(
                         e,
-                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
                         if matches!(**boxed_error, execution_layer::Error::EngineError(_))
                     ) {
                         warn!(

@@ -1,6 +1,6 @@
 use crate::api_types::GenericResponse;
 use crate::unsupported_version_rejection;
-use crate::version::{add_consensus_version_header, V1, V2};
+use crate::version::{V1, V2, add_consensus_version_header};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::{self, EndpointVersion, Hash256, Slot};
 use std::sync::Arc;

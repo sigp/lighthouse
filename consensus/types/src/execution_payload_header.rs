@@ -494,7 +494,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadHead
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayloadHeader failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Bellatrix => {
                 Self::Bellatrix(Deserialize::deserialize(deserializer).map_err(convert_err)?)

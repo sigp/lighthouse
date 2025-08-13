@@ -1,7 +1,7 @@
 use crate::{Config, Context};
 use beacon_chain::{
-    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
+    test_utils::{BeaconChainHarness, BoxedMutator, Builder, EphemeralHarnessType},
 };
 use beacon_processor::{
     BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
@@ -10,14 +10,14 @@ use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use lighthouse_network::rpc::methods::MetaDataV3;
 use lighthouse_network::{
+    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
     discv5::enr::CombinedKey,
     libp2p::swarm::{
-        behaviour::{ConnectionEstablished, FromSwarm},
         ConnectionId, NetworkBehaviour,
+        behaviour::{ConnectionEstablished, FromSwarm},
     },
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
-    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
 };
 use network::{NetworkReceivers, NetworkSenders};
 use sensitive_url::SensitiveUrl;
@@ -132,7 +132,7 @@ impl<E: EthSpec> InteractiveTester<E> {
 pub async fn create_api_server<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     test_runtime: &TestRuntime,
-) -> ApiServer<T, impl Future<Output = ()>> {
+) -> ApiServer<T, impl Future<Output = ()> + use<T>> {
     create_api_server_with_config(chain, Config::default(), test_runtime).await
 }
 
@@ -140,7 +140,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     http_config: Config,
     test_runtime: &TestRuntime,
-) -> ApiServer<T, impl Future<Output = ()>> {
+) -> ApiServer<T, impl Future<Output = ()> + use<T>> {
     // Use port 0 to allocate a new unused port.
     let port = 0;
 

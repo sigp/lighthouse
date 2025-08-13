@@ -1,6 +1,6 @@
 use kzg::{
-    Blob as KzgBlob, Bytes48, Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs,
-    Error as KzgError, Kzg, CELLS_PER_EXT_BLOB,
+    Blob as KzgBlob, Bytes48, CELLS_PER_EXT_BLOB, Cell as KzgCell, CellRef as KzgCellRef,
+    CellsAndKzgProofs, Error as KzgError, Kzg,
 };
 use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
@@ -423,10 +423,11 @@ mod test {
     use bls::Signature;
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
-    use kzg::{trusted_setup::get_trusted_setup, Kzg, KzgCommitment, TrustedSetup};
+    use kzg::{Kzg, KzgCommitment, TrustedSetup, trusted_setup::get_trusted_setup};
     use types::{
-        beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec,
-        EmptyBlock, EthSpec, ForkName, FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+        BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec, EmptyBlock, EthSpec, ForkName,
+        FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+        beacon_block_body::KzgCommitments,
     };
 
     type E = MainnetEthSpec;

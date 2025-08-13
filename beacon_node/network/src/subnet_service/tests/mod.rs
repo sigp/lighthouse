@@ -1,13 +1,13 @@
 use super::*;
 use beacon_chain::{
+    BeaconChain,
     builder::{BeaconChainBuilder, Witness},
     test_utils::get_kzg,
-    BeaconChain,
 };
-use genesis::{generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
+use genesis::{DEFAULT_ETH1_BLOCK_HASH, generate_deterministic_keypairs, interop_genesis_state};
 use lighthouse_network::NetworkConfig;
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, SystemTime};
@@ -130,11 +130,10 @@ async fn get_events_until_timeout<S: Stream<Item = SubnetServiceMessage> + Unpin
         tokio::select! {
             Some(event) = stream.next() => {
                 events.push(event);
-                if let Some(num) = num_events {
-                    if events.len() == num {
+                if let Some(num) = num_events
+                    && events.len() == num {
                         break;
                     }
-                }
             }
             _ = sleep.as_mut() => {
                 break;
@@ -481,7 +480,7 @@ mod test {
         // and 1 `DiscoverPeer` request corresponding to the bulk subnet discovery.
 
         assert_eq!(discover_peer_count, 1 + 1); // Generates a single discovery for permanent
-                                                // subscriptions and 1 for the subscription
+        // subscriptions and 1 for the subscription
         assert_eq!(enr_add_count, subnets_per_node);
         assert_eq!(unexpected_msg_count, 0);
     }
@@ -584,7 +583,7 @@ mod test {
 
         println!("{events:?}");
         let subscription_slot = current_slot + subscription_slot2 - 1; // one less do to the
-                                                                       // advance subscription time
+        // advance subscription time
         let wait_duration = subnet_service
             .beacon_chain
             .slot_clock

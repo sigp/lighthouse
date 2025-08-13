@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use itertools::Itertools;
-use oneshot_broadcast::{oneshot, Receiver, Sender};
+use oneshot_broadcast::{Receiver, Sender, oneshot};
 use tracing::debug;
 use types::{
-    beacon_state::CommitteeCache, AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256,
-    RelativeEpoch,
+    AttestationShufflingId, BeaconState, Epoch, EthSpec, Hash256, RelativeEpoch,
+    beacon_state::CommitteeCache,
 };
 
-use crate::{metrics, BeaconChainError};
+use crate::{BeaconChainError, metrics};
 
 /// The size of the cache that stores committee caches for quicker verification.
 ///

@@ -1,5 +1,5 @@
 use crate::errors::BeaconChainError;
-use crate::{metrics, BeaconChainTypes, BeaconStore};
+use crate::{BeaconChainTypes, BeaconStore, metrics};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use ssz::Decode;
@@ -223,10 +223,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     ) -> Result<(), BeaconChainError> {
         if let Some(latest_sync_committee) =
             self.latest_written_current_sync_committee.read().clone()
+            && latest_sync_committee == cached_parts.current_sync_committee
         {
-            if latest_sync_committee == cached_parts.current_sync_committee {
-                return Ok(());
-            }
+            return Ok(());
         };
 
         if finalized_period + 1 >= sync_committee_period {
@@ -465,9 +464,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         };
 
         if sync_committee_period > finalized_period {
-            return Err(BeaconChainError::LightClientBootstrapError(
-                format!("The blocks sync committee period {sync_committee_period} is greater than the current finalized period {finalized_period}"),
-            ));
+            return Err(BeaconChainError::LightClientBootstrapError(format!(
+                "The blocks sync committee period {sync_committee_period} is greater than the current finalized period {finalized_period}"
+            )));
         }
 
         let Some(current_sync_committee) = store.get_sync_committee(sync_committee_period)? else {

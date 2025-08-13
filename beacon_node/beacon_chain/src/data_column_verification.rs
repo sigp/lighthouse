@@ -1,11 +1,11 @@
 use crate::beacon_proposer_cache::EpochBlockProposers;
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
-    BlockSlashInfo,
+    BlockSlashInfo, cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache,
+    process_block_slash_info,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{ObservationStrategy, Observe};
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
@@ -819,7 +819,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 #[cfg(test)]
 mod test {
     use crate::data_column_verification::{
-        validate_data_column_sidecar_for_gossip, GossipDataColumnError,
+        GossipDataColumnError, validate_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::BeaconChainHarness;

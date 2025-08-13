@@ -2,8 +2,8 @@
 #![cfg(test)]
 use crate::persisted_dht::load_dht;
 use crate::{NetworkConfig, NetworkService};
-use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::BeaconChainTypes;
+use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_processor::{BeaconProcessorChannels, BeaconProcessorConfig};
 use futures::StreamExt;
 use lighthouse_network::types::{GossipEncoding, GossipKind};

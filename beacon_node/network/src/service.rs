@@ -1,31 +1,31 @@
+use crate::NetworkConfig;
 use crate::metrics;
 use crate::nat;
 use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
-use crate::NetworkConfig;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::BeaconProcessorSend;
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 
-use lighthouse_network::rpc::methods::RpcResponse;
+use lighthouse_network::Enr;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::RequestType;
+use lighthouse_network::rpc::methods::RpcResponse;
 use lighthouse_network::service::Network;
 use lighthouse_network::types::GossipKind;
-use lighthouse_network::Enr;
-use lighthouse_network::{prometheus_client::registry::Registry, MessageAcceptance};
 use lighthouse_network::{
-    rpc::{GoodbyeReason, RpcErrorResponse},
     Context, PeerAction, PubsubMessage, ReportSource, Response, Subnet,
+    rpc::{GoodbyeReason, RpcErrorResponse},
 };
+use lighthouse_network::{MessageAcceptance, prometheus_client::registry::Registry};
 use lighthouse_network::{
-    service::api_types::AppRequestId,
-    types::{core_topics_to_subscribe, GossipEncoding, GossipTopic},
     MessageId, NetworkEvent, NetworkGlobals, PeerId,
+    service::api_types::AppRequestId,
+    types::{GossipEncoding, GossipTopic, core_topics_to_subscribe},
 };
 use logging::crit;
 use std::collections::BTreeSet;
@@ -393,13 +393,12 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         let mut result = vec![fork_context.context_bytes(current_epoch)];
 
-        if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch) {
-            if current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
+        if let Some(next_digest_epoch) = spec.next_digest_epoch(current_epoch)
+            && current_slot.saturating_add(Slot::new(SUBSCRIBE_DELAY_SLOTS))
                 >= next_digest_epoch.start_slot(T::EthSpec::slots_per_epoch())
-            {
-                let next_digest = fork_context.context_bytes(next_digest_epoch);
-                result.push(next_digest);
-            }
+        {
+            let next_digest = fork_context.context_bytes(next_digest_epoch);
+            result.push(next_digest);
         }
 
         result
