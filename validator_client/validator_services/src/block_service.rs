@@ -559,6 +559,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                         randao_reveal_ref,
                         graffiti.as_ref(),
                         builder_boost_factor,
+                        graffiti_policy,
                     )
                     .await
                     .map_err(|e| {

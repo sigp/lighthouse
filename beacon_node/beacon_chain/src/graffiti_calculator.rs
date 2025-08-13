@@ -252,7 +252,9 @@ async fn engine_version_cache_refresh_service<T: BeaconChainTypes>(
 #[cfg(test)]
 mod tests {
     use crate::ChainConfig;
+    use crate::graffiti_calculator::GraffitiSettings;
     use crate::test_utils::{BeaconChainHarness, EphemeralHarnessType, test_spec};
+    use eth2::types::GraffitiPolicy;
     use execution_layer::EngineCapabilities;
     use execution_layer::test_utils::{DEFAULT_CLIENT_VERSION, DEFAULT_ENGINE_CAPABILITIES};
     use std::sync::Arc;
