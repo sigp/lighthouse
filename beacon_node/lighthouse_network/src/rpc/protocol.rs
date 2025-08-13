@@ -825,8 +825,8 @@ impl<E: EthSpec> RequestType<E> {
         match self {
             // add more protocols when versions/encodings are supported
             RequestType::Status(_) => vec![
-                ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::StatusV2, Encoding::SSZSnappy),
+                ProtocolId::new(SupportedProtocol::StatusV1, Encoding::SSZSnappy),
             ],
             RequestType::Goodbye(_) => vec![ProtocolId::new(
                 SupportedProtocol::GoodbyeV1,
