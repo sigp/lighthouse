@@ -160,6 +160,7 @@ pub enum Error {
     TotalActiveBalanceDiffUninitialized,
     GeneralizedIndexNotSupported(usize),
     IndexNotSupported(usize),
+    BuilderPendingPaymentsIndexNotSupported(usize),
     InvalidFlagIndex(usize),
     MerkleTreeError(merkle_proof::MerkleTreeError),
     PartialWithdrawalCountInvalid(usize),
