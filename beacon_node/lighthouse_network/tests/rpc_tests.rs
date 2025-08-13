@@ -3,8 +3,8 @@
 mod common;
 
 use crate::common::spec_with_all_forks_enabled;
-use common::{build_tracing_subscriber, Protocol};
-use lighthouse_network::rpc::{methods::*, RequestType};
+use common::{Protocol, build_tracing_subscriber};
+use lighthouse_network::rpc::{RequestType, methods::*};
 use lighthouse_network::service::api_types::AppRequestId;
 use lighthouse_network::{NetworkEvent, ReportSource, Response};
 use ssz::Encode;
@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
-use tracing::{debug, error, info_span, warn, Instrument};
+use tracing::{Instrument, debug, error, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BlobSidecar, ChainSpec,
     EmptyBlock, Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, MinimalEthSpec,

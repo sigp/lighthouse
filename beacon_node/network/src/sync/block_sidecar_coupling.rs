@@ -2,10 +2,10 @@ use beacon_chain::{
     block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
 };
 use lighthouse_network::{
+    PeerAction, PeerId,
     service::api_types::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     },
-    PeerAction, PeerId,
 };
 use std::{collections::HashMap, sync::Arc};
 use types::{
@@ -150,7 +150,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     ) -> Result<(), String> {
         match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => Err("received blobs but expected no data".to_owned()),
-            RangeBlockDataRequest::Blobs(ref mut req) => req.finish(req_id, blobs),
+            RangeBlockDataRequest::Blobs(req) => req.finish(req_id, blobs),
             RangeBlockDataRequest::DataColumns { .. } => {
                 Err("received blobs but expected data columns".to_owned())
             }
@@ -173,9 +173,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::Blobs(_) => {
                 Err("received data columns but expected blobs".to_owned())
             }
-            RangeBlockDataRequest::DataColumns {
-                ref mut requests, ..
-            } => {
+            RangeBlockDataRequest::DataColumns { requests, .. } => {
                 let req = requests
                     .get_mut(&req_id)
                     .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
@@ -197,7 +195,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             return None;
         };
 
-        let resp = match &mut self.block_data_request {
+        // Increment the attempt once this function returns the response or errors
+        match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => {
                 Some(Self::responses_with_blobs(blocks.to_vec(), vec![], spec))
             }
@@ -264,10 +263,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 Some(resp)
             }
-        };
-
-        // Increment the attempt once this function returns the response or errors
-        resp
+        }
     }
 
     fn responses_with_blobs(
@@ -283,11 +279,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             let max_blobs_per_block = spec.max_blobs_per_block(block.epoch()) as usize;
             let mut blob_list = Vec::with_capacity(max_blobs_per_block);
             while {
-                let pair_next_blob = blob_iter
+                blob_iter
                     .peek()
                     .map(|sidecar| sidecar.slot() == block.slot())
-                    .unwrap_or(false);
-                pair_next_blob
+                    .unwrap_or(false)
             } {
                 blob_list.push(blob_iter.next().ok_or_else(|| {
                     CouplingError::BlobPeerFailure("Missing next blob".to_string())
@@ -467,18 +462,18 @@ mod tests {
     use super::RangeBlockComponentsRequest;
     use crate::sync::network_context::MAX_COLUMN_RETRIES;
     use beacon_chain::test_utils::{
-        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec, NumBlobs,
+        NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
     };
     use lighthouse_network::{
+        PeerAction, PeerId,
         service::api_types::{
             BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
             DataColumnsByRangeRequestId, Id, RangeRequestId,
         },
-        PeerAction, PeerId,
     };
     use rand::SeedableRng;
     use std::sync::Arc;
-    use types::{test_utils::XorShiftRng, Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock};
+    use types::{Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock, test_utils::XorShiftRng};
 
     fn components_id() -> ComponentsByRangeRequestId {
         ComponentsByRangeRequestId {
@@ -934,10 +929,9 @@ mod tests {
             if let Err(super::CouplingError::DataColumnPeerFailure {
                 exceeded_retries, ..
             }) = &result
+                && *exceeded_retries
             {
-                if *exceeded_retries {
-                    break;
-                }
+                break;
             }
         }
 

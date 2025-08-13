@@ -5,13 +5,13 @@
 //! syncing.
 
 use handler::RPCHandler;
+use libp2p::PeerId;
 use libp2p::core::transport::PortUse;
 use libp2p::swarm::{
-    handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
-    ToSwarm,
+    CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm,
+    handler::ConnectionHandler,
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
-use libp2p::PeerId;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -247,17 +247,17 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         request_id: InboundRequestId,
         response: RpcResponse<E>,
     ) {
-        if let Some(response_limiter) = self.response_limiter.as_mut() {
-            if !response_limiter.allows(
+        if let Some(response_limiter) = self.response_limiter.as_mut()
+            && !response_limiter.allows(
                 peer_id,
                 protocol,
                 request_id.connection_id,
                 request_id.substream_id,
                 response.clone(),
-            ) {
-                // Response is logged and queued internally in the response limiter.
-                return;
-            }
+            )
+        {
+            // Response is logged and queued internally in the response limiter.
+            return;
         }
 
         self.events.push(ToSwarm::NotifyHandler {
@@ -564,15 +564,15 @@ where
     }
 
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        if let Some(response_limiter) = self.response_limiter.as_mut() {
-            if let Poll::Ready(responses) = response_limiter.poll_ready(cx) {
-                for response in responses {
-                    self.events.push(ToSwarm::NotifyHandler {
-                        peer_id: response.peer_id,
-                        handler: NotifyHandler::One(response.connection_id),
-                        event: RPCSend::Response(response.substream_id, response.response),
-                    });
-                }
+        if let Some(response_limiter) = self.response_limiter.as_mut()
+            && let Poll::Ready(responses) = response_limiter.poll_ready(cx)
+        {
+            for response in responses {
+                self.events.push(ToSwarm::NotifyHandler {
+                    peer_id: response.peer_id,
+                    handler: NotifyHandler::One(response.connection_id),
+                    event: RPCSend::Response(response.substream_id, response.response),
+                });
             }
         }
 

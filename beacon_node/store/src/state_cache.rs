@@ -1,7 +1,7 @@
 use crate::hdiff::HDiffBuffer;
 use crate::{
-    metrics::{self, HOT_METRIC},
     Error,
+    metrics::{self, HOT_METRIC},
 };
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -189,11 +189,12 @@ impl<E: EthSpec> StateCache<E> {
         // Do not attempt to rebase states prior to the finalized state. This method might be called
         // with states on the hdiff grid prior to finalization, as part of the reconstruction of
         // some later unfinalized state.
-        if let Some(finalized_state) = &self.finalized_state {
-            if state.slot() >= finalized_state.state.slot() {
-                state.rebase_on(&finalized_state.state, spec)?;
-            }
+        if let Some(finalized_state) = &self.finalized_state
+            && state.slot() >= finalized_state.state.slot()
+        {
+            state.rebase_on(&finalized_state.state, spec)?;
         }
+
         Ok(())
     }
 
@@ -259,10 +260,10 @@ impl<E: EthSpec> StateCache<E> {
     }
 
     pub fn get_by_state_root(&mut self, state_root: Hash256) -> Option<BeaconState<E>> {
-        if let Some(ref finalized_state) = self.finalized_state {
-            if state_root == finalized_state.state_root {
-                return Some(finalized_state.state.clone());
-            }
+        if let Some(ref finalized_state) = self.finalized_state
+            && state_root == finalized_state.state_root
+        {
+            return Some(finalized_state.state.clone());
         }
         self.states.get(&state_root).map(|(_, state)| state.clone())
     }
@@ -270,10 +271,10 @@ impl<E: EthSpec> StateCache<E> {
     pub fn put_hdiff_buffer(&mut self, state_root: Hash256, slot: Slot, buffer: &HDiffBuffer) {
         // Only accept HDiffBuffers prior to finalization. Later states should be stored as proper
         // states, not HDiffBuffers.
-        if let Some(finalized_state) = &self.finalized_state {
-            if slot >= finalized_state.state.slot() {
-                return;
-            }
+        if let Some(finalized_state) = &self.finalized_state
+            && slot >= finalized_state.state.slot()
+        {
+            return;
         }
         self.hdiff_buffers.put(state_root, slot, buffer.clone());
     }

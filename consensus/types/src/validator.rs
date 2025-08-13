@@ -1,7 +1,7 @@
 use crate::context_deserialize;
 use crate::{
-    test_utils::TestRandom, Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec,
-    FixedBytesExtended, ForkName, Hash256, PublicKeyBytes,
+    Address, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, FixedBytesExtended, ForkName,
+    Hash256, PublicKeyBytes, test_utils::TestRandom,
 };
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

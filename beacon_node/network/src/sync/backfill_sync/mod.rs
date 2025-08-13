@@ -24,8 +24,8 @@ use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use std::collections::{
-    btree_map::{BTreeMap, Entry},
     HashSet,
+    btree_map::{BTreeMap, Entry},
 };
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -484,7 +484,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             Err(e) => {
                 return self
                     .fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
-                    .map(|_| ProcessResult::Successful)
+                    .map(|_| ProcessResult::Successful);
             }
             Ok(v) => v,
         };
@@ -748,7 +748,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::AwaitingValidation(ref processed_attempt) => {
+                BatchState::AwaitingValidation(processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
@@ -796,10 +796,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
                     debug!(batch = %id, %batch, "Advancing chain while processing a batch");
-                    if let Some(processing_id) = self.current_processing_batch {
-                        if id >= processing_id {
-                            self.current_processing_batch = None;
-                        }
+                    if let Some(processing_id) = self.current_processing_batch
+                        && id >= processing_id
+                    {
+                        self.current_processing_batch = None;
                     }
                 }
             }
@@ -844,7 +844,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         for (id, batch) in self
             .batches
             .iter_mut()
-            .filter(|(&id, _batch)| id > batch_id)
+            .filter(|&(&id, ref _batch)| id > batch_id)
         {
             match batch
                 .validation_failed()
@@ -934,7 +934,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                 self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?
                             }
                             Ok(BatchOperationOutcome::Continue) => {
-                                return self.send_batch(network, batch_id)
+                                return self.send_batch(network, batch_id);
                             }
                         }
                     }
@@ -1115,7 +1115,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
     ) -> bool {
         if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
             // Require peers on all sampling column subnets before sending batches
-            let peers_on_all_custody_subnets = network
+            network
                 .network_globals()
                 .sampling_subnets()
                 .iter()
@@ -1127,8 +1127,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         .good_range_sync_custody_subnet_peers(*subnet_id)
                         .count();
                     peer_count > 0
-                });
-            peers_on_all_custody_subnets
+                })
         } else {
             true
         }
@@ -1196,8 +1195,8 @@ mod tests {
     use beacon_chain::test_utils::BeaconChainHarness;
     use bls::Hash256;
     use lighthouse_network::{NetworkConfig, SyncInfo, SyncStatus};
-    use rand::prelude::StdRng;
-    use rand::SeedableRng;
+    use rand_08::SeedableRng;
+    use rand_08::prelude::StdRng;
     use types::MinimalEthSpec;
 
     #[test]

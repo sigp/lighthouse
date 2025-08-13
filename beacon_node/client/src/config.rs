@@ -1,3 +1,4 @@
+use beacon_chain::TrustedSetup;
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use beacon_chain::validator_monitor::ValidatorMonitorConfig;
 use beacon_processor::BeaconProcessorConfig;

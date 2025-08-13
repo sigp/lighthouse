@@ -1,11 +1,12 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
+    DisallowedReOrgOffsets,
 };
 use beacon_node::{
-    beacon_chain::graffiti_calculator::GraffitiOrigin,
-    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
+    ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
+    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
 };
 use beacon_processor::BeaconProcessorConfig;
 use lighthouse_network::PeerId;
@@ -2818,10 +2819,12 @@ fn invalid_block_roots_default_holesky() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.chain.invalid_block_roots.len(), 1);
-            assert!(config
-                .chain
-                .invalid_block_roots
-                .contains(&*INVALID_HOLESKY_BLOCK_ROOT));
+            assert!(
+                config
+                    .chain
+                    .invalid_block_roots
+                    .contains(&*INVALID_HOLESKY_BLOCK_ROOT)
+            );
         })
 }
 

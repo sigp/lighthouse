@@ -5,8 +5,8 @@ use crate::config::BootNodeConfigSerialization;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::{
-    discv5::{self, enr::NodeId, Discv5},
     EnrExt, Eth2Enr,
+    discv5::{self, Discv5, enr::NodeId},
 };
 use tracing::{info, warn};
 use types::EthSpec;
@@ -77,10 +77,10 @@ pub async fn run<E: EthSpec>(
             node_id = ?enr.node_id(),
             "Adding bootnode"
         );
-        if enr != local_enr {
-            if let Err(e) = discv5.add_enr(enr) {
-                warn!(error = ?e, "Failed adding ENR");
-            }
+        if enr != local_enr
+            && let Err(e) = discv5.add_enr(enr)
+        {
+            warn!(error = ?e, "Failed adding ENR");
         }
     }
 

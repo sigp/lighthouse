@@ -1,37 +1,37 @@
 use self::gossip_cache::GossipCache;
-use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
+use crate::EnrExt;
+use crate::Eth2Enr;
+use crate::config::{GossipsubConfigParams, NetworkLoad, gossipsub_config};
 use crate::discovery::{
-    subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
+    DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS, subnet_predicate,
 };
 use crate::peer_manager::{
-    config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
-    ConnectionDirection, PeerManager, PeerManagerEvent,
+    ConnectionDirection, PeerManager, PeerManagerEvent, config::Config as PeerManagerCfg,
+    peerdb::score::PeerAction, peerdb::score::ReportSource,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
-    GoodbyeReason, HandlerErr, InboundRequestId, NetworkParams, Protocol, RPCError, RPCMessage,
-    RPCReceived, RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse, RPC,
+    GoodbyeReason, HandlerErr, InboundRequestId, NetworkParams, Protocol, RPC, RPCError,
+    RPCMessage, RPCReceived, RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse,
 };
 use crate::types::{
-    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
     GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery,
+    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
 };
-use crate::EnrExt;
-use crate::Eth2Enr;
-use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
     IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
     TopicScoreParams,
 };
-use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
+use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
 use libp2p::upnp::tokio::Behaviour as Upnp;
-use libp2p::{identify, PeerId, SwarmBuilder};
+use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
@@ -39,11 +39,11 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
-use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
-};
 use types::{ChainSpec, ForkName};
-use utils::{build_transport, strip_peer_id, Context as ServiceContext};
+use types::{
+    EnrForkId, EthSpec, ForkContext, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+};
+use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
 pub mod api_types;
 mod gossip_cache;
@@ -906,19 +906,17 @@ impl<E: EthSpec> Network<E> {
             MessageAcceptance::Accept => None,
             MessageAcceptance::Ignore => Some("ignore"),
             MessageAcceptance::Reject => Some("reject"),
-        } {
-            if let Some(client) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(propagation_source)
-                .map(|info| info.client().kind.as_ref())
-            {
-                metrics::inc_counter_vec(
-                    &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
-                    &[client, result],
-                )
-            }
+        } && let Some(client) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(propagation_source)
+            .map(|info| info.client().kind.as_ref())
+        {
+            metrics::inc_counter_vec(
+                &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
+                &[client, result],
+            )
         }
 
         self.gossipsub_mut().report_message_validation_result(
@@ -1000,12 +998,11 @@ impl<E: EthSpec> Network<E> {
         if let Err(response) = self
             .eth2_rpc_mut()
             .send_response(inbound_request_id, response.into())
+            && self.network_globals.peers.read().is_connected(&peer_id)
         {
-            if self.network_globals.peers.read().is_connected(&peer_id) {
-                error!(%peer_id, ?inbound_request_id, %response,
-                    "Request not found in RPC active requests"
-                );
-            }
+            error!(%peer_id, ?inbound_request_id, %response,
+                "Request not found in RPC active requests"
+            );
         }
     }
 

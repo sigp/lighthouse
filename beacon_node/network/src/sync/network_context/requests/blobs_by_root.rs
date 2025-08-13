@@ -1,6 +1,6 @@
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use std::sync::Arc;
-use types::{blob_sidecar::BlobIdentifier, BlobSidecar, EthSpec, ForkContext, Hash256};
+use types::{BlobSidecar, EthSpec, ForkContext, Hash256, blob_sidecar::BlobIdentifier};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 

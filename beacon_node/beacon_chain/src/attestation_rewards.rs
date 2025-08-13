@@ -9,13 +9,13 @@ use state_processing::per_epoch_processing::altair::{
     process_inactivity_updates_slow, process_justification_and_finalization,
 };
 use state_processing::per_epoch_processing::base::rewards_and_penalties::{
-    get_attestation_component_delta, get_attestation_deltas_all, get_attestation_deltas_subset,
-    get_inactivity_penalty_delta, get_inclusion_delay_delta, ProposerRewardCalculation,
+    ProposerRewardCalculation, get_attestation_component_delta, get_attestation_deltas_all,
+    get_attestation_deltas_subset, get_inactivity_penalty_delta, get_inclusion_delay_delta,
 };
 use state_processing::per_epoch_processing::base::validator_statuses::InclusionInfo;
 use state_processing::per_epoch_processing::base::{
-    process_justification_and_finalization as process_justification_and_finalization_base,
     TotalBalances, ValidatorStatus, ValidatorStatuses,
+    process_justification_and_finalization as process_justification_and_finalization_base,
 };
 use state_processing::{
     common::altair::BaseRewardPerIncrement,

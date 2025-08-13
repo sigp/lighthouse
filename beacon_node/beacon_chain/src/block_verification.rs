@@ -54,16 +54,17 @@ use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
-    validate_execution_payload_for_gossip, validate_merge_block, AllowOptimisticImport,
-    NotifyExecutionLayer, PayloadNotifier,
+    AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
+    validate_execution_payload_for_gossip, validate_merge_block,
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
+    BeaconChain, BeaconChainError, BeaconChainTypes,
     beacon_chain::{BeaconForkChoice, ForkChoiceError},
-    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    metrics,
 };
 use derivative::Derivative;
 use eth2::types::{BlockGossip, EventKind};
@@ -78,11 +79,11 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
+    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
+    VerifyBlockRoot,
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
-    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -92,12 +93,12 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, debug_span, error, info_span, instrument, Instrument, Span};
+use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
-    data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
-    BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
-    Hash256, InconsistentFork, KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
+    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
+    PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    data_column_sidecar::DataColumnSidecarError,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -1043,7 +1044,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 return Err(BlockError::Slashable);
             }
             SeenBlock::Duplicate => {
-                return Err(BlockError::DuplicateImportStatusUnknown(block_root))
+                return Err(BlockError::DuplicateImportStatusUnknown(block_root));
             }
             SeenBlock::UniqueNonSlashable => {}
         };
@@ -1059,13 +1060,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         // Beacon API block_gossip events
-        if let Some(event_handler) = chain.event_handler.as_ref() {
-            if event_handler.has_block_gossip_subscribers() {
-                event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
-                    slot: block.slot(),
-                    block: block_root,
-                })));
-            }
+        if let Some(event_handler) = chain.event_handler.as_ref()
+            && event_handler.has_block_gossip_subscribers()
+        {
+            event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
+                slot: block.slot(),
+                block: block_root,
+            })));
         }
 
         // Having checked the proposer index and the block root we can cache them.
@@ -1593,18 +1594,18 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * If we have block reward listeners, compute the block reward and push it to the
          * event handler.
          */
-        if let Some(ref event_handler) = chain.event_handler {
-            if event_handler.has_block_reward_subscribers() {
-                let mut reward_cache = Default::default();
-                let block_reward = chain.compute_block_reward(
-                    block.message(),
-                    block_root,
-                    &state,
-                    &mut reward_cache,
-                    true,
-                )?;
-                event_handler.register(EventKind::BlockReward(block_reward));
-            }
+        if let Some(ref event_handler) = chain.event_handler
+            && event_handler.has_block_reward_subscribers()
+        {
+            let mut reward_cache = Default::default();
+            let block_reward = chain.compute_block_reward(
+                block.message(),
+                block_root,
+                &state,
+                &mut reward_cache,
+                true,
+            )?;
+            event_handler.register(EventKind::BlockReward(block_reward));
         }
 
         /*

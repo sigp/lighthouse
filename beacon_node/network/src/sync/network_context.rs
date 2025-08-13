@@ -3,10 +3,10 @@
 
 use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
 pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest};
+use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
 use super::range_sync::ByRangeRequestType;
-use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 #[cfg(test)]
@@ -444,13 +444,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         request: BlocksByRangeRequest,
         failed_columns: &HashSet<ColumnIndex>,
     ) -> Result<(), String> {
-        let Some(requester) = self.components_by_range_requests.keys().find_map(|r| {
-            if r.id == id {
-                Some(r.requester)
-            } else {
-                None
-            }
-        }) else {
+        let Some(requester) = self
+            .components_by_range_requests
+            .keys()
+            .find_map(|r| if r.id == id { Some(r.requester) } else { None })
+        else {
             return Err("request id not present".to_string());
         };
 
@@ -795,7 +793,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             BlockProcessStatus::ExecutionValidated { .. } => {
                 return Ok(LookupRequestResult::NoRequestNeeded(
                     "block execution validated",
-                ))
+                ));
             }
         }
 

@@ -94,7 +94,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-edition = "2021"
+edition = "2024"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
@@ -208,7 +208,7 @@ quickcheck = "1"
 quickcheck_macros = "1"
 quote = "1"
 r2d2 = "0.8"
-rand = "0.8"
+rand = "0.9.0"
 rayon = "1.7"
 regex = "1"
 reqwest = { version = "0.11", default-features = false, features = [

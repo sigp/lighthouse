@@ -1,9 +1,9 @@
+use crate::AvailabilityProcessingStatus;
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::MockFetchBlobsBeaconAdapter;
 use crate::fetch_blobs::{
-    fetch_and_process_engine_blobs_inner, EngineGetBlobsOutput, FetchEngineBlobError,
+    EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs_inner,
 };
-use crate::test_utils::{get_kzg, EphemeralHarnessType};
-use crate::AvailabilityProcessingStatus;
+use crate::test_utils::{EphemeralHarnessType, get_kzg};
 use bls::Signature;
 use eth2::types::BlobsBundle;
 use execution_layer::json_structures::{BlobAndProof, BlobAndProofV1, BlobAndProofV2};

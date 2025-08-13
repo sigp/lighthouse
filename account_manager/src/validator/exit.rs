@@ -4,8 +4,8 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use environment::Environment;
 use eth2::{
-    types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
     BeaconNodeHttpClient, Timeouts,
+    types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
 };
 use eth2_keystore::Keystore;
 use eth2_network_config::Eth2NetworkConfig;
@@ -239,9 +239,11 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 let withdrawal_epoch = validator_data.validator.withdrawable_epoch;
                 let current_epoch = get_current_epoch::<E>(genesis_data.genesis_time, spec)
                     .ok_or("Failed to get current epoch. Please check your system time")?;
-                eprintln!("Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
+                eprintln!(
+                    "Voluntary exit has been accepted into the beacon chain, but not yet finalized. \
                         Finalization may take several minutes or longer. Before finalization there is a low \
-                        probability that the exit may be reverted.");
+                        probability that the exit may be reverted."
+                );
                 eprintln!(
                     "Current epoch: {}, Exit epoch: {}, Withdrawable epoch: {}",
                     current_epoch, exit_epoch, withdrawal_epoch
@@ -401,7 +403,7 @@ mod tests {
     use eth2_keystore::KeystoreBuilder;
     use std::fs::File;
     use std::io::Write;
-    use tempfile::{tempdir, TempDir};
+    use tempfile::{TempDir, tempdir};
 
     const PASSWORD: &str = "cats";
     const KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0_0-1595406747.json";

@@ -1,29 +1,29 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::attestation_verification::{
-    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations, Error,
+    Error, batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
 };
 use beacon_chain::observed_aggregates::ObservedAttestationKey;
-use beacon_chain::test_utils::{MakeAttestationOptions, HARNESS_GENESIS_TIME};
+use beacon_chain::test_utils::{HARNESS_GENESIS_TIME, MakeAttestationOptions};
 use beacon_chain::{
+    BeaconChain, BeaconChainError, BeaconChainTypes, ChainConfig, WhenSlotSkipped,
     attestation_verification::Error as AttnError,
     test_utils::{
-        single_attestation_to_attestation, test_spec, AttestationStrategy, BeaconChainHarness,
-        BlockStrategy, EphemeralHarnessType,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+        single_attestation_to_attestation, test_spec,
     },
-    BeaconChain, BeaconChainError, BeaconChainTypes, ChainConfig, WhenSlotSkipped,
 };
-use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
+use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use int_to_bytes::int_to_bytes32;
 use state_processing::per_slot_processing;
 use std::sync::{Arc, LazyLock};
 use tree_hash::TreeHash;
 use types::{
+    Address, AggregateSignature, Attestation, AttestationRef, ChainSpec, Epoch, EthSpec,
+    FixedBytesExtended, ForkName, Hash256, Keypair, MainnetEthSpec, SecretKey, SelectionProof,
+    SignedAggregateAndProof, SingleAttestation, Slot, SubnetId, Unsigned,
     signed_aggregate_and_proof::SignedAggregateAndProofRefMut,
-    test_utils::generate_deterministic_keypair, Address, AggregateSignature, Attestation,
-    AttestationRef, ChainSpec, Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, Keypair,
-    MainnetEthSpec, SecretKey, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot,
-    SubnetId, Unsigned,
+    test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;
@@ -1347,10 +1347,12 @@ async fn attestation_to_finalized_block() {
     );
 
     // Pre-finalization block cache should contain the block root.
-    assert!(harness
-        .chain
-        .pre_finalization_block_cache
-        .contains(earlier_block_root));
+    assert!(
+        harness
+            .chain
+            .pre_finalization_block_cache
+            .contains(earlier_block_root)
+    );
 }
 
 #[tokio::test]
@@ -1407,24 +1409,30 @@ async fn verify_aggregate_for_gossip_doppelganger_detection() {
     assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
     // Check the correct beacon cache is populated
-    assert!(!harness
-        .chain
-        .observed_block_attesters
-        .read()
-        .validator_has_been_observed(epoch, index)
-        .expect("should check if block attester was observed"));
-    assert!(!harness
-        .chain
-        .observed_gossip_attesters
-        .read()
-        .validator_has_been_observed(epoch, index)
-        .expect("should check if gossip attester was observed"));
-    assert!(harness
-        .chain
-        .observed_aggregators
-        .read()
-        .validator_has_been_observed(epoch, index)
-        .expect("should check if gossip aggregator was observed"));
+    assert!(
+        !harness
+            .chain
+            .observed_block_attesters
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if block attester was observed")
+    );
+    assert!(
+        !harness
+            .chain
+            .observed_gossip_attesters
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if gossip attester was observed")
+    );
+    assert!(
+        harness
+            .chain
+            .observed_aggregators
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if gossip aggregator was observed")
+    );
 }
 
 #[tokio::test]
@@ -1464,24 +1472,30 @@ async fn verify_attestation_for_gossip_doppelganger_detection() {
     assert!(harness.chain.validator_seen_at_epoch(index, epoch));
 
     // Check the correct beacon cache is populated
-    assert!(!harness
-        .chain
-        .observed_block_attesters
-        .read()
-        .validator_has_been_observed(epoch, index)
-        .expect("should check if block attester was observed"));
-    assert!(harness
-        .chain
-        .observed_gossip_attesters
-        .read()
-        .validator_has_been_observed(epoch, index)
-        .expect("should check if gossip attester was observed"));
-    assert!(!harness
-        .chain
-        .observed_aggregators
-        .read()
-        .validator_has_been_observed(epoch, index)
-        .expect("should check if gossip aggregator was observed"));
+    assert!(
+        !harness
+            .chain
+            .observed_block_attesters
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if block attester was observed")
+    );
+    assert!(
+        harness
+            .chain
+            .observed_gossip_attesters
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if gossip attester was observed")
+    );
+    assert!(
+        !harness
+            .chain
+            .observed_aggregators
+            .read()
+            .validator_has_been_observed(epoch, index)
+            .expect("should check if gossip aggregator was observed")
+    );
 }
 
 #[tokio::test]
@@ -1544,7 +1558,8 @@ async fn attestation_verification_use_head_state_fork() {
             .map(|(attestation, subnet_id)| (attestation, Some(*subnet_id)));
 
         assert!(
-            batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain).is_ok(),
+            batch_verify_unaggregated_attestations(attestations_and_subnets, &harness.chain)
+                .is_ok(),
             "should accept attestations with `data.slot` >= first capella slot signed using the Capella fork"
         );
     }

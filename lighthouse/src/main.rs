@@ -7,17 +7,17 @@ use clap::FromArgMatches;
 use clap::Subcommand;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::{
-    flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config, FLAG_HEADER,
+    FLAG_HEADER, flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config,
 };
 use cli::LighthouseSubcommands;
-use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default};
 use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
-use logging::{build_workspace_filter, crit, MetricsLayer};
+use logging::{MetricsLayer, build_workspace_filter, crit};
 use malloc_utils::configure_memory_allocator;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
@@ -27,8 +27,8 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{info, warn, Level};
-use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing::{Level, info, warn};
+use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -101,7 +101,12 @@ fn build_profile_name() -> String {
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var("RUST_BACKTRACE").is_err() {
-        std::env::set_var("RUST_BACKTRACE", "1");
+        // `set_var` is marked unsafe because it is unsafe to use if there are multiple threads
+        // reading or writing from the environment. We are at the very beginning of execution and
+        // have not spun up any threads or the tokio runtime, so it is safe to use.
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
     }
 
     // Parse the CLI parameters.
@@ -466,15 +471,16 @@ fn main() {
     // Only apply this optimization for the beacon node. It's the only process with a substantial
     // memory footprint.
     let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
-    if is_beacon_node && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
-        if let Err(e) = configure_memory_allocator() {
-            eprintln!(
-                "Unable to configure the memory allocator: {} \n\
+    if is_beacon_node
+        && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG)
+        && let Err(e) = configure_memory_allocator()
+    {
+        eprintln!(
+            "Unable to configure the memory allocator: {} \n\
                 Try providing the --{} flag",
-                e, DISABLE_MALLOC_TUNING_FLAG
-            );
-            exit(1)
-        }
+            e, DISABLE_MALLOC_TUNING_FLAG
+        );
+        exit(1)
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {

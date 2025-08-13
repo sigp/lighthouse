@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use beacon_chain::kzg_utils::{blobs_to_data_column_sidecars, reconstruct_data_columns};
 use beacon_chain::test_utils::get_kzg;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 
 use bls::Signature;
 use kzg::{KzgCommitment, KzgProof};
 use types::{
-    beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockDeneb, Blob, BlobsList, ChainSpec,
-    EmptyBlock, EthSpec, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockDeneb, Blob, BlobsList, ChainSpec, EmptyBlock, EthSpec, KzgProofs,
+    MainnetEthSpec, SignedBeaconBlock, beacon_block_body::KzgCommitments,
 };
 
 fn create_test_block_and_blobs<E: EthSpec>(

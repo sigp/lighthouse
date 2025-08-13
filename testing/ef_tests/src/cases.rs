@@ -167,17 +167,13 @@ impl<T: Case> Cases<T> {
             self.test_cases
                 .into_par_iter()
                 .enumerate()
-                .map(|(i, (ref path, ref tc))| {
-                    CaseResult::new(i, path, tc, tc.result(i, fork_name))
-                })
+                .map(|(i, (path, tc))| CaseResult::new(i, path, tc, tc.result(i, fork_name)))
                 .collect()
         } else {
             self.test_cases
                 .iter()
                 .enumerate()
-                .map(|(i, (ref path, ref tc))| {
-                    CaseResult::new(i, path, tc, tc.result(i, fork_name))
-                })
+                .map(|(i, (path, tc))| CaseResult::new(i, path, tc, tc.result(i, fork_name)))
                 .collect()
         }
     }

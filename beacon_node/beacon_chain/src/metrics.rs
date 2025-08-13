@@ -408,9 +408,9 @@ pub static ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_TIMES: LazyLock<Result<His
 pub static ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETUP_TIMES: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
-        "beacon_attestation_processing_batch_unagg_signature_setup_times",
-        "Time spent on setting up for the signature verification of batch unaggregate processing"
-    )
+            "beacon_attestation_processing_batch_unagg_signature_setup_times",
+            "Time spent on setting up for the signature verification of batch unaggregate processing",
+        )
     });
 pub static ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_TIMES: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
@@ -826,17 +826,17 @@ pub static ATTN_OBSERVATION_PREV_EPOCH_AGGREGATORS: LazyLock<Result<IntGauge>> =
 pub static SYNC_COMM_OBSERVATION_PREV_SLOT_SIGNERS: LazyLock<Result<IntGauge>> = LazyLock::new(
     || {
         try_create_int_gauge(
-        "beacon_sync_comm_observation_slot_signers",
-        "Count of sync committee contributors that have been seen by the beacon chain in the previous slot"
-    )
+            "beacon_sync_comm_observation_slot_signers",
+            "Count of sync committee contributors that have been seen by the beacon chain in the previous slot",
+        )
     },
 );
 pub static SYNC_COMM_OBSERVATION_PREV_SLOT_AGGREGATORS: LazyLock<Result<IntGauge>> = LazyLock::new(
     || {
         try_create_int_gauge(
-        "beacon_sync_comm_observation_slot_aggregators",
-        "Count of sync committee aggregators that have been seen by the beacon chain in the previous slot"
-    )
+            "beacon_sync_comm_observation_slot_aggregators",
+            "Count of sync committee aggregators that have been seen by the beacon chain in the previous slot",
+        )
     },
 );
 
@@ -997,10 +997,10 @@ pub static VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_MIN_DELAY_SECONDS: LazyLock
     Result<HistogramVec>,
 > = LazyLock::new(|| {
     try_create_histogram_vec(
-            "validator_monitor_prev_epoch_attestations_min_delay_seconds",
-            "The min delay between when the validator should send the attestation and when it was received.",
-            &["validator"]
-        )
+        "validator_monitor_prev_epoch_attestations_min_delay_seconds",
+        "The min delay between when the validator should send the attestation and when it was received.",
+        &["validator"],
+    )
 });
 pub static VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_AGGREGATE_INCLUSIONS: LazyLock<
     Result<IntGaugeVec>,
@@ -1058,10 +1058,10 @@ pub static VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS: LazyLock<
     Result<HistogramVec>,
 > = LazyLock::new(|| {
     try_create_histogram_vec(
-            "validator_monitor_prev_epoch_aggregates_min_delay_seconds",
-            "The min delay between when the validator should send the aggregate and when it was received.",
-            &["validator"]
-        )
+        "validator_monitor_prev_epoch_aggregates_min_delay_seconds",
+        "The min delay between when the validator should send the aggregate and when it was received.",
+        &["validator"],
+    )
 });
 pub static VALIDATOR_MONITOR_PREV_EPOCH_EXITS_TOTAL: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
@@ -1100,10 +1100,10 @@ pub static VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECOND
     Result<HistogramVec>,
 > = LazyLock::new(|| {
     try_create_histogram_vec(
-            "validator_monitor_prev_epoch_sync_committee_messages_min_delay_seconds",
-            "The min delay between when the validator should send the sync committee message and when it was received.",
-            &["validator"]
-        )
+        "validator_monitor_prev_epoch_sync_committee_messages_min_delay_seconds",
+        "The min delay between when the validator should send the sync committee message and when it was received.",
+        &["validator"],
+    )
 });
 pub static VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS: LazyLock<
     Result<IntGaugeVec>,
@@ -1135,10 +1135,10 @@ pub static VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS: Laz
     Result<HistogramVec>,
 > = LazyLock::new(|| {
     try_create_histogram_vec(
-            "validator_monitor_prev_epoch_sync_contribution_min_delay_seconds",
-            "The min delay between when the validator should send the sync contribution and when it was received.",
-            &["validator"]
-        )
+        "validator_monitor_prev_epoch_sync_contribution_min_delay_seconds",
+        "The min delay between when the validator should send the sync contribution and when it was received.",
+        &["validator"],
+    )
 });
 pub static VALIDATOR_MONITOR_VALIDATOR_IN_CURRENT_SYNC_COMMITTEE: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
@@ -1172,7 +1172,7 @@ pub static VALIDATOR_MONITOR_UNAGGREGATED_ATTESTATION_DELAY_SECONDS: LazyLock<
     try_create_histogram_vec(
         "validator_monitor_unaggregated_attestation_delay_seconds",
         "The delay between when the validator should send the attestation and when it was received.",
-        &["src", "validator"]
+        &["src", "validator"],
     )
 });
 pub static VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_TOTAL: LazyLock<Result<IntCounterVec>> =
@@ -1186,10 +1186,10 @@ pub static VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_TOTAL: LazyLock<Result<IntC
 pub static VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGES_DELAY_SECONDS: LazyLock<Result<HistogramVec>> =
     LazyLock::new(|| {
         try_create_histogram_vec(
-        "validator_monitor_sync_committee_messages_delay_seconds",
-        "The delay between when the validator should send the sync committee message and when it was received.",
-        &["src", "validator"]
-    )
+            "validator_monitor_sync_committee_messages_delay_seconds",
+            "The delay between when the validator should send the sync committee message and when it was received.",
+            &["src", "validator"],
+        )
     });
 pub static VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_TOTAL: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
@@ -1202,10 +1202,10 @@ pub static VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_TOTAL: LazyLock<Result<IntCounte
 pub static VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_DELAY_SECONDS: LazyLock<Result<HistogramVec>> =
     LazyLock::new(|| {
         try_create_histogram_vec(
-        "validator_monitor_sync_contributions_delay_seconds",
-        "The delay between when the aggregator should send the sync contribution and when it was received.",
-        &["src", "validator"]
-    )
+            "validator_monitor_sync_contributions_delay_seconds",
+            "The delay between when the aggregator should send the sync contribution and when it was received.",
+            &["src", "validator"],
+        )
     });
 pub static VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
@@ -1218,10 +1218,10 @@ pub static VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_TOTAL: LazyLock<Result<IntCo
 pub static VALIDATOR_MONITOR_AGGREGATED_ATTESTATION_DELAY_SECONDS: LazyLock<Result<HistogramVec>> =
     LazyLock::new(|| {
         try_create_histogram_vec(
-        "validator_monitor_aggregated_attestation_delay_seconds",
-        "The delay between then the validator should send the aggregate and when it was received.",
-        &["src", "validator"]
-    )
+            "validator_monitor_aggregated_attestation_delay_seconds",
+            "The delay between then the validator should send the aggregate and when it was received.",
+            &["src", "validator"],
+        )
     });
 pub static VALIDATOR_MONITOR_ATTESTATION_IN_AGGREGATE_TOTAL: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
@@ -1269,10 +1269,10 @@ pub static VALIDATOR_MONITOR_SYNC_COMMITTEE_MESSAGE_IN_BLOCK_TOTAL: LazyLock<
 pub static VALIDATOR_MONITOR_ATTESTATION_IN_BLOCK_DELAY_SLOTS: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
         try_create_int_gauge_vec(
-        "validator_monitor_attestation_in_block_delay_slots",
-        "The excess slots (beyond the minimum delay) between the attestation slot and the block slot.",
-        &["src", "validator"]
-    )
+            "validator_monitor_attestation_in_block_delay_slots",
+            "The excess slots (beyond the minimum delay) between the attestation slot and the block slot.",
+            &["src", "validator"],
+        )
     });
 pub static VALIDATOR_MONITOR_BEACON_BLOCK_TOTAL: LazyLock<Result<IntCounterVec>> =
     LazyLock::new(|| {
@@ -1380,20 +1380,21 @@ pub static BEACON_BLOCK_DELAY_IMPORTED_TIME: LazyLock<Result<IntGauge>> = LazyLo
     )
 });
 
-pub static BEACON_BLOCK_DELAY_HEAD_IMPORTED_TIME: LazyLock<Result<IntGauge>> =
-    LazyLock::new(|| {
+pub static BEACON_BLOCK_DELAY_HEAD_IMPORTED_TIME: LazyLock<Result<IntGauge>> = LazyLock::new(
+    || {
         try_create_int_gauge(
-        "beacon_block_delay_head_imported_time",
-        "Duration between the time that block was imported and the time when it was set as head.",
-    )
-    });
+            "beacon_block_delay_head_imported_time",
+            "Duration between the time that block was imported and the time when it was set as head.",
+        )
+    },
+);
 pub static BEACON_BLOCK_DELAY_HEAD_SLOT_START_EXCEEDED_TOTAL: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
-        "beacon_block_delay_head_slot_start_exceeded_total",
-        "A counter that is triggered when the duration between the start of the block's slot and the current time \
+            "beacon_block_delay_head_slot_start_exceeded_total",
+            "A counter that is triggered when the duration between the start of the block's slot and the current time \
         will result in failed attestations.",
-    )
+        )
     });
 
 /*

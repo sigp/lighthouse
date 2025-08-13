@@ -1,7 +1,7 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY;
-use crate::discovery::{peer_id_to_node_id, CombinedKey};
+use crate::discovery::{CombinedKey, peer_id_to_node_id};
 use crate::{
-    metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId, SyncInfo,
+    Enr, EnrExt, Gossipsub, PeerId, SyncInfo, metrics, multiaddr::Multiaddr, types::Subnet,
 };
 use itertools::Itertools;
 use logging::crit;
@@ -11,7 +11,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
@@ -431,12 +431,11 @@ impl<E: EthSpec> PeerDB<E> {
             .peers
             .iter()
             .filter_map(|(peer_id, info)| {
-                if let PeerConnectionStatus::Dialing { since } = info.connection_status() {
-                    if (*since) + std::time::Duration::from_secs(DIAL_TIMEOUT)
+                if let PeerConnectionStatus::Dialing { since } = info.connection_status()
+                    && (*since) + std::time::Duration::from_secs(DIAL_TIMEOUT)
                         < std::time::Instant::now()
-                    {
-                        return Some(*peer_id);
-                    }
+                {
+                    return Some(*peer_id);
                 }
                 None
             })

@@ -1,14 +1,14 @@
-use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::Key;
+use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::{
-    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp,
+    ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp, get_key_for_col, metrics,
 };
 use leveldb::{
     compaction::Compaction,
     database::{
+        Database,
         batch::{Batch, Writebatch},
         kv::KV,
-        Database,
     },
     iterator::{Iterable, LevelDBIterator},
     options::{Options, ReadOptions},

@@ -24,13 +24,13 @@ use libp2p_identity::PeerId;
 use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
 use reqwest::{
-    header::{HeaderMap, HeaderValue},
     Body, IntoUrl, RequestBuilder, Response,
+    header::{HeaderMap, HeaderValue},
 };
 pub use reqwest::{StatusCode, Url};
 use reqwest_eventsource::{Event, EventSource};
 pub use sensitive_url::{SensitiveError, SensitiveUrl};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
 use std::future::Future;
@@ -2755,7 +2755,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_events<E: EthSpec>(
         &self,
         topic: &[EventTopic],
-    ) -> Result<impl Stream<Item = Result<EventKind<E>, Error>>, Error> {
+    ) -> Result<impl Stream<Item = Result<EventKind<E>, Error>> + use<E>, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?

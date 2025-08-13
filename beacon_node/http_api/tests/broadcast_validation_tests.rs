@@ -1,12 +1,12 @@
 use beacon_chain::test_utils::test_spec;
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock, IntoGossipVerifiedBlock,
+    test_utils::{AttestationStrategy, BlockStrategy},
 };
 use eth2::reqwest::StatusCode;
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
-use http_api::{publish_blinded_block, publish_block, reconstruct_block, Config, ProvenancedBlock};
+use http_api::{Config, ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block};
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
@@ -175,10 +175,12 @@ pub async fn gossip_full_pass() {
         .await;
 
     assert!(response.is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 }
 
 // This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
@@ -221,10 +223,12 @@ pub async fn gossip_full_pass_ssz() {
         .await;
 
     assert!(response.is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block_contents.signed_block().canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block_contents.signed_block().canonical_root())
+    );
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus`.
@@ -384,10 +388,12 @@ pub async fn consensus_partial_pass_only_consensus() {
     .await;
 
     assert!(publication_result.is_ok(), "{publication_result:?}");
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block_b_root));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block_b_root)
+    );
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
@@ -429,10 +435,12 @@ pub async fn consensus_full_pass() {
         .await;
 
     assert!(response.is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -530,18 +538,22 @@ pub async fn equivocation_consensus_early_equivocation() {
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     /* submit `block_a` as valid */
-    assert!(tester
-        .client
-        .post_beacon_blocks_v2_ssz(
-            &PublishBlockRequest::new(block_a.clone(), blobs_a),
-            validation_level
-        )
-        .await
-        .is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block_a.canonical_root()));
+    assert!(
+        tester
+            .client
+            .post_beacon_blocks_v2_ssz(
+                &PublishBlockRequest::new(block_a.clone(), blobs_a),
+                validation_level
+            )
+            .await
+            .is_ok()
+    );
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block_a.canonical_root())
+    );
 
     /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
@@ -724,10 +736,12 @@ pub async fn equivocation_full_pass() {
         .await;
 
     assert!(response.is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=gossip`.
@@ -860,10 +874,12 @@ pub async fn blinded_gossip_full_pass() {
         .await;
 
     assert!(response.is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&blinded_block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&blinded_block.canonical_root())
+    );
 }
 
 // This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
@@ -902,10 +918,12 @@ pub async fn blinded_gossip_full_pass_ssz() {
         .await;
 
     assert!(response.is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&blinded_block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&blinded_block.canonical_root())
+    );
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus`.
@@ -1039,10 +1057,12 @@ pub async fn blinded_consensus_full_pass() {
         .await;
 
     assert!(response.is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&blinded_block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&blinded_block.canonical_root())
+    );
 }
 
 /// This test checks that a block that is **invalid** from a gossip perspective gets rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -1142,15 +1162,19 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
     assert_ne!(block_a.state_root(), block_b.state_root());
 
     /* submit `block_a` as valid */
-    assert!(tester
-        .client
-        .post_beacon_blinded_blocks_v2(&block_a, validation_level)
-        .await
-        .is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block_a.canonical_root()));
+    assert!(
+        tester
+            .client
+            .post_beacon_blinded_blocks_v2(&block_a, validation_level)
+            .await
+            .is_ok()
+    );
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block_a.canonical_root())
+    );
 
     /* submit `block_b` which should induce equivocation */
     let response: Result<(), eth2::Error> = tester
@@ -1352,10 +1376,12 @@ pub async fn blinded_equivocation_full_pass() {
         .await;
 
     assert!(response.is_ok());
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 }
 
 /// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
@@ -1402,10 +1428,12 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
         .unwrap();
 
     // It should not yet be added to fork choice because blobs have not been seen.
-    assert!(!tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        !tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 
     // Post the block *and* blobs to the HTTP API.
     let response: Result<(), eth2::Error> = tester
@@ -1418,10 +1446,12 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
 
     // This should result in the block being fully imported.
     response.unwrap();
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 }
 
 /// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
@@ -1486,10 +1516,12 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
         .await;
 
     // It should not yet be added to fork choice because all blobs have not been seen.
-    assert!(!tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        !tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 
     // Post the block *and* all blobs to the HTTP API.
     let response: Result<(), eth2::Error> = tester
@@ -1502,10 +1534,12 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
 
     // This should result in the block being fully imported.
     response.unwrap();
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 }
 
 /// This test checks that an HTTP POST request with the block & blobs/columns succeeds with a 200 response
@@ -1557,10 +1591,12 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
         .await;
 
     // It should not yet be added to fork choice because the block has not been seen.
-    assert!(!tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        !tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 
     // Post the block *and* all blobs to the HTTP API.
     let response: Result<(), eth2::Error> = tester
@@ -1573,10 +1609,12 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
 
     // This should result in the block being fully imported.
     response.unwrap();
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 }
 
 /// This test checks that an HTTP POST request with the block succeeds with a 200 response
@@ -1628,10 +1666,12 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
         .await;
 
     // It should not yet be added to fork choice because the block has not been seen.
-    assert!(!tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        !tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 
     // Post just the block to the HTTP API (blob lists are empty).
     let response: Result<(), eth2::Error> = tester
@@ -1647,10 +1687,12 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
 
     // This should result in the block being fully imported.
     response.unwrap();
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1702,10 +1744,12 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
         .await;
 
     // It should not yet be added to fork choice because block B has not been seen.
-    assert!(!tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block_b.canonical_root()));
+    assert!(
+        !tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block_b.canonical_root())
+    );
 
     // Post block A *and* all its blobs to the HTTP API.
     let response: Result<(), eth2::Error> = tester
@@ -1718,10 +1762,12 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
 
     // This should not result in block A being fully imported.
     response.unwrap_err();
-    assert!(!tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block_a.canonical_root()));
+    assert!(
+        !tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block_a.canonical_root())
+    );
 }
 
 /// This test checks that an HTTP POST request with a duplicate block & blobs results in the
@@ -1775,10 +1821,12 @@ pub async fn duplicate_block_status_code() {
 
     // This should result in the block being fully imported.
     response.unwrap();
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block.canonical_root())
+    );
 
     // Post again.
     let duplicate_response: Result<(), eth2::Error> = tester

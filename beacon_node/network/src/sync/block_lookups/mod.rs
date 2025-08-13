@@ -20,15 +20,15 @@
 //! or consider a lookup complete. These caches are read from the `SyncNetworkContext` and its state
 //! returned to this module as `LookupRequestResult` variants.
 
-use self::parent_chain::{compute_parent_chains, NodeChain};
+use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, BlockProcessingResult, SLOT_IMPORT_TOLERANCE};
 use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
+use crate::sync::SyncMessage;
 use crate::sync::block_lookups::common::ResponseType;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
-use crate::sync::SyncMessage;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,
@@ -365,15 +365,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // Ensure that awaiting parent exists, otherwise this lookup won't be able to make progress
-        if let Some(awaiting_parent) = awaiting_parent {
-            if !self
+        if let Some(awaiting_parent) = awaiting_parent
+            && !self
                 .single_block_lookups
                 .iter()
                 .any(|(_, lookup)| lookup.is_for_block(awaiting_parent))
-            {
-                warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
-                return false;
-            }
+        {
+            warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
+            return false;
         }
 
         // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce

@@ -2,11 +2,11 @@
 //! required for the HTTP API.
 
 use crate::{
-    Error as ServerError, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
-    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
+    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use enr::{CombinedKey, Enr};
-use mediatype::{names, MediaType, MediaTypeList};
+use mediatype::{MediaType, MediaTypeList, names};
 use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -1115,7 +1115,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
                 return Err(serde::de::Error::custom(format!(
                     "SsePayloadAttributes failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Bellatrix => {
                 Self::V1(Deserialize::deserialize(deserializer).map_err(convert_err)?)
@@ -1565,7 +1565,7 @@ pub struct BroadcastValidationQuery {
 
 pub mod serde_status_code {
     use crate::StatusCode;
-    use serde::{de::Error, Deserialize, Serialize};
+    use serde::{Deserialize, Serialize, de::Error};
 
     pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
     where

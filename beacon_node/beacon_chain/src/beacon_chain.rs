@@ -1,19 +1,19 @@
 use crate::attestation_verification::{
-    batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations,
     Error as AttestationError, VerifiedAggregatedAttestation, VerifiedAttestation,
-    VerifiedUnaggregatedAttestation,
+    VerifiedUnaggregatedAttestation, batch_verify_aggregated_attestations,
+    batch_verify_unaggregated_attestations,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
+    BlockError, ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock,
     check_block_is_finalized_checkpoint_or_descendant, check_block_relevancy,
-    signature_verify_chain_segment, verify_header_signature, BlockError, ExecutionPendingBlock,
-    GossipVerifiedBlock, IntoExecutionPendingBlock,
+    signature_verify_chain_segment, verify_header_signature,
 };
 use crate::block_verification_types::{
     AsBlock, AvailableExecutedBlock, BlockImportData, ExecutedBlock, RpcBlock,
@@ -28,7 +28,7 @@ use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataC
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::{get_execution_payload, NotifyExecutionLayer, PreparePayloadHandle};
+use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::graffiti_calculator::GraffitiCalculator;
@@ -65,13 +65,13 @@ use crate::sync_committee_verification::{
 };
 use crate::validator_custody::CustodyContextSsz;
 use crate::validator_monitor::{
-    get_slot_delay_ms, timestamp_now, ValidatorMonitor,
-    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
+    HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
+    timestamp_now,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
-    BeaconSnapshot, CachedHead,
+    AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
+    CachedHead, metrics,
 };
 use eth2::types::{
     EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
@@ -85,8 +85,8 @@ use fork_choice::{
     InvalidationOperation, PayloadVerificationStatus, ResetPayloadStatuses,
 };
 use futures::channel::mpsc::Sender;
-use itertools::process_results;
 use itertools::Itertools;
+use itertools::process_results;
 use kzg::Kzg;
 use logging::crit;
 use operation_pool::{
@@ -100,16 +100,16 @@ use slasher::Slasher;
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
+    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
     common::get_attesting_indices_from_state,
     epoch_cache::initialize_epoch_cache,
     per_block_processing,
     per_block_processing::{
-        errors::AttestationValidationError, get_expected_withdrawals,
-        verify_attestation_for_block_inclusion, VerifySignatures,
+        VerifySignatures, errors::AttestationValidationError, get_expected_withdrawals,
+        verify_attestation_for_block_inclusion,
     },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot, VerifyOperation,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -126,7 +126,7 @@ use store::{
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
-use tracing::{debug, debug_span, error, info, info_span, instrument, trace, warn, Span};
+use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
@@ -978,10 +978,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ordering::Greater => state.get_block_root(request_slot).ok().copied(),
             };
 
-            if let Some(request_root) = request_root_opt {
-                if let Ok(prev_root) = state.get_block_root(prev_slot) {
-                    return Ok(Some((*prev_root != request_root).then_some(request_root)));
-                }
+            if let Some(request_root) = request_root_opt
+                && let Ok(prev_root) = state.get_block_root(prev_slot)
+            {
+                return Ok(Some((*prev_root != request_root).then_some(request_root)));
             }
 
             // Fast lookup is not possible.
@@ -1993,7 +1993,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Err(Error::HeadBlockNotFullyVerified {
                     beacon_block_root,
                     execution_status,
-                })
+                });
             }
             None => return Err(Error::HeadMissingFromForkChoice(beacon_block_root)),
         };
@@ -2141,12 +2141,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         VerifiedAggregatedAttestation::verify(signed_aggregate, self).inspect(|v| {
             // This method is called for API and gossip attestations, so this covers all aggregated attestation events
-            if let Some(event_handler) = self.event_handler.as_ref() {
-                if event_handler.has_attestation_subscribers() {
-                    event_handler.register(EventKind::Attestation(Box::new(
-                        v.attestation().clone_as_attestation(),
-                    )));
-                }
+            if let Some(event_handler) = self.event_handler.as_ref()
+                && event_handler.has_attestation_subscribers()
+            {
+                event_handler.register(EventKind::Attestation(Box::new(
+                    v.attestation().clone_as_attestation(),
+                )));
             }
             metrics::inc_counter(&metrics::AGGREGATED_ATTESTATION_PROCESSING_SUCCESSES);
         })
@@ -2176,12 +2176,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_REQUESTS);
         let _timer = metrics::start_timer(&metrics::SYNC_CONTRIBUTION_GOSSIP_VERIFICATION_TIMES);
         VerifiedSyncContribution::verify(sync_contribution, self).inspect(|v| {
-            if let Some(event_handler) = self.event_handler.as_ref() {
-                if event_handler.has_contribution_subscribers() {
-                    event_handler.register(EventKind::ContributionAndProof(Box::new(
-                        v.aggregate().clone(),
-                    )));
-                }
+            if let Some(event_handler) = self.event_handler.as_ref()
+                && event_handler.has_contribution_subscribers()
+            {
+                event_handler.register(EventKind::ContributionAndProof(Box::new(
+                    v.aggregate().clone(),
+                )));
             }
             metrics::inc_counter(&metrics::SYNC_CONTRIBUTION_PROCESSING_SUCCESSES);
         })
@@ -2533,12 +2533,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .verify_and_observe_at(exit, wall_clock_epoch, head_state, &self.spec)
             .inspect(|exit| {
                 // this method is called for both API and gossip exits, so this covers all exit events
-                if let Some(event_handler) = self.event_handler.as_ref() {
-                    if event_handler.has_exit_subscribers() {
-                        if let ObservationOutcome::New(exit) = exit.clone() {
-                            event_handler.register(EventKind::VoluntaryExit(exit.into_inner()));
-                        }
-                    }
+                if let Some(event_handler) = self.event_handler.as_ref()
+                    && event_handler.has_exit_subscribers()
+                    && let ObservationOutcome::New(exit) = exit.clone()
+                {
+                    event_handler.register(EventKind::VoluntaryExit(exit.into_inner()));
                 }
             })?)
     }
@@ -2567,12 +2566,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         proposer_slashing: SigVerifiedOp<ProposerSlashing, T::EthSpec>,
     ) {
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_proposer_slashing_subscribers() {
-                event_handler.register(EventKind::ProposerSlashing(Box::new(
-                    proposer_slashing.clone().into_inner(),
-                )));
-            }
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_proposer_slashing_subscribers()
+        {
+            event_handler.register(EventKind::ProposerSlashing(Box::new(
+                proposer_slashing.clone().into_inner(),
+            )));
         }
 
         self.op_pool.insert_proposer_slashing(proposer_slashing)
@@ -2605,12 +2604,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice_write_lock()
             .on_attester_slashing(attester_slashing.as_inner().to_ref());
 
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_attester_slashing_subscribers() {
-                event_handler.register(EventKind::AttesterSlashing(Box::new(
-                    attester_slashing.clone().into_inner(),
-                )));
-            }
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_attester_slashing_subscribers()
+        {
+            event_handler.register(EventKind::AttesterSlashing(Box::new(
+                attester_slashing.clone().into_inner(),
+            )));
         }
 
         // Add to the op pool (if we have the ability to propose blocks).
@@ -2678,12 +2677,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         bls_to_execution_change: SigVerifiedOp<SignedBlsToExecutionChange, T::EthSpec>,
         received_pre_capella: ReceivedPreCapella,
     ) -> bool {
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_bls_to_execution_change_subscribers() {
-                event_handler.register(EventKind::BlsToExecutionChange(Box::new(
-                    bls_to_execution_change.clone().into_inner(),
-                )));
-            }
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_bls_to_execution_change_subscribers()
+        {
+            event_handler.register(EventKind::BlsToExecutionChange(Box::new(
+                bls_to_execution_change.clone().into_inner(),
+            )));
         }
 
         self.op_pool
@@ -2868,7 +2867,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return ChainSegmentResult::Failed {
                     imported_blocks,
                     error: BlockError::BeaconChainError(error.into()),
-                }
+                };
             }
         };
 
@@ -3125,14 +3124,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .iter()
             .filter_map(|b| b.as_ref().map(|b| b.block_parent_root()))
             .next()
-        {
-            if !self
+            && !self
                 .canonical_head
                 .fork_choice_read_lock()
                 .contains_block(&parent_root)
-            {
-                return Err(BlockError::ParentUnknown { parent_root });
-            }
+        {
+            return Err(BlockError::ParentUnknown { parent_root });
         }
 
         self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
@@ -3182,19 +3179,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         I: Iterator<Item = &'a BlobSidecar<T::EthSpec>>,
     {
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_blob_sidecar_subscribers() {
-                let imported_blobs = self
-                    .data_availability_checker
-                    .cached_blob_indexes(block_root)
-                    .unwrap_or_default();
-                let new_blobs = blobs_iter.filter(|b| !imported_blobs.contains(&b.index));
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_blob_sidecar_subscribers()
+        {
+            let imported_blobs = self
+                .data_availability_checker
+                .cached_blob_indexes(block_root)
+                .unwrap_or_default();
+            let new_blobs = blobs_iter.filter(|b| !imported_blobs.contains(&b.index));
 
-                for blob in new_blobs {
-                    event_handler.register(EventKind::BlobSidecar(
-                        SseBlobSidecar::from_blob_sidecar(blob),
-                    ));
-                }
+            for blob in new_blobs {
+                event_handler.register(EventKind::BlobSidecar(SseBlobSidecar::from_blob_sidecar(
+                    blob,
+                )));
             }
         }
     }
@@ -3206,20 +3203,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) where
         I: Iterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
     {
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_data_column_sidecar_subscribers() {
-                let imported_data_columns = self
-                    .data_availability_checker
-                    .cached_data_column_indexes(block_root)
-                    .unwrap_or_default();
-                let new_data_columns =
-                    data_columns_iter.filter(|b| !imported_data_columns.contains(&b.index));
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_data_column_sidecar_subscribers()
+        {
+            let imported_data_columns = self
+                .data_availability_checker
+                .cached_data_column_indexes(block_root)
+                .unwrap_or_default();
+            let new_data_columns =
+                data_columns_iter.filter(|b| !imported_data_columns.contains(&b.index));
 
-                for data_column in new_data_columns {
-                    event_handler.register(EventKind::DataColumnSidecar(
-                        SseDataColumnSidecar::from_data_column_sidecar(data_column),
-                    ));
-                }
+            for data_column in new_data_columns {
+                event_handler.register(EventKind::DataColumnSidecar(
+                    SseDataColumnSidecar::from_data_column_sidecar(data_column),
+                ));
             }
         }
     }
@@ -3254,14 +3251,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Reject RPC columns referencing unknown parents. Otherwise we allow potentially invalid data
         // into the da_checker, where invalid = descendant of invalid blocks.
         // Note: custody_columns should have at least one item and all items have the same parent root.
-        if let Some(parent_root) = custody_columns.iter().map(|c| c.block_parent_root()).next() {
-            if !self
+        if let Some(parent_root) = custody_columns.iter().map(|c| c.block_parent_root()).next()
+            && !self
                 .canonical_head
                 .fork_choice_read_lock()
                 .contains_block(&parent_root)
-            {
-                return Err(BlockError::ParentUnknown { parent_root });
-            }
+        {
+            return Err(BlockError::ParentUnknown { parent_root });
         }
 
         self.emit_sse_data_column_sidecar_events(
@@ -4155,37 +4151,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // This ensures we only perform the check once.
         if current_head_finalized_checkpoint.epoch < wss_checkpoint.epoch
             && wss_checkpoint.epoch <= new_finalized_checkpoint.epoch
-        {
-            if let Err(e) =
+            && let Err(e) =
                 self.verify_weak_subjectivity_checkpoint(wss_checkpoint, block_root, state)
-            {
-                let mut shutdown_sender = self.shutdown_sender();
-                crit!(
-                    ?block_root,
-                    parent_root = ?block.parent_root(),
-                    old_finalized_epoch = ?current_head_finalized_checkpoint.epoch,
-                    new_finalized_epoch = ?new_finalized_checkpoint.epoch,
-                    weak_subjectivity_epoch = ?wss_checkpoint.epoch,
-                    error = ?e,
-                    "Weak subjectivity checkpoint verification failed while importing block!"
-                );
-                crit!(
-                    "You must use the `--purge-db` flag to clear the database and restart sync. \
+        {
+            let mut shutdown_sender = self.shutdown_sender();
+            crit!(
+                ?block_root,
+                parent_root = ?block.parent_root(),
+                old_finalized_epoch = ?current_head_finalized_checkpoint.epoch,
+                new_finalized_epoch = ?new_finalized_checkpoint.epoch,
+                weak_subjectivity_epoch = ?wss_checkpoint.epoch,
+                error = ?e,
+                "Weak subjectivity checkpoint verification failed while importing block!"
+            );
+            crit!(
+                "You must use the `--purge-db` flag to clear the database and restart sync. \
                          You may be on a hostile network."
-                );
-                shutdown_sender
-                    .try_send(ShutdownReason::Failure(
-                        "Weak subjectivity checkpoint verification failed. \
+            );
+            shutdown_sender
+                .try_send(ShutdownReason::Failure(
+                    "Weak subjectivity checkpoint verification failed. \
                              Provided block root is not a checkpoint.",
+                ))
+                .map_err(|err| {
+                    BlockError::BeaconChainError(Box::new(
+                        BeaconChainError::WeakSubjectivtyShutdownError(err),
                     ))
-                    .map_err(|err| {
-                        BlockError::BeaconChainError(Box::new(
-                            BeaconChainError::WeakSubjectivtyShutdownError(err),
-                        ))
-                    })?;
-                return Err(BlockError::WeakSubjectivityConflict);
-            }
+                })?;
+            return Err(BlockError::WeakSubjectivityConflict);
         }
+
         Ok(())
     }
 
@@ -4413,35 +4408,32 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_block_subscribers() {
-                event_handler.register(EventKind::Block(SseBlock {
-                    slot: block.slot(),
-                    block: block_root,
-                    execution_optimistic: payload_verification_status.is_optimistic(),
-                }));
-            }
+        if let Some(event_handler) = self.event_handler.as_ref()
+            && event_handler.has_block_subscribers()
+        {
+            event_handler.register(EventKind::Block(SseBlock {
+                slot: block.slot(),
+                block: block_root,
+                execution_optimistic: payload_verification_status.is_optimistic(),
+            }));
         }
 
         // Do not trigger light_client server update producer for old blocks, to extra work
         // during sync.
         if self.config.enable_light_client_server
             && block_delay_total < self.slot_clock.slot_duration() * 32
+            && let Some(mut light_client_server_tx) = self.light_client_server_tx.clone()
+            && let Ok(sync_aggregate) = block.body().sync_aggregate()
+            && let Err(e) = light_client_server_tx.try_send((
+                block.parent_root(),
+                block.slot(),
+                sync_aggregate.clone(),
+            ))
         {
-            if let Some(mut light_client_server_tx) = self.light_client_server_tx.clone() {
-                if let Ok(sync_aggregate) = block.body().sync_aggregate() {
-                    if let Err(e) = light_client_server_tx.try_send((
-                        block.parent_root(),
-                        block.slot(),
-                        sync_aggregate.clone(),
-                    )) {
-                        warn!(
-                            error = ?e,
-                            "Failed to send light_client server event"
-                        );
-                    }
-                }
-            }
+            warn!(
+                error = ?e,
+                "Failed to send light_client server event"
+            );
         }
     }
 
@@ -6066,21 +6058,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Push a server-sent event (probably to a block builder or relay).
-        if let Some(event_handler) = &self.event_handler {
-            if event_handler.has_payload_attributes_subscribers() {
-                event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
-                    data: SseExtendedPayloadAttributes {
-                        proposal_slot: prepare_slot,
-                        proposer_index: proposer,
-                        parent_block_root: head_root,
-                        parent_block_number: pre_payload_attributes.parent_block_number,
-                        parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
-                        payload_attributes: payload_attributes.into(),
-                    },
-                    metadata: Default::default(),
-                    version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
-                }));
-            }
+        if let Some(event_handler) = &self.event_handler
+            && event_handler.has_payload_attributes_subscribers()
+        {
+            event_handler.register(EventKind::PayloadAttributes(ForkVersionedResponse {
+                data: SseExtendedPayloadAttributes {
+                    proposal_slot: prepare_slot,
+                    proposer_index: proposer,
+                    parent_block_root: head_root,
+                    parent_block_number: pre_payload_attributes.parent_block_number,
+                    parent_block_hash: forkchoice_update_params.head_hash.unwrap_or_default(),
+                    payload_attributes: payload_attributes.into(),
+                },
+                metadata: Default::default(),
+                version: self.spec.fork_name_at_slot::<T::EthSpec>(prepare_slot),
+            }));
         }
 
         let Some(till_prepare_slot) = self.slot_clock.duration_to_slot(prepare_slot) else {
@@ -6540,14 +6532,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.task_executor.clone().spawn_blocking(
                 move || {
                     // Signal block proposal for the next slot (if it happens to be waiting).
-                    if let Some(tx) = &chain.fork_choice_signal_tx {
-                        if let Err(e) = tx.notify_fork_choice_complete(slot) {
-                            warn!(
-                                error = ?e,
-                                %slot,
-                                "Error signalling fork choice waiter"
-                            );
-                        }
+                    if let Some(tx) = &chain.fork_choice_signal_tx
+                        && let Err(e) = tx.notify_fork_choice_complete(slot)
+                    {
+                        warn!(
+                            error = ?e,
+                            %slot,
+                            "Error signalling fork choice waiter"
+                        );
                     }
                 },
                 "per_slot_task_fc_signal_tx",
@@ -6867,10 +6859,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .canonical_head
             .fork_choice_read_lock()
             .get_block_execution_status(parent_root)
+            && execution_status.is_strictly_optimistic()
         {
-            if execution_status.is_strictly_optimistic() {
-                return Ok(ChainHealth::Optimistic);
-            }
+            return Ok(ChainHealth::Optimistic);
         }
 
         if self.config.builder_fallback_disable_checks {

@@ -1,19 +1,19 @@
 use self::committee_cache::get_active_validator_indices;
-use crate::historical_summary::HistoricalSummary;
-use crate::test_utils::TestRandom;
 use crate::ContextDeserialize;
 use crate::FixedBytesExtended;
+use crate::historical_summary::HistoricalSummary;
+use crate::test_utils::TestRandom;
 use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
-use metastruct::{metastruct, NumFields};
+use metastruct::{NumFields, metastruct};
 pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize};
-use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use ssz::{Decode, DecodeError, Encode, ssz_encode};
 use ssz_derive::{Decode, Encode};
 use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
@@ -24,8 +24,8 @@ use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 pub use self::committee_cache::{
-    compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
-    CommitteeCache,
+    CommitteeCache, compute_committee_index_in_epoch, compute_committee_range_in_epoch,
+    epoch_committee_count,
 };
 pub use crate::beacon_state::balance::Balance;
 pub use crate::beacon_state::exit_cache::ExitCache;
@@ -33,7 +33,7 @@ pub use crate::beacon_state::progressive_balances_cache::*;
 pub use crate::beacon_state::slashings_cache::SlashingsCache;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
-pub use milhouse::{interface::Interface, List, Vector};
+pub use milhouse::{List, Vector, interface::Interface};
 use tracing::instrument;
 
 #[macro_use]
@@ -2511,19 +2511,17 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         // Use sync committees from `base` if they are equal.
-        if let Ok(current_sync_committee) = self.current_sync_committee_mut() {
-            if let Ok(base_sync_committee) = base.current_sync_committee() {
-                if current_sync_committee == base_sync_committee {
-                    *current_sync_committee = base_sync_committee.clone();
-                }
-            }
+        if let Ok(current_sync_committee) = self.current_sync_committee_mut()
+            && let Ok(base_sync_committee) = base.current_sync_committee()
+            && current_sync_committee == base_sync_committee
+        {
+            *current_sync_committee = base_sync_committee.clone();
         }
-        if let Ok(next_sync_committee) = self.next_sync_committee_mut() {
-            if let Ok(base_sync_committee) = base.next_sync_committee() {
-                if next_sync_committee == base_sync_committee {
-                    *next_sync_committee = base_sync_committee.clone();
-                }
-            }
+        if let Ok(next_sync_committee) = self.next_sync_committee_mut()
+            && let Ok(base_sync_committee) = base.next_sync_committee()
+            && next_sync_committee == base_sync_committee
+        {
+            *next_sync_committee = base_sync_committee.clone();
         }
 
         // Rebase caches like the committee caches and the pubkey cache, which are expensive to
