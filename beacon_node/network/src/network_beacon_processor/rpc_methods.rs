@@ -1,10 +1,10 @@
 use crate::metrics;
-use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use itertools::{process_results, Itertools};
+use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
@@ -12,10 +12,10 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, instrument, warn};
 use types::blob_sidecar::BlobIdentifier;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
@@ -155,6 +155,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -172,7 +173,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
-    pub async fn handle_blocks_by_root_request_inner(
+    async fn handle_blocks_by_root_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -245,6 +246,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRoot` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -260,7 +262,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRoot` request from the peer.
-    pub fn handle_blobs_by_root_request_inner(
+    fn handle_blobs_by_root_request_inner(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -397,6 +399,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -412,7 +415,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
-    pub fn handle_data_columns_by_root_request_inner(
+    fn handle_data_columns_by_root_request_inner(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -458,6 +461,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Ok(())
     }
 
+    #[instrument(skip_all, level = "debug")]
     pub fn handle_light_client_updates_by_range(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -478,7 +482,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientUpdatesByRange` request from the peer.
-    pub fn handle_light_client_updates_by_range_request_inner(
+    fn handle_light_client_updates_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -549,6 +553,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientBootstrap` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -579,6 +584,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientOptimisticUpdate` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub fn handle_light_client_optimistic_update(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -603,6 +609,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientFinalityUpdate` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub fn handle_light_client_finality_update(
         self: &Arc<Self>,
         peer_id: PeerId,
@@ -627,6 +634,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRange` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -644,7 +652,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRange` request from the peer.
-    pub async fn handle_blocks_by_range_request_inner(
+    async fn handle_blocks_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -758,7 +766,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(e) => {
                     if matches!(
                         e,
-                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
                         if matches!(**boxed_error, execution_layer::Error::EngineError(_))
                     ) {
                         warn!(
@@ -913,6 +921,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRange` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub fn handle_blobs_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
@@ -1083,6 +1092,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRange` request from the peer.
+    #[instrument(skip_all, level = "debug")]
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,
@@ -1098,7 +1108,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRange` request from the peer.
-    pub fn handle_data_columns_by_range_request_inner(
+    fn handle_data_columns_by_range_request_inner(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,

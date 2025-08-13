@@ -41,17 +41,17 @@ pub static EXECUTION_LAYER_REQUEST_TIMES: LazyLock<Result<HistogramVec>> = LazyL
 pub static EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD: LazyLock<Result<Histogram>> =
     LazyLock::new(|| {
         try_create_histogram(
-        "execution_layer_payload_attributes_lookahead",
-        "Duration between an fcU call with PayloadAttributes and when the block should be produced",
-    )
+            "execution_layer_payload_attributes_lookahead",
+            "Duration between an fcU call with PayloadAttributes and when the block should be produced",
+        )
     });
 pub static EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID: LazyLock<Result<IntCounterVec>> = LazyLock::new(
     || {
         try_create_int_counter_vec(
-        "execution_layer_pre_prepared_payload_id",
-        "Indicates hits or misses for already having prepared a payload id before payload production",
-        &["event"]
-    )
+            "execution_layer_pre_prepared_payload_id",
+            "Indicates hits or misses for already having prepared a payload id before payload production",
+            &["event"],
+        )
     },
 );
 pub static EXECUTION_LAYER_GET_PAYLOAD_BODIES_BY_RANGE: LazyLock<Result<Histogram>> =
@@ -113,7 +113,7 @@ pub static EXECUTION_LAYER_PAYLOAD_BIDS: LazyLock<Result<IntGaugeVec>> = LazyLoc
     try_create_int_gauge_vec(
         "execution_layer_payload_bids",
         "The gwei bid value of payloads received by local EEs or builders. Only shows values up to i64::MAX.",
-        &["source"]
+        &["source"],
     )
 });
 pub static EXECUTION_LAYER_INFO: LazyLock<Result<IntGaugeVec>> = LazyLock::new(|| {

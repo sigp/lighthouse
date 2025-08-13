@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
 use swap_or_not_shuffle::{compute_shuffled_index, shuffle_list as fast_shuffle};
 
 const SHUFFLE_ROUND_COUNT: u8 = 90;

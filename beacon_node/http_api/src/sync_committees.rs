@@ -5,8 +5,8 @@ use beacon_chain::sync_committee_verification::{
     Error as SyncVerificationError, VerifiedSyncCommitteeMessage,
 };
 use beacon_chain::{
-    validator_monitor::timestamp_now, BeaconChain, BeaconChainError, BeaconChainTypes,
-    StateSkipConfig,
+    BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig,
+    validator_monitor::timestamp_now,
 };
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, warn};
 use types::{
-    slot_data::SlotData, BeaconStateError, Epoch, EthSpec, SignedContributionAndProof,
-    SyncCommitteeMessage, SyncDuty, SyncSubnetId,
+    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeMessage, SyncDuty,
+    SyncSubnetId, slot_data::SlotData,
 };
 
 /// The struct that is returned to the requesting HTTP client.
@@ -49,7 +49,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
             return Ok(convert_to_response(
                 verify_unknown_validators(duties, request_epoch, chain)?,
                 execution_optimistic,
-            ))
+            ));
         }
         Err(BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             ..
@@ -273,15 +273,15 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
             }
         }
 
-        if let Some(verified) = verified_for_pool {
-            if let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified) {
-                error!(
-                    error = ?e,
-                    slot = %sync_committee_signature.slot,
-                    validator_index = sync_committee_signature.validator_index,
-                    "Unable to add sync committee signature to pool"
-                );
-            }
+        if let Some(verified) = verified_for_pool
+            && let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified)
+        {
+            error!(
+                error = ?e,
+                slot = %sync_committee_signature.slot,
+                validator_index = sync_committee_signature.validator_index,
+                "Unable to add sync committee signature to pool"
+            );
         }
     }
 

@@ -4,14 +4,14 @@
 
 pub mod beacon_node_health;
 use beacon_node_health::{
-    check_node_health, BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth,
-    IsOptimistic, SyncDistanceTier,
+    BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
+    SyncDistanceTier, check_node_health,
 };
 use clap::ValueEnum;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use futures::future;
 use sensitive_url::SensitiveUrl;
-use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
 use std::fmt;
@@ -25,7 +25,7 @@ use task_executor::TaskExecutor;
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{debug, error, warn};
 use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
-use validator_metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
+use validator_metrics::{ENDPOINT_ERRORS, ENDPOINT_REQUESTS, inc_counter_vec};
 
 /// Message emitted when the VC detects the BN is using a different spec.
 const UPDATE_REQUIRED_LOG_HINT: &str = "this VC or the remote BN may need updating";
@@ -783,10 +783,12 @@ mod tests {
         let mut variants = ApiTopic::VARIANTS.to_vec();
         variants.retain(|s| *s != "none");
         assert_eq!(all.len(), variants.len());
-        assert!(variants
-            .iter()
-            .map(|topic| ApiTopic::from_str(topic, true).unwrap())
-            .eq(all.into_iter()));
+        assert!(
+            variants
+                .iter()
+                .map(|topic| ApiTopic::from_str(topic, true).unwrap())
+                .eq(all.into_iter())
+        );
     }
 
     #[tokio::test]

@@ -1,5 +1,7 @@
-use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
 use super::AvailableBlockData;
+use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
+use crate::BeaconChainTypes;
+use crate::CustodyContext;
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
@@ -7,14 +9,12 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
-use crate::BeaconChainTypes;
-use crate::CustodyContext;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{Span, debug, debug_span};
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
@@ -31,6 +31,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
+    span: Span,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
@@ -87,6 +88,8 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Inserts a block into the cache.
     pub fn insert_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
+        let _guard = self.span.clone().entered();
+        debug!("Block added to pending components");
         *self.get_cached_block_mut() = Some(block)
     }
 
@@ -94,7 +97,9 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// Existing blob at the index will be replaced.
     pub fn insert_blob_at_index(&mut self, blob_index: usize, blob: KzgVerifiedBlob<E>) {
+        let _guard = self.span.clone().entered();
         if let Some(b) = self.get_cached_blobs_mut().get_mut(blob_index) {
+            debug!(blob_index, "Blob added to pending components");
             *b = Some(blob);
         }
     }
@@ -119,10 +124,10 @@ impl<E: EthSpec> PendingComponents<E> {
     pub fn merge_single_blob(&mut self, index: usize, blob: KzgVerifiedBlob<E>) {
         if let Some(cached_block) = self.get_cached_block() {
             let block_commitment_opt = cached_block.get_commitments().get(index).copied();
-            if let Some(block_commitment) = block_commitment_opt {
-                if block_commitment == *blob.get_commitment() {
-                    self.insert_blob_at_index(index, blob)
-                }
+            if let Some(block_commitment) = block_commitment_opt
+                && block_commitment == *blob.get_commitment()
+            {
+                self.insert_blob_at_index(index, blob)
             }
         } else if !self.blob_exists(index) {
             self.insert_blob_at_index(index, blob)
@@ -134,11 +139,17 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         kzg_verified_data_columns: I,
     ) -> Result<(), AvailabilityCheckError> {
+        let _guard = self.span.clone().entered();
         for data_column in kzg_verified_data_columns {
             if self.get_cached_data_column(data_column.index()).is_none() {
+                debug!(
+                    column_index = data_column.index(),
+                    "Data column added to pending components"
+                );
                 self.verified_data_columns.push(data_column);
             }
         }
+
         Ok(())
     }
 
@@ -165,6 +176,7 @@ impl<E: EthSpec> PendingComponents<E> {
     where
         R: FnOnce(
             DietAvailabilityPendingExecutedBlock<E>,
+            &Span,
         ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
     {
         let Some(block) = &self.executed_block else {
@@ -254,7 +266,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             import_data,
             payload_verification_outcome,
-        } = recover(block.clone())?;
+        } = recover(block.clone(), &self.span)?;
 
         let available_block = AvailableBlock {
             block_root: self.block_root,
@@ -263,6 +275,10 @@ impl<E: EthSpec> PendingComponents<E> {
             blobs_available_timestamp,
             spec: spec.clone(),
         };
+
+        self.span.in_scope(|| {
+            debug!("Block and all data components are available");
+        });
         Ok(Some(AvailableExecutedBlock::new(
             available_block,
             import_data,
@@ -272,12 +288,15 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns an empty `PendingComponents` object with the given block root.
     pub fn empty(block_root: Hash256, max_len: usize) -> Self {
+        let span = debug_span!(parent: None, "pending_components", %block_root);
+        let _guard = span.clone().entered();
         Self {
             block_root,
             verified_blobs: RuntimeFixedVector::new(vec![None; max_len]),
             verified_data_columns: vec![],
             executed_block: None,
             reconstruction_started: false,
+            span,
         }
     }
 
@@ -482,7 +501,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             &self.spec,
             self.custody_context
                 .num_of_data_columns_to_sample(epoch, &self.spec),
-            |block| self.state_cache.recover_pending_executed_block(block),
+            |block, span| self.state_cache.recover_pending_executed_block(block, span),
         )? {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
@@ -538,8 +557,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         );
 
         if let Some(available_block) =
-            pending_components.make_available(&self.spec, num_expected_columns, |block| {
-                self.state_cache.recover_pending_executed_block(block)
+            pending_components.make_available(&self.spec, num_expected_columns, |block, span| {
+                self.state_cache.recover_pending_executed_block(block, span)
             })?
         {
             // We keep the pending components in the availability cache during block import (#5845).
@@ -637,8 +656,8 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         // Check if we have all components and entire set is consistent.
         if let Some(available_block) =
-            pending_components.make_available(&self.spec, num_expected_columns, |block| {
-                self.state_cache.recover_pending_executed_block(block)
+            pending_components.make_available(&self.spec, num_expected_columns, |block, span| {
+                self.state_cache.recover_pending_executed_block(block, span)
             })?
         {
             // We keep the pending components in the availability cache during block import (#5845).
@@ -664,10 +683,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let mut write_lock = self.critical.write();
         let mut keys_to_remove = vec![];
         for (key, value) in write_lock.iter() {
-            if let Some(epoch) = value.epoch() {
-                if epoch < cutoff_epoch {
-                    keys_to_remove.push(*key);
-                }
+            if let Some(epoch) = value.epoch()
+                && epoch < cutoff_epoch
+            {
+                keys_to_remove.push(*key);
             }
         }
         // Now remove keys
@@ -710,9 +729,9 @@ mod test {
     use logging::create_test_tracing_subscriber;
     use state_processing::ConsensusContext;
     use std::collections::VecDeque;
-    use store::{database::interface::BeaconNodeBackend, HotColdDB, ItemStore, StoreConfig};
-    use tempfile::{tempdir, TempDir};
-    use tracing::info;
+    use store::{HotColdDB, ItemStore, StoreConfig, database::interface::BeaconNodeBackend};
+    use tempfile::{TempDir, tempdir};
+    use tracing::{debug_span, info};
     use types::non_zero_usize::new_non_zero_usize;
     use types::{ExecPayload, MinimalEthSpec};
 
@@ -886,10 +905,10 @@ mod test {
     where
         E: EthSpec,
         T: BeaconChainTypes<
-            HotStore = BeaconNodeBackend<E>,
-            ColdStore = BeaconNodeBackend<E>,
-            EthSpec = E,
-        >,
+                HotStore = BeaconNodeBackend<E>,
+                ColdStore = BeaconNodeBackend<E>,
+                EthSpec = E,
+            >,
     {
         create_test_tracing_subscriber();
         let chain_db_path = tempdir().expect("should get temp dir");
@@ -1107,7 +1126,7 @@ mod test {
                 // reconstruct the pending block by replaying the block on the parent state
                 let recovered_pending_block = cache
                     .state_lru_cache()
-                    .recover_pending_executed_block(diet_block)
+                    .recover_pending_executed_block(diet_block, &debug_span!("test"))
                     .expect("should reconstruct pending block");
 
                 // assert the recovered state is the same as the original
@@ -1133,7 +1152,7 @@ mod test {
         // recover the pending block from the cache
         let recovered_pending_block = cache
             .state_lru_cache()
-            .recover_pending_executed_block(diet_block)
+            .recover_pending_executed_block(diet_block, &debug_span!("test"))
             .expect("should reconstruct pending block");
         // assert the recovered state is the same as the original
         assert_eq!(
@@ -1155,13 +1174,13 @@ mod test {
 #[cfg(test)]
 mod pending_components_tests {
     use super::*;
-    use crate::block_verification_types::BlockImportData;
-    use crate::test_utils::{generate_rand_block_and_blobs, test_spec, NumBlobs};
     use crate::PayloadVerificationOutcome;
+    use crate::block_verification_types::BlockImportData;
+    use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
     use types::test_utils::TestRandom;
     use types::{

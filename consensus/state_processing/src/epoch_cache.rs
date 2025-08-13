@@ -3,6 +3,7 @@ use crate::common::base::SqrtTotalActiveBalance;
 use crate::common::{altair, base};
 use crate::metrics;
 use safe_arith::SafeArith;
+use tracing::instrument;
 use types::epoch_cache::{EpochCache, EpochCacheError, EpochCacheKey};
 use types::{
     ActivationQueue, BeaconState, ChainSpec, EthSpec, FixedBytesExtended, ForkName, Hash256,
@@ -130,6 +131,7 @@ pub fn is_epoch_cache_initialized<E: EthSpec>(
         .is_ok())
 }
 
+#[instrument(skip_all, level = "debug")]
 pub fn initialize_epoch_cache<E: EthSpec>(
     state: &mut BeaconState<E>,
     spec: &ChainSpec,

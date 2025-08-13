@@ -1,4 +1,4 @@
-use crate::{consts::altair::NUM_FLAG_INDICES, test_utils::TestRandom, Hash256};
+use crate::{Hash256, consts::altair::NUM_FLAG_INDICES, test_utils::TestRandom};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};

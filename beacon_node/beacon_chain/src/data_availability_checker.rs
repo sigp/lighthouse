@@ -1,5 +1,5 @@
 use crate::blob_verification::{
-    verify_kzg_for_blob_list, GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList,
+    GossipVerifiedBlob, KzgVerifiedBlob, KzgVerifiedBlobList, verify_kzg_for_blob_list,
 };
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableExecutedBlock, RpcBlock,
@@ -7,7 +7,7 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{metrics, BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext};
+use crate::{BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext, metrics};
 use kzg::Kzg;
 use slot_clock::SlotClock;
 use std::fmt;
@@ -16,7 +16,7 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
-use tracing::{debug, error, info_span, Instrument};
+use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
@@ -28,8 +28,8 @@ mod overflow_lru_cache;
 mod state_lru_cache;
 
 use crate::data_column_verification::{
-    verify_kzg_for_data_column_list_with_scoring, CustodyDataColumn, GossipVerifiedDataColumn,
-    KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn,
+    CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
+    KzgVerifiedDataColumn, verify_kzg_for_data_column_list_with_scoring,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -209,6 +209,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
+    #[instrument(skip_all, level = "trace")]
     pub fn put_rpc_blobs(
         &self,
         block_root: Hash256,
@@ -236,6 +237,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Put a list of custody columns received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
     #[allow(clippy::type_complexity)]
+    #[instrument(skip_all, level = "trace")]
     pub fn put_rpc_custody_columns(
         &self,
         block_root: Hash256,
@@ -270,6 +272,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Otherwise cache the blob sidecar.
     ///
     /// This should only accept gossip verified blobs, so we should not have to worry about dupes.
+    #[instrument(skip_all, level = "trace")]
     pub fn put_gossip_verified_blobs<
         I: IntoIterator<Item = GossipVerifiedBlob<T, O>>,
         O: ObservationStrategy,
@@ -282,6 +285,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
     }
 
+    #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_blobs<I: IntoIterator<Item = KzgVerifiedBlob<T::EthSpec>>>(
         &self,
         block_root: Hash256,
@@ -296,6 +300,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// Otherwise cache the data column sidecar.
     ///
     /// This should only accept gossip verified data columns, so we should not have to worry about dupes.
+    #[instrument(skip_all, level = "trace")]
     pub fn put_gossip_verified_data_columns<
         O: ObservationStrategy,
         I: IntoIterator<Item = GossipVerifiedDataColumn<T, O>>,
@@ -319,6 +324,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
+    #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_custody_data_columns<
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
     >(
@@ -411,6 +417,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///
     /// WARNING: This function assumes all required blobs are already present, it does NOT
     ///          check if there are any missing blobs.
+    #[instrument(skip_all)]
     pub fn verify_kzg_for_rpc_blocks(
         &self,
         blocks: Vec<RpcBlock<T::EthSpec>>,
@@ -644,14 +651,7 @@ pub fn start_availability_cache_maintenance_service<T: BeaconChainTypes>(
     if chain.spec.deneb_fork_epoch.is_some() {
         let overflow_cache = chain.data_availability_checker.availability_cache.clone();
         executor.spawn(
-            async move {
-                availability_cache_maintenance_service(chain, overflow_cache)
-                    .instrument(info_span!(
-                        "DataAvailabilityChecker",
-                        service = "data_availability_checker"
-                    ))
-                    .await
-            },
+            async move { availability_cache_maintenance_service(chain, overflow_cache).await },
             "availability_cache_service",
         );
     } else {
@@ -837,13 +837,13 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{
-        generate_rand_block_and_data_columns, get_kzg, EphemeralHarnessType, NumBlobs,
-    };
     use crate::CustodyContext;
+    use crate::test_utils::{
+        EphemeralHarnessType, NumBlobs, generate_rand_block_and_data_columns, get_kzg,
+    };
+    use rand::SeedableRng;
     use rand::prelude::StdRng;
     use rand::seq::SliceRandom;
-    use rand::SeedableRng;
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::collections::HashSet;
     use std::sync::Arc;

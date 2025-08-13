@@ -17,7 +17,7 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-use crate::{Address, EthSpec, ExecutionPayloadRef, Hash256, Hash64, Uint256};
+use crate::{Address, EthSpec, ExecutionPayloadRef, Hash64, Hash256, Uint256};
 use alloy_rlp::RlpEncodable;
 use metastruct::metastruct;
 

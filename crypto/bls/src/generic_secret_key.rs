@@ -1,7 +1,7 @@
 use crate::{
+    Error, Hash256, ZeroizeHash,
     generic_public_key::{GenericPublicKey, TPublicKey},
     generic_signature::{GenericSignature, TSignature},
-    Error, Hash256, ZeroizeHash,
 };
 use std::marker::PhantomData;
 
