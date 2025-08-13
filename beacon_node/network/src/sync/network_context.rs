@@ -25,9 +25,9 @@ use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, Req
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-    CustodyId, CustodyRequester, CustodySyncByRangeRequestId,
-    CustodySyncDataColumnsByRangeRequestId, DataColumnsByRangeRequestId,
-    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    CustodyId, CustodyRequester, CustodySyncBatchRequestId, CustodySyncByRangeRequestId,
+    DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
+    SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use parking_lot::RwLock;
@@ -198,10 +198,8 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
         ActiveRequests<DataColumnsByRangeRequestId, DataColumnsByRangeRequestItems<T::EthSpec>>,
 
     /// A mapping of active DataColumnsByRange requests for custody sync
-    custody_sync_data_columns_by_range_requests: ActiveRequests<
-        CustodySyncDataColumnsByRangeRequestId,
-        DataColumnsByRangeRequestItems<T::EthSpec>,
-    >,
+    custody_sync_data_columns_by_range_requests:
+        ActiveRequests<CustodySyncByRangeRequestId, DataColumnsByRangeRequestItems<T::EthSpec>>,
     /// Mapping of active custody column requests for a block root
     custody_by_root_requests: FnvHashMap<CustodyRequester, ActiveCustodyRequest<T>>,
 
@@ -211,7 +209,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// A batch of data columns by range request for custody sync
     custody_sync_data_column_batch_requests:
-        FnvHashMap<CustodySyncByRangeRequestId, RangeDataColumnBatchRequest<T::EthSpec>>,
+        FnvHashMap<CustodySyncBatchRequestId, RangeDataColumnBatchRequest<T::EthSpec>>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -1718,7 +1716,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         // Create the overall `custody_by_range` request id
-        let id = CustodySyncByRangeRequestId {
+        let id = CustodySyncBatchRequestId {
             id: self.next_id(),
             epoch,
         };
@@ -1768,7 +1766,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
         let Entry::Occupied(mut entry) = self
             .custody_sync_data_column_batch_requests
-            .entry(custody_sync_request_id)
+            .entry(custody_sync_request_id.parent_request_id)
         else {
             metrics::inc_counter_vec(
                 &metrics::SYNC_UNKNOWN_NETWORK_REQUESTS,
@@ -1811,10 +1809,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: DataColumnsByRangeRequest,
-        parent_request_id: CustodySyncByRangeRequestId,
-    ) -> Result<(CustodySyncDataColumnsByRangeRequestId, Vec<u64>), RpcRequestSendError> {
+        parent_request_id: CustodySyncBatchRequestId,
+    ) -> Result<(CustodySyncByRangeRequestId, Vec<u64>), RpcRequestSendError> {
         let requested_columns = request.columns.clone();
-        let id = CustodySyncDataColumnsByRangeRequestId {
+        let id = CustodySyncByRangeRequestId {
             id: self.next_id(),
             parent_request_id,
             peer: peer_id,
@@ -1852,7 +1850,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     #[allow(clippy::type_complexity)]
     pub(crate) fn on_custody_sync_data_columns_by_range_response(
         &mut self,
-        id: CustodySyncDataColumnsByRangeRequestId,
+        id: CustodySyncByRangeRequestId,
         peer_id: PeerId,
         rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) -> Option<RpcResponseResult<DataColumnSidecarList<T::EthSpec>>> {

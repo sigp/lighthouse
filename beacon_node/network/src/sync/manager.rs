@@ -55,11 +55,11 @@ use beacon_chain::{
 };
 use futures::StreamExt;
 use lighthouse_network::rpc::RPCError;
-use lighthouse_network::service::api_types::CustodySyncByRangeRequestId;
+use lighthouse_network::service::api_types::CustodySyncBatchRequestId;
 use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
-    CustodySyncDataColumnsByRangeRequestId, DataColumnsByRangeRequestId,
-    DataColumnsByRootRequestId, DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    CustodySyncByRangeRequestId, DataColumnsByRangeRequestId, DataColumnsByRootRequestId,
+    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
@@ -684,6 +684,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 error!(error = ?e, "Backfill sync failed to start");
                             }
                         }
+                        // TODO(custody-sync) we may need to determine if custody sync needs to be ran as well
                     }
 
                     // Return the sync state if backfilling is not required.
@@ -1314,7 +1315,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     // TODO(custody-sync) do we need this
     fn on_custody_sync_data_columns_by_range_response(
         &mut self,
-        id: CustodySyncDataColumnsByRangeRequestId,
+        id: CustodySyncByRangeRequestId,
         peer_id: PeerId,
         data_columns: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
@@ -1322,7 +1323,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.network
                 .on_custody_sync_data_columns_by_range_response(id, peer_id, data_columns)
         {
-            self.on_custody_sync_data_columns_batch_response(id.parent_request_id, peer_id, resp)
+            self.on_custody_sync_data_columns_batch_response(id, peer_id, resp)
         }
     }
 
@@ -1428,19 +1429,23 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Ok(data_columns) => {
                     match self.custody_sync.on_data_column_response(
                         &mut self.network,
-                        custody_sync_request_id,
+                        custody_sync_request_id.parent_request_id,
                         &peer_id,
                         data_columns,
                     ) {
-                        Ok(ProcessResult::SyncCompleted) => todo!(), // update sync status
+                        Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Ok(ProcessResult::Successful) => {}
-                        Err(_) => todo!(),
+                        Err(_e) => {
+                            // The custody sync has failed, errors are reported
+                            // within.
+                            self.update_sync_state();
+                        }
                     }
                 }
                 Err(e) => {
                     match self.custody_sync.inject_error(
                         &mut self.network,
-                        custody_sync_request_id,
+                        custody_sync_request_id.parent_request_id,
                         &peer_id,
                         e,
                     ) {

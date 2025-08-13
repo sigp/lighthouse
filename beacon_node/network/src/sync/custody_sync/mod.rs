@@ -5,7 +5,7 @@ use std::{
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
-    service::api_types::{CustodySyncByRangeRequestId, Id},
+    service::api_types::{CustodySyncBatchRequestId, Id},
     types::BackFillState,
     NetworkGlobals, PeerAction, PeerId,
 };
@@ -144,6 +144,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         match self.state() {
             BackFillState::Syncing => {} // already syncing ignore.
             BackFillState::Paused => {
+                if self.check_completed() {
+                    self.set_state(BackFillState::Completed);
+                    return Ok(SyncStart::NotSyncing);
+                }
                 if self
                     .network_globals
                     .peers
@@ -176,18 +180,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 }
 
                 self.set_state(BackFillState::Syncing);
-
-                // Obtain a new start slot, from the beacon chain and handle possible errors.
-                // if let Err(e) = self.reset_start_epoch() {
-                //     // This infallible match exists to force us to update this code if a future
-                //     // refactor of `ResetEpochError` adds a variant.
-                //     let ResetEpochError::SyncCompleted = e;
-                //     error!("Backfill sync completed whilst in failed status");
-                //     self.set_state(BackFillState::Completed);
-                //     return Err(BackFillError::InvalidSyncState(String::from(
-                //         "chain completed",
-                //     )));
-                // }
 
                 debug!(start_epoch = %self.current_start, "Resuming a failed backfill sync");
 
@@ -387,7 +379,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     pub fn on_data_column_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        custody_sync_request_id: CustodySyncByRangeRequestId,
+        custody_sync_request_id: CustodySyncBatchRequestId,
         peer_id: &PeerId,
         data_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<ProcessResult, CustodyBackfillError> {
@@ -832,7 +824,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
     /// Checks if custody backfill would complete by syncing to `start_epoch`.
     fn would_complete(&self, start_epoch: Epoch) -> bool {
-        // TODO(custody-sync) fix unwrap
         start_epoch
             <= self
                 .beacon_chain
@@ -982,7 +973,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        request: CustodySyncByRangeRequestId,
+        request: CustodySyncBatchRequestId,
         peer_id: &PeerId,
         err: RpcResponseError,
     ) -> Result<(), CustodyBackfillError> {
