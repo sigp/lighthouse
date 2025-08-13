@@ -16,7 +16,7 @@ use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
-use lighthouse_tracing::{AllowedRootSpanFilter, LH_BN_ROOT_SPAN_NAMES};
+use lighthouse_tracing::{AllowedRootSpanLayer, LH_BN_ROOT_SPAN_NAMES};
 use lighthouse_version::VERSION;
 use logging::{MetricsLayer, build_workspace_filter, crit};
 use malloc_utils::configure_memory_allocator;
@@ -721,12 +721,12 @@ fn run<E: EthSpec>(
                 .build();
 
             let tracer = provider.tracer("lighthouse");
-            Ok::<_, String>(
+            Ok::<_, String>(AllowedRootSpanLayer::new(
                 tracing_opentelemetry::layer()
                     .with_tracer(tracer)
-                    .with_filter(workspace_filter)
-                    .with_filter(AllowedRootSpanFilter::new(LH_BN_ROOT_SPAN_NAMES)),
-            )
+                    .with_filter(workspace_filter),
+                LH_BN_ROOT_SPAN_NAMES,
+            ))
         })?;
 
         logging_layers.push(telemetry_layer.boxed());
