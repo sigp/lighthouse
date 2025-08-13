@@ -104,7 +104,8 @@ jobs:
     - name: Run tests in release
       run: make nextest-release
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true' && false
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
@@ -135,7 +136,8 @@ jobs:
     - name: Run tests in release
       run: make nextest-release
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true' && false
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   beacon-chain-tests:
     name: beacon-chain-tests
@@ -157,7 +159,8 @@ jobs:
     - name: Run beacon_chain tests for all known forks
       run: make test-beacon-chain
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true' && false
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   http-api-tests:
     name: http-api-tests
@@ -179,7 +182,8 @@ jobs:
     - name: Run http_api tests for all recent forks
       run: make test-http-api
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true' && false
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
@@ -267,7 +271,8 @@ jobs:
     - name: Run tests in debug
       run: make nextest-debug
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true' && false
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
@@ -303,7 +308,8 @@ jobs:
     - name: Run consensus-spec-tests with blst and fake_crypto
       run: make nextest-ef
     - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true' && false
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   basic-simulator-ubuntu:
     name: basic-simulator-ubuntu
