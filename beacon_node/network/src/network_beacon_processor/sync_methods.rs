@@ -596,6 +596,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Helper function to process backfill block batches which only consumes the chain and blocks to process.
+    #[instrument(skip_all, fields(result = tracing::field::Empty))]
     fn process_backfill_blocks(
         &self,
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
