@@ -1911,7 +1911,7 @@ impl<E: EthSpec> Network<E> {
                         }
                     },
                 };
-                debug!(our_addr = %local_addr, from = %send_back_addr, error = error_repr, "Failed incoming connection");
+                tracing::trace!(our_addr = %local_addr, from = %send_back_addr, error = error_repr, "Failed incoming connection");
                 None
             }
             SwarmEvent::OutgoingConnectionError {

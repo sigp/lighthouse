@@ -212,7 +212,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     send_block_count += 1;
                 }
                 Ok(None) => {
-                    debug!(
+                    tracing::trace!(
                         %peer_id,
                         request_root = ?root,
                         "Peer requested unknown block"
