@@ -1,0 +1,90 @@
+
+- name: BlobParameters
+  sources: []
+  spec: |
+    <spec dataclass="BlobParameters" fork="fulu" hash="a4575aa8" />
+
+- name: BlobsBundle#deneb
+  sources: []
+  spec: |
+    <spec dataclass="BlobsBundle" fork="deneb" hash="8d6e7be6" />
+
+- name: BlobsBundle#fulu
+  sources: []
+  spec: |
+    <spec dataclass="BlobsBundle" fork="fulu" hash="e265362d" />
+
+- name: GetPayloadResponse#bellatrix
+  sources: []
+  spec: |
+    <spec dataclass="GetPayloadResponse" fork="bellatrix" hash="bc71e6e6" />
+
+- name: GetPayloadResponse#capella
+  sources: []
+  spec: |
+    <spec dataclass="GetPayloadResponse" fork="capella" hash="5f10deae" />
+
+- name: GetPayloadResponse#deneb
+  sources: []
+  spec: |
+    <spec dataclass="GetPayloadResponse" fork="deneb" hash="243ad324" />
+
+- name: GetPayloadResponse#electra
+  sources: []
+  spec: |
+    <spec dataclass="GetPayloadResponse" fork="electra" hash="43f23b8d" />
+
+- name: GetPayloadResponse#fulu
+  sources: []
+  spec: |
+    <spec dataclass="GetPayloadResponse" fork="fulu" hash="38a6e364" />
+
+- name: LatestMessage
+  sources: []
+  spec: |
+    <spec dataclass="LatestMessage" fork="phase0" hash="44e832d0" />
+
+- name: LightClientStore
+  sources: []
+  spec: |
+    <spec dataclass="LightClientStore" fork="altair" hash="24725cec" />
+
+- name: NewPayloadRequest#bellatrix
+  sources: []
+  spec: |
+    <spec dataclass="NewPayloadRequest" fork="bellatrix" hash="4d32e8c7" />
+
+- name: NewPayloadRequest#deneb
+  sources: []
+  spec: |
+    <spec dataclass="NewPayloadRequest" fork="deneb" hash="26cf2e26" />
+
+- name: NewPayloadRequest#electra
+  sources: []
+  spec: |
+    <spec dataclass="NewPayloadRequest" fork="electra" hash="b1f69cc9" />
+
+- name: OptimisticStore
+  sources: []
+  spec: |
+    <spec dataclass="OptimisticStore" fork="bellatrix" hash="a2b2182c" />
+
+- name: PayloadAttributes#bellatrix
+  sources: []
+  spec: |
+    <spec dataclass="PayloadAttributes" fork="bellatrix" hash="8f6fc523" />
+
+- name: PayloadAttributes#capella
+  sources: []
+  spec: |
+    <spec dataclass="PayloadAttributes" fork="capella" hash="730ada60" />
+
+- name: PayloadAttributes#deneb
+  sources: []
+  spec: |
+    <spec dataclass="PayloadAttributes" fork="deneb" hash="9598d52c" />
+
+- name: Store
+  sources: []
+  spec: |
+    <spec dataclass="Store" fork="phase0" hash="abe525d6" />

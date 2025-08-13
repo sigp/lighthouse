@@ -1,0 +1,76 @@
+version: v1.6.0-alpha.3
+style: hash
+
+specrefs:
+  search_root: ..
+  files:
+    - configs.yml
+    - constants.yml
+    - containers.yml
+    - dataclasses.yml
+    - functions.yml
+    - presets.yml
+
+exceptions:
+  configs:
+    # A mistake in the pyspec broke this
+    # Remove exception in the next release
+    - BLOB_SCHEDULE
+  constants: []
+  ssz_objects: []
+  dataclasses: []
+  functions:
+    # Functions implemented by KZG library for EIP-4844
+    - bit_reversal_permutation#deneb
+    - blob_to_kzg_commitment#deneb
+    - blob_to_polynomial#deneb
+    - bls_field_to_bytes#deneb
+    - bytes_to_bls_field#deneb
+    - bytes_to_kzg_commitment#deneb
+    - bytes_to_kzg_proof#deneb
+    - compute_blob_kzg_proof#deneb
+    - compute_challenge#deneb
+    - compute_kzg_proof#deneb
+    - compute_kzg_proof_impl#deneb
+    - compute_powers#deneb
+    - compute_quotient_eval_within_domain#deneb
+    - compute_roots_of_unity#deneb
+    - evaluate_polynomial_in_evaluation_form#deneb
+    - g1_lincomb#deneb
+    - hash_to_bls_field#deneb
+    - is_power_of_two#deneb
+    - multi_exp#deneb
+    - reverse_bits#deneb
+    - validate_kzg_g1#deneb
+    - verify_blob_kzg_proof#deneb
+    - verify_blob_kzg_proof_batch#deneb
+    - verify_kzg_proof#deneb
+    - verify_kzg_proof_batch#deneb
+    - verify_kzg_proof_impl#deneb
+
+    # Functions implemented by KZG library for EIP-7594
+    - _fft_field#fulu
+    - add_polynomialcoeff#fulu
+    - cell_to_coset_evals#fulu
+    - compute_cells#fulu
+    - compute_cells_and_kzg_proofs#fulu
+    - compute_cells_and_kzg_proofs_polynomialcoeff#fulu
+    - compute_kzg_proof_multi_impl#fulu
+    - compute_verify_cell_kzg_proof_batch_challenge#fulu
+    - construct_vanishing_polynomial#fulu
+    - coset_evals_to_cell#fulu
+    - coset_fft_field#fulu
+    - coset_for_cell#fulu
+    - coset_shift_for_cell#fulu
+    - divide_polynomialcoeff#fulu
+    - evaluate_polynomialcoeff#fulu
+    - fft_field#fulu
+    - interpolate_polynomialcoeff#fulu
+    - multiply_polynomialcoeff#fulu
+    - polynomial_eval_to_coeff#fulu
+    - recover_cells_and_kzg_proofs#fulu
+    - recover_polynomialcoeff#fulu
+    - vanishing_polynomialcoeff#fulu
+    - verify_cell_kzg_proof_batch#fulu
+    - verify_cell_kzg_proof_batch_impl#fulu
+

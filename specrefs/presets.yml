@@ -1,0 +1,354 @@
+- name: BASE_REWARD_FACTOR
+  sources: []
+  spec: |
+    <spec preset_var="BASE_REWARD_FACTOR" fork="phase0" hash="ba06d7ce" />
+
+- name: BYTES_PER_LOGS_BLOOM
+  sources: []
+  spec: |
+    <spec preset_var="BYTES_PER_LOGS_BLOOM" fork="bellatrix" hash="97101cb2" />
+
+- name: EFFECTIVE_BALANCE_INCREMENT
+  sources: []
+  spec: |
+    <spec preset_var="EFFECTIVE_BALANCE_INCREMENT" fork="phase0" hash="23dfe52c" />
+
+- name: EPOCHS_PER_ETH1_VOTING_PERIOD
+  sources: []
+  spec: |
+    <spec preset_var="EPOCHS_PER_ETH1_VOTING_PERIOD" fork="phase0" hash="6b6a0053" />
+
+- name: EPOCHS_PER_HISTORICAL_VECTOR
+  sources: []
+  spec: |
+    <spec preset_var="EPOCHS_PER_HISTORICAL_VECTOR" fork="phase0" hash="6156dc33" />
+
+- name: EPOCHS_PER_SLASHINGS_VECTOR
+  sources: []
+  spec: |
+    <spec preset_var="EPOCHS_PER_SLASHINGS_VECTOR" fork="phase0" hash="c237469a" />
+
+- name: EPOCHS_PER_SYNC_COMMITTEE_PERIOD
+  sources: []
+  spec: |
+    <spec preset_var="EPOCHS_PER_SYNC_COMMITTEE_PERIOD" fork="altair" hash="f02bdf72" />
+
+- name: FIELD_ELEMENTS_PER_BLOB
+  sources: []
+  spec: |
+    <spec preset_var="FIELD_ELEMENTS_PER_BLOB" fork="deneb" hash="a86948eb" />
+
+- name: FIELD_ELEMENTS_PER_CELL
+  sources: []
+  spec: |
+    <spec preset_var="FIELD_ELEMENTS_PER_CELL" fork="fulu" hash="6af85ab8" />
+
+- name: FIELD_ELEMENTS_PER_EXT_BLOB
+  sources: []
+  spec: |
+    <spec preset_var="FIELD_ELEMENTS_PER_EXT_BLOB" fork="fulu" hash="6994b51d" />
+
+- name: HISTORICAL_ROOTS_LIMIT
+  sources: []
+  spec: |
+    <spec preset_var="HISTORICAL_ROOTS_LIMIT" fork="phase0" hash="498b6597" />
+
+- name: HYSTERESIS_DOWNWARD_MULTIPLIER
+  sources: []
+  spec: |
+    <spec preset_var="HYSTERESIS_DOWNWARD_MULTIPLIER" fork="phase0" hash="95d603c9" />
+
+- name: HYSTERESIS_QUOTIENT
+  sources: []
+  spec: |
+    <spec preset_var="HYSTERESIS_QUOTIENT" fork="phase0" hash="c3849917" />
+
+- name: HYSTERESIS_UPWARD_MULTIPLIER
+  sources: []
+  spec: |
+    <spec preset_var="HYSTERESIS_UPWARD_MULTIPLIER" fork="phase0" hash="34607474" />
+
+- name: INACTIVITY_PENALTY_QUOTIENT
+  sources: []
+  spec: |
+    <spec preset_var="INACTIVITY_PENALTY_QUOTIENT" fork="phase0" hash="5d82db62" />
+
+- name: INACTIVITY_PENALTY_QUOTIENT_ALTAIR
+  sources: []
+  spec: |
+    <spec preset_var="INACTIVITY_PENALTY_QUOTIENT_ALTAIR" fork="altair" hash="d0d3c505" />
+
+- name: INACTIVITY_PENALTY_QUOTIENT_BELLATRIX
+  sources: []
+  spec: |
+    <spec preset_var="INACTIVITY_PENALTY_QUOTIENT_BELLATRIX" fork="bellatrix" hash="33fd626d" />
+
+- name: KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH
+  sources: []
+  spec: |
+    <spec preset_var="KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH" fork="fulu" hash="22280638" />
+
+- name: KZG_COMMITMENT_INCLUSION_PROOF_DEPTH
+  sources: []
+  spec: |
+    <spec preset_var="KZG_COMMITMENT_INCLUSION_PROOF_DEPTH" fork="deneb" hash="79db011d" />
+
+- name: MAX_ATTESTATIONS
+  sources: []
+  spec: |
+    <spec preset_var="MAX_ATTESTATIONS" fork="phase0" hash="afe55d3f" />
+
+- name: MAX_ATTESTATIONS_ELECTRA
+  sources: []
+  spec: |
+    <spec preset_var="MAX_ATTESTATIONS_ELECTRA" fork="electra" hash="4dbaf2dd" />
+
+- name: MAX_ATTESTER_SLASHINGS
+  sources: []
+  spec: |
+    <spec preset_var="MAX_ATTESTER_SLASHINGS" fork="phase0" hash="c1416d33" />
+
+- name: MAX_ATTESTER_SLASHINGS_ELECTRA
+  sources: []
+  spec: |
+    <spec preset_var="MAX_ATTESTER_SLASHINGS_ELECTRA" fork="electra" hash="fc70c923" />
+
+- name: MAX_BLOB_COMMITMENTS_PER_BLOCK
+  sources: []
+  spec: |
+    <spec preset_var="MAX_BLOB_COMMITMENTS_PER_BLOCK" fork="deneb" hash="0ad15e8f" />
+
+- name: MAX_BLS_TO_EXECUTION_CHANGES
+  sources: []
+  spec: |
+    <spec preset_var="MAX_BLS_TO_EXECUTION_CHANGES" fork="capella" hash="1eee2f2f" />
+
+- name: MAX_BYTES_PER_TRANSACTION
+  sources: []
+  spec: |
+    <spec preset_var="MAX_BYTES_PER_TRANSACTION" fork="bellatrix" hash="3684e68f" />
+
+- name: MAX_COMMITTEES_PER_SLOT#phase0
+  sources: []
+  spec: |
+    <spec preset_var="MAX_COMMITTEES_PER_SLOT" fork="phase0" hash="0442c4b7" />
+
+- name: MAX_COMMITTEES_PER_SLOT#electra
+  sources: []
+  spec: |
+    <spec preset_var="MAX_COMMITTEES_PER_SLOT" fork="electra" hash="0442c4b7" />
+
+- name: MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD
+  sources: []
+  spec: |
+    <spec preset_var="MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD" fork="electra" hash="59ec80e5" />
+
+- name: MAX_DEPOSITS
+  sources: []
+  spec: |
+    <spec preset_var="MAX_DEPOSITS" fork="phase0" hash="542a0f96" />
+
+- name: MAX_DEPOSIT_REQUESTS_PER_PAYLOAD
+  sources: []
+  spec: |
+    <spec preset_var="MAX_DEPOSIT_REQUESTS_PER_PAYLOAD" fork="electra" hash="6c60ff83" />
+
+- name: MAX_EFFECTIVE_BALANCE
+  sources: []
+  spec: |
+    <spec preset_var="MAX_EFFECTIVE_BALANCE" fork="phase0" hash="13dd1310" />
+
+- name: MAX_EFFECTIVE_BALANCE_ELECTRA
+  sources: []
+  spec: |
+    <spec preset_var="MAX_EFFECTIVE_BALANCE_ELECTRA" fork="electra" hash="2ec17dc4" />
+
+- name: MAX_EXTRA_DATA_BYTES
+  sources: []
+  spec: |
+    <spec preset_var="MAX_EXTRA_DATA_BYTES" fork="bellatrix" hash="9d278744" />
+
+- name: MAX_PENDING_DEPOSITS_PER_EPOCH
+  sources: []
+  spec: |
+    <spec preset_var="MAX_PENDING_DEPOSITS_PER_EPOCH" fork="electra" hash="f532a46f" />
+
+- name: MAX_PENDING_PARTIALS_PER_WITHDRAWALS_SWEEP
+  sources: []
+  spec: |
+    <spec preset_var="MAX_PENDING_PARTIALS_PER_WITHDRAWALS_SWEEP" fork="electra" hash="e7b2f394" />
+
+- name: MAX_PROPOSER_SLASHINGS
+  sources: []
+  spec: |
+    <spec preset_var="MAX_PROPOSER_SLASHINGS" fork="phase0" hash="87bfd9ed" />
+
+- name: MAX_SEED_LOOKAHEAD
+  sources: []
+  spec: |
+    <spec preset_var="MAX_SEED_LOOKAHEAD" fork="phase0" hash="b7ae8929" />
+
+- name: MAX_TRANSACTIONS_PER_PAYLOAD
+  sources: []
+  spec: |
+    <spec preset_var="MAX_TRANSACTIONS_PER_PAYLOAD" fork="bellatrix" hash="1088e3b2" />
+
+- name: MAX_VALIDATORS_PER_COMMITTEE#phase0
+  sources: []
+  spec: |
+    <spec preset_var="MAX_VALIDATORS_PER_COMMITTEE" fork="phase0" hash="900abcb2" />
+
+- name: MAX_VALIDATORS_PER_COMMITTEE#electra
+  sources: []
+  spec: |
+    <spec preset_var="MAX_VALIDATORS_PER_COMMITTEE" fork="electra" hash="900abcb2" />
+
+- name: MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP
+  sources: []
+  spec: |
+    <spec preset_var="MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP" fork="capella" hash="ac61940c" />
+
+- name: MAX_VOLUNTARY_EXITS
+  sources: []
+  spec: |
+    <spec preset_var="MAX_VOLUNTARY_EXITS" fork="phase0" hash="a0a7ac5e" />
+
+- name: MAX_WITHDRAWALS_PER_PAYLOAD
+  sources: []
+  spec: |
+    <spec preset_var="MAX_WITHDRAWALS_PER_PAYLOAD" fork="capella" hash="c406effb" />
+
+- name: MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD
+  sources: []
+  spec: |
+    <spec preset_var="MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD" fork="electra" hash="9f04de0d" />
+
+- name: MIN_ACTIVATION_BALANCE
+  sources: []
+  spec: |
+    <spec preset_var="MIN_ACTIVATION_BALANCE" fork="electra" hash="fcbcbab5" />
+
+- name: MIN_ATTESTATION_INCLUSION_DELAY
+  sources: []
+  spec: |
+    <spec preset_var="MIN_ATTESTATION_INCLUSION_DELAY" fork="phase0" hash="2e9435aa" />
+
+- name: MIN_DEPOSIT_AMOUNT
+  sources: []
+  spec: |
+    <spec preset_var="MIN_DEPOSIT_AMOUNT" fork="phase0" hash="388f2923" />
+
+- name: MIN_EPOCHS_TO_INACTIVITY_PENALTY
+  sources: []
+  spec: |
+    <spec preset_var="MIN_EPOCHS_TO_INACTIVITY_PENALTY" fork="phase0" hash="339d14c4" />
+
+- name: MIN_SEED_LOOKAHEAD
+  sources: []
+  spec: |
+    <spec preset_var="MIN_SEED_LOOKAHEAD" fork="phase0" hash="48a0462b" />
+
+- name: MIN_SLASHING_PENALTY_QUOTIENT
+  sources: []
+  spec: |
+    <spec preset_var="MIN_SLASHING_PENALTY_QUOTIENT" fork="phase0" hash="0204123d" />
+
+- name: MIN_SLASHING_PENALTY_QUOTIENT_ALTAIR
+  sources: []
+  spec: |
+    <spec preset_var="MIN_SLASHING_PENALTY_QUOTIENT_ALTAIR" fork="altair" hash="4845bc05" />
+
+- name: MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX
+  sources: []
+  spec: |
+    <spec preset_var="MIN_SLASHING_PENALTY_QUOTIENT_BELLATRIX" fork="bellatrix" hash="2a5af13c" />
+
+- name: MIN_SLASHING_PENALTY_QUOTIENT_ELECTRA
+  sources: []
+  spec: |
+    <spec preset_var="MIN_SLASHING_PENALTY_QUOTIENT_ELECTRA" fork="electra" hash="03888289" />
+
+- name: MIN_SYNC_COMMITTEE_PARTICIPANTS
+  sources: []
+  spec: |
+    <spec preset_var="MIN_SYNC_COMMITTEE_PARTICIPANTS" fork="altair" hash="7ca6fd1f" />
+
+- name: PENDING_CONSOLIDATIONS_LIMIT
+  sources: []
+  spec: |
+    <spec preset_var="PENDING_CONSOLIDATIONS_LIMIT" fork="electra" hash="f28398d0" />
+
+- name: PENDING_DEPOSITS_LIMIT
+  sources: []
+  spec: |
+    <spec preset_var="PENDING_DEPOSITS_LIMIT" fork="electra" hash="8f7ed296" />
+
+- name: PENDING_PARTIAL_WITHDRAWALS_LIMIT
+  sources: []
+  spec: |
+    <spec preset_var="PENDING_PARTIAL_WITHDRAWALS_LIMIT" fork="electra" hash="9ae3fe56" />
+
+- name: PROPORTIONAL_SLASHING_MULTIPLIER
+  sources: []
+  spec: |
+    <spec preset_var="PROPORTIONAL_SLASHING_MULTIPLIER" fork="phase0" hash="7675c5ad" />
+
+- name: PROPORTIONAL_SLASHING_MULTIPLIER_ALTAIR
+  sources: []
+  spec: |
+    <spec preset_var="PROPORTIONAL_SLASHING_MULTIPLIER_ALTAIR" fork="altair" hash="5e6aedb9" />
+
+- name: PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX
+  sources: []
+  spec: |
+    <spec preset_var="PROPORTIONAL_SLASHING_MULTIPLIER_BELLATRIX" fork="bellatrix" hash="e36837df" />
+
+- name: PROPOSER_REWARD_QUOTIENT
+  sources: []
+  spec: |
+    <spec preset_var="PROPOSER_REWARD_QUOTIENT" fork="phase0" hash="a60dab3e" />
+
+- name: SHUFFLE_ROUND_COUNT
+  sources: []
+  spec: |
+    <spec preset_var="SHUFFLE_ROUND_COUNT" fork="phase0" hash="ed107076" />
+
+- name: SLOTS_PER_EPOCH
+  sources: []
+  spec: |
+    <spec preset_var="SLOTS_PER_EPOCH" fork="phase0" hash="cb41af43" />
+
+- name: SLOTS_PER_HISTORICAL_ROOT
+  sources: []
+  spec: |
+    <spec preset_var="SLOTS_PER_HISTORICAL_ROOT" fork="phase0" hash="1d0bdd1d" />
+
+- name: SYNC_COMMITTEE_SIZE
+  sources: []
+  spec: |
+    <spec preset_var="SYNC_COMMITTEE_SIZE" fork="altair" hash="d31740c9" />
+
+- name: TARGET_COMMITTEE_SIZE
+  sources: []
+  spec: |
+    <spec preset_var="TARGET_COMMITTEE_SIZE" fork="phase0" hash="d56fdb68" />
+
+- name: UPDATE_TIMEOUT
+  sources: []
+  spec: |
+    <spec preset_var="UPDATE_TIMEOUT" fork="altair" hash="e633d57e" />
+
+- name: VALIDATOR_REGISTRY_LIMIT
+  sources: []
+  spec: |
+    <spec preset_var="VALIDATOR_REGISTRY_LIMIT" fork="phase0" hash="8fa5412c" />
+
+- name: WHISTLEBLOWER_REWARD_QUOTIENT
+  sources: []
+  spec: |
+    <spec preset_var="WHISTLEBLOWER_REWARD_QUOTIENT" fork="phase0" hash="62962c52" />
+
+- name: WHISTLEBLOWER_REWARD_QUOTIENT_ELECTRA
+  sources: []
+  spec: |
+    <spec preset_var="WHISTLEBLOWER_REWARD_QUOTIENT_ELECTRA" fork="electra" hash="8021dedf" />

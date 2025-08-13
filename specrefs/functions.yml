@@ -1,0 +1,1854 @@
+- name: add_flag
+  sources: []
+  spec: |
+    <spec fn="add_flag" fork="altair" hash="0e22f6e5" />
+
+- name: add_validator_to_registry#phase0
+  sources: []
+  spec: |
+    <spec fn="add_validator_to_registry" fork="phase0" hash="53699dc0" />
+
+- name: add_validator_to_registry#altair
+  sources: []
+  spec: |
+    <spec fn="add_validator_to_registry" fork="altair" hash="18054f42" />
+
+- name: add_validator_to_registry#electra
+  sources: []
+  spec: |
+    <spec fn="add_validator_to_registry" fork="electra" hash="7970ce24" />
+
+- name: apply_deposit#phase0
+  sources: []
+  spec: |
+    <spec fn="apply_deposit" fork="phase0" hash="a53ef920" />
+
+- name: apply_deposit#electra
+  sources: []
+  spec: |
+    <spec fn="apply_deposit" fork="electra" hash="6259bfc5" />
+
+- name: apply_light_client_update
+  sources: []
+  spec: |
+    <spec fn="apply_light_client_update" fork="altair" hash="211a52c9" />
+
+- name: apply_pending_deposit
+  sources: []
+  spec: |
+    <spec fn="apply_pending_deposit" fork="electra" hash="e60b5fed" />
+
+- name: block_to_light_client_header#altair
+  sources: []
+  spec: |
+    <spec fn="block_to_light_client_header" fork="altair" hash="94342f64" />
+
+- name: block_to_light_client_header#capella
+  sources: []
+  spec: |
+    <spec fn="block_to_light_client_header" fork="capella" hash="597ddeac" />
+
+- name: block_to_light_client_header#deneb
+  sources: []
+  spec: |
+    <spec fn="block_to_light_client_header" fork="deneb" hash="b5ed5bf8" />
+
+- name: bytes_to_uint64
+  sources: []
+  spec: |
+    <spec fn="bytes_to_uint64" fork="phase0" hash="3099d397" />
+
+- name: calculate_committee_fraction
+  sources: []
+  spec: |
+    <spec fn="calculate_committee_fraction" fork="phase0" hash="782b50e9" />
+
+- name: check_if_validator_active
+  sources: []
+  spec: |
+    <spec fn="check_if_validator_active" fork="phase0" hash="66fe85e7" />
+
+- name: compute_activation_exit_epoch
+  sources: []
+  spec: |
+    <spec fn="compute_activation_exit_epoch" fork="phase0" hash="7a265fe3" />
+
+- name: compute_columns_for_custody_group
+  sources: []
+  spec: |
+    <spec fn="compute_columns_for_custody_group" fork="fulu" hash="af24b659" />
+
+- name: compute_committee
+  sources: []
+  spec: |
+    <spec fn="compute_committee" fork="phase0" hash="eb55fdd0" />
+
+- name: compute_consolidation_epoch_and_update_churn
+  sources: []
+  spec: |
+    <spec fn="compute_consolidation_epoch_and_update_churn" fork="electra" hash="21eba846" />
+
+- name: compute_domain
+  sources: []
+  spec: |
+    <spec fn="compute_domain" fork="phase0" hash="948e1334" />
+
+- name: compute_epoch_at_slot
+  sources: []
+  spec: |
+    <spec fn="compute_epoch_at_slot" fork="phase0" hash="d8b1cda2" />
+
+- name: compute_exit_epoch_and_update_churn
+  sources: []
+  spec: |
+    <spec fn="compute_exit_epoch_and_update_churn" fork="electra" hash="b3983004" />
+
+- name: compute_fork_data_root
+  sources: []
+  spec: |
+    <spec fn="compute_fork_data_root" fork="phase0" hash="155b0991" />
+
+- name: compute_fork_digest#phase0
+  sources: []
+  spec: |
+    <spec fn="compute_fork_digest" fork="phase0" hash="8b33f64d" />
+
+- name: compute_fork_digest#fulu
+  sources: []
+  spec: |
+    <spec fn="compute_fork_digest" fork="fulu" hash="860655fd" />
+
+- name: compute_fork_version#altair
+  sources: []
+  spec: |
+    <spec fn="compute_fork_version" fork="altair" hash="ac13fc52" />
+
+- name: compute_fork_version#bellatrix
+  sources: []
+  spec: |
+    <spec fn="compute_fork_version" fork="bellatrix" hash="2e5e09be" />
+
+- name: compute_fork_version#capella
+  sources: []
+  spec: |
+    <spec fn="compute_fork_version" fork="capella" hash="cf11ff98" />
+
+- name: compute_fork_version#deneb
+  sources: []
+  spec: |
+    <spec fn="compute_fork_version" fork="deneb" hash="287e691a" />
+
+- name: compute_fork_version#electra
+  sources: []
+  spec: |
+    <spec fn="compute_fork_version" fork="electra" hash="c142a405" />
+
+- name: compute_fork_version#fulu
+  sources: []
+  spec: |
+    <spec fn="compute_fork_version" fork="fulu" hash="6d472038" />
+
+- name: compute_matrix
+  sources: []
+  spec: |
+    <spec fn="compute_matrix" fork="fulu" hash="b39370ca" />
+
+- name: compute_new_state_root
+  sources: []
+  spec: |
+    <spec fn="compute_new_state_root" fork="phase0" hash="ad3c03b7" />
+
+- name: compute_on_chain_aggregate
+  sources: []
+  spec: |
+    <spec fn="compute_on_chain_aggregate" fork="electra" hash="128055d6" />
+
+- name: compute_proposer_index#phase0
+  sources: []
+  spec: |
+    <spec fn="compute_proposer_index" fork="phase0" hash="865ac464" />
+
+- name: compute_proposer_index#electra
+  sources: []
+  spec: |
+    <spec fn="compute_proposer_index" fork="electra" hash="c3b14daf" />
+
+- name: compute_proposer_indices
+  sources: []
+  spec: |
+    <spec fn="compute_proposer_indices" fork="fulu" hash="9e13dbfe" />
+
+- name: compute_pulled_up_tip
+  sources: []
+  spec: |
+    <spec fn="compute_pulled_up_tip" fork="phase0" hash="ef9c1f02" />
+
+- name: compute_shuffled_index
+  sources: []
+  spec: |
+    <spec fn="compute_shuffled_index" fork="phase0" hash="e1e6a19d" />
+
+- name: compute_signed_block_header
+  sources: []
+  spec: |
+    <spec fn="compute_signed_block_header" fork="deneb" hash="552442e1" />
+
+- name: compute_signing_root
+  sources: []
+  spec: |
+    <spec fn="compute_signing_root" fork="phase0" hash="07ab9f76" />
+
+- name: compute_slots_since_epoch_start
+  sources: []
+  spec: |
+    <spec fn="compute_slots_since_epoch_start" fork="phase0" hash="8cd580dc" />
+
+- name: compute_start_slot_at_epoch
+  sources: []
+  spec: |
+    <spec fn="compute_start_slot_at_epoch" fork="phase0" hash="d3c7b518" />
+
+- name: compute_subnet_for_attestation
+  sources: []
+  spec: |
+    <spec fn="compute_subnet_for_attestation" fork="phase0" hash="2e9cf65d" />
+
+- name: compute_subnet_for_blob_sidecar#deneb
+  sources: []
+  spec: |
+    <spec fn="compute_subnet_for_blob_sidecar" fork="deneb" hash="09ae77b3" />
+
+- name: compute_subnet_for_blob_sidecar#electra
+  sources: []
+  spec: |
+    <spec fn="compute_subnet_for_blob_sidecar" fork="electra" hash="d07c6ad7" />
+
+- name: compute_subnet_for_data_column_sidecar
+  sources: []
+  spec: |
+    <spec fn="compute_subnet_for_data_column_sidecar" fork="fulu" hash="cc47a6bd" />
+
+- name: compute_subnets_for_sync_committee
+  sources: []
+  spec: |
+    <spec fn="compute_subnets_for_sync_committee" fork="altair" hash="637ad33a" />
+
+- name: compute_subscribed_subnet
+  sources: []
+  spec: |
+    <spec fn="compute_subscribed_subnet" fork="phase0" hash="54ac02e6" />
+
+- name: compute_subscribed_subnets
+  sources: []
+  spec: |
+    <spec fn="compute_subscribed_subnets" fork="phase0" hash="e8ca2772" />
+
+- name: compute_sync_committee_period
+  sources: []
+  spec: |
+    <spec fn="compute_sync_committee_period" fork="altair" hash="c5bb031f" />
+
+- name: compute_sync_committee_period_at_slot
+  sources: []
+  spec: |
+    <spec fn="compute_sync_committee_period_at_slot" fork="altair" hash="6ad449b8" />
+
+- name: compute_time_at_slot
+  sources: []
+  spec: |
+    <spec fn="compute_time_at_slot" fork="phase0" hash="7d4e9e46" />
+
+- name: compute_weak_subjectivity_period#phase0
+  sources: []
+  spec: |
+    <spec fn="compute_weak_subjectivity_period" fork="phase0" hash="3f528e06" />
+
+- name: compute_weak_subjectivity_period#electra
+  sources: []
+  spec: |
+    <spec fn="compute_weak_subjectivity_period" fork="electra" hash="8d95104c" />
+
+- name: create_light_client_bootstrap
+  sources: []
+  spec: |
+    <spec fn="create_light_client_bootstrap" fork="altair" hash="54e41304" />
+
+- name: create_light_client_finality_update
+  sources: []
+  spec: |
+    <spec fn="create_light_client_finality_update" fork="altair" hash="21956507" />
+
+- name: create_light_client_optimistic_update
+  sources: []
+  spec: |
+    <spec fn="create_light_client_optimistic_update" fork="altair" hash="5a993ad2" />
+
+- name: create_light_client_update
+  sources: []
+  spec: |
+    <spec fn="create_light_client_update" fork="altair" hash="cde7d86c" />
+
+- name: current_sync_committee_gindex_at_slot#altair
+  sources: []
+  spec: |
+    <spec fn="current_sync_committee_gindex_at_slot" fork="altair" hash="caf087c0" />
+
+- name: current_sync_committee_gindex_at_slot#electra
+  sources: []
+  spec: |
+    <spec fn="current_sync_committee_gindex_at_slot" fork="electra" hash="6f71f075" />
+
+- name: decrease_balance
+  sources: []
+  spec: |
+    <spec fn="decrease_balance" fork="phase0" hash="3dd9c03a" />
+
+- name: eth_aggregate_pubkeys
+  sources: []
+  spec: |
+    <spec fn="eth_aggregate_pubkeys" fork="altair" hash="977edbdb" />
+
+- name: eth_fast_aggregate_verify
+  sources: []
+  spec: |
+    <spec fn="eth_fast_aggregate_verify" fork="altair" hash="452a1740" />
+
+- name: filter_block_tree
+  sources: []
+  spec: |
+    <spec fn="filter_block_tree" fork="phase0" hash="a1924421" />
+
+- name: finalized_root_gindex_at_slot#altair
+  sources: []
+  spec: |
+    <spec fn="finalized_root_gindex_at_slot" fork="altair" hash="9028cbc5" />
+
+- name: finalized_root_gindex_at_slot#electra
+  sources: []
+  spec: |
+    <spec fn="finalized_root_gindex_at_slot" fork="electra" hash="bc7a7fe9" />
+
+- name: get_activation_exit_churn_limit
+  sources: []
+  spec: |
+    <spec fn="get_activation_exit_churn_limit" fork="electra" hash="e3598970" />
+
+- name: get_active_validator_indices
+  sources: []
+  spec: |
+    <spec fn="get_active_validator_indices" fork="phase0" hash="b515ea11" />
+
+- name: get_aggregate_and_proof
+  sources: []
+  spec: |
+    <spec fn="get_aggregate_and_proof" fork="phase0" hash="bb7f6018" />
+
+- name: get_aggregate_and_proof_signature
+  sources: []
+  spec: |
+    <spec fn="get_aggregate_and_proof_signature" fork="phase0" hash="6c77571c" />
+
+- name: get_aggregate_signature
+  sources: []
+  spec: |
+    <spec fn="get_aggregate_signature" fork="phase0" hash="1797b223" />
+
+- name: get_ancestor
+  sources: []
+  spec: |
+    <spec fn="get_ancestor" fork="phase0" hash="0e8c06f9" />
+
+- name: get_attestation_component_deltas
+  sources: []
+  spec: |
+    <spec fn="get_attestation_component_deltas" fork="phase0" hash="c6d7c444" />
+
+- name: get_attestation_deltas
+  sources: []
+  spec: |
+    <spec fn="get_attestation_deltas" fork="phase0" hash="17fcc0d9" />
+
+- name: get_attestation_participation_flag_indices#altair
+  sources: []
+  spec: |
+    <spec fn="get_attestation_participation_flag_indices" fork="altair" hash="c13f596c" />
+
+- name: get_attestation_participation_flag_indices#deneb
+  sources: []
+  spec: |
+    <spec fn="get_attestation_participation_flag_indices" fork="deneb" hash="7e267a44" />
+
+- name: get_attestation_signature
+  sources: []
+  spec: |
+    <spec fn="get_attestation_signature" fork="phase0" hash="0b339b31" />
+
+- name: get_attesting_balance
+  sources: []
+  spec: |
+    <spec fn="get_attesting_balance" fork="phase0" hash="bc7890c1" />
+
+- name: get_attesting_indices#phase0
+  sources: []
+  spec: |
+    <spec fn="get_attesting_indices" fork="phase0" hash="abbf9f2d" />
+
+- name: get_attesting_indices#electra
+  sources: []
+  spec: |
+    <spec fn="get_attesting_indices" fork="electra" hash="fd4b0475" />
+
+- name: get_balance_churn_limit
+  sources: []
+  spec: |
+    <spec fn="get_balance_churn_limit" fork="electra" hash="f4498c02" />
+
+- name: get_base_reward#phase0
+  sources: []
+  spec: |
+    <spec fn="get_base_reward" fork="phase0" hash="46418226" />
+
+- name: get_base_reward#altair
+  sources: []
+  spec: |
+    <spec fn="get_base_reward" fork="altair" hash="edb30df0" />
+
+- name: get_base_reward_per_increment
+  sources: []
+  spec: |
+    <spec fn="get_base_reward_per_increment" fork="altair" hash="8b1aba66" />
+
+- name: get_beacon_committee
+  sources: []
+  spec: |
+    <spec fn="get_beacon_committee" fork="phase0" hash="09ee43b7" />
+
+- name: get_beacon_proposer_index#phase0
+  sources: []
+  spec: |
+    <spec fn="get_beacon_proposer_index" fork="phase0" hash="a4562612" />
+
+- name: get_beacon_proposer_index#fulu
+  sources: []
+  spec: |
+    <spec fn="get_beacon_proposer_index" fork="fulu" hash="8e1ef77d" />
+
+- name: get_beacon_proposer_indices
+  sources: []
+  spec: |
+    <spec fn="get_beacon_proposer_indices" fork="fulu" hash="f5866a8f" />
+
+- name: get_blob_parameters
+  sources: []
+  spec: |
+    <spec fn="get_blob_parameters" fork="fulu" hash="e390b1c8" />
+
+- name: get_blob_sidecars
+  sources: []
+  spec: |
+    <spec fn="get_blob_sidecars" fork="deneb" hash="0206e9a5" />
+
+- name: get_block_root
+  sources: []
+  spec: |
+    <spec fn="get_block_root" fork="phase0" hash="92504d2d" />
+
+- name: get_block_root_at_slot
+  sources: []
+  spec: |
+    <spec fn="get_block_root_at_slot" fork="phase0" hash="0c5003ec" />
+
+- name: get_block_signature
+  sources: []
+  spec: |
+    <spec fn="get_block_signature" fork="phase0" hash="1f2edb6b" />
+
+- name: get_checkpoint_block
+  sources: []
+  spec: |
+    <spec fn="get_checkpoint_block" fork="phase0" hash="9d8daa22" />
+
+- name: get_committee_assignment
+  sources: []
+  spec: |
+    <spec fn="get_committee_assignment" fork="phase0" hash="8b41515e" />
+
+- name: get_committee_count_per_slot
+  sources: []
+  spec: |
+    <spec fn="get_committee_count_per_slot" fork="phase0" hash="3238e1ea" />
+
+- name: get_committee_indices
+  sources: []
+  spec: |
+    <spec fn="get_committee_indices" fork="electra" hash="fa701795" />
+
+- name: get_consolidation_churn_limit
+  sources: []
+  spec: |
+    <spec fn="get_consolidation_churn_limit" fork="electra" hash="3d296032" />
+
+- name: get_contribution_and_proof
+  sources: []
+  spec: |
+    <spec fn="get_contribution_and_proof" fork="altair" hash="ea4e6980" />
+
+- name: get_contribution_and_proof_signature
+  sources: []
+  spec: |
+    <spec fn="get_contribution_and_proof_signature" fork="altair" hash="2d842fca" />
+
+- name: get_current_epoch
+  sources: []
+  spec: |
+    <spec fn="get_current_epoch" fork="phase0" hash="73a94be9" />
+
+- name: get_current_slot
+  sources: []
+  spec: |
+    <spec fn="get_current_slot" fork="phase0" hash="49408b6a" />
+
+- name: get_current_store_epoch
+  sources: []
+  spec: |
+    <spec fn="get_current_store_epoch" fork="phase0" hash="4d86e690" />
+
+- name: get_custody_groups
+  sources: []
+  spec: |
+    <spec fn="get_custody_groups" fork="fulu" hash="cc02e9a4" />
+
+- name: get_data_column_sidecars
+  sources: []
+  spec: |
+    <spec fn="get_data_column_sidecars" fork="fulu" hash="317fc596" />
+
+- name: get_data_column_sidecars_from_block
+  sources: []
+  spec: |
+    <spec fn="get_data_column_sidecars_from_block" fork="fulu" hash="02ffae23" />
+
+- name: get_data_column_sidecars_from_column_sidecar
+  sources: []
+  spec: |
+    <spec fn="get_data_column_sidecars_from_column_sidecar" fork="fulu" hash="4304cdec" />
+
+- name: get_domain
+  sources: []
+  spec: |
+    <spec fn="get_domain" fork="phase0" hash="99ea23f6" />
+
+- name: get_eligible_validator_indices
+  sources: []
+  spec: |
+    <spec fn="get_eligible_validator_indices" fork="phase0" hash="22a24ce4" />
+
+- name: get_epoch_signature
+  sources: []
+  spec: |
+    <spec fn="get_epoch_signature" fork="phase0" hash="31a86d34" />
+
+- name: get_eth1_pending_deposit_count
+  sources: []
+  spec: |
+    <spec fn="get_eth1_pending_deposit_count" fork="electra" hash="5dc54930" />
+
+- name: get_eth1_vote#phase0
+  sources: []
+  spec: |
+    <spec fn="get_eth1_vote" fork="phase0" hash="850a63eb" />
+
+- name: get_eth1_vote#electra
+  sources: []
+  spec: |
+    <spec fn="get_eth1_vote" fork="electra" hash="978c2389" />
+
+- name: get_execution_payload
+  sources: []
+  spec: |
+    <spec fn="get_execution_payload" fork="bellatrix" hash="abcc202e" />
+
+- name: get_execution_requests
+  sources: []
+  spec: |
+    <spec fn="get_execution_requests" fork="electra" hash="2c0fb728" />
+
+- name: get_execution_requests_list
+  sources: []
+  spec: |
+    <spec fn="get_execution_requests_list" fork="electra" hash="0a0be93f" />
+
+- name: get_expected_withdrawals#capella
+  sources: []
+  spec: |
+    <spec fn="get_expected_withdrawals" fork="capella" hash="09191977" />
+
+- name: get_expected_withdrawals#electra
+  sources: []
+  spec: |
+    <spec fn="get_expected_withdrawals" fork="electra" hash="2ed962a3" />
+
+- name: get_filtered_block_tree
+  sources: []
+  spec: |
+    <spec fn="get_filtered_block_tree" fork="phase0" hash="31b703b4" />
+
+- name: get_finality_delay
+  sources: []
+  spec: |
+    <spec fn="get_finality_delay" fork="phase0" hash="df3ca52e" />
+
+- name: get_flag_index_deltas
+  sources: []
+  spec: |
+    <spec fn="get_flag_index_deltas" fork="altair" hash="efadf009" />
+
+- name: get_forkchoice_store
+  sources: []
+  spec: |
+    <spec fn="get_forkchoice_store" fork="phase0" hash="aaa3553b" />
+
+- name: get_head
+  sources: []
+  spec: |
+    <spec fn="get_head" fork="phase0" hash="9fa2b1bd" />
+
+- name: get_head_deltas
+  sources: []
+  spec: |
+    <spec fn="get_head_deltas" fork="phase0" hash="3e9b5111" />
+
+- name: get_inactivity_penalty_deltas#phase0
+  sources: []
+  spec: |
+    <spec fn="get_inactivity_penalty_deltas" fork="phase0" hash="11718f1b" />
+
+- name: get_inactivity_penalty_deltas#altair
+  sources: []
+  spec: |
+    <spec fn="get_inactivity_penalty_deltas" fork="altair" hash="1d27298b" />
+
+- name: get_inactivity_penalty_deltas#bellatrix
+  sources: []
+  spec: |
+    <spec fn="get_inactivity_penalty_deltas" fork="bellatrix" hash="b289e0cd" />
+
+- name: get_inclusion_delay_deltas
+  sources: []
+  spec: |
+    <spec fn="get_inclusion_delay_deltas" fork="phase0" hash="aa690a2f" />
+
+- name: get_index_for_new_validator
+  sources: []
+  spec: |
+    <spec fn="get_index_for_new_validator" fork="altair" hash="e78e8714" />
+
+- name: get_indexed_attestation
+  sources: []
+  spec: |
+    <spec fn="get_indexed_attestation" fork="phase0" hash="424c7a96" />
+
+- name: get_lc_execution_root#capella
+  sources: []
+  spec: |
+    <spec fn="get_lc_execution_root" fork="capella" hash="1fe004a9" />
+
+- name: get_lc_execution_root#deneb
+  sources: []
+  spec: |
+    <spec fn="get_lc_execution_root" fork="deneb" hash="311e3c71" />
+
+- name: get_lc_execution_root#electra
+  sources: []
+  spec: |
+    <spec fn="get_lc_execution_root" fork="electra" hash="939f89bd" />
+
+- name: get_matching_head_attestations
+  sources: []
+  spec: |
+    <spec fn="get_matching_head_attestations" fork="phase0" hash="9e3ca171" />
+
+- name: get_matching_source_attestations
+  sources: []
+  spec: |
+    <spec fn="get_matching_source_attestations" fork="phase0" hash="4771b4df" />
+
+- name: get_matching_target_attestations
+  sources: []
+  spec: |
+    <spec fn="get_matching_target_attestations" fork="phase0" hash="811f3459" />
+
+- name: get_max_effective_balance
+  sources: []
+  spec: |
+    <spec fn="get_max_effective_balance" fork="electra" hash="77f96872" />
+
+- name: get_next_sync_committee
+  sources: []
+  spec: |
+    <spec fn="get_next_sync_committee" fork="altair" hash="ba4f5d3e" />
+
+- name: get_next_sync_committee_indices#altair
+  sources: []
+  spec: |
+    <spec fn="get_next_sync_committee_indices" fork="altair" hash="29891ee8" />
+
+- name: get_next_sync_committee_indices#electra
+  sources: []
+  spec: |
+    <spec fn="get_next_sync_committee_indices" fork="electra" hash="ff7c2d75" />
+
+- name: get_pending_balance_to_withdraw
+  sources: []
+  spec: |
+    <spec fn="get_pending_balance_to_withdraw" fork="electra" hash="3960d28f" />
+
+- name: get_pow_block_at_terminal_total_difficulty
+  sources: []
+  spec: |
+    <spec fn="get_pow_block_at_terminal_total_difficulty" fork="bellatrix" hash="7b6668d2" />
+
+- name: get_previous_epoch
+  sources: []
+  spec: |
+    <spec fn="get_previous_epoch" fork="phase0" hash="935f3711" />
+
+- name: get_proposer_head
+  sources: []
+  spec: |
+    <spec fn="get_proposer_head" fork="phase0" hash="15d44290" />
+
+- name: get_proposer_reward
+  sources: []
+  spec: |
+    <spec fn="get_proposer_reward" fork="phase0" hash="2ccc4963" />
+
+- name: get_proposer_score
+  sources: []
+  spec: |
+    <spec fn="get_proposer_score" fork="phase0" hash="164b8de0" />
+
+- name: get_randao_mix
+  sources: []
+  spec: |
+    <spec fn="get_randao_mix" fork="phase0" hash="c79ea866" />
+
+- name: get_safety_threshold
+  sources: []
+  spec: |
+    <spec fn="get_safety_threshold" fork="altair" hash="72f3d7ff" />
+
+- name: get_seed
+  sources: []
+  spec: |
+    <spec fn="get_seed" fork="phase0" hash="b0921a0a" />
+
+- name: get_slot_signature
+  sources: []
+  spec: |
+    <spec fn="get_slot_signature" fork="phase0" hash="b28edd87" />
+
+- name: get_slots_since_genesis
+  sources: []
+  spec: |
+    <spec fn="get_slots_since_genesis" fork="phase0" hash="3c697269" />
+
+- name: get_source_deltas
+  sources: []
+  spec: |
+    <spec fn="get_source_deltas" fork="phase0" hash="af1e0223" />
+
+- name: get_subtree_index
+  sources: []
+  spec: |
+    <spec fn="get_subtree_index" fork="altair" hash="74962089" />
+
+- name: get_sync_committee_message
+  sources: []
+  spec: |
+    <spec fn="get_sync_committee_message" fork="altair" hash="f5ff7ff2" />
+
+- name: get_sync_committee_selection_proof
+  sources: []
+  spec: |
+    <spec fn="get_sync_committee_selection_proof" fork="altair" hash="fa4e7704" />
+
+- name: get_sync_subcommittee_pubkeys
+  sources: []
+  spec: |
+    <spec fn="get_sync_subcommittee_pubkeys" fork="altair" hash="772addda" />
+
+- name: get_target_deltas
+  sources: []
+  spec: |
+    <spec fn="get_target_deltas" fork="phase0" hash="2e16c38d" />
+
+- name: get_terminal_pow_block
+  sources: []
+  spec: |
+    <spec fn="get_terminal_pow_block" fork="bellatrix" hash="90e145ca" />
+
+- name: get_total_active_balance
+  sources: []
+  spec: |
+    <spec fn="get_total_active_balance" fork="phase0" hash="500e8576" />
+
+- name: get_total_balance
+  sources: []
+  spec: |
+    <spec fn="get_total_balance" fork="phase0" hash="32fd5ad7" />
+
+- name: get_unslashed_attesting_indices
+  sources: []
+  spec: |
+    <spec fn="get_unslashed_attesting_indices" fork="phase0" hash="21c7dd12" />
+
+- name: get_unslashed_participating_indices
+  sources: []
+  spec: |
+    <spec fn="get_unslashed_participating_indices" fork="altair" hash="8a8aae5f" />
+
+- name: get_validator_activation_churn_limit
+  sources: []
+  spec: |
+    <spec fn="get_validator_activation_churn_limit" fork="deneb" hash="cfc9e54a" />
+
+- name: get_validator_churn_limit
+  sources: []
+  spec: |
+    <spec fn="get_validator_churn_limit" fork="phase0" hash="76f815b3" />
+
+- name: get_validator_from_deposit#phase0
+  sources: []
+  spec: |
+    <spec fn="get_validator_from_deposit" fork="phase0" hash="d267aa31" />
+
+- name: get_validator_from_deposit#electra
+  sources: []
+  spec: |
+    <spec fn="get_validator_from_deposit" fork="electra" hash="b1164a28" />
+
+- name: get_validators_custody_requirement
+  sources: []
+  spec: |
+    <spec fn="get_validators_custody_requirement" fork="fulu" hash="b2f47d03" />
+
+- name: get_voting_source
+  sources: []
+  spec: |
+    <spec fn="get_voting_source" fork="phase0" hash="0af91bae" />
+
+- name: get_weight
+  sources: []
+  spec: |
+    <spec fn="get_weight" fork="phase0" hash="f2e4e8ef" />
+
+- name: has_compounding_withdrawal_credential
+  sources: []
+  spec: |
+    <spec fn="has_compounding_withdrawal_credential" fork="electra" hash="a83f0327" />
+
+- name: has_eth1_withdrawal_credential
+  sources: []
+  spec: |
+    <spec fn="has_eth1_withdrawal_credential" fork="capella" hash="184688ed" />
+
+- name: has_execution_withdrawal_credential
+  sources: []
+  spec: |
+    <spec fn="has_execution_withdrawal_credential" fork="electra" hash="afc14c81" />
+
+- name: has_flag
+  sources: []
+  spec: |
+    <spec fn="has_flag" fork="altair" hash="313bedd9" />
+
+- name: increase_balance
+  sources: []
+  spec: |
+    <spec fn="increase_balance" fork="phase0" hash="33ddd025" />
+
+- name: initialize_beacon_state_from_eth1
+  sources: []
+  spec: |
+    <spec fn="initialize_beacon_state_from_eth1" fork="phase0" hash="c69537d6" />
+
+- name: initialize_light_client_store
+  sources: []
+  spec: |
+    <spec fn="initialize_light_client_store" fork="altair" hash="f3de55b9" />
+
+- name: initialize_proposer_lookahead
+  sources: []
+  spec: |
+    <spec fn="initialize_proposer_lookahead" fork="fulu" hash="58f9a307" />
+
+- name: initiate_validator_exit#phase0
+  sources: []
+  spec: |
+    <spec fn="initiate_validator_exit" fork="phase0" hash="0483a058" />
+
+- name: initiate_validator_exit#electra
+  sources: []
+  spec: |
+    <spec fn="initiate_validator_exit" fork="electra" hash="0adfd988" />
+
+- name: integer_squareroot
+  sources: []
+  spec: |
+    <spec fn="integer_squareroot" fork="phase0" hash="f99da6e7" />
+
+- name: is_active_validator
+  sources: []
+  spec: |
+    <spec fn="is_active_validator" fork="phase0" hash="f8673b09" />
+
+- name: is_aggregator
+  sources: []
+  spec: |
+    <spec fn="is_aggregator" fork="phase0" hash="20aea893" />
+
+- name: is_assigned_to_sync_committee
+  sources: []
+  spec: |
+    <spec fn="is_assigned_to_sync_committee" fork="altair" hash="b83187d8" />
+
+- name: is_better_update
+  sources: []
+  spec: |
+    <spec fn="is_better_update" fork="altair" hash="b99582ff" />
+
+- name: is_candidate_block
+  sources: []
+  spec: |
+    <spec fn="is_candidate_block" fork="phase0" hash="c588dc0a" />
+
+- name: is_compounding_withdrawal_credential
+  sources: []
+  spec: |
+    <spec fn="is_compounding_withdrawal_credential" fork="electra" hash="5f97fbb0" />
+
+- name: is_data_available#deneb
+  sources: []
+  spec: |
+    <spec fn="is_data_available" fork="deneb" hash="98ad45cf" />
+
+- name: is_data_available#fulu
+  sources: []
+  spec: |
+    <spec fn="is_data_available" fork="fulu" hash="2062e9c6" />
+
+- name: is_eligible_for_activation
+  sources: []
+  spec: |
+    <spec fn="is_eligible_for_activation" fork="phase0" hash="46b8f01a" />
+
+- name: is_eligible_for_activation_queue#phase0
+  sources: []
+  spec: |
+    <spec fn="is_eligible_for_activation_queue" fork="phase0" hash="513e6ed5" />
+
+- name: is_eligible_for_activation_queue#electra
+  sources: []
+  spec: |
+    <spec fn="is_eligible_for_activation_queue" fork="electra" hash="df3ee6a5" />
+
+- name: is_execution_block
+  sources: []
+  spec: |
+    <spec fn="is_execution_block" fork="bellatrix" hash="26be0b84" />
+
+- name: is_execution_enabled
+  sources: []
+  spec: |
+    <spec fn="is_execution_enabled" fork="bellatrix" hash="3f36d4f4" />
+
+- name: is_ffg_competitive
+  sources: []
+  spec: |
+    <spec fn="is_ffg_competitive" fork="phase0" hash="f6a3c0c5" />
+
+- name: is_finality_update
+  sources: []
+  spec: |
+    <spec fn="is_finality_update" fork="altair" hash="4d0080ac" />
+
+- name: is_finalization_ok
+  sources: []
+  spec: |
+    <spec fn="is_finalization_ok" fork="phase0" hash="760ff77e" />
+
+- name: is_fully_withdrawable_validator#capella
+  sources: []
+  spec: |
+    <spec fn="is_fully_withdrawable_validator" fork="capella" hash="e936da25" />
+
+- name: is_fully_withdrawable_validator#electra
+  sources: []
+  spec: |
+    <spec fn="is_fully_withdrawable_validator" fork="electra" hash="0db6f143" />
+
+- name: is_head_late
+  sources: []
+  spec: |
+    <spec fn="is_head_late" fork="phase0" hash="e393dce6" />
+
+- name: is_head_weak
+  sources: []
+  spec: |
+    <spec fn="is_head_weak" fork="phase0" hash="3a6650d7" />
+
+- name: is_in_inactivity_leak
+  sources: []
+  spec: |
+    <spec fn="is_in_inactivity_leak" fork="phase0" hash="e95b1146" />
+
+- name: is_merge_transition_block
+  sources: []
+  spec: |
+    <spec fn="is_merge_transition_block" fork="bellatrix" hash="f0b5e2a0" />
+
+- name: is_merge_transition_complete
+  sources: []
+  spec: |
+    <spec fn="is_merge_transition_complete" fork="bellatrix" hash="b13c98c6" />
+
+- name: is_next_sync_committee_known
+  sources: []
+  spec: |
+    <spec fn="is_next_sync_committee_known" fork="altair" hash="f5d3196e" />
+
+- name: is_optimistic
+  sources: []
+  spec: |
+    <spec fn="is_optimistic" fork="bellatrix" hash="d5afd615" />
+
+- name: is_optimistic_candidate_block
+  sources: []
+  spec: |
+    <spec fn="is_optimistic_candidate_block" fork="bellatrix" hash="fdb54007" />
+
+- name: is_parent_strong
+  sources: []
+  spec: |
+    <spec fn="is_parent_strong" fork="phase0" hash="e06641a8" />
+
+- name: is_partially_withdrawable_validator#capella
+  sources: []
+  spec: |
+    <spec fn="is_partially_withdrawable_validator" fork="capella" hash="75d433d4" />
+
+- name: is_partially_withdrawable_validator#electra
+  sources: []
+  spec: |
+    <spec fn="is_partially_withdrawable_validator" fork="electra" hash="82f25b17" />
+
+- name: is_proposer
+  sources: []
+  spec: |
+    <spec fn="is_proposer" fork="phase0" hash="d9e66d76" />
+
+- name: is_proposing_on_time
+  sources: []
+  spec: |
+    <spec fn="is_proposing_on_time" fork="phase0" hash="81d1985f" />
+
+- name: is_shuffling_stable
+  sources: []
+  spec: |
+    <spec fn="is_shuffling_stable" fork="phase0" hash="680f0aa0" />
+
+- name: is_slashable_attestation_data
+  sources: []
+  spec: |
+    <spec fn="is_slashable_attestation_data" fork="phase0" hash="47bacf1f" />
+
+- name: is_slashable_validator
+  sources: []
+  spec: |
+    <spec fn="is_slashable_validator" fork="phase0" hash="84f09f6b" />
+
+- name: is_sync_committee_aggregator
+  sources: []
+  spec: |
+    <spec fn="is_sync_committee_aggregator" fork="altair" hash="13d9d470" />
+
+- name: is_sync_committee_update
+  sources: []
+  spec: |
+    <spec fn="is_sync_committee_update" fork="altair" hash="af6f8cb0" />
+
+- name: is_valid_deposit_signature
+  sources: []
+  spec: |
+    <spec fn="is_valid_deposit_signature" fork="electra" hash="7347b754" />
+
+- name: is_valid_genesis_state
+  sources: []
+  spec: |
+    <spec fn="is_valid_genesis_state" fork="phase0" hash="af8478cd" />
+
+- name: is_valid_indexed_attestation
+  sources: []
+  spec: |
+    <spec fn="is_valid_indexed_attestation" fork="phase0" hash="31223a33" />
+
+- name: is_valid_light_client_header#altair
+  sources: []
+  spec: |
+    <spec fn="is_valid_light_client_header" fork="altair" hash="a4c4f0f3" />
+
+- name: is_valid_light_client_header#capella
+  sources: []
+  spec: |
+    <spec fn="is_valid_light_client_header" fork="capella" hash="232ae1d9" />
+
+- name: is_valid_light_client_header#deneb
+  sources: []
+  spec: |
+    <spec fn="is_valid_light_client_header" fork="deneb" hash="f458ba78" />
+
+- name: is_valid_merkle_branch
+  sources: []
+  spec: |
+    <spec fn="is_valid_merkle_branch" fork="phase0" hash="f754117e" />
+
+- name: is_valid_normalized_merkle_branch
+  sources: []
+  spec: |
+    <spec fn="is_valid_normalized_merkle_branch" fork="altair" hash="ef32cdea" />
+
+- name: is_valid_switch_to_compounding_request
+  sources: []
+  spec: |
+    <spec fn="is_valid_switch_to_compounding_request" fork="electra" hash="91aa69bb" />
+
+- name: is_valid_terminal_pow_block
+  sources: []
+  spec: |
+    <spec fn="is_valid_terminal_pow_block" fork="bellatrix" hash="96a7d581" />
+
+- name: is_within_weak_subjectivity_period#phase0
+  sources: []
+  spec: |
+    <spec fn="is_within_weak_subjectivity_period" fork="phase0" hash="f8a94089" />
+
+- name: is_within_weak_subjectivity_period#electra
+  sources: []
+  spec: |
+    <spec fn="is_within_weak_subjectivity_period" fork="electra" hash="c7d4d484" />
+
+- name: kzg_commitment_to_versioned_hash
+  sources: []
+  spec: |
+    <spec fn="kzg_commitment_to_versioned_hash" fork="deneb" hash="fad217c1" />
+
+- name: latest_verified_ancestor
+  sources: []
+  spec: |
+    <spec fn="latest_verified_ancestor" fork="bellatrix" hash="c2ee2c55" />
+
+- name: max_compressed_len
+  sources: []
+  spec: |
+    <spec fn="max_compressed_len" fork="phase0" hash="2e531709" />
+
+- name: max_message_size
+  sources: []
+  spec: |
+    <spec fn="max_message_size" fork="phase0" hash="8abedfdb" />
+
+- name: next_sync_committee_gindex_at_slot#altair
+  sources: []
+  spec: |
+    <spec fn="next_sync_committee_gindex_at_slot" fork="altair" hash="129a53c6" />
+
+- name: next_sync_committee_gindex_at_slot#electra
+  sources: []
+  spec: |
+    <spec fn="next_sync_committee_gindex_at_slot" fork="electra" hash="87d7c53a" />
+
+- name: normalize_merkle_branch
+  sources: []
+  spec: |
+    <spec fn="normalize_merkle_branch" fork="electra" hash="149d7b0c" />
+
+- name: on_attestation
+  sources: []
+  spec: |
+    <spec fn="on_attestation" fork="phase0" hash="b7b4d7de" />
+
+- name: on_attester_slashing
+  sources: []
+  spec: |
+    <spec fn="on_attester_slashing" fork="phase0" hash="73957b9b" />
+
+- name: on_block#phase0
+  sources: []
+  spec: |
+    <spec fn="on_block" fork="phase0" hash="f44d049a" />
+
+- name: on_block#bellatrix
+  sources: []
+  spec: |
+    <spec fn="on_block" fork="bellatrix" hash="1b2d9640" />
+
+- name: on_block#capella
+  sources: []
+  spec: |
+    <spec fn="on_block" fork="capella" hash="14995ab0" />
+
+- name: on_block#deneb
+  sources: []
+  spec: |
+    <spec fn="on_block" fork="deneb" hash="34d79a7b" />
+
+- name: on_block#fulu
+  sources: []
+  spec: |
+    <spec fn="on_block" fork="fulu" hash="b01ca61f" />
+
+- name: on_tick
+  sources: []
+  spec: |
+    <spec fn="on_tick" fork="phase0" hash="9cc6e040" />
+
+- name: on_tick_per_slot
+  sources: []
+  spec: |
+    <spec fn="on_tick_per_slot" fork="phase0" hash="ae9ef172" />
+
+- name: prepare_execution_payload#bellatrix
+  sources: []
+  spec: |
+    <spec fn="prepare_execution_payload" fork="bellatrix" hash="6af4de76" />
+
+- name: prepare_execution_payload#capella
+  sources: []
+  spec: |
+    <spec fn="prepare_execution_payload" fork="capella" hash="bb6a6056" />
+
+- name: prepare_execution_payload#deneb
+  sources: []
+  spec: |
+    <spec fn="prepare_execution_payload" fork="deneb" hash="e7dab7ae" />
+
+- name: prepare_execution_payload#electra
+  sources: []
+  spec: |
+    <spec fn="prepare_execution_payload" fork="electra" hash="a8c031a3" />
+
+- name: process_attestation#phase0
+  sources: []
+  spec: |
+    <spec fn="process_attestation" fork="phase0" hash="6ac78cd0" />
+
+- name: process_attestation#altair
+  sources: []
+  spec: |
+    <spec fn="process_attestation" fork="altair" hash="5bec7f7a" />
+
+- name: process_attestation#deneb
+  sources: []
+  spec: |
+    <spec fn="process_attestation" fork="deneb" hash="5a10209c" />
+
+- name: process_attestation#electra
+  sources: []
+  spec: |
+    <spec fn="process_attestation" fork="electra" hash="52d8bb9a" />
+
+- name: process_attester_slashing
+  sources: []
+  spec: |
+    <spec fn="process_attester_slashing" fork="phase0" hash="e47f6e1e" />
+
+- name: process_block#phase0
+  sources: []
+  spec: |
+    <spec fn="process_block" fork="phase0" hash="188d4c44" />
+
+- name: process_block#altair
+  sources: []
+  spec: |
+    <spec fn="process_block" fork="altair" hash="f80f79de" />
+
+- name: process_block#bellatrix
+  sources: []
+  spec: |
+    <spec fn="process_block" fork="bellatrix" hash="4d7485a2" />
+
+- name: process_block#capella
+  sources: []
+  spec: |
+    <spec fn="process_block" fork="capella" hash="48f1bad4" />
+
+- name: process_block#electra
+  sources: []
+  spec: |
+    <spec fn="process_block" fork="electra" hash="26d93faf" />
+
+- name: process_block_header
+  sources: []
+  spec: |
+    <spec fn="process_block_header" fork="phase0" hash="e782040b" />
+
+- name: process_bls_to_execution_change
+  sources: []
+  spec: |
+    <spec fn="process_bls_to_execution_change" fork="capella" hash="1fade4f1" />
+
+- name: process_consolidation_request
+  sources: []
+  spec: |
+    <spec fn="process_consolidation_request" fork="electra" hash="4da4b0fb" />
+
+- name: process_deposit#phase0
+  sources: []
+  spec: |
+    <spec fn="process_deposit" fork="phase0" hash="ee6b3afe" />
+
+- name: process_deposit#electra
+  sources: []
+  spec: |
+    <spec fn="process_deposit" fork="electra" hash="b75831d0" />
+
+- name: process_deposit_request
+  sources: []
+  spec: |
+    <spec fn="process_deposit_request" fork="electra" hash="547c4a35" />
+
+- name: process_effective_balance_updates#phase0
+  sources: []
+  spec: |
+    <spec fn="process_effective_balance_updates" fork="phase0" hash="678d0327" />
+
+- name: process_effective_balance_updates#electra
+  sources: []
+  spec: |
+    <spec fn="process_effective_balance_updates" fork="electra" hash="6b447363" />
+
+- name: process_epoch#phase0
+  sources: []
+  spec: |
+    <spec fn="process_epoch" fork="phase0" hash="9b0ba41d" />
+
+- name: process_epoch#altair
+  sources: []
+  spec: |
+    <spec fn="process_epoch" fork="altair" hash="6f9c70d8" />
+
+- name: process_epoch#capella
+  sources: []
+  spec: |
+    <spec fn="process_epoch" fork="capella" hash="5fb03e76" />
+
+- name: process_epoch#electra
+  sources: []
+  spec: |
+    <spec fn="process_epoch" fork="electra" hash="505b801d" />
+
+- name: process_epoch#fulu
+  sources: []
+  spec: |
+    <spec fn="process_epoch" fork="fulu" hash="86037019" />
+
+- name: process_eth1_data
+  sources: []
+  spec: |
+    <spec fn="process_eth1_data" fork="phase0" hash="a320a108" />
+
+- name: process_eth1_data_reset
+  sources: []
+  spec: |
+    <spec fn="process_eth1_data_reset" fork="phase0" hash="c777739e" />
+
+- name: process_execution_payload#bellatrix
+  sources: []
+  spec: |
+    <spec fn="process_execution_payload" fork="bellatrix" hash="d1d1e466" />
+
+- name: process_execution_payload#capella
+  sources: []
+  spec: |
+    <spec fn="process_execution_payload" fork="capella" hash="3a3d1751" />
+
+- name: process_execution_payload#deneb
+  sources: []
+  spec: |
+    <spec fn="process_execution_payload" fork="deneb" hash="4c3960f2" />
+
+- name: process_execution_payload#electra
+  sources: []
+  spec: |
+    <spec fn="process_execution_payload" fork="electra" hash="67d2ee10" />
+
+- name: process_execution_payload#fulu
+  sources: []
+  spec: |
+    <spec fn="process_execution_payload" fork="fulu" hash="cc18d6ef" />
+
+- name: process_historical_roots_update
+  sources: []
+  spec: |
+    <spec fn="process_historical_roots_update" fork="phase0" hash="4cda7ad5" />
+
+- name: process_historical_summaries_update
+  sources: []
+  spec: |
+    <spec fn="process_historical_summaries_update" fork="capella" hash="8eb6dcbb" />
+
+- name: process_inactivity_updates
+  sources: []
+  spec: |
+    <spec fn="process_inactivity_updates" fork="altair" hash="4fe14f5a" />
+
+- name: process_justification_and_finalization#phase0
+  sources: []
+  spec: |
+    <spec fn="process_justification_and_finalization" fork="phase0" hash="4a2b2108" />
+
+- name: process_justification_and_finalization#altair
+  sources: []
+  spec: |
+    <spec fn="process_justification_and_finalization" fork="altair" hash="863cfca6" />
+
+- name: process_light_client_finality_update
+  sources: []
+  spec: |
+    <spec fn="process_light_client_finality_update" fork="altair" hash="befaba5b" />
+
+- name: process_light_client_optimistic_update
+  sources: []
+  spec: |
+    <spec fn="process_light_client_optimistic_update" fork="altair" hash="06c0365a" />
+
+- name: process_light_client_store_force_update
+  sources: []
+  spec: |
+    <spec fn="process_light_client_store_force_update" fork="altair" hash="fbb77069" />
+
+- name: process_light_client_update
+  sources: []
+  spec: |
+    <spec fn="process_light_client_update" fork="altair" hash="b64a67ff" />
+
+- name: process_operations#phase0
+  sources: []
+  spec: |
+    <spec fn="process_operations" fork="phase0" hash="eb7114df" />
+
+- name: process_operations#capella
+  sources: []
+  spec: |
+    <spec fn="process_operations" fork="capella" hash="1314042b" />
+
+- name: process_operations#electra
+  sources: []
+  spec: |
+    <spec fn="process_operations" fork="electra" hash="643f18b4" />
+
+- name: process_participation_flag_updates
+  sources: []
+  spec: |
+    <spec fn="process_participation_flag_updates" fork="altair" hash="92852f31" />
+
+- name: process_participation_record_updates
+  sources: []
+  spec: |
+    <spec fn="process_participation_record_updates" fork="phase0" hash="6a203574" />
+
+- name: process_pending_consolidations
+  sources: []
+  spec: |
+    <spec fn="process_pending_consolidations" fork="electra" hash="75e32e4b" />
+
+- name: process_pending_deposits
+  sources: []
+  spec: |
+    <spec fn="process_pending_deposits" fork="electra" hash="f0e7c738" />
+
+- name: process_proposer_lookahead
+  sources: []
+  spec: |
+    <spec fn="process_proposer_lookahead" fork="fulu" hash="3ff130cc" />
+
+- name: process_proposer_slashing
+  sources: []
+  spec: |
+    <spec fn="process_proposer_slashing" fork="phase0" hash="279ec199" />
+
+- name: process_randao
+  sources: []
+  spec: |
+    <spec fn="process_randao" fork="phase0" hash="607c511e" />
+
+- name: process_randao_mixes_reset
+  sources: []
+  spec: |
+    <spec fn="process_randao_mixes_reset" fork="phase0" hash="0faaabf3" />
+
+- name: process_registry_updates#phase0
+  sources: []
+  spec: |
+    <spec fn="process_registry_updates" fork="phase0" hash="3adacc1e" />
+
+- name: process_registry_updates#deneb
+  sources: []
+  spec: |
+    <spec fn="process_registry_updates" fork="deneb" hash="71a6a2d9" />
+
+- name: process_registry_updates#electra
+  sources: []
+  spec: |
+    <spec fn="process_registry_updates" fork="electra" hash="7d405632" />
+
+- name: process_rewards_and_penalties#phase0
+  sources: []
+  spec: |
+    <spec fn="process_rewards_and_penalties" fork="phase0" hash="93779fdb" />
+
+- name: process_rewards_and_penalties#altair
+  sources: []
+  spec: |
+    <spec fn="process_rewards_and_penalties" fork="altair" hash="373af4c1" />
+
+- name: process_slashings#phase0
+  sources: []
+  spec: |
+    <spec fn="process_slashings" fork="phase0" hash="a18a9045" />
+
+- name: process_slashings#altair
+  sources: []
+  spec: |
+    <spec fn="process_slashings" fork="altair" hash="96cce87d" />
+
+- name: process_slashings#bellatrix
+  sources: []
+  spec: |
+    <spec fn="process_slashings" fork="bellatrix" hash="73fe6802" />
+
+- name: process_slashings#electra
+  sources: []
+  spec: |
+    <spec fn="process_slashings" fork="electra" hash="a948faff" />
+
+- name: process_slashings_reset
+  sources: []
+  spec: |
+    <spec fn="process_slashings_reset" fork="phase0" hash="a82fb03c" />
+
+- name: process_slot
+  sources: []
+  spec: |
+    <spec fn="process_slot" fork="phase0" hash="1ba7e009" />
+
+- name: process_slots
+  sources: []
+  spec: |
+    <spec fn="process_slots" fork="phase0" hash="f50107a2" />
+
+- name: process_sync_aggregate
+  sources: []
+  spec: |
+    <spec fn="process_sync_aggregate" fork="altair" hash="d9a71877" />
+
+- name: process_sync_committee_contributions
+  sources: []
+  spec: |
+    <spec fn="process_sync_committee_contributions" fork="altair" hash="34e95c46" />
+
+- name: process_sync_committee_updates
+  sources: []
+  spec: |
+    <spec fn="process_sync_committee_updates" fork="altair" hash="9e59de37" />
+
+- name: process_voluntary_exit#phase0
+  sources: []
+  spec: |
+    <spec fn="process_voluntary_exit" fork="phase0" hash="d867310e" />
+
+- name: process_voluntary_exit#deneb
+  sources: []
+  spec: |
+    <spec fn="process_voluntary_exit" fork="deneb" hash="f97fd167" />
+
+- name: process_voluntary_exit#electra
+  sources: []
+  spec: |
+    <spec fn="process_voluntary_exit" fork="electra" hash="6dcb5530" />
+
+- name: process_withdrawal_request
+  sources: []
+  spec: |
+    <spec fn="process_withdrawal_request" fork="electra" hash="c21a0a53" />
+
+- name: process_withdrawals#capella
+  sources: []
+  spec: |
+    <spec fn="process_withdrawals" fork="capella" hash="ed6a9c5a" />
+
+- name: process_withdrawals#electra
+  sources: []
+  spec: |
+    <spec fn="process_withdrawals" fork="electra" hash="bb094f95" />
+
+- name: queue_excess_active_balance
+  sources: []
+  spec: |
+    <spec fn="queue_excess_active_balance" fork="electra" hash="2c952be0" />
+
+- name: recover_matrix
+  sources: []
+  spec: |
+    <spec fn="recover_matrix" fork="fulu" hash="9b01f005" />
+
+- name: saturating_sub
+  sources: []
+  spec: |
+    <spec fn="saturating_sub" fork="phase0" hash="ab62a392" />
+
+- name: set_or_append_list
+  sources: []
+  spec: |
+    <spec fn="set_or_append_list" fork="altair" hash="a48f6f4c" />
+
+- name: should_override_forkchoice_update
+  sources: []
+  spec: |
+    <spec fn="should_override_forkchoice_update" fork="bellatrix" hash="9a8043af" />
+
+- name: slash_validator#phase0
+  sources: []
+  spec: |
+    <spec fn="slash_validator" fork="phase0" hash="85d8d7c9" />
+
+- name: slash_validator#altair
+  sources: []
+  spec: |
+    <spec fn="slash_validator" fork="altair" hash="88f6c284" />
+
+- name: slash_validator#bellatrix
+  sources: []
+  spec: |
+    <spec fn="slash_validator" fork="bellatrix" hash="124f6889" />
+
+- name: slash_validator#electra
+  sources: []
+  spec: |
+    <spec fn="slash_validator" fork="electra" hash="54b64d21" />
+
+- name: state_transition
+  sources: []
+  spec: |
+    <spec fn="state_transition" fork="phase0" hash="0b7e562f" />
+
+- name: store_target_checkpoint_state
+  sources: []
+  spec: |
+    <spec fn="store_target_checkpoint_state" fork="phase0" hash="2e4ff2b7" />
+
+- name: switch_to_compounding_validator
+  sources: []
+  spec: |
+    <spec fn="switch_to_compounding_validator" fork="electra" hash="a6fd864b" />
+
+- name: translate_participation
+  sources: []
+  spec: |
+    <spec fn="translate_participation" fork="altair" hash="3d7c74a1" />
+
+- name: update_checkpoints
+  sources: []
+  spec: |
+    <spec fn="update_checkpoints" fork="phase0" hash="89e18dc4" />
+
+- name: update_latest_messages
+  sources: []
+  spec: |
+    <spec fn="update_latest_messages" fork="phase0" hash="3da3b413" />
+
+- name: update_unrealized_checkpoints
+  sources: []
+  spec: |
+    <spec fn="update_unrealized_checkpoints" fork="phase0" hash="8cee5d3b" />
+
+- name: upgrade_lc_bootstrap_to_capella
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_bootstrap_to_capella" fork="capella" hash="2c8939e7" />
+
+- name: upgrade_lc_bootstrap_to_deneb
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_bootstrap_to_deneb" fork="deneb" hash="f91baf71" />
+
+- name: upgrade_lc_bootstrap_to_electra
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_bootstrap_to_electra" fork="electra" hash="93818ed1" />
+
+- name: upgrade_lc_finality_update_to_capella
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_finality_update_to_capella" fork="capella" hash="5315d1df" />
+
+- name: upgrade_lc_finality_update_to_deneb
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_finality_update_to_deneb" fork="deneb" hash="bfa53da6" />
+
+- name: upgrade_lc_finality_update_to_electra
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_finality_update_to_electra" fork="electra" hash="1bcc6b97" />
+
+- name: upgrade_lc_header_to_capella
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_header_to_capella" fork="capella" hash="9eaa5026" />
+
+- name: upgrade_lc_header_to_deneb
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_header_to_deneb" fork="deneb" hash="dbc82244" />
+
+- name: upgrade_lc_header_to_electra
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_header_to_electra" fork="electra" hash="90aa82aa" />
+
+- name: upgrade_lc_optimistic_update_to_capella
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_optimistic_update_to_capella" fork="capella" hash="488c41c5" />
+
+- name: upgrade_lc_optimistic_update_to_deneb
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_optimistic_update_to_deneb" fork="deneb" hash="66aa73ab" />
+
+- name: upgrade_lc_optimistic_update_to_electra
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_optimistic_update_to_electra" fork="electra" hash="a6059e7d" />
+
+- name: upgrade_lc_store_to_capella
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_store_to_capella" fork="capella" hash="a25064df" />
+
+- name: upgrade_lc_store_to_deneb
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_store_to_deneb" fork="deneb" hash="29b26f52" />
+
+- name: upgrade_lc_store_to_electra
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_store_to_electra" fork="electra" hash="e9096017" />
+
+- name: upgrade_lc_update_to_capella
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_update_to_capella" fork="capella" hash="e7dbaf33" />
+
+- name: upgrade_lc_update_to_deneb
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_update_to_deneb" fork="deneb" hash="64adb1e0" />
+
+- name: upgrade_lc_update_to_electra
+  sources: []
+  spec: |
+    <spec fn="upgrade_lc_update_to_electra" fork="electra" hash="4d42b63e" />
+
+- name: upgrade_to_altair
+  sources: []
+  spec: |
+    <spec fn="upgrade_to_altair" fork="altair" hash="4f858ca3" />
+
+- name: upgrade_to_bellatrix
+  sources: []
+  spec: |
+    <spec fn="upgrade_to_bellatrix" fork="bellatrix" hash="73a0a7ba" />
+
+- name: upgrade_to_capella
+  sources: []
+  spec: |
+    <spec fn="upgrade_to_capella" fork="capella" hash="673c74f0" />
+
+- name: upgrade_to_deneb
+  sources: []
+  spec: |
+    <spec fn="upgrade_to_deneb" fork="deneb" hash="0c371849" />
+
+- name: upgrade_to_electra
+  sources: []
+  spec: |
+    <spec fn="upgrade_to_electra" fork="electra" hash="c82f0e68" />
+
+- name: upgrade_to_fulu
+  sources: []
+  spec: |
+    <spec fn="upgrade_to_fulu" fork="fulu" hash="7c4bae8d" />
+
+- name: validate_light_client_update
+  sources: []
+  spec: |
+    <spec fn="validate_light_client_update" fork="altair" hash="eb5d169b" />
+
+- name: validate_merge_block
+  sources: []
+  spec: |
+    <spec fn="validate_merge_block" fork="bellatrix" hash="d51209cc" />
+
+- name: validate_on_attestation
+  sources: []
+  spec: |
+    <spec fn="validate_on_attestation" fork="phase0" hash="4571ccf8" />
+
+- name: validate_target_epoch_against_current_time
+  sources: []
+  spec: |
+    <spec fn="validate_target_epoch_against_current_time" fork="phase0" hash="f7352056" />
+
+- name: verify_blob_sidecar_inclusion_proof
+  sources: []
+  spec: |
+    <spec fn="verify_blob_sidecar_inclusion_proof" fork="deneb" hash="0ccdc846" />
+
+- name: verify_block_signature
+  sources: []
+  spec: |
+    <spec fn="verify_block_signature" fork="phase0" hash="3a777e68" />
+
+- name: verify_data_column_sidecar
+  sources: []
+  spec: |
+    <spec fn="verify_data_column_sidecar" fork="fulu" hash="509c0986" />
+
+- name: verify_data_column_sidecar_inclusion_proof
+  sources: []
+  spec: |
+    <spec fn="verify_data_column_sidecar_inclusion_proof" fork="fulu" hash="a6757e5e" />
+
+- name: verify_data_column_sidecar_kzg_proofs
+  sources: []
+  spec: |
+    <spec fn="verify_data_column_sidecar_kzg_proofs" fork="fulu" hash="1cd21395" />
+
+- name: voting_period_start_time
+  sources: []
+  spec: |
+    <spec fn="voting_period_start_time" fork="phase0" hash="4eb8d0ca" />
+
+- name: weigh_justification_and_finalization
+  sources: []
+  spec: |
+    <spec fn="weigh_justification_and_finalization" fork="phase0" hash="1087de6f" />
+
+- name: xor
+  sources: []
+  spec: |
+    <spec fn="xor" fork="phase0" hash="3b45f2e1" />

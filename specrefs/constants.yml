@@ -1,0 +1,320 @@
+
+- name: BASE_REWARDS_PER_EPOCH
+  sources: []
+  spec: |
+    <spec constant_var="BASE_REWARDS_PER_EPOCH" fork="phase0" hash="395f7528" />
+
+- name: BLS_MODULUS
+  sources: []
+  spec: |
+    <spec constant_var="BLS_MODULUS" fork="deneb" hash="dfa6ff32" />
+
+- name: BLS_WITHDRAWAL_PREFIX
+  sources: []
+  spec: |
+    <spec constant_var="BLS_WITHDRAWAL_PREFIX" fork="phase0" hash="4153ae92" />
+
+- name: BYTES_PER_COMMITMENT
+  sources: []
+  spec: |
+    <spec constant_var="BYTES_PER_COMMITMENT" fork="deneb" hash="c46710b5" />
+
+- name: BYTES_PER_FIELD_ELEMENT
+  sources: []
+  spec: |
+    <spec constant_var="BYTES_PER_FIELD_ELEMENT" fork="deneb" hash="4563f0ce" />
+
+- name: BYTES_PER_PROOF
+  sources: []
+  spec: |
+    <spec constant_var="BYTES_PER_PROOF" fork="deneb" hash="7fec794e" />
+
+- name: COMPOUNDING_WITHDRAWAL_PREFIX
+  sources: []
+  spec: |
+    <spec constant_var="COMPOUNDING_WITHDRAWAL_PREFIX" fork="electra" hash="e52fdfea" />
+
+- name: CONSOLIDATION_REQUEST_TYPE
+  sources: []
+  spec: |
+    <spec constant_var="CONSOLIDATION_REQUEST_TYPE" fork="electra" hash="4d01eb44" />
+
+- name: DEPOSIT_CONTRACT_TREE_DEPTH
+  sources: []
+  spec: |
+    <spec constant_var="DEPOSIT_CONTRACT_TREE_DEPTH" fork="phase0" hash="5763e551" />
+
+- name: DEPOSIT_REQUEST_TYPE
+  sources: []
+  spec: |
+    <spec constant_var="DEPOSIT_REQUEST_TYPE" fork="electra" hash="54ca462e" />
+
+- name: DOMAIN_AGGREGATE_AND_PROOF
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_AGGREGATE_AND_PROOF" fork="phase0" hash="9f7a43fb" />
+
+- name: DOMAIN_APPLICATION_MASK
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_APPLICATION_MASK" fork="phase0" hash="82d95c51" />
+
+- name: DOMAIN_BEACON_ATTESTER
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_BEACON_ATTESTER" fork="phase0" hash="511529c3" />
+
+- name: DOMAIN_BEACON_PROPOSER
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_BEACON_PROPOSER" fork="phase0" hash="c6ec551e" />
+
+- name: DOMAIN_BLS_TO_EXECUTION_CHANGE
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_BLS_TO_EXECUTION_CHANGE" fork="capella" hash="08a623ec" />
+
+- name: DOMAIN_CONTRIBUTION_AND_PROOF
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_CONTRIBUTION_AND_PROOF" fork="altair" hash="67dcb5cb" />
+
+- name: DOMAIN_DEPOSIT
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_DEPOSIT" fork="phase0" hash="eab99f9f" />
+
+- name: DOMAIN_RANDAO
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_RANDAO" fork="phase0" hash="1bf33286" />
+
+- name: DOMAIN_SELECTION_PROOF
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_SELECTION_PROOF" fork="phase0" hash="5443c8b0" />
+
+- name: DOMAIN_SYNC_COMMITTEE
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_SYNC_COMMITTEE" fork="altair" hash="26073f5d" />
+
+- name: DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF" fork="altair" hash="f7e4d78c" />
+
+- name: DOMAIN_VOLUNTARY_EXIT
+  sources: []
+  spec: |
+    <spec constant_var="DOMAIN_VOLUNTARY_EXIT" fork="phase0" hash="6abf51b5" />
+
+- name: ENDIANNESS
+  sources: []
+  spec: |
+    <spec constant_var="ENDIANNESS" fork="phase0" hash="76922bbc" />
+
+- name: ETH1_ADDRESS_WITHDRAWAL_PREFIX
+  sources: []
+  spec: |
+    <spec constant_var="ETH1_ADDRESS_WITHDRAWAL_PREFIX" fork="phase0" hash="faffaf83" />
+
+- name: ETH_TO_GWEI
+  sources: []
+  spec: |
+    <spec constant_var="ETH_TO_GWEI" fork="phase0" hash="37392e73" />
+
+- name: FAR_FUTURE_EPOCH
+  sources: []
+  spec: |
+    <spec constant_var="FAR_FUTURE_EPOCH" fork="phase0" hash="b11f052e" />
+
+- name: FIAT_SHAMIR_PROTOCOL_DOMAIN
+  sources: []
+  spec: |
+    <spec constant_var="FIAT_SHAMIR_PROTOCOL_DOMAIN" fork="deneb" hash="b1198e8c" />
+
+- name: FULL_EXIT_REQUEST_AMOUNT
+  sources: []
+  spec: |
+    <spec constant_var="FULL_EXIT_REQUEST_AMOUNT" fork="electra" hash="4f49380e" />
+
+- name: G1_POINT_AT_INFINITY
+  sources: []
+  spec: |
+    <spec constant_var="G1_POINT_AT_INFINITY" fork="deneb" hash="974ad898" />
+
+- name: G2_POINT_AT_INFINITY
+  sources: []
+  spec: |
+    <spec constant_var="G2_POINT_AT_INFINITY" fork="altair" hash="55ddc9fd" />
+
+- name: GENESIS_EPOCH
+  sources: []
+  spec: |
+    <spec constant_var="GENESIS_EPOCH" fork="phase0" hash="56876077" />
+
+- name: GENESIS_SLOT
+  sources: []
+  spec: |
+    <spec constant_var="GENESIS_SLOT" fork="phase0" hash="2d6f8884" />
+
+- name: INTERVALS_PER_SLOT
+  sources: []
+  spec: |
+    <spec constant_var="INTERVALS_PER_SLOT" fork="phase0" hash="3352e419" />
+
+- name: JUSTIFICATION_BITS_LENGTH
+  sources: []
+  spec: |
+    <spec constant_var="JUSTIFICATION_BITS_LENGTH" fork="phase0" hash="e7ec73ea" />
+
+- name: KZG_ENDIANNESS
+  sources: []
+  spec: |
+    <spec constant_var="KZG_ENDIANNESS" fork="deneb" hash="b67e714d" />
+
+- name: KZG_SETUP_G2_LENGTH
+  sources: []
+  spec: |
+    <spec constant_var="KZG_SETUP_G2_LENGTH" fork="deneb" hash="6cb8d5fd" />
+
+- name: KZG_SETUP_G2_MONOMIAL
+  sources: []
+  spec: |
+    <spec constant_var="KZG_SETUP_G2_MONOMIAL" fork="deneb" hash="4e0f802f" />
+
+- name: MAX_CONCURRENT_REQUESTS
+  sources: []
+  spec: |
+    <spec constant_var="MAX_CONCURRENT_REQUESTS" fork="phase0" hash="f5ff241b" />
+
+- name: MAX_REQUEST_LIGHT_CLIENT_UPDATES
+  sources: []
+  spec: |
+    <spec constant_var="MAX_REQUEST_LIGHT_CLIENT_UPDATES" fork="altair" hash="aa7e3917" />
+
+- name: NODE_ID_BITS
+  sources: []
+  spec: |
+    <spec constant_var="NODE_ID_BITS" fork="phase0" hash="57dab5f1" />
+
+- name: PARTICIPATION_FLAG_WEIGHTS
+  sources: []
+  spec: |
+    <spec constant_var="PARTICIPATION_FLAG_WEIGHTS" fork="altair" hash="0068cac2" />
+
+- name: PRIMITIVE_ROOT_OF_UNITY
+  sources: []
+  spec: |
+    <spec constant_var="PRIMITIVE_ROOT_OF_UNITY" fork="deneb" hash="004e6753" />
+
+- name: PROPOSER_WEIGHT
+  sources: []
+  spec: |
+    <spec constant_var="PROPOSER_WEIGHT" fork="altair" hash="4dcb6f6c" />
+
+- name: RANDOM_CHALLENGE_KZG_BATCH_DOMAIN
+  sources: []
+  spec: |
+    <spec constant_var="RANDOM_CHALLENGE_KZG_BATCH_DOMAIN" fork="deneb" hash="a994f6c6" />
+
+- name: RANDOM_CHALLENGE_KZG_CELL_BATCH_DOMAIN
+  sources: []
+  spec: |
+    <spec constant_var="RANDOM_CHALLENGE_KZG_CELL_BATCH_DOMAIN" fork="fulu" hash="907a9534" />
+
+- name: SAFETY_DECAY
+  sources: []
+  spec: |
+    <spec constant_var="SAFETY_DECAY" fork="phase0" hash="298e03fe" />
+
+- name: SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY
+  sources: []
+  spec: |
+    <spec constant_var="SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY" fork="bellatrix" hash="87b7dd5b" />
+
+- name: SYNC_COMMITTEE_SUBNET_COUNT
+  sources: []
+  spec: |
+    <spec constant_var="SYNC_COMMITTEE_SUBNET_COUNT" fork="altair" hash="58794943" />
+
+- name: SYNC_REWARD_WEIGHT
+  sources: []
+  spec: |
+    <spec constant_var="SYNC_REWARD_WEIGHT" fork="altair" hash="ea70c5e0" />
+
+- name: TARGET_AGGREGATORS_PER_COMMITTEE
+  sources: []
+  spec: |
+    <spec constant_var="TARGET_AGGREGATORS_PER_COMMITTEE" fork="phase0" hash="3a65ef1c" />
+
+- name: TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE
+  sources: []
+  spec: |
+    <spec constant_var="TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE" fork="altair" hash="af3f6c9e" />
+
+- name: TIMELY_HEAD_FLAG_INDEX
+  sources: []
+  spec: |
+    <spec constant_var="TIMELY_HEAD_FLAG_INDEX" fork="altair" hash="a01306fb" />
+
+- name: TIMELY_HEAD_WEIGHT
+  sources: []
+  spec: |
+    <spec constant_var="TIMELY_HEAD_WEIGHT" fork="altair" hash="d6f53c91" />
+
+- name: TIMELY_SOURCE_FLAG_INDEX
+  sources: []
+  spec: |
+    <spec constant_var="TIMELY_SOURCE_FLAG_INDEX" fork="altair" hash="57f25239" />
+
+- name: TIMELY_SOURCE_WEIGHT
+  sources: []
+  spec: |
+    <spec constant_var="TIMELY_SOURCE_WEIGHT" fork="altair" hash="9cf6e565" />
+
+- name: TIMELY_TARGET_FLAG_INDEX
+  sources: []
+  spec: |
+    <spec constant_var="TIMELY_TARGET_FLAG_INDEX" fork="altair" hash="32530e5a" />
+
+- name: TIMELY_TARGET_WEIGHT
+  sources: []
+  spec: |
+    <spec constant_var="TIMELY_TARGET_WEIGHT" fork="altair" hash="5413dfe8" />
+
+- name: UINT256_MAX
+  sources: []
+  spec: |
+    <spec constant_var="UINT256_MAX" fork="fulu" hash="57a47f45" />
+
+- name: UINT64_MAX
+  sources: []
+  spec: |
+    <spec constant_var="UINT64_MAX" fork="phase0" hash="0efe6bd6" />
+
+- name: UINT64_MAX_SQRT
+  sources: []
+  spec: |
+    <spec constant_var="UINT64_MAX_SQRT" fork="phase0" hash="28d7e92a" />
+
+- name: UNSET_DEPOSIT_REQUESTS_START_INDEX
+  sources: []
+  spec: |
+    <spec constant_var="UNSET_DEPOSIT_REQUESTS_START_INDEX" fork="electra" hash="5eb703dc" />
+
+- name: VERSIONED_HASH_VERSION_KZG
+  sources: []
+  spec: |
+    <spec constant_var="VERSIONED_HASH_VERSION_KZG" fork="deneb" hash="fc402ca2" />
+
+- name: WEIGHT_DENOMINATOR
+  sources: []
+  spec: |
+    <spec constant_var="WEIGHT_DENOMINATOR" fork="altair" hash="0d498a82" />
+
+- name: WITHDRAWAL_REQUEST_TYPE
+  sources: []
+  spec: |
+    <spec constant_var="WITHDRAWAL_REQUEST_TYPE" fork="electra" hash="e8e70397" />
