@@ -1,13 +1,13 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use eth2::{
-    lighthouse_vc::types::{DeleteKeystoreStatus, DeleteKeystoresRequest},
     SensitiveUrl,
+    lighthouse_vc::types::{DeleteKeystoreStatus, DeleteKeystoresRequest},
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::PublicKeyBytes;
 
-use crate::{common::vc_http_client, DumpConfig};
+use crate::{DumpConfig, common::vc_http_client};
 
 pub const CMD: &str = "delete";
 pub const VC_URL_FLAG: &str = "vc-url";
@@ -160,7 +160,7 @@ mod test {
     use crate::{
         common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
     };
-    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
 
     struct TestBuilder {
         delete_config: Option<DeleteConfig>,

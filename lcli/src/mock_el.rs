@@ -4,7 +4,7 @@ use environment::Environment;
 use execution_layer::{
     auth::JwtKey,
     test_utils::{
-        Config, MockExecutionConfig, MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK,
+        Config, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, MockExecutionConfig, MockServer,
     },
 };
 use std::net::Ipv4Addr;

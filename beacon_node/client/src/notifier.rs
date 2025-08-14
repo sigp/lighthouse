@@ -1,13 +1,13 @@
 use crate::metrics;
 use beacon_chain::{
+    BeaconChain, BeaconChainTypes, ExecutionStatus,
     bellatrix_readiness::{BellatrixReadiness, GenesisExecutionPayloadStatus, MergeConfig},
     capella_readiness::CapellaReadiness,
     deneb_readiness::DenebReadiness,
     electra_readiness::ElectraReadiness,
     fulu_readiness::FuluReadiness,
-    BeaconChain, BeaconChainTypes, ExecutionStatus,
 };
-use lighthouse_network::{types::SyncState, NetworkGlobals};
+use lighthouse_network::{NetworkGlobals, types::SyncState};
 use logging::crit;
 use slot_clock::SlotClock;
 use std::sync::Arc;

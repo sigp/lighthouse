@@ -4,6 +4,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use serde::Deserialize;
+use state_processing::EpochProcessingError;
 use state_processing::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use state_processing::epoch_cache::initialize_epoch_cache;
 use state_processing::per_epoch_processing::capella::process_historical_summaries_update;
@@ -11,7 +12,7 @@ use state_processing::per_epoch_processing::effective_balance_updates::{
     process_effective_balance_updates, process_effective_balance_updates_slow,
 };
 use state_processing::per_epoch_processing::single_pass::{
-    process_epoch_single_pass, process_proposer_lookahead, SinglePassConfig,
+    SinglePassConfig, process_epoch_single_pass, process_proposer_lookahead,
 };
 use state_processing::per_epoch_processing::{
     altair, base,
@@ -20,7 +21,6 @@ use state_processing::per_epoch_processing::{
     process_slashings_slow,
     resets::{process_eth1_data_reset, process_randao_mixes_reset, process_slashings_reset},
 };
-use state_processing::EpochProcessingError;
 use std::marker::PhantomData;
 use types::BeaconState;
 

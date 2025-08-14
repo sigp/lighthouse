@@ -1,7 +1,7 @@
 use super::*;
 use serde::Deserialize;
 use std::marker::PhantomData;
-use types::data_column_custody_group::{compute_columns_for_custody_group, CustodyIndex};
+use types::data_column_custody_group::{CustodyIndex, compute_columns_for_custody_group};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]

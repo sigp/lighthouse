@@ -3,12 +3,12 @@ use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{
-    per_block_processing, per_block_processing::BlockSignatureStrategy, ConsensusContext,
-    VerifyBlockRoot,
+    ConsensusContext, VerifyBlockRoot, per_block_processing,
+    per_block_processing::BlockSignatureStrategy,
 };
 use std::sync::Arc;
 use std::time::Duration;
-use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
+use store::{HotColdDB, ItemStore, iter::ParentRootBlockIterator};
 use tracing::{info, warn};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 

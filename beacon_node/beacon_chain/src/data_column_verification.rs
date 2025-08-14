@@ -1,11 +1,11 @@
 use crate::beacon_proposer_cache::EpochBlockProposers;
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
-    BlockSlashInfo,
+    BlockSlashInfo, cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache,
+    process_block_slash_info,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{ObservationStrategy, Observe};
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
@@ -15,7 +15,7 @@ use ssz_derive::{Decode, Encode};
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, instrument};
 use types::data_column_sidecar::ColumnIndex;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
@@ -198,7 +198,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> Clone for GossipVerifiedDataCo
 impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O> {
     pub fn new(
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
-        subnet_id: u64,
+        subnet_id: DataColumnSubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
         let header = column_sidecar.signed_block_header.clone();
@@ -412,6 +412,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 /// Complete kzg verification for a `DataColumnSidecar`.
 ///
 /// Returns an error if the kzg verification check fails.
+#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
     kzg: &Kzg,
@@ -426,6 +427,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
+#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
     data_column_iter: I,
     kzg: &'a Kzg,
@@ -470,9 +472,10 @@ where
     Err(errors)
 }
 
+#[instrument(skip_all, level = "debug")]
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
-    subnet: u64,
+    subnet: DataColumnSubnetId,
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
     let column_slot = data_column.slot();
@@ -735,15 +738,14 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
 
 fn verify_index_matches_subnet<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
-    subnet: u64,
+    subnet: DataColumnSubnetId,
     spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
-    let expected_subnet: u64 =
-        DataColumnSubnetId::from_column_index(data_column.index, spec).into();
+    let expected_subnet = DataColumnSubnetId::from_column_index(data_column.index, spec);
     if expected_subnet != subnet {
         return Err(GossipDataColumnError::InvalidSubnetId {
-            received: subnet,
-            expected: expected_subnet,
+            received: subnet.into(),
+            expected: expected_subnet.into(),
         });
     }
     Ok(())
@@ -817,11 +819,11 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 #[cfg(test)]
 mod test {
     use crate::data_column_verification::{
-        validate_data_column_sidecar_for_gossip, GossipDataColumnError,
+        GossipDataColumnError, validate_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::BeaconChainHarness;
-    use types::{DataColumnSidecar, EthSpec, ForkName, MainnetEthSpec};
+    use types::{DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkName, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
@@ -860,7 +862,7 @@ mod test {
 
         let result = validate_data_column_sidecar_for_gossip::<_, Observe>(
             column_sidecar.into(),
-            index,
+            DataColumnSubnetId::from_column_index(index, &harness.spec),
             &harness.chain,
         );
         assert!(matches!(

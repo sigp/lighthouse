@@ -1,13 +1,12 @@
 use std::{
-    collections::{btree_map::Entry, BTreeMap, HashSet},
+    collections::{BTreeMap, HashSet, btree_map::Entry},
     sync::Arc,
 };
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
-    service::api_types::{CustodySyncBatchRequestId, Id},
+    NetworkGlobals, PeerAction, PeerId, service::api_types::CustodySyncBatchRequestId,
     types::BackFillState,
-    NetworkGlobals, PeerAction, PeerId,
 };
 use logging::crit;
 use tracing::{debug, error, info, warn};
@@ -337,7 +336,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             Err(e) => {
                 return self
                     .fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))
-                    .map(|_| ProcessResult::Successful)
+                    .map(|_| ProcessResult::Successful);
             }
             Ok(v) => v,
         };
@@ -667,7 +666,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                CustodyBatchState::AwaitingValidation(ref processed_attempt) => {
+                CustodyBatchState::AwaitingValidation(processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
@@ -762,11 +761,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         // validation
         let mut redownload_queue = Vec::new();
 
-        for (id, batch) in self
-            .batches
-            .iter_mut()
-            .filter(|(&id, _batch)| id > batch_id)
-        {
+        for (id, batch) in self.batches.iter_mut().filter(|&(&id, _)| id > batch_id) {
             match batch
                 .validation_failed()
                 .map_err(|e| CustodyBackfillError::BatchInvalidState(batch_id, e.0))?
@@ -889,7 +884,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                                 self.fail_sync(CustodyBackfillError::BatchDownloadFailed(batch_id))?
                             }
                             Ok(BatchOperationOutcome::Continue) => {
-                                return self.send_batch(network, batch_id)
+                                return self.send_batch(network, batch_id);
                             }
                         }
                     }

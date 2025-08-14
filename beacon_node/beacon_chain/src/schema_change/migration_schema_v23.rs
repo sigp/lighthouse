@@ -1,8 +1,8 @@
+use crate::BeaconForkChoiceStore;
 use crate::beacon_chain::BeaconChainTypes;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::schema_change::StoreError;
-use crate::test_utils::{PersistedBeaconChain, BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY};
-use crate::BeaconForkChoiceStore;
+use crate::test_utils::{BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY, PersistedBeaconChain};
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};

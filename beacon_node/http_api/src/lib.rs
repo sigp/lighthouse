@@ -36,9 +36,9 @@ use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::beacon_response;
 use beacon_chain::{
-    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
-    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
-    BeaconChainTypes, WhenSlotSkipped,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    WhenSlotSkipped, attestation_verification::VerifiedAttestation,
+    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
 };
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
@@ -54,14 +54,14 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{types::SyncState, Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
+use lighthouse_network::{Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
 use lighthouse_version::version_with_platform;
-use logging::{crit, SSELoggingComponents};
+use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 pub use publish_blocks::{
-    publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
+    ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -82,8 +82,8 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
+    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
 };
 use tracing::{debug, error, info, warn};
 use types::{
@@ -96,15 +96,15 @@ use types::{
 };
 use validator::pubkey_to_validator_index;
 use version::{
-    add_consensus_version_header, add_ssz_content_type_header,
+    ResponseIncludesVersion, V1, V2, V3, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
-    unsupported_version_rejection, ResponseIncludesVersion, V1, V2, V3,
+    unsupported_version_rejection,
 };
+use warp::Reply;
 use warp::http::StatusCode;
 use warp::hyper::Body;
 use warp::sse::Event;
-use warp::Reply;
-use warp::{http::Response, Filter, Rejection};
+use warp::{Filter, Rejection, http::Response};
 use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
@@ -921,79 +921,76 @@ pub fn serve<T: BeaconChainTypes>(
                                     None
                                 };
 
-                                let committee_cache = if let Some(shuffling) =
-                                    maybe_cached_shuffling
-                                {
-                                    shuffling
-                                } else {
-                                    let possibly_built_cache =
-                                        match RelativeEpoch::from_epoch(current_epoch, epoch) {
-                                            Ok(relative_epoch)
-                                                if state.committee_cache_is_initialized(
-                                                    relative_epoch,
-                                                ) =>
-                                            {
-                                                state.committee_cache(relative_epoch).cloned()
+                                let committee_cache =
+                                    if let Some(shuffling) = maybe_cached_shuffling {
+                                        shuffling
+                                    } else {
+                                        let possibly_built_cache =
+                                            match RelativeEpoch::from_epoch(current_epoch, epoch) {
+                                                Ok(relative_epoch)
+                                                    if state.committee_cache_is_initialized(
+                                                        relative_epoch,
+                                                    ) =>
+                                                {
+                                                    state.committee_cache(relative_epoch).cloned()
+                                                }
+                                                _ => CommitteeCache::initialized(
+                                                    state,
+                                                    epoch,
+                                                    &chain.spec,
+                                                ),
                                             }
-                                            _ => CommitteeCache::initialized(
-                                                state,
-                                                epoch,
-                                                &chain.spec,
-                                            ),
-                                        }
-                                        .map_err(|e| {
-                                            match e {
-                                                BeaconStateError::EpochOutOfBounds => {
-                                                    let max_sprp =
-                                                        T::EthSpec::slots_per_historical_root()
-                                                            as u64;
-                                                    let first_subsequent_restore_point_slot =
-                                                        ((epoch.start_slot(
-                                                            T::EthSpec::slots_per_epoch(),
-                                                        ) / max_sprp)
-                                                            + 1)
-                                                            * max_sprp;
-                                                    if epoch < current_epoch {
-                                                        warp_utils::reject::custom_bad_request(
-                                                            format!(
+                                            .map_err(
+                                                |e| match e {
+                                                    BeaconStateError::EpochOutOfBounds => {
+                                                        let max_sprp =
+                                                            T::EthSpec::slots_per_historical_root()
+                                                                as u64;
+                                                        let first_subsequent_restore_point_slot =
+                                                            ((epoch.start_slot(
+                                                                T::EthSpec::slots_per_epoch(),
+                                                            ) / max_sprp)
+                                                                + 1)
+                                                                * max_sprp;
+                                                        if epoch < current_epoch {
+                                                            warp_utils::reject::custom_bad_request(
+                                                                format!(
                                                                 "epoch out of bounds, \
                                                                  try state at slot {}",
                                                                 first_subsequent_restore_point_slot,
                                                             ),
-                                                        )
-                                                    } else {
-                                                        warp_utils::reject::custom_bad_request(
-                                                            "epoch out of bounds, \
+                                                            )
+                                                        } else {
+                                                            warp_utils::reject::custom_bad_request(
+                                                                "epoch out of bounds, \
                                                              too far in future"
-                                                                .into(),
-                                                        )
+                                                                    .into(),
+                                                            )
+                                                        }
                                                     }
-                                                }
-                                                _ => warp_utils::reject::unhandled_error(
-                                                    BeaconChainError::from(e),
-                                                ),
-                                            }
-                                        })?;
+                                                    _ => warp_utils::reject::unhandled_error(
+                                                        BeaconChainError::from(e),
+                                                    ),
+                                                },
+                                            )?;
 
-                                    // Attempt to write to the beacon cache (only if the cache
-                                    // size is not the default value).
-                                    if chain.config.shuffling_cache_size
-                                        != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
-                                    {
-                                        if let Some(shuffling_id) = shuffling_id {
-                                            if let Some(mut cache_write) = chain
+                                        // Attempt to write to the beacon cache (only if the cache
+                                        // size is not the default value).
+                                        if chain.config.shuffling_cache_size
+                                            != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
+                                            && let Some(shuffling_id) = shuffling_id
+                                            && let Some(mut cache_write) = chain
                                                 .shuffling_cache
                                                 .try_write_for(std::time::Duration::from_secs(1))
-                                            {
-                                                cache_write.insert_committee_cache(
-                                                    shuffling_id,
-                                                    &possibly_built_cache,
-                                                );
-                                            }
+                                        {
+                                            cache_write.insert_committee_cache(
+                                                shuffling_id,
+                                                &possibly_built_cache,
+                                            );
                                         }
-                                    }
-                                    possibly_built_cache
-                                };
+
+                                        possibly_built_cache
+                                    };
 
                                 // Use either the supplied slot or all slots in the epoch.
                                 let slots =
@@ -1341,13 +1338,13 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 // If the parent root was supplied, check that it matches the block
                                 // obtained via a slot lookup.
-                                if let Some(parent_root) = parent_root_opt {
-                                    if block.parent_root() != parent_root {
-                                        return Err(warp_utils::reject::custom_not_found(format!(
-                                            "no canonical block at slot {} with parent root {}",
-                                            slot, parent_root
-                                        )));
-                                    }
+                                if let Some(parent_root) = parent_root_opt
+                                    && block.parent_root() != parent_root
+                                {
+                                    return Err(warp_utils::reject::custom_not_found(format!(
+                                        "no canonical block at slot {} with parent root {}",
+                                        slot, parent_root
+                                    )));
                                 }
 
                                 (root, block, execution_optimistic, finalized)
@@ -1434,14 +1431,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |value: serde_json::Value,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
@@ -1457,7 +1452,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1473,14 +1467,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1496,7 +1488,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1513,15 +1504,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   value: serde_json::Value,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let request = PublishBlockRequest::<T::EthSpec>::context_deserialize(
                         &value,
@@ -1538,7 +1527,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1555,15 +1543,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block_contents = PublishBlockRequest::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1579,7 +1565,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1599,13 +1584,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |block_contents: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         block_contents,
@@ -1613,7 +1596,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1629,13 +1611,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1651,7 +1631,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         BroadcastValidation::default(),
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1667,14 +1646,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     publish_blocks::publish_blinded_block(
                         blinded_block,
@@ -1682,7 +1659,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -1698,14 +1674,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
-        .and(network_globals.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
                   block_bytes: Bytes,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
-                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-                  network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+                  network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
                     let block = SignedBlindedBeaconBlock::<T::EthSpec>::from_ssz_bytes(
                         &block_bytes,
@@ -1721,7 +1695,6 @@ pub fn serve<T: BeaconChainTypes>(
                         &network_tx,
                         validation_level.broadcast_validation,
                         duplicate_block_status_code,
-                        network_globals,
                     )
                     .await
                 })
@@ -3840,11 +3813,8 @@ pub fn serve<T: BeaconChainTypes>(
                         if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()
-                            .register_validators::<T::EthSpec>(
-                            validators_and_balances,
-                            current_slot,
-                            &chain.spec,
-                        ) {
+                            .register_validators(validators_and_balances, current_slot, &chain.spec)
+                        {
                             chain.update_data_column_custody_info(Some(
                                 cgc_change
                                     .effective_epoch
@@ -4186,12 +4156,12 @@ pub fn serve<T: BeaconChainTypes>(
                     let sampling_count = chain
                         .data_availability_checker
                         .custody_context()
-                        .num_of_custody_groups_to_sample(Some(effective_epoch), &chain.spec);
+                        .num_of_custody_groups_to_sample(effective_epoch, &chain.spec);
                     publish_network_message(
                         &network_tx,
                         NetworkMessage::CustodyCountChanged {
-                            new_custody_group_count: cgc + 2,
-                            sampling_count: sampling_count + 2,
+                            new_custody_group_count: cgc + request_data.count,
+                            sampling_count: sampling_count + request_data.count,
                         },
                     )?;
                     Ok(())
@@ -4955,6 +4925,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_compaction)
                     .uor(post_lighthouse_add_peer)
                     .uor(post_lighthouse_remove_peer)
+                    .uor(post_lighthouse_increase_custody_count)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )

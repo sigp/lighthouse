@@ -2,7 +2,7 @@ use crate::{EnvironmentBuilder, LoggerConfig};
 use clap::ArgMatches;
 use logging::Libp2pDiscv5TracingLayer;
 use logging::{
-    create_libp2p_discv5_tracing_layer, tracing_logging_layer::LoggingLayer, SSELoggingComponents,
+    SSELoggingComponents, create_libp2p_discv5_tracing_layer, tracing_logging_layer::LoggingLayer,
 };
 use std::process;
 

@@ -5,9 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::sync::range_sync::BatchProcessingResult;
 use crate::sync::BatchOperationOutcome;
-use lighthouse_network::{rpc::methods::DataColumnsByRangeRequest, service::api_types::Id, PeerId};
+use crate::sync::range_sync::BatchProcessingResult;
+use lighthouse_network::{PeerId, rpc::methods::DataColumnsByRangeRequest, service::api_types::Id};
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
 /// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed

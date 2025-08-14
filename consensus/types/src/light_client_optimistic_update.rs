@@ -2,9 +2,9 @@ use super::{ContextDeserialize, EthSpec, ForkName, LightClientHeader, Slot, Sync
 use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{
-    light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
-    LightClientHeaderDeneb, LightClientHeaderElectra, LightClientHeaderFulu,
-    SignedBlindedBeaconBlock,
+    ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+    LightClientHeaderElectra, LightClientHeaderFulu, SignedBlindedBeaconBlock,
+    light_client_update::*,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -177,7 +177,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientOptimisticUpdate decoding for {fork_name} not implemented"
-                )))
+                )));
             }
         };
 
@@ -229,7 +229,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientOptimisti
                 return Err(serde::de::Error::custom(format!(
                     "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(Deserialize::deserialize(deserializer).map_err(convert_err)?)

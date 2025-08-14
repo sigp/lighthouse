@@ -38,8 +38,8 @@ use super::block_lookups::BlockLookups;
 use super::network_context::{
     CustodyByRootResult, RangeBlockComponent, RangeRequestId, RpcEvent, SyncNetworkContext,
 };
-use super::peer_sync_info::{remote_sync_type, PeerSyncType};
-use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
+use super::peer_sync_info::{PeerSyncType, remote_sync_type};
+use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
 use crate::service::{NetworkMessage, SyncServiceMessage};
 use crate::status::ToStatusMessage;
@@ -54,15 +54,14 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
 };
 use futures::StreamExt;
+use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
-use lighthouse_network::service::api_types::CustodySyncBatchRequestId;
 use lighthouse_network::service::api_types::{
     BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
     CustodySyncByRangeRequestId, DataColumnsByRangeRequestId, DataColumnsByRootRequestId,
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
-use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
@@ -70,10 +69,9 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, info_span, trace, Instrument};
+use tracing::{debug, error, info, trace};
 use types::{
-    BlobSidecar, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, ForkContext, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -292,7 +290,10 @@ pub fn spawn<T: BeaconChainTypes>(
     fork_context: Arc<ForkContext>,
 ) {
     assert!(
-        beacon_chain.spec.max_request_blocks(fork_context.current_fork_name()) as u64 >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
+        beacon_chain
+            .spec
+            .max_request_blocks(fork_context.current_fork_name()) as u64
+            >= T::EthSpec::slots_per_epoch() * EPOCHS_PER_BATCH,
         "Max blocks that can be requested in a single batch greater than max allowed blocks in a single request"
     );
 
@@ -308,14 +309,7 @@ pub fn spawn<T: BeaconChainTypes>(
 
     // spawn the sync manager thread
     debug!("Sync Manager started");
-    executor.spawn(
-        async move {
-            Box::pin(sync_manager.main())
-                .instrument(info_span!("", service = "sync"))
-                .await
-        },
-        "sync",
-    );
+    executor.spawn(async move { Box::pin(sync_manager.main()).await }, "sync");
 }
 
 impl<T: BeaconChainTypes> SyncManager<T> {
@@ -1425,17 +1419,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    /// Handles receiving a response for a custody range sync request that has colums.
+    /// Handles receiving a response for a custody range sync request that has columns.
     fn on_custody_sync_data_columns_batch_response(
         &mut self,
         custody_sync_request_id: CustodySyncByRangeRequestId,
         peer_id: PeerId,
         data_columns: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
     ) {
-        if let Some(resp) = self
-            .network
-            .custody_data_columns_batch_response(custody_sync_request_id, data_columns)
-        {
+        // TODO(custody-sync) attempt
+        let attempt = 0;
+        if let Some(resp) = self.network.custody_data_columns_batch_response(
+            custody_sync_request_id,
+            data_columns,
+            attempt,
+        ) {
             match resp {
                 Ok(data_columns) => {
                     match self.custody_sync.on_data_column_response(
