@@ -7,7 +7,7 @@ use account_utils::{
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
 use eth2::{
-    Error as ApiError,
+    error::Error as ApiError,
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
 };

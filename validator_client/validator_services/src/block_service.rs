@@ -608,7 +608,7 @@ impl<E: EthSpec> From<&SignedBlock<E>> for BlockMetadata {
     }
 }
 
-fn handle_block_post_error(err: eth2::Error, slot: Slot) -> Result<(), BlockError> {
+fn handle_block_post_error(err: eth2::error::Error, slot: Slot) -> Result<(), BlockError> {
     // Handle non-200 success codes.
     if let Some(status) = err.status() {
         if status == StatusCode::ACCEPTED {

@@ -1,4 +1,4 @@
-use crate::{CONSENSUS_VERSION_HEADER, Error, types::Accept};
+use crate::{CONSENSUS_VERSION_HEADER, error::Error, types::Accept};
 use reqwest::{RequestBuilder, Response, StatusCode, header::ACCEPT};
 use std::str::FromStr;
 use types::ForkName;

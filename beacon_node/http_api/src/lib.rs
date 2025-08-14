@@ -3972,7 +3972,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     );
                                     // Forward the HTTP status code if we are able to, otherwise fall back
                                     // to a server error.
-                                    if let eth2::Error::ServerMessage(message) = e {
+                                    if let eth2::error::Error::ServerMessage(message) = e {
                                         if message.code == StatusCode::BAD_REQUEST.as_u16() {
                                             return warp_utils::reject::custom_bad_request(
                                                 message.message,

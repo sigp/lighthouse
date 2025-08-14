@@ -6,7 +6,8 @@ mod block_rewards;
 pub mod sync_state;
 
 use crate::{
-    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
+    BeaconNodeHttpClient, DepositData, Hash256, Slot,
+    error::Error,
     lighthouse::sync_state::SyncState,
     types::{AdminPeer, Epoch, GenericResponse, ValidatorId},
 };
@@ -170,7 +171,7 @@ pub struct DepositLog {
 
 impl BeaconNodeHttpClient {
     /// `GET lighthouse/health`
-    pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
+    pub async fn get_lighthouse_health(&self) -> crate::error::Result<GenericResponse<Health>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -182,7 +183,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET lighthouse/syncing`
-    pub async fn get_lighthouse_syncing(&self) -> Result<GenericResponse<SyncState>, Error> {
+    pub async fn get_lighthouse_syncing(&self) -> crate::error::Result<GenericResponse<SyncState>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -202,7 +203,7 @@ impl BeaconNodeHttpClient {
      */
 
     /// `GET lighthouse/proto_array`
-    pub async fn get_lighthouse_proto_array(&self) -> Result<GenericResponse<ProtoArray>, Error> {
+    pub async fn get_lighthouse_proto_array(&self) -> crate::error::Result<GenericResponse<ProtoArray>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -217,7 +218,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_lighthouse_validator_inclusion_global(
         &self,
         epoch: Epoch,
-    ) -> Result<GenericResponse<GlobalValidatorInclusionData>, Error> {
+    ) -> crate::error::Result<GenericResponse<GlobalValidatorInclusionData>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -235,7 +236,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         validator_id: ValidatorId,
-    ) -> Result<GenericResponse<Option<ValidatorInclusionData>>, Error> {
+    ) -> crate::error::Result<GenericResponse<Option<ValidatorInclusionData>>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -249,7 +250,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST lighthouse/database/reconstruct`
-    pub async fn post_lighthouse_database_reconstruct(&self) -> Result<String, Error> {
+    pub async fn post_lighthouse_database_reconstruct(&self) -> crate::error::Result<String> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -262,7 +263,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST lighthouse/add_peer`
-    pub async fn post_lighthouse_add_peer(&self, req: AdminPeer) -> Result<(), Error> {
+    pub async fn post_lighthouse_add_peer(&self, req: AdminPeer) -> crate::error::Result<()> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -274,7 +275,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST lighthouse/remove_peer`
-    pub async fn post_lighthouse_remove_peer(&self, req: AdminPeer) -> Result<(), Error> {
+    pub async fn post_lighthouse_remove_peer(&self, req: AdminPeer) -> crate::error::Result<()> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -294,7 +295,7 @@ impl BeaconNodeHttpClient {
         &self,
         start_slot: Slot,
         end_slot: Slot,
-    ) -> Result<Vec<BlockReward>, Error> {
+    ) -> crate::error::Result<Vec<BlockReward>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -315,7 +316,7 @@ impl BeaconNodeHttpClient {
         &self,
         start_epoch: Epoch,
         end_epoch: Epoch,
-    ) -> Result<Vec<BlockPackingEfficiency>, Error> {
+    ) -> crate::error::Result<Vec<BlockPackingEfficiency>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -337,7 +338,7 @@ impl BeaconNodeHttpClient {
         start_epoch: Epoch,
         end_epoch: Epoch,
         target: String,
-    ) -> Result<Vec<AttestationPerformance>, Error> {
+    ) -> crate::error::Result<Vec<AttestationPerformance>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

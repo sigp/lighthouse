@@ -32,11 +32,11 @@ const LIGHTHOUSE_DEPOSIT_CLI_VERSION: &str = "20.18.20";
 pub enum UploadError {
     InvalidPublicKey,
     DuplicateValidator(PublicKeyBytes),
-    FailedToListKeys(eth2::Error),
-    KeyUploadFailed(eth2::Error),
+    FailedToListKeys(eth2::error::Error),
+    KeyUploadFailed(eth2::error::Error),
     IncorrectStatusCount(usize),
-    FeeRecipientUpdateFailed(eth2::Error),
-    PatchValidatorFailed(eth2::Error),
+    FeeRecipientUpdateFailed(eth2::error::Error),
+    PatchValidatorFailed(eth2::error::Error),
 }
 
 #[derive(Clone, Serialize, Deserialize)]

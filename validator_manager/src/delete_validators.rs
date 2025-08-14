@@ -17,7 +17,7 @@ pub const VALIDATOR_FLAG: &str = "validators";
 #[derive(Debug)]
 pub enum DeleteError {
     InvalidPublicKey,
-    DeleteFailed(eth2::Error),
+    DeleteFailed(eth2::error::Error),
 }
 
 pub fn cli_app() -> Command {

@@ -7,6 +7,7 @@
 //! Eventually it would be ideal to publish this crate on crates.io, however we have some local
 //! dependencies preventing this presently.
 
+pub mod error;
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
 #[cfg(feature = "lighthouse")]
@@ -14,14 +15,14 @@ pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
 
-use self::mixin::{RequestAccept, ResponseOptional};
-use self::types::{Error as ResponseError, *};
+use self::error::{Error, ok_or_error, Result, ResponseOptional};
+use self::mixin::RequestAccept;
+use self::types::*;
 use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
 use derivative::Derivative;
 use futures::Stream;
 use futures_util::StreamExt;
 use libp2p_identity::PeerId;
-use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response,
@@ -34,7 +35,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
 use std::future::Future;
-use std::path::PathBuf;
 use std::time::Duration;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
@@ -66,82 +66,6 @@ const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
 const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_DEFAULT_TIMEOUT_QUOTIENT: u32 = 4;
 
-#[derive(Debug)]
-pub enum Error {
-    /// The `reqwest` client raised an error.
-    HttpClient(PrettyReqwestError),
-    /// The `reqwest_eventsource` client raised an error.
-    SseClient(Box<reqwest_eventsource::Error>),
-    /// The server returned an error message where the body was able to be parsed.
-    ServerMessage(ErrorMessage),
-    /// The server returned an error message with an array of errors.
-    ServerIndexedMessage(IndexedErrorMessage),
-    /// The server returned an error message where the body was unable to be parsed.
-    StatusCode(StatusCode),
-    /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
-    InvalidUrl(SensitiveUrl),
-    /// The supplied validator client secret is invalid.
-    InvalidSecret(String),
-    /// The server returned a response with an invalid signature. It may be an impostor.
-    InvalidSignatureHeader,
-    /// The server returned a response without a signature header. It may be an impostor.
-    MissingSignatureHeader,
-    /// The server returned an invalid JSON response.
-    InvalidJson(serde_json::Error),
-    /// The server returned an invalid server-sent event.
-    InvalidServerSentEvent(String),
-    /// The server sent invalid response headers.
-    InvalidHeaders(String),
-    /// The server returned an invalid SSZ response.
-    InvalidSsz(ssz::DecodeError),
-    /// An I/O error occurred while loading an API token from disk.
-    TokenReadError(PathBuf, std::io::Error),
-    /// The client has been configured without a server pubkey, but requires one for this request.
-    NoServerPubkey,
-    /// The client has been configured without an API token, but requires one for this request.
-    NoToken,
-}
-
-impl From<reqwest::Error> for Error {
-    fn from(error: reqwest::Error) -> Self {
-        Error::HttpClient(error.into())
-    }
-}
-
-impl Error {
-    /// If the error has a HTTP status code, return it.
-    pub fn status(&self) -> Option<StatusCode> {
-        match self {
-            Error::HttpClient(error) => error.inner().status(),
-            Error::SseClient(error) => {
-                if let reqwest_eventsource::Error::InvalidStatusCode(status, _) = error.as_ref() {
-                    Some(*status)
-                } else {
-                    None
-                }
-            }
-            Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
-            Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
-            Error::StatusCode(status) => Some(*status),
-            Error::InvalidUrl(_) => None,
-            Error::InvalidSecret(_) => None,
-            Error::InvalidSignatureHeader => None,
-            Error::MissingSignatureHeader => None,
-            Error::InvalidJson(_) => None,
-            Error::InvalidSsz(_) => None,
-            Error::InvalidServerSentEvent(_) => None,
-            Error::InvalidHeaders(_) => None,
-            Error::TokenReadError(..) => None,
-            Error::NoServerPubkey | Error::NoToken => None,
-        }
-    }
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
 
 /// A struct to define a variety of different timeouts for different validator tasks to ensure
 /// proper fallback behaviour.
@@ -249,7 +173,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Return the path with the standard `/eth/vX` prefix applied.
-    fn eth_path(&self, version: EndpointVersion) -> Result<Url, Error> {
+    fn eth_path(&self, version: EndpointVersion) -> Result<Url> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -261,7 +185,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP GET request.
-    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
+    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T> {
         let response = self.get_response(url, |b| b).await?;
         Ok(response.json().await?)
     }
@@ -271,7 +195,7 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         builder: impl FnOnce(RequestBuilder) -> RequestBuilder,
-    ) -> Result<Response, Error> {
+    ) -> Result<Response> {
         let response = builder(self.client.get(url).timeout(self.timeouts.default))
             .send()
             .await?;
@@ -283,7 +207,7 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         timeout: Duration,
-    ) -> Result<T, Error> {
+    ) -> Result<T> {
         let response = self
             .get_response(url, |builder| builder.timeout(timeout))
             .await?;
@@ -291,7 +215,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP GET request, returning `None` on a 404 error.
-    async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
+    async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>> {
         match self
             .get_response(url, |b| b.accept(Accept::Json))
             .await
@@ -307,7 +231,7 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         timeout: Duration,
-    ) -> Result<Option<T>, Error> {
+    ) -> Result<Option<T>> {
         let opt_response = self
             .get_response(url, |b| b.timeout(timeout).accept(Accept::Json))
             .await
@@ -322,7 +246,7 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         ctx_constructor: impl Fn(ForkName) -> Ctx,
-    ) -> Result<Option<ForkVersionedResponse<T, Meta>>, Error>
+    ) -> Result<Option<ForkVersionedResponse<T, Meta>>>
     where
         U: IntoUrl,
         T: ContextDeserialize<'static, Ctx>,
@@ -372,7 +296,7 @@ impl BeaconNodeHttpClient {
         url: U,
         accept_header: Accept,
         timeout: Duration,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<Vec<u8>>> {
         let opt_response = self
             .get_response(url, |b| b.accept(accept_header).timeout(timeout))
             .await
@@ -390,9 +314,9 @@ impl BeaconNodeHttpClient {
         accept_header: Accept,
         timeout: Duration,
         parser: impl FnOnce(Response, HeaderMap) -> F,
-    ) -> Result<Option<T>, Error>
+    ) -> Result<Option<T>>
     where
-        F: Future<Output = Result<T, Error>>,
+        F: Future<Output = Result<T>>,
     {
         let opt_response = self
             .get_response(url, |b| b.accept(accept_header).timeout(timeout))
@@ -410,7 +334,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP POST request.
-    async fn post<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<(), Error> {
+    async fn post<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<()> {
         self.post_generic(url, body, None).await?;
         Ok(())
     }
@@ -420,7 +344,7 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         body: &T,
-    ) -> Result<R, Error> {
+    ) -> Result<R> {
         self.post_generic(url, body, None)
             .await?
             .json()
@@ -432,7 +356,7 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         body: &T,
-    ) -> Result<Option<R>, Error> {
+    ) -> Result<Option<R>> {
         if let Some(response) = self.post_generic(url, body, None).await.optional()? {
             response.json().await.map_err(Into::into)
         } else {
@@ -446,7 +370,7 @@ impl BeaconNodeHttpClient {
         url: U,
         body: &T,
         timeout: Duration,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         self.post_generic(url, body, Some(timeout)).await?;
         Ok(())
     }
@@ -458,7 +382,7 @@ impl BeaconNodeHttpClient {
         body: &T,
         timeout: Duration,
         fork_name: ForkName,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         self.post_generic_with_consensus_version(url, body, Some(timeout), fork_name)
             .await?;
         Ok(())
@@ -470,7 +394,7 @@ impl BeaconNodeHttpClient {
         url: U,
         body: &V,
         timeout: Duration,
-    ) -> Result<T, Error> {
+    ) -> Result<T> {
         self.post_generic(url, body, Some(timeout))
             .await?
             .json()
@@ -484,7 +408,7 @@ impl BeaconNodeHttpClient {
         url: U,
         body: &T,
         timeout: Option<Duration>,
-    ) -> Result<Response, Error> {
+    ) -> Result<Response> {
         let builder = self
             .client
             .post(url)
@@ -500,7 +424,7 @@ impl BeaconNodeHttpClient {
         body: &T,
         timeout: Option<Duration>,
         fork: ForkName,
-    ) -> Result<Response, Error> {
+    ) -> Result<Response> {
         let builder = self
             .client
             .post(url)
@@ -518,7 +442,7 @@ impl BeaconNodeHttpClient {
         &self,
         url: U,
         body: &T,
-    ) -> Result<Response, Error> {
+    ) -> Result<Response> {
         let builder = self.client.post(url).timeout(self.timeouts.default);
         let mut headers = HeaderMap::new();
 
@@ -537,7 +461,7 @@ impl BeaconNodeHttpClient {
         body: T,
         timeout: Option<Duration>,
         fork: ForkName,
-    ) -> Result<Response, Error> {
+    ) -> Result<Response> {
         let builder = self
             .client
             .post(url)
@@ -560,7 +484,7 @@ impl BeaconNodeHttpClient {
     /// ## Errors
     ///
     /// May return a `404` if beacon chain genesis has not yet occurred.
-    pub async fn get_beacon_genesis(&self) -> Result<GenericResponse<GenesisData>, Error> {
+    pub async fn get_beacon_genesis(&self) -> Result<GenericResponse<GenesisData>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -577,7 +501,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_root(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RootData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RootData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -596,7 +520,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_fork(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Fork>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Fork>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -615,7 +539,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_finality_checkpoints(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<FinalityCheckpointsData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<FinalityCheckpointsData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -635,7 +559,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         ids: Option<&[ValidatorId]>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorBalanceData>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorBalanceData>>>>
     {
         let mut path = self.eth_path(V1)?;
 
@@ -663,7 +587,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         ids: Vec<ValidatorId>,
-    ) -> Result<Response, Error> {
+    ) -> Result<Response> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -685,7 +609,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         ids: Vec<ValidatorId>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorBalanceData>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorBalanceData>>>>
     {
         let mut path = self.eth_path(V1)?;
 
@@ -708,7 +632,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         ids: Vec<ValidatorId>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorIdentityData>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorIdentityData>>>>
     {
         let mut path = self.eth_path(V1)?;
 
@@ -732,7 +656,7 @@ impl BeaconNodeHttpClient {
         state_id: StateId,
         ids: Option<&[ValidatorId]>,
         statuses: Option<&[ValidatorStatus]>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorData>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorData>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -771,7 +695,7 @@ impl BeaconNodeHttpClient {
         state_id: StateId,
         ids: Option<Vec<ValidatorId>>,
         statuses: Option<Vec<ValidatorStatus>>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorData>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<ValidatorData>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -795,7 +719,7 @@ impl BeaconNodeHttpClient {
         slot: Option<Slot>,
         index: Option<u64>,
         epoch: Option<Epoch>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<CommitteeData>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<CommitteeData>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -828,7 +752,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         epoch: Option<Epoch>,
-    ) -> Result<ExecutionOptimisticFinalizedResponse<SyncCommitteeByValidatorIndices>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<SyncCommitteeByValidatorIndices>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -851,7 +775,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         epoch: Option<Epoch>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RandaoMix>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RandaoMix>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -876,7 +800,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         validator_id: &ValidatorId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<ValidatorData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<ValidatorData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -896,7 +820,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_pending_deposits(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingDeposit>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingDeposit>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -915,7 +839,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_pending_partial_withdrawals(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingPartialWithdrawal>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingPartialWithdrawal>>>>
     {
         let mut path = self.eth_path(V1)?;
 
@@ -935,7 +859,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_pending_consolidations(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingConsolidation>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingConsolidation>>>>
     {
         let mut path = self.eth_path(V1)?;
 
@@ -956,7 +880,7 @@ impl BeaconNodeHttpClient {
         &self,
         start_period: u64,
         count: u64,
-    ) -> Result<Option<Vec<BeaconResponse<LightClientUpdate<E>>>>, Error> {
+    ) -> Result<Option<Vec<BeaconResponse<LightClientUpdate<E>>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -987,7 +911,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_light_client_bootstrap<E: EthSpec>(
         &self,
         block_root: Hash256,
-    ) -> Result<Option<BeaconResponse<LightClientBootstrap<E>>>, Error> {
+    ) -> Result<Option<BeaconResponse<LightClientBootstrap<E>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1007,7 +931,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn get_beacon_light_client_optimistic_update<E: EthSpec>(
         &self,
-    ) -> Result<Option<BeaconResponse<LightClientOptimisticUpdate<E>>>, Error> {
+    ) -> Result<Option<BeaconResponse<LightClientOptimisticUpdate<E>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1026,7 +950,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn get_beacon_light_client_finality_update<E: EthSpec>(
         &self,
-    ) -> Result<Option<BeaconResponse<LightClientFinalityUpdate<E>>>, Error> {
+    ) -> Result<Option<BeaconResponse<LightClientFinalityUpdate<E>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1047,7 +971,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Option<Slot>,
         parent_root: Option<Hash256>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<BlockHeaderData>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<BlockHeaderData>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1074,7 +998,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_headers_block_id(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<BlockHeaderData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<BlockHeaderData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1092,7 +1016,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_blocks<E: EthSpec>(
         &self,
         block_contents: &PublishBlockRequest<E>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1118,7 +1042,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_blocks_ssz<E: EthSpec>(
         &self,
         block_contents: &PublishBlockRequest<E>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1143,7 +1067,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_blinded_blocks<E: EthSpec>(
         &self,
         block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1163,7 +1087,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_blinded_blocks_ssz<E: EthSpec>(
         &self,
         block: &SignedBlindedBeaconBlock<E>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1185,7 +1109,7 @@ impl BeaconNodeHttpClient {
     pub fn post_beacon_blocks_v2_path(
         &self,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<Url, Error> {
+    ) -> Result<Url> {
         let mut path = self.eth_path(V2)?;
         path.path_segments_mut()
             .map_err(|_| Error::InvalidUrl(self.server.clone()))?
@@ -1203,7 +1127,7 @@ impl BeaconNodeHttpClient {
     pub fn post_beacon_blinded_blocks_v2_path(
         &self,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<Url, Error> {
+    ) -> Result<Url> {
         let mut path = self.eth_path(V2)?;
         path.path_segments_mut()
             .map_err(|_| Error::InvalidUrl(self.server.clone()))?
@@ -1223,7 +1147,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         self.post_generic_with_consensus_version(
             self.post_beacon_blocks_v2_path(validation_level)?,
             block_contents,
@@ -1240,7 +1164,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         self.post_generic_with_consensus_version_and_ssz_body(
             self.post_beacon_blocks_v2_path(validation_level)?,
             block_contents.as_ssz_bytes(),
@@ -1257,7 +1181,7 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         self.post_generic_with_consensus_version(
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
             signed_block,
@@ -1274,7 +1198,7 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         self.post_generic_with_consensus_version_and_ssz_body(
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
             signed_block.as_ssz_bytes(),
@@ -1287,7 +1211,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Path for `v2/beacon/blocks`
-    pub fn get_beacon_blocks_path(&self, block_id: BlockId) -> Result<Url, Error> {
+    pub fn get_beacon_blocks_path(&self, block_id: BlockId) -> Result<Url> {
         let mut path = self.eth_path(V2)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1298,7 +1222,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Path for `v1/beacon/blob_sidecars/{block_id}`
-    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1309,7 +1233,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Path for `v1/beacon/blinded_blocks/{block_id}`
-    pub fn get_beacon_blinded_blocks_path(&self, block_id: BlockId) -> Result<Url, Error> {
+    pub fn get_beacon_blinded_blocks_path(&self, block_id: BlockId) -> Result<Url> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1325,7 +1249,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks<E: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<SignedBeaconBlock<E>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<SignedBeaconBlock<E>>>>
     {
         let path = self.get_beacon_blocks_path(block_id)?;
         self.get_opt(path)
@@ -1341,7 +1265,7 @@ impl BeaconNodeHttpClient {
         block_id: BlockId,
         indices: Option<&[u64]>,
         spec: &ChainSpec,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BlobSidecarList<E>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BlobSidecarList<E>>>> {
         let mut path = self.get_blobs_path(block_id)?;
         if let Some(indices) = indices {
             let indices_string = indices
@@ -1370,7 +1294,6 @@ impl BeaconNodeHttpClient {
         block_id: BlockId,
     ) -> Result<
         Option<ExecutionOptimisticFinalizedBeaconResponse<SignedBlindedBeaconBlock<E>>>,
-        Error,
     > {
         let path = self.get_beacon_blinded_blocks_path(block_id)?;
         self.get_opt(path)
@@ -1384,7 +1307,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks_v1<E: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<BeaconResponse<SignedBeaconBlock<E>>>, Error> {
+    ) -> Result<Option<BeaconResponse<SignedBeaconBlock<E>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1405,7 +1328,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         spec: &ChainSpec,
-    ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+    ) -> Result<Option<SignedBeaconBlock<E>>> {
         let path = self.get_beacon_blocks_path(block_id)?;
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
@@ -1421,7 +1344,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         spec: &ChainSpec,
-    ) -> Result<Option<SignedBlindedBeaconBlock<E>>, Error> {
+    ) -> Result<Option<SignedBlindedBeaconBlock<E>>> {
         let path = self.get_beacon_blinded_blocks_path(block_id)?;
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_beacon_blocks_ssz)
@@ -1438,7 +1361,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks_root(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RootData>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<RootData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1457,7 +1380,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks_attestations_v1<E: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<Attestation<E>>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<Attestation<E>>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1476,7 +1399,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_blocks_attestations_v2<E: EthSpec>(
         &self,
         block_id: BlockId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<Attestation<E>>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<Attestation<E>>>>>
     {
         let mut path = self.eth_path(V2)?;
 
@@ -1497,7 +1420,7 @@ impl BeaconNodeHttpClient {
         &self,
         attestations: Vec<SingleAttestation>,
         fork_name: ForkName,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1522,7 +1445,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Option<Slot>,
         committee_index: Option<u64>,
-    ) -> Result<GenericResponse<Vec<Attestation<E>>>, Error> {
+    ) -> Result<GenericResponse<Vec<Attestation<E>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1549,7 +1472,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Option<Slot>,
         committee_index: Option<u64>,
-    ) -> Result<BeaconResponse<Vec<Attestation<E>>>, Error> {
+    ) -> Result<BeaconResponse<Vec<Attestation<E>>>> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1575,7 +1498,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_pool_attester_slashings_v1<E: EthSpec>(
         &self,
         slashing: &AttesterSlashing<E>,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1594,7 +1517,7 @@ impl BeaconNodeHttpClient {
         &self,
         slashing: &AttesterSlashing<E>,
         fork_name: ForkName,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1612,7 +1535,7 @@ impl BeaconNodeHttpClient {
     /// `GET v1/beacon/pool/attester_slashings`
     pub async fn get_beacon_pool_attester_slashings_v1<E: EthSpec>(
         &self,
-    ) -> Result<GenericResponse<Vec<AttesterSlashing<E>>>, Error> {
+    ) -> Result<GenericResponse<Vec<AttesterSlashing<E>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1627,7 +1550,7 @@ impl BeaconNodeHttpClient {
     /// `GET v2/beacon/pool/attester_slashings`
     pub async fn get_beacon_pool_attester_slashings_v2<E: EthSpec>(
         &self,
-    ) -> Result<BeaconResponse<Vec<AttesterSlashing<E>>>, Error> {
+    ) -> Result<BeaconResponse<Vec<AttesterSlashing<E>>>> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1643,7 +1566,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_pool_proposer_slashings(
         &self,
         slashing: &ProposerSlashing,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1660,7 +1583,7 @@ impl BeaconNodeHttpClient {
     /// `GET beacon/pool/proposer_slashings`
     pub async fn get_beacon_pool_proposer_slashings(
         &self,
-    ) -> Result<GenericResponse<Vec<ProposerSlashing>>, Error> {
+    ) -> Result<GenericResponse<Vec<ProposerSlashing>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1676,7 +1599,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_pool_voluntary_exits(
         &self,
         exit: &SignedVoluntaryExit,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1693,7 +1616,7 @@ impl BeaconNodeHttpClient {
     /// `GET beacon/pool/voluntary_exits`
     pub async fn get_beacon_pool_voluntary_exits(
         &self,
-    ) -> Result<GenericResponse<Vec<SignedVoluntaryExit>>, Error> {
+    ) -> Result<GenericResponse<Vec<SignedVoluntaryExit>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1709,7 +1632,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_pool_sync_committee_signatures(
         &self,
         signatures: &[SyncCommitteeMessage],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1727,7 +1650,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_beacon_pool_bls_to_execution_changes(
         &self,
         address_changes: &[SignedBlsToExecutionChange],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1746,7 +1669,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         validators: &[ValidatorId],
-    ) -> Result<GenericResponse<Vec<SyncCommitteeReward>>, Error> {
+    ) -> Result<GenericResponse<Vec<SyncCommitteeReward>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1763,7 +1686,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_rewards_blocks(
         &self,
         block_id: BlockId,
-    ) -> Result<GenericResponse<StandardBlockReward>, Error> {
+    ) -> Result<GenericResponse<StandardBlockReward>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1781,7 +1704,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         validators: &[ValidatorId],
-    ) -> Result<StandardAttestationRewards, Error> {
+    ) -> Result<StandardAttestationRewards> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1798,7 +1721,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_expected_withdrawals(
         &self,
         state_id: &StateId,
-    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<Withdrawal>>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<Withdrawal>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1815,7 +1738,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_contribution_and_proofs<E: EthSpec>(
         &self,
         signed_contributions: &[SignedContributionAndProof<E>],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1837,7 +1760,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_prepare_beacon_proposer(
         &self,
         preparation_data: &[ProposerPreparationData],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1854,7 +1777,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_register_validator(
         &self,
         registration_data: &[SignedValidatorRegistrationData],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1868,7 +1791,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET config/fork_schedule`
-    pub async fn get_config_fork_schedule(&self) -> Result<GenericResponse<Vec<Fork>>, Error> {
+    pub async fn get_config_fork_schedule(&self) -> Result<GenericResponse<Vec<Fork>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1882,7 +1805,7 @@ impl BeaconNodeHttpClient {
     /// `GET config/spec`
     pub async fn get_config_spec<T: Serialize + DeserializeOwned>(
         &self,
-    ) -> Result<GenericResponse<T>, Error> {
+    ) -> Result<GenericResponse<T>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1896,7 +1819,7 @@ impl BeaconNodeHttpClient {
     /// `GET config/deposit_contract`
     pub async fn get_config_deposit_contract(
         &self,
-    ) -> Result<GenericResponse<DepositContractData>, Error> {
+    ) -> Result<GenericResponse<DepositContractData>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1908,7 +1831,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/version`
-    pub async fn get_node_version(&self) -> Result<GenericResponse<VersionData>, Error> {
+    pub async fn get_node_version(&self) -> Result<GenericResponse<VersionData>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1920,7 +1843,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/identity`
-    pub async fn get_node_identity(&self) -> Result<GenericResponse<IdentityData>, Error> {
+    pub async fn get_node_identity(&self) -> Result<GenericResponse<IdentityData>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1932,7 +1855,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/syncing`
-    pub async fn get_node_syncing(&self) -> Result<GenericResponse<SyncingData>, Error> {
+    pub async fn get_node_syncing(&self) -> Result<GenericResponse<SyncingData>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1944,7 +1867,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/health`
-    pub async fn get_node_health(&self) -> Result<StatusCode, Error> {
+    pub async fn get_node_health(&self) -> Result<StatusCode> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1970,7 +1893,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_node_peers_by_id(
         &self,
         peer_id: PeerId,
-    ) -> Result<GenericResponse<PeerData>, Error> {
+    ) -> Result<GenericResponse<PeerData>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1987,7 +1910,7 @@ impl BeaconNodeHttpClient {
         &self,
         states: Option<&[PeerState]>,
         directions: Option<&[PeerDirection]>,
-    ) -> Result<PeersData, Error> {
+    ) -> Result<PeersData> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2017,7 +1940,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET node/peer_count`
-    pub async fn get_node_peer_count(&self) -> Result<GenericResponse<PeerCount>, Error> {
+    pub async fn get_node_peer_count(&self) -> Result<GenericResponse<PeerCount>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2029,7 +1952,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// URL path for `v2/debug/beacon/states/{state_id}`.
-    pub fn get_debug_beacon_states_path(&self, state_id: StateId) -> Result<Url, Error> {
+    pub fn get_debug_beacon_states_path(&self, state_id: StateId) -> Result<Url> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -2045,7 +1968,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_debug_beacon_states<E: EthSpec>(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BeaconState<E>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BeaconState<E>>>> {
         let path = self.get_debug_beacon_states_path(state_id)?;
         self.get_opt(path)
             .await
@@ -2058,7 +1981,7 @@ impl BeaconNodeHttpClient {
         &self,
         state_id: StateId,
         spec: &ChainSpec,
-    ) -> Result<Option<BeaconState<E>>, Error> {
+    ) -> Result<Option<BeaconState<E>>> {
         let path = self.get_debug_beacon_states_path(state_id)?;
 
         self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.get_debug_beacon_states)
@@ -2070,7 +1993,7 @@ impl BeaconNodeHttpClient {
     /// `GET v2/debug/beacon/heads`
     pub async fn get_debug_beacon_heads(
         &self,
-    ) -> Result<GenericResponse<Vec<ChainHeadData>>, Error> {
+    ) -> Result<GenericResponse<Vec<ChainHeadData>>> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -2085,7 +2008,7 @@ impl BeaconNodeHttpClient {
     /// `GET v1/debug/beacon/heads` (LEGACY)
     pub async fn get_debug_beacon_heads_v1(
         &self,
-    ) -> Result<GenericResponse<Vec<ChainHeadData>>, Error> {
+    ) -> Result<GenericResponse<Vec<ChainHeadData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2098,7 +2021,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v1/debug/fork_choice`
-    pub async fn get_debug_fork_choice(&self) -> Result<ForkChoice, Error> {
+    pub async fn get_debug_fork_choice(&self) -> Result<ForkChoice> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2113,7 +2036,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_validator_duties_proposer(
         &self,
         epoch: Epoch,
-    ) -> Result<DutiesResponse<Vec<ProposerData>>, Error> {
+    ) -> Result<DutiesResponse<Vec<ProposerData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2133,7 +2056,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<BeaconResponse<FullBlockContents<E>>, Error> {
+    ) -> Result<BeaconResponse<FullBlockContents<E>>> {
         self.get_validator_blocks_modular(slot, randao_reveal, graffiti, SkipRandaoVerification::No)
             .await
     }
@@ -2145,7 +2068,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<BeaconResponse<FullBlockContents<E>>, Error> {
+    ) -> Result<BeaconResponse<FullBlockContents<E>>> {
         let path = self
             .get_validator_blocks_path::<E>(slot, randao_reveal, graffiti, skip_randao_verification)
             .await?;
@@ -2160,7 +2083,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<Url, Error> {
+    ) -> Result<Url> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -2193,7 +2116,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
-    ) -> Result<Url, Error> {
+    ) -> Result<Url> {
         let mut path = self.eth_path(V3)?;
 
         path.path_segments_mut()
@@ -2230,7 +2153,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
-    ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
+    ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata)> {
         self.get_validator_blocks_v3_modular(
             slot,
             randao_reveal,
@@ -2249,7 +2172,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
-    ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
+    ) -> Result<(JsonProduceBlockV3Response<E>, ProduceBlockV3Metadata)> {
         let path = self
             .get_validator_blocks_v3_path(
                 slot,
@@ -2299,7 +2222,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         builder_booster_factor: Option<u64>,
-    ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
+    ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata)> {
         self.get_validator_blocks_v3_modular_ssz::<E>(
             slot,
             randao_reveal,
@@ -2318,7 +2241,7 @@ impl BeaconNodeHttpClient {
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
         builder_booster_factor: Option<u64>,
-    ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata), Error> {
+    ) -> Result<(ProduceBlockV3Response<E>, ProduceBlockV3Metadata)> {
         let path = self
             .get_validator_blocks_v3_path(
                 slot,
@@ -2374,7 +2297,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<Vec<u8>>> {
         self.get_validator_blocks_modular_ssz::<E>(
             slot,
             randao_reveal,
@@ -2391,7 +2314,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<Vec<u8>>> {
         let path = self
             .get_validator_blocks_path::<E>(slot, randao_reveal, graffiti, skip_randao_verification)
             .await?;
@@ -2406,7 +2329,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<BeaconResponse<BlindedBeaconBlock<E>>, Error> {
+    ) -> Result<BeaconResponse<BlindedBeaconBlock<E>>> {
         self.get_validator_blinded_blocks_modular(
             slot,
             randao_reveal,
@@ -2423,7 +2346,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<Url, Error> {
+    ) -> Result<Url> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2455,7 +2378,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<BeaconResponse<BlindedBeaconBlock<E>>, Error> {
+    ) -> Result<BeaconResponse<BlindedBeaconBlock<E>>> {
         let path = self
             .get_validator_blinded_blocks_path::<E>(
                 slot,
@@ -2474,7 +2397,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<Vec<u8>>> {
         self.get_validator_blinded_blocks_modular_ssz::<E>(
             slot,
             randao_reveal,
@@ -2490,7 +2413,7 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
         skip_randao_verification: SkipRandaoVerification,
-    ) -> Result<Option<Vec<u8>>, Error> {
+    ) -> Result<Option<Vec<u8>>> {
         let path = self
             .get_validator_blinded_blocks_path::<E>(
                 slot,
@@ -2509,7 +2432,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Slot,
         committee_index: CommitteeIndex,
-    ) -> Result<GenericResponse<AttestationData>, Error> {
+    ) -> Result<GenericResponse<AttestationData>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2529,7 +2452,7 @@ impl BeaconNodeHttpClient {
         &self,
         slot: Slot,
         attestation_data_root: Hash256,
-    ) -> Result<Option<GenericResponse<Attestation<E>>>, Error> {
+    ) -> Result<Option<GenericResponse<Attestation<E>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2554,7 +2477,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         attestation_data_root: Hash256,
         committee_index: CommitteeIndex,
-    ) -> Result<Option<BeaconResponse<Attestation<E>>>, Error> {
+    ) -> Result<Option<BeaconResponse<Attestation<E>>>> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -2579,7 +2502,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_validator_sync_committee_contribution<E: EthSpec>(
         &self,
         sync_committee_data: &SyncContributionData,
-    ) -> Result<Option<GenericResponse<SyncCommitteeContribution<E>>>, Error> {
+    ) -> Result<Option<GenericResponse<SyncCommitteeContribution<E>>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2606,7 +2529,7 @@ impl BeaconNodeHttpClient {
         &self,
         ids: &[u64],
         epoch: Epoch,
-    ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
+    ) -> Result<GenericResponse<Vec<LivenessResponseData>>> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -2630,7 +2553,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         indices: &[u64],
-    ) -> Result<GenericResponse<Vec<StandardLivenessResponseData>>, Error> {
+    ) -> Result<GenericResponse<Vec<StandardLivenessResponseData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2652,7 +2575,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         indices: &[u64],
-    ) -> Result<DutiesResponse<Vec<AttesterData>>, Error> {
+    ) -> Result<DutiesResponse<Vec<AttesterData>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2674,7 +2597,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_aggregate_and_proof_v1<E: EthSpec>(
         &self,
         aggregates: &[SignedAggregateAndProof<E>],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2693,7 +2616,7 @@ impl BeaconNodeHttpClient {
         &self,
         aggregates: &[SignedAggregateAndProof<E>],
         fork_name: ForkName,
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -2716,7 +2639,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_beacon_committee_subscriptions(
         &self,
         subscriptions: &[BeaconCommitteeSubscription],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2738,7 +2661,7 @@ impl BeaconNodeHttpClient {
     pub async fn post_validator_sync_committee_subscriptions(
         &self,
         subscriptions: &[SyncCommitteeSubscription],
-    ) -> Result<(), Error> {
+    ) -> Result<()> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2755,7 +2678,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_events<E: EthSpec>(
         &self,
         topic: &[EventTopic],
-    ) -> Result<impl Stream<Item = Result<EventKind<E>, Error>> + use<E>, Error> {
+    ) -> Result<impl Stream<Item = Result<EventKind<E>>> + use<E>> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -2798,7 +2721,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         indices: &[u64],
-    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<SyncDuty>>, Error> {
+    ) -> Result<ExecutionOptimisticFinalizedResponse<Vec<SyncDuty>>> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -2817,19 +2740,3 @@ impl BeaconNodeHttpClient {
     }
 }
 
-/// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
-/// appropriate error message.
-pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
-    let status = response.status();
-
-    if status == StatusCode::OK {
-        Ok(response)
-    } else if let Ok(message) = response.json().await {
-        match message {
-            ResponseError::Message(message) => Err(Error::ServerMessage(message)),
-            ResponseError::Indexed(indexed) => Err(Error::ServerIndexedMessage(indexed)),
-        }
-    } else {
-        Err(Error::StatusCode(status))
-    }
-}

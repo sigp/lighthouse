@@ -21,7 +21,7 @@ use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
 use eth2::{
-    BeaconNodeHttpClient, Error as ApiError, Timeouts,
+    BeaconNodeHttpClient, Timeouts, error::Error as ApiError,
     types::{BlockId, StateId},
 };
 use execution_layer::ExecutionLayer;

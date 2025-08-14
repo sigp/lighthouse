@@ -2,7 +2,7 @@ use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
 use eth2::{
-    BeaconNodeHttpClient, Error, SensitiveUrl, Timeouts,
+    BeaconNodeHttpClient, SensitiveUrl, Timeouts, error::Error,
     types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
 };
 use eth2_network_config::Eth2NetworkConfig;
@@ -87,7 +87,7 @@ pub async fn run_async<T: EthSpec>(
         println!("posting block at slot {slot}");
         if let Err(e) = target.post_beacon_blocks(block).await {
             if let Error::ServerMessage(ref e) = e
-                && e.code == 202
+                && e.code == 202u16
             {
                 println!("duplicate block detected while posting block at slot {slot}");
                 continue;
