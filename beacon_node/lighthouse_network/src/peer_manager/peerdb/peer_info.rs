@@ -318,6 +318,14 @@ impl<E: EthSpec> PeerInfo<E> {
         )
     }
 
+    /// Checks if the peer is synced or advanced.
+    pub fn is_synced_or_advanced(&self) -> bool {
+        matches!(
+            self.sync_status,
+            SyncStatus::Synced { .. } | SyncStatus::Advanced { .. }
+        )
+    }
+
     /// Checks if the status is connected.
     pub fn is_dialing(&self) -> bool {
         matches!(self.connection_status, PeerConnectionStatus::Dialing { .. })

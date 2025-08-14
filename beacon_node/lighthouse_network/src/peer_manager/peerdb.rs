@@ -300,6 +300,7 @@ impl<E: EthSpec> PeerDB<E> {
             .filter(move |(_, info)| {
                 // We check both the metadata and gossipsub data as we only want to count long-lived subscribed peers
                 info.is_connected()
+                    && info.is_synced_or_advanced()
                     && info.on_subnet_metadata(&subnet)
                     && info.on_subnet_gossipsub(&subnet)
                     && info.is_good_gossipsub_peer()
@@ -369,7 +370,9 @@ impl<E: EthSpec> PeerDB<E> {
             .iter()
             .filter(move |(_, info)| {
                 // The custody_subnets hashset can be populated via enr or metadata
-                info.is_connected() && info.is_assigned_to_custody_subnet(&subnet)
+                info.is_connected()
+                    && info.is_synced_or_advanced()
+                    && info.is_assigned_to_custody_subnet(&subnet)
             })
             .map(|(peer_id, _)| peer_id)
     }
