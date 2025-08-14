@@ -63,15 +63,10 @@
   spec: |
     <spec config_var="CAPELLA_FORK_VERSION" fork="capella" hash="5f94766c" />
 
-- name: CHURN_LIMIT_QUOTIENT#phase0
+- name: CHURN_LIMIT_QUOTIENT
   sources: []
   spec: |
     <spec config_var="CHURN_LIMIT_QUOTIENT" fork="phase0" hash="a43a1d33" />
-
-- name: CHURN_LIMIT_QUOTIENT#electra
-  sources: []
-  spec: |
-    <spec config_var="CHURN_LIMIT_QUOTIENT" fork="electra" hash="a43a1d33" />
 
 - name: CUSTODY_REQUIREMENT
   sources: []
@@ -93,15 +88,10 @@
   spec: |
     <spec config_var="DENEB_FORK_VERSION" fork="deneb" hash="da95e3b9" />
 
-- name: EJECTION_BALANCE#phase0
+- name: EJECTION_BALANCE
   sources: []
   spec: |
     <spec config_var="EJECTION_BALANCE" fork="phase0" hash="3f86d864" />
-
-- name: EJECTION_BALANCE#electra
-  sources: []
-  spec: |
-    <spec config_var="EJECTION_BALANCE" fork="electra" hash="3f86d864" />
 
 - name: ELECTRA_FORK_EPOCH
   sources: []
@@ -118,15 +108,10 @@
   spec: |
     <spec config_var="EPOCHS_PER_SUBNET_SUBSCRIPTION" fork="phase0" hash="1b832329" />
 
-- name: ETH1_FOLLOW_DISTANCE#phase0
+- name: ETH1_FOLLOW_DISTANCE
   sources: []
   spec: |
     <spec config_var="ETH1_FOLLOW_DISTANCE" fork="phase0" hash="2f5ba1a0" />
-
-- name: ETH1_FOLLOW_DISTANCE#electra
-  sources: []
-  spec: |
-    <spec config_var="ETH1_FOLLOW_DISTANCE" fork="electra" hash="2f5ba1a0" />
 
 - name: FULU_FORK_EPOCH
   sources: []
@@ -248,15 +233,10 @@
   spec: |
     <spec config_var="MIN_GENESIS_TIME" fork="phase0" hash="75c06876" />
 
-- name: MIN_PER_EPOCH_CHURN_LIMIT#phase0
+- name: MIN_PER_EPOCH_CHURN_LIMIT
   sources: []
   spec: |
     <spec config_var="MIN_PER_EPOCH_CHURN_LIMIT" fork="phase0" hash="ff24b223" />
-
-- name: MIN_PER_EPOCH_CHURN_LIMIT#electra
-  sources: []
-  spec: |
-    <spec config_var="MIN_PER_EPOCH_CHURN_LIMIT" fork="electra" hash="ff24b223" />
 
 - name: MIN_PER_EPOCH_CHURN_LIMIT_ELECTRA
   sources: []
