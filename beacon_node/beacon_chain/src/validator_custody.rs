@@ -250,6 +250,7 @@ impl<E: EthSpec> CustodyContext<E> {
                 );
                 return Some(CustodyCountChanged {
                     new_custody_group_count: updated_cgc,
+                    old_custody_group_count: current_cgc,
                     sampling_count: self.num_of_custody_groups_to_sample(effective_epoch, spec),
                     effective_epoch,
                 });
@@ -323,12 +324,28 @@ impl<E: EthSpec> CustodyContext<E> {
             .expect("all_custody_columns_ordered should be initialized");
         &all_columns_ordered[..num_of_columns_to_sample]
     }
+
+    /// Returns the ordered list of column indices that should be sampled based on a given `custody_group_count`.
+    /// Note: In almost all cases `sampling_columns_for_epoch` should be used. 
+    /// TODO(custody-sync) This function should probably be removed once we're done testing custody sync
+    /// as it might be a potential foot-gun.
+    pub fn sampling_columns_for_custody_count(&self, custody_group_count: u64, spec: &ChainSpec) -> &[ColumnIndex] {
+        let num_of_columns_to_sample = spec.sampling_size_columns(custody_group_count)
+            .expect("should compute node sampling size from valid cgc value");
+
+        let all_columns_ordered = self
+            .all_custody_columns_ordered
+            .get()
+            .expect("all_custody_columns_ordered should be initialized");
+        &all_columns_ordered[..num_of_columns_to_sample]
+    }
 }
 
 /// The custody count changed because of a change in the
 /// number of validators being managed.
 pub struct CustodyCountChanged {
     pub new_custody_group_count: u64,
+    pub old_custody_group_count: u64,
     pub sampling_count: u64,
     pub effective_epoch: Epoch,
 }
