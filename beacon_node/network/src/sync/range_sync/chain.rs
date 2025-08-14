@@ -826,7 +826,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     CouplingError::DataColumnPeerFailure {
                         error,
                         faulty_peers,
-                        action,
                         exceeded_retries,
                     } => {
                         debug!(?batch_id, error, "Block components coupling error");
@@ -837,9 +836,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         for (column, peer) in faulty_peers {
                             failed_columns.insert(*column);
                             failed_peers.insert(*peer);
-                        }
-                        for peer in failed_peers.iter() {
-                            network.report_peer(*peer, *action, "failed to return columns");
                         }
                         // Retry the failed columns if the column requests haven't exceeded the
                         // max retries. Otherwise, remove treat it as a failed batch below.

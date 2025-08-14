@@ -313,7 +313,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     CouplingError::DataColumnPeerFailure {
                         error,
                         faulty_peers,
-                        action,
                         exceeded_retries,
                     } => {
                         debug!(?batch_id, error, "Block components coupling error");
@@ -324,9 +323,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         for (column, peer) in faulty_peers {
                             failed_columns.insert(*column);
                             failed_peers.insert(*peer);
-                        }
-                        for peer in failed_peers.iter() {
-                            network.report_peer(*peer, *action, "failed to return columns");
                         }
 
                         // Only retry if peer failure **and** retries have been exceeded
