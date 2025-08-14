@@ -147,7 +147,6 @@ pub struct Config {
     pub enable_beacon_processor: bool,
     #[serde(with = "eth2::types::serde_status_code")]
     pub duplicate_block_status_code: StatusCode,
-    pub target_peers: usize,
 }
 
 impl Default for Config {
@@ -162,7 +161,6 @@ impl Default for Config {
             sse_capacity_multiplier: 1,
             enable_beacon_processor: true,
             duplicate_block_status_code: StatusCode::ACCEPTED,
-            target_peers: 100,
         }
     }
 }
