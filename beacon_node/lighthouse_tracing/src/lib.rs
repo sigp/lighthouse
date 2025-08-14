@@ -5,6 +5,7 @@ pub const SPAN_PROCESS_GOSSIP_DATA_COLUMN: &str = "process_gossip_data_column";
 pub const SPAN_PROCESS_GOSSIP_BLOB: &str = "process_gossip_blob";
 pub const SPAN_PROCESS_GOSSIP_BLOCK: &str = "process_gossip_block";
 /// Sync methods root spans
+pub const SPAN_SYNCING_CHAIN: &str = "syncing_chain";
 pub const SPAN_OUTGOING_RANGE_REQUEST: &str = "outgoing_range_request";
 pub const SPAN_OUTGOING_CUSTODY_REQUEST: &str = "outgoing_custody_request";
 pub const SPAN_PROCESS_RPC_BLOCK: &str = "process_rpc_block";
