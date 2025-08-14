@@ -1825,16 +1825,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
-        // TODO(custody-sync) dont forget these logs
-        // debug!(
-        //     method = "DataColumnsByRange",
-        //     slots = request.count,
-        //     epoch = %Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
-        //     columns = ?request.columns,
-        //     peer = %peer_id,
-        //     %id,
-        //     "Sync RPC request sent"
-        // );
+        debug!(
+            method = "CustodySync::DataColumnsByRange",
+            slots = request.count,
+            epoch = %Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
+            columns = ?request.columns,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
+        );
 
         self.custody_sync_data_columns_by_range_requests.insert(
             id,

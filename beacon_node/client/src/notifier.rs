@@ -145,6 +145,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             Instant::now(),
                         );
                 }
+                SyncState::CustodyBackFillSyncing { .. } => {
+                    // TODO(custody-sync) speedo observe to check on custody sync progress?
+                }
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
                 | SyncState::SyncTransition => {

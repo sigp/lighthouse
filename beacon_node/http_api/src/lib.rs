@@ -481,7 +481,8 @@ pub fn serve<T: BeaconChainTypes>(
                         }
                         SyncState::SyncingHead { .. }
                         | SyncState::SyncTransition
-                        | SyncState::BackFillSyncing { .. } => Ok(()),
+                        | SyncState::BackFillSyncing { .. }
+                        | SyncState::CustodyBackFillSyncing { .. } => Ok(()),
                         SyncState::Synced => Ok(()),
                         SyncState::Stalled => Ok(()),
                     }

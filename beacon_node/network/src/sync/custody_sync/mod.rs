@@ -330,11 +330,9 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 .map(|_| ProcessResult::Successful);
         };
 
-        // TODO(custody-sync) update comments
         // NOTE: We send empty batches to the processor in order to trigger the processor
-        // result callback. This is done, because an empty batch could end a chain and the logic
-        // for removing chains and checking completion is in the callback.
-
+        // result callback. This is done, because an empty batch could end a bad batch and catching those
+        // bad batch states is handled in `start_processing`.
         let (data_columns, _) = match batch.start_processing() {
             Err(e) => {
                 return self
@@ -804,8 +802,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 .store
                 .get_data_column_custody_info()
                 .unwrap_or(None)
-                .map(|info| info.earliest_data_column_slot)
-                .flatten();
+                .and_then(|info| info.earliest_data_column_slot);
 
             if let Some(earliest_data_column_slot) = earliest_data_column_slot {
                 let da_boundary = self

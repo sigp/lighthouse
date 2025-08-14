@@ -3,8 +3,7 @@ use beacon_chain::{
 };
 use lighthouse_network::{
     service::api_types::{
-        BlobsByRangeRequestId, BlocksByRangeRequestId, CustodySyncBatchRequestId,
-        CustodySyncByRangeRequestId, DataColumnsByRangeRequestId,
+        BlobsByRangeRequestId, BlocksByRangeRequestId, CustodySyncByRangeRequestId, DataColumnsByRangeRequestId
     },
     PeerAction, PeerId,
 };
@@ -64,7 +63,7 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
 
     pub fn responses(
         &mut self,
-        spec: &ChainSpec,
+        _spec: &ChainSpec,
     ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
         let mut data_columns = vec![];
         let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
@@ -83,14 +82,14 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
             }
         }
 
-        let resp = Self::responses_with_custody_columns(data_columns);
+        let resp = Self::responses_with_custody_columns(data_columns, column_to_peer_id, &self.expected_custody_columns);
 
         if let Err(err) = &resp {
             if let Some((peers, _)) = &err.column_and_peer {
                 for (_, peer) in peers.iter() {
                     // find the req id associated with the peer and
                     // delete it from the entries
-                    self.requests.retain(|&k, _| k.peer != *peer);
+                    self.requests.retain(|k, _| k.peer != *peer);
                 }
             }
         }
@@ -100,13 +99,20 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
 
     fn responses_with_custody_columns(
         data_columns: DataColumnSidecarList<E>,
+        column_to_peer: HashMap<u64, PeerId>,
+        expected_custody_columns: &[ColumnIndex],
     ) -> Result<DataColumnSidecarList<E>, CouplingError> {
         // Group data columns by block_root and index
         let mut data_columns_by_block =
             HashMap::<Hash256, HashMap<ColumnIndex, &Arc<DataColumnSidecar<E>>>>::new();
 
+        let mut blocks = vec![];
+        let mut custody_columns = vec![];
+        let mut naughty_peers = vec![];
+
         for column in data_columns.iter() {
             let block_root = column.block_root();
+            blocks.push(block_root);
             let index = column.index;
             if data_columns_by_block
                 .entry(block_root)
@@ -118,6 +124,48 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
                     msg: format!("Repeated column block_root {block_root:?} index {index}"),
                     column_and_peer: None,
                 });
+            }
+        }
+
+        for block_root in blocks {
+            let Some(mut data_columns_by_index) = data_columns_by_block.remove(&block_root) else {
+                // This else isn't a valid case since we build the list of block roots from the data columns we've received.
+                // We handle the error anyways. We may want to pass the block roots here?
+                let responsible_peers = column_to_peer.iter().map(|c| (*c.0, *c.1)).collect();
+                return Err(CouplingError {
+                    msg: format!("No columns for block {block_root:?} with data"),
+                    column_and_peer: Some((responsible_peers, PeerAction::LowToleranceError)),
+                });
+            };
+            for index in expected_custody_columns {
+                if let Some(data_column) = data_columns_by_index.remove(index) {
+                    // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
+                    // this column is in the set of `expects_custody_columns`. We have not checked that it matches
+                    // the expected block root. We make that check before inserting the column into the store.
+                    custody_columns.push(CustodyDataColumn::from_asserted_custody(
+                        data_column.clone(),
+                    ));
+                } else {
+                    // Penalize the peer for claiming to have the columns but not returning
+                    // them
+                    let Some(responsible_peer) = column_to_peer.get(index) else {
+                        return Err(CouplingError {
+                            msg: format!("Internal error, no request made for column {}", index),
+                            column_and_peer: None,
+                        });
+                    };
+                    naughty_peers.push((*index, *responsible_peer));
+                }
+            }
+            // Assert that there are no columns left
+            if !data_columns_by_index.is_empty() {
+                let remaining_indices = data_columns_by_index.keys().collect::<Vec<_>>();
+                // log the error but don't return an error, we can still progress with extra columns.
+                tracing::error!(
+                    ?block_root,
+                    ?remaining_indices,
+                    "Not all columns consumed for block"
+                );
             }
         }
 

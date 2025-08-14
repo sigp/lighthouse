@@ -266,7 +266,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
             other => {
                 self.state = other;
                 Err(WrongState(format!(
-                    "Starting procesing batch in wrong state {:?}",
+                    "Starting processing batch in wrong state {:?}",
                     self.state
                 )))
             }

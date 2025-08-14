@@ -15,6 +15,10 @@ pub enum SyncState {
     /// specified by its peers. Once completed, the node enters this sync state and attempts to
     /// download all required historical blocks.
     BackFillSyncing { completed: usize, remaining: usize },
+    /// The node is undertaking a custody backfill sync. This occurs for a node that has completed forward and
+    /// backfill sync and has undergone a custody count change. During custody backfill sync the node attempts
+    /// to backfill its new column custody requirements up to the data availability window.
+    CustodyBackFillSyncing { completed: usize, remaining: usize },
     /// The node has completed syncing a finalized chain and is in the process of re-evaluating
     /// which sync state to progress to.
     SyncTransition,
@@ -65,8 +69,8 @@ impl SyncState {
             SyncState::SyncingFinalized { .. } => true,
             SyncState::SyncingHead { .. } => true,
             SyncState::SyncTransition => true,
-            // Backfill doesn't effect any logic, we consider this state, not syncing.
-            SyncState::BackFillSyncing { .. } => false,
+            // Both backfill and custody backfill don't effect any logic, we consider this state, not syncing.
+            SyncState::BackFillSyncing { .. } | SyncState::CustodyBackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
         }
@@ -77,7 +81,7 @@ impl SyncState {
             SyncState::SyncingFinalized { .. } => true,
             SyncState::SyncingHead { .. } => false,
             SyncState::SyncTransition => false,
-            SyncState::BackFillSyncing { .. } => false,
+            SyncState::BackFillSyncing { .. } | SyncState::CustodyBackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
         }
@@ -108,6 +112,9 @@ impl std::fmt::Display for SyncState {
             SyncState::Stalled => write!(f, "Stalled"),
             SyncState::SyncTransition => write!(f, "Evaluating known peers"),
             SyncState::BackFillSyncing { .. } => write!(f, "Syncing Historical Blocks"),
+            SyncState::CustodyBackFillSyncing { .. } => {
+                write!(f, "Syncing Historical Data Columns")
+            }
         }
     }
 }

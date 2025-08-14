@@ -684,7 +684,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 error!(error = ?e, "Backfill sync failed to start");
                             }
                         }
-                        // TODO(custody-sync) we may need to determine if custody sync needs to be ran as well
+                        // TODO(custody-sync) we may need to determine if custody sync needs to be ran as well?
+                        // Theres an edge case where backfill or forward sync interrupts custody sync and after it completes
+                        // custody sync needs to be ran again
+                        // or i guess after a node shutdown in the middle of custody sync?
+                        // the order it should go in -> check forward sync -> check backfill sync -> check custody sync
                     }
 
                     // Return the sync state if backfilling is not required.
@@ -950,8 +954,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     pub(crate) fn handle_sync_service_message(&mut self, sync_service_message: SyncServiceMessage) {
-        // TODO(custody-sync) make sure we are synced and done backfilling before we start
-        let mut _sync_state = {
+        let mut sync_state = {
             let head = self.chain.best_slot();
             let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
 
@@ -971,24 +974,33 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 SyncState::Synced
             }
         };
-        match sync_service_message {
-            SyncServiceMessage::CustodyCountChanged { .. } => {
-                match self.custody_sync.start(&mut self.network) {
-                    Ok(SyncStart::Syncing {
-                        completed: _,
-                        remaining: _,
-                    }) => {
-                        // TODO(custody-sync)
-                        // sync_state = SyncState::BackFillSyncing {
-                        //     completed,
-                        //     remaining,
-                        // };
-                    }
-                    Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the backfill sync state didn't start.
-                    Err(e) => {
-                        error!(error = ?e, "Backfill sync failed to start");
+
+        match sync_state {
+            SyncState::Synced => {
+                match sync_service_message {
+                    SyncServiceMessage::CustodyCountChanged { .. } => {
+                        match self.custody_sync.start(&mut self.network) {
+                            Ok(SyncStart::Syncing {
+                                completed,
+                                remaining,
+                            }) => {
+                                sync_state = SyncState::CustodyBackFillSyncing {
+                                    completed,
+                                    remaining,
+                                };
+
+                                self.network_globals().set_sync_state(sync_state);
+                            }
+                            Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the custody backfill sync state didn't start.
+                            Err(e) => {
+                                error!(error = ?e, "Custody backfill sync failed to start");
+                            }
+                        }
                     }
                 }
+            }
+            _ => {
+                debug!("Cannot trigger a custody backfill sync while the node is not synced")
             }
         }
     }
@@ -1312,7 +1324,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    // TODO(custody-sync) do we need this
     fn on_custody_sync_data_columns_by_range_response(
         &mut self,
         id: CustodySyncByRangeRequestId,

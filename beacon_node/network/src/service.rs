@@ -745,7 +745,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
 
-                // TODO(custody_sync)
+                // TODO(custody-sync) columns hashset needs the columns we need to backfill
                 if let Err(e) =
                     self.sync_service_send
                         .send(SyncServiceMessage::CustodyCountChanged {
