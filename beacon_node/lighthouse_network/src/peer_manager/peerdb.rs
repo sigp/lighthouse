@@ -323,6 +323,8 @@ impl<E: EthSpec> PeerDB<E> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
+    /// the given subnet id.
     pub fn good_custody_subnet_peer_range_sync(
         &self,
         subnet: DataColumnSubnetId,

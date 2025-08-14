@@ -957,7 +957,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, Some(&self.peers))
+                .synced_peers_for_epoch(batch_id, None)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -1034,7 +1034,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, Some(&self.peers))
+                .synced_peers_for_epoch(batch_id, None)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -1129,21 +1129,21 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> bool {
         if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
             // Require peers on all sampling column subnets before sending batches
-            network
+            let peers_on_all_custody_subnets = network
                 .network_globals()
                 .sampling_subnets()
                 .iter()
                 .all(|subnet_id| {
-                    let peer_db = network.network_globals().peers.read();
-                    let peer_count = self
+                    let peer_count = network
+                        .network_globals()
                         .peers
-                        .iter()
-                        .filter(|peer| {
-                            peer_db.is_good_range_sync_custody_subnet_peer(*subnet_id, peer)
-                        })
+                        .read()
+                        .good_custody_subnet_peer_range_sync(*subnet_id, epoch)
                         .count();
+
                     peer_count > 0
-                })
+                });
+            peers_on_all_custody_subnets
         } else {
             true
         }
