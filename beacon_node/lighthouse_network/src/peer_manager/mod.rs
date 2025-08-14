@@ -52,6 +52,11 @@ pub const PEER_RECONNECTION_TIMEOUT: Duration = Duration::from_secs(600);
 /// lower our peer count below this number. Instead we favour a non-uniform distribution of subnet
 /// peers.
 pub const MIN_SYNC_COMMITTEE_PEERS: u64 = 2;
+/// Avoid pruning sampling peers if subnet peer count is <= TARGET_SUBNET_PEERS.
+/// For non sampling columns, requirements is lower, but need to ensure there is peer for
+/// publishing.
+pub const MIN_SAMPLING_COLUMN_SUBNET_PEERS: u64 = TARGET_SUBNET_PEERS as u64;
+pub const MIN_NON_SAMPLING_COLUMN_SUBNET_PEERS: u64 = 1;
 /// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
 /// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
@@ -1136,10 +1141,12 @@ impl<E: EthSpec> PeerManager<E> {
             // These variables are used to track if a peer is in a long-lived sync-committee as we
             // may wish to retain this peer over others when pruning.
             let mut sync_committee_peer_count: HashMap<SyncSubnetId, u64> = HashMap::new();
-            let mut peer_to_sync_committee: HashMap<
-                PeerId,
-                std::collections::HashSet<SyncSubnetId>,
-            > = HashMap::new();
+            let mut peer_to_sync_committee: HashMap<PeerId, HashSet<SyncSubnetId>> = HashMap::new();
+
+            let mut custody_subnet_peer_count: HashMap<DataColumnSubnetId, u64> = HashMap::new();
+            let mut peer_to_custody_subnet: HashMap<PeerId, HashSet<DataColumnSubnetId>> =
+                HashMap::new();
+            let sampling_subnets = self.network_globals.sampling_subnets();
 
             for (peer_id, info) in self.network_globals.peers.read().connected_peers() {
                 // Ignore peers we trust or that we are already pruning
@@ -1166,10 +1173,13 @@ impl<E: EthSpec> PeerManager<E> {
                                 .or_default()
                                 .insert(id);
                         }
-                        // TODO(das) to be implemented. We're not pruning data column peers yet
-                        // because data column topics are subscribed as core topics until we
-                        // implement recomputing data column subnets.
-                        Subnet::DataColumn(_) => {}
+                        Subnet::DataColumn(id) => {
+                            *custody_subnet_peer_count.entry(id).or_default() += 1;
+                            peer_to_custody_subnet
+                                .entry(*peer_id)
+                                .or_default()
+                                .insert(id);
+                        }
                     }
                 }
             }
@@ -1185,7 +1195,7 @@ impl<E: EthSpec> PeerManager<E> {
                         // Order the peers by the number of subnets they are long-lived
                         // subscribed too, shuffle equal peers.
                         peers_on_subnet.shuffle(&mut rand::rng());
-                        peers_on_subnet.sort_by_key(|(_, info)| info.long_lived_subnet_count());
+                        peers_on_subnet.sort_by_key(|(_, info)| info.long_lived_attnet_count());
 
                         // Try and find a candidate peer to remove from the subnet.
                         // We ignore peers that would put us below our target outbound peers
@@ -1228,6 +1238,32 @@ impl<E: EthSpec> PeerManager<E> {
                                 }
                             }
 
+                            // Ensure custody subnet peers are protected based on subnet type and peer count.
+                            if let Some(subnets) = peer_to_custody_subnet.get(candidate_peer) {
+                                let mut should_protect = false;
+                                for subnet_id in subnets {
+                                    if let Some(subnet_count) =
+                                        custody_subnet_peer_count.get(subnet_id).copied()
+                                    {
+                                        let threshold = if sampling_subnets.contains(subnet_id) {
+                                            MIN_SAMPLING_COLUMN_SUBNET_PEERS
+                                        } else {
+                                            MIN_NON_SAMPLING_COLUMN_SUBNET_PEERS
+                                        };
+
+                                        if subnet_count <= threshold {
+                                            should_protect = true;
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                if should_protect {
+                                    // Do not drop this peer in this pruning interval
+                                    continue;
+                                }
+                            }
+
                             if info.is_outbound_only() {
                                 outbound_peers_pruned += 1;
                             }
@@ -1256,6 +1292,19 @@ impl<E: EthSpec> PeerManager<E> {
                                     {
                                         *sync_committee_count =
                                             sync_committee_count.saturating_sub(1);
+                                    }
+                                }
+                            }
+                            // Remove pruned peers from all custody subnet counts
+                            if let Some(known_custody_subnets) =
+                                peer_to_custody_subnet.get(&candidate_peer)
+                            {
+                                for custody_subnet in known_custody_subnets {
+                                    if let Some(custody_subnet_count) =
+                                        custody_subnet_peer_count.get_mut(custody_subnet)
+                                    {
+                                        *custody_subnet_count =
+                                            custody_subnet_count.saturating_sub(1);
                                     }
                                 }
                             }
@@ -2195,6 +2244,319 @@ mod tests {
         assert!(!connected_peers.contains(&peers[0]));
         assert!(!connected_peers.contains(&peers[4]));
         assert!(!connected_peers.contains(&peers[5]));
+    }
+
+    /// Test the pruning logic to avoid removing data column subnet peers when below TARGET_SUBNET_PEERS.
+    ///
+    /// Create 12 peers:
+    /// - 2 peers on sampling subnet 0 (below MIN_SAMPLING_SUBNET_PEERS=3)
+    /// - 4 peers on sampling subnet 1 (1 above MIN_SAMPLING_SUBNET_PEERS=3)
+    /// - 1 peer on non-sampling subnet 2 (at MIN_NON_SAMPLING_SUBNET_PEERS=1)
+    /// - 2 peers on non-sampling subnet 3 (1 above MIN_NON_SAMPLING_SUBNET_PEERS=1)
+    /// - 3 peers with no long-lived subnets
+    ///
+    /// With target_peer_count=7, we should prune 5 peers.
+    /// The peers on data column subnet 0 should be protected since we only have 2 (below MIN_SAMPLING_SUBNET_PEERS).
+    /// The peers on data column subnet 1 should be candidates for pruning since we have 4 (above MIN_SAMPLING_SUBNET_PEERS).
+    /// The peers on data column subnet 2 should be protected since we only have 2 (same as MIN_NON_SAMPLING_SUBNET_PEERS).
+    /// The peers on data column subnet 3 should be candidates for pruning since we have 2 (above MIN_NON_SAMPLING_SUBNET_PEERS).
+    /// The peers with no subnets should be pruned first.
+    #[tokio::test]
+    async fn test_peer_manager_prune_data_column_subnets() {
+        let initial_peer_count = 12;
+        let target = 7;
+        let mut peer_manager = build_peer_manager(target).await;
+
+        // Set up sampling subnets so that the node considers these data column subnets
+        let mut sampling_subnets = HashSet::new();
+        sampling_subnets.insert(0.into());
+        sampling_subnets.insert(1.into());
+        *peer_manager.network_globals.sampling_subnets.write() = sampling_subnets;
+
+        let mut peers = Vec::new();
+
+        // Create peers and set up their data column subnet subscriptions
+        for i in 0..initial_peer_count {
+            let peer_id = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+            attnets.set(i, true).unwrap();
+
+            // Set up custody subnets for different peers
+            let custody_subnets = match i {
+                0 | 1 => [0.into()].into_iter().collect(), // 2 peers on data column subnet 0 (below TARGET_SUBNET_PEERS)
+                2..=5 => [1.into()].into_iter().collect(), // 4 peers on data column subnet 1 (above TARGET_SUBNET_PEERS)
+                6 => [2.into()].into_iter().collect(),
+                7 | 8 => [3.into()].into_iter().collect(),
+                _ => HashSet::new(), // 2 peers with no data column subnets
+            };
+
+            // Set custody subnets for the peer
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer_id)
+                .unwrap()
+                .set_custody_subnets(custody_subnets.clone());
+
+            let metadata = crate::rpc::MetaDataV2 {
+                seq_number: 0,
+                attnets,
+                syncnets: Default::default(),
+            };
+
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer_id)
+                .unwrap()
+                .set_meta_data(MetaData::V2(metadata));
+
+            // Add subscriptions for each custody subnet
+            for subnet_id in custody_subnets {
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .add_subscription(&peer_id, Subnet::DataColumn(subnet_id));
+            }
+
+            peers.push(peer_id);
+        }
+
+        // Verify initial setup - should have 8 connected peers
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            initial_peer_count
+        );
+
+        // Perform the heartbeat to trigger pruning
+        peer_manager.heartbeat();
+
+        // Should prune down to target of 5 peers
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            target
+        );
+
+        let connected_peers: std::collections::HashSet<_> = peer_manager
+            .network_globals
+            .peers
+            .read()
+            .connected_or_dialing_peers()
+            .cloned()
+            .collect();
+
+        // Peers 0 and 1 (on data column subnet 0) should be protected since we only have 2 peers
+        // on that subnet (below TARGET_SUBNET_PEERS=3)
+        assert!(
+            connected_peers.contains(&peers[0]),
+            "Peer 0 on data column subnet 0 should be protected"
+        );
+        assert!(
+            connected_peers.contains(&peers[1]),
+            "Peer 1 on data column subnet 0 should be protected"
+        );
+
+        // Peers 9, 10, 11 (no subnets) should be pruned first as they have no long-lived subnets
+        assert!(
+            !connected_peers.contains(&peers[9]),
+            "Peer 9 with no subnets should be pruned"
+        );
+        assert!(
+            !connected_peers.contains(&peers[10]),
+            "Peer 10 with no subnets should be pruned"
+        );
+        assert!(
+            !connected_peers.contains(&peers[11]),
+            "Peer 11 with no subnets should be pruned"
+        );
+
+        // Peer 6 on non-sampling subnet 2 should be protected (at MIN_NON_SAMPLING_SUBNET_PEERS=1)
+        assert!(
+            connected_peers.contains(&peers[6]),
+            "Peer 6 on non-sampling subnet 2 should be protected"
+        );
+
+        // One peer from non-sampling subnet 3 should be pruned (we have 2, above MIN_NON_SAMPLING_SUBNET_PEERS=1)
+        let subnet_3_peers_remaining = [&peers[7], &peers[8]]
+            .iter()
+            .filter(|&&peer| connected_peers.contains(peer))
+            .count();
+        assert_eq!(
+            subnet_3_peers_remaining, 1,
+            "Should have 1 peer remaining on non-sampling subnet 3"
+        );
+
+        // One peer from sampling subnet 1 should be pruned (since we need to remove 5 total:
+        // 3 with no subnets + 1 from subnet 3 + 1 from subnet 1 = 5)
+        let subnet_1_peers_remaining = [&peers[2], &peers[3], &peers[4], &peers[5]]
+            .iter()
+            .filter(|&&peer| connected_peers.contains(peer))
+            .count();
+        assert_eq!(
+            subnet_1_peers_remaining, 3,
+            "Should have 3 peers remaining on sampling subnet 1"
+        );
+    }
+
+    /// Test the pruning logic with mixed sampling and non-sampling custody subnets.
+    ///
+    /// Create 10 peers:
+    /// - 3 peers on sampling subnet 0 (exactly at TARGET_SUBNET_PEERS=3, should be protected)  
+    /// - 3 peers on non-sampling subnet 1 (above threshold of 2, should be prunable)
+    /// - 2 peers on non-sampling subnet 2 (at threshold of 2, should be protected)
+    /// - 2 peers with no subnets
+    ///
+    /// With target_peer_count=6, we should prune 4 peers.
+    /// Expected behavior after implementing new logic:
+    /// - Sampling subnet 0: all 3 peers protected (count <= TARGET_SUBNET_PEERS)
+    /// - Non-sampling subnet 1: 1 peer should be prunable (3 > 2)
+    /// - Non-sampling subnet 2: both peers protected (count <= 2)
+    /// - No subnet peers: both should be pruned first
+    #[tokio::test]
+    async fn test_peer_manager_prune_mixed_custody_subnet_protection() {
+        let target = 6;
+        let mut peer_manager = build_peer_manager(target).await;
+
+        // Set up sampling subnets - only subnet 0 is a sampling subnet
+        let mut sampling_subnets = HashSet::new();
+        sampling_subnets.insert(0.into());
+        *peer_manager.network_globals.sampling_subnets.write() = sampling_subnets;
+
+        let mut peers = Vec::new();
+
+        // Create peers and set up their data column subnet subscriptions
+        for i in 0..10 {
+            let peer_id = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+            attnets.set(i, true).unwrap();
+
+            // Set up custody subnets for different peers
+            let custody_subnets = match i {
+                0..=2 => {
+                    // 3 peers on sampling subnet 0 (should be protected: count <= TARGET_SUBNET_PEERS)
+                    let mut subnets = HashSet::new();
+                    subnets.insert(0.into());
+                    subnets
+                }
+                3..=5 => {
+                    // 3 peers on non-sampling subnet 1 (should be prunable: count > 2)
+                    let mut subnets = HashSet::new();
+                    subnets.insert(1.into());
+                    subnets
+                }
+                6 | 7 => {
+                    // 2 peers on non-sampling subnet 2 (should be protected: count <= 2)
+                    let mut subnets = HashSet::new();
+                    subnets.insert(2.into());
+                    subnets
+                }
+                _ => {
+                    // 2 peers with no data column subnets (should be pruned first)
+                    HashSet::new()
+                }
+            };
+
+            // Set custody subnets for the peer
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer_id)
+                .unwrap()
+                .set_custody_subnets(custody_subnets.clone());
+
+            let metadata = crate::rpc::MetaDataV2 {
+                seq_number: 0,
+                attnets,
+                syncnets: Default::default(),
+            };
+
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer_id)
+                .unwrap()
+                .set_meta_data(MetaData::V2(metadata));
+
+            // Add subscriptions for each custody subnet
+            for subnet_id in custody_subnets {
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .add_subscription(&peer_id, Subnet::DataColumn(subnet_id));
+            }
+
+            peers.push(peer_id);
+        }
+
+        // Verify initial setup - should have 10 connected peers
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            10
+        );
+
+        // Perform the heartbeat to trigger pruning
+        peer_manager.heartbeat();
+
+        // Should prune down to target of 6 peers
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            target
+        );
+
+        let connected_peers: std::collections::HashSet<_> = peer_manager
+            .network_globals
+            .peers
+            .read()
+            .connected_or_dialing_peers()
+            .cloned()
+            .collect();
+
+        // All peers on sampling subnet 0 should be protected (peers 0, 1, 2)
+        for i in 0..3 {
+            assert!(
+                connected_peers.contains(&peers[i]),
+                "Peer {} on sampling subnet 0 should be protected",
+                i
+            );
+        }
+
+        // All peers on non-sampling subnet 2 should be protected (peers 6, 7)
+        for i in 6..8 {
+            assert!(
+                connected_peers.contains(&peers[i]),
+                "Peer {} on non-sampling subnet 2 should be protected",
+                i
+            );
+        }
+
+        // Peers with no subnets should be pruned first (peers 8, 9)
+        for i in 8..10 {
+            assert!(
+                !connected_peers.contains(&peers[i]),
+                "Peer {} with no subnets should be pruned",
+                i
+            );
+        }
+
+        // From non-sampling subnet 1 (peers 3, 4, 5), 1 should be pruned and 2 should remain
+        let subnet_1_peers_remaining = [&peers[3], &peers[4], &peers[5]]
+            .iter()
+            .filter(|&&peer| connected_peers.contains(peer))
+            .count();
+        assert_eq!(
+            subnet_1_peers_remaining, 2,
+            "Should have 2 peers remaining on non-sampling subnet 1 (1 pruned)"
+        );
     }
 
     /// Test the pruning logic to prioritise peers with the most subnets, but not at the expense of

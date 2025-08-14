@@ -176,7 +176,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Returns the number of long lived subnets a peer is subscribed to.
     // NOTE: This currently excludes sync committee subnets
-    pub fn long_lived_subnet_count(&self) -> usize {
+    pub fn long_lived_attnet_count(&self) -> usize {
         if let Some(meta_data) = self.meta_data.as_ref() {
             return meta_data.attnets().num_set_bits();
         } else if let Some(enr) = self.enr.as_ref()
@@ -222,6 +222,13 @@ impl<E: EthSpec> PeerInfo<E> {
                 }
             }
         }
+
+        long_lived_subnets.extend(
+            self.custody_subnets
+                .iter()
+                .map(|&id| Subnet::DataColumn(id)),
+        );
+
         long_lived_subnets
     }
 
@@ -262,6 +269,11 @@ impl<E: EthSpec> PeerInfo<E> {
         {
             return true;
         }
+
+        if !self.custody_subnets.is_empty() {
+            return true;
+        }
+
         false
     }
 
