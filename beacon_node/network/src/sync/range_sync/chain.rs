@@ -8,7 +8,7 @@ use crate::sync::{BatchOperationOutcome, BatchProcessResult, network_context::Sy
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_network::{PeerAction, PeerId, SyncInfo};
+use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use strum::IntoStaticStr;
@@ -83,10 +83,6 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// The target head root.
     pub target_head_root: Hash256,
 
-    pub target_finalized_epoch: Epoch,
-
-    pub target_finalized_root: Hash256,
-
     /// Sorted map of batches undergoing some kind of processing.
     batches: BTreeMap<BatchId, BatchInfo<T::EthSpec>>,
 
@@ -132,8 +128,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         start_epoch: Epoch,
         target_head_slot: Slot,
         target_head_root: Hash256,
-        target_finalized_epoch: Epoch,
-        target_finalized_root: Hash256,
         peer_id: PeerId,
         chain_type: SyncingChainType,
     ) -> Self {
@@ -143,8 +137,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             start_epoch,
             target_head_slot,
             target_head_root,
-            target_finalized_epoch,
-            target_finalized_root,
             batches: BTreeMap::new(),
             peers: HashSet::from_iter([peer_id]),
             to_be_downloaded: start_epoch,
@@ -157,15 +149,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Returns true if this chain has the same target
-    pub fn has_same_target(&self, remote_info: &SyncInfo) -> bool {
-        self.target_finalized_root == remote_info.finalized_root
-            && self.target_finalized_epoch == remote_info.finalized_epoch
-            && (self.target_head_root == remote_info.head_root
-                || self
-                    .target_head_slot
-                    .as_u64()
-                    .abs_diff(remote_info.head_slot.as_u64())
-                    <= T::EthSpec::slots_per_epoch() * 2)
+    pub fn has_same_target(&self, target_head_slot: Slot, target_head_root: Hash256) -> bool {
+        self.target_head_slot == target_head_slot && self.target_head_root == target_head_root
     }
 
     /// Check if the chain has peers from which to process batches.
@@ -1118,7 +1103,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         .read()
                         .good_custody_subnet_peer_range_sync(*subnet_id, epoch)
                         .count();
-
                     peer_count > 0
                 });
             peers_on_all_custody_subnets
