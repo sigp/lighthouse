@@ -120,10 +120,10 @@ impl RateLimiterConfig {
     // Range sync load balances when requesting blocks, and each batch is 32 blocks.
     pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota =
         Quota::n_every(NonZeroU64::new(5120).unwrap(), 10);
-    // 512 columns per request from spec. This should be plenty as peers are unlikely to send all
-    // sampling requests to a single peer.
+    // 128 columns * 32 blocks in an epoch. Many clients try to request an entire batch by
+    // root instead of by range, so we should account for honest behaviour.
     pub const DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA: Quota =
-        Quota::n_every(NonZeroU64::new(512).unwrap(), 10);
+        Quota::n_every(NonZeroU64::new(4096).unwrap(), 10);
     pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA: Quota = Quota::one_every(10);
