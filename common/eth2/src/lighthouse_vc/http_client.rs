@@ -44,7 +44,7 @@ impl Display for AuthorizationHeader {
 
 impl ValidatorClientHttpClient {
     /// Create a new client pre-initialised with an API token.
-    pub fn new(server: SensitiveUrl, secret: String) -> std::result::Result<Self, Error> {
+    pub fn new(server: SensitiveUrl, secret: String) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
@@ -56,7 +56,7 @@ impl ValidatorClientHttpClient {
     /// Create a client without an API token.
     ///
     /// A token can be fetched by using `self.get_auth`, and then reading the token from disk.
-    pub fn new_unauthenticated(server: SensitiveUrl) -> std::result::Result<Self, Error> {
+    pub fn new_unauthenticated(server: SensitiveUrl) -> Result<Self, Error> {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
@@ -69,7 +69,7 @@ impl ValidatorClientHttpClient {
         server: SensitiveUrl,
         client: reqwest::Client,
         secret: String,
-    ) -> std::result::Result<Self, Error> {
+    ) -> Result<Self, Error> {
         Ok(Self {
             client,
             server,
@@ -84,13 +84,13 @@ impl ValidatorClientHttpClient {
     }
 
     /// Read an API token from the specified `path`, stripping any trailing whitespace.
-    pub fn load_api_token_from_file(path: &Path) -> std::result::Result<Zeroizing<String>, Error> {
+    pub fn load_api_token_from_file(path: &Path) -> Result<Zeroizing<String>, Error> {
         let token = fs::read_to_string(path).map_err(|e| Error::TokenReadError(path.into(), e))?;
         Ok(token.trim_end().to_string().into())
     }
 
     /// Add an authentication token to use when making requests.
-    pub fn add_auth_token(&mut self, token: Zeroizing<String>) -> std::result::Result<(), Error> {
+    pub fn add_auth_token(&mut self, token: Zeroizing<String>) -> Result<(), Error> {
         self.api_token = Some(token);
         self.authorization_header = AuthorizationHeader::Bearer;
 
@@ -114,7 +114,7 @@ impl ValidatorClientHttpClient {
         self.authorization_header = AuthorizationHeader::Basic;
     }
 
-    fn headers(&self) -> std::result::Result<HeaderMap, Error> {
+    fn headers(&self) -> Result<HeaderMap, Error> {
         let mut headers = HeaderMap::new();
 
         if self.authorization_header == AuthorizationHeader::Basic
@@ -137,7 +137,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// Perform a HTTP GET request, returning the `Response` for further processing.
-    async fn get_response<U: IntoUrl>(&self, url: U) -> std::result::Result<Response, Error> {
+    async fn get_response<U: IntoUrl>(&self, url: U) -> Result<Response, Error> {
         let response = self
             .client
             .get(url)
@@ -149,7 +149,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// Perform a HTTP DELETE request, returning the `Response` for further processing.
-    async fn delete_response<U: IntoUrl>(&self, url: U) -> std::result::Result<Response, Error> {
+    async fn delete_response<U: IntoUrl>(&self, url: U) -> Result<Response, Error> {
         let response = self
             .client
             .delete(url)
@@ -160,13 +160,13 @@ impl ValidatorClientHttpClient {
         ok_or_error_validator(response).await
     }
 
-    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> std::result::Result<T, Error> {
+    async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         let response = self.get_response(url).await?;
         let body = response.bytes().await.map_err(Error::from)?;
         serde_json::from_slice(&body).map_err(Error::InvalidJson)
     }
 
-    async fn delete<U: IntoUrl>(&self, url: U) -> std::result::Result<(), Error> {
+    async fn delete<U: IntoUrl>(&self, url: U) -> Result<(), Error> {
         let response = self.delete_response(url).await?;
         if response.status().is_success() {
             Ok(())
@@ -175,7 +175,7 @@ impl ValidatorClientHttpClient {
         }
     }
 
-    async fn get_unsigned<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> std::result::Result<T, Error> {
+    async fn get_unsigned<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
         self.get_response(url)
             .await?
             .json()
@@ -184,7 +184,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// Perform a HTTP GET request, returning `None` on a 404 error.
-    async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> std::result::Result<Option<T>, Error> {
+    async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
         match self.get_response(url).await {
             Ok(resp) => {
                 let body = resp.bytes().await.map(Option::Some)?;
@@ -209,7 +209,7 @@ impl ValidatorClientHttpClient {
         &self,
         url: U,
         body: &T,
-    ) -> std::result::Result<Response, Error> {
+    ) -> Result<Response, Error> {
         let response = self
             .client
             .post(url)
@@ -225,7 +225,7 @@ impl ValidatorClientHttpClient {
         &self,
         url: U,
         body: &T,
-    ) -> std::result::Result<V, Error> {
+    ) -> Result<V, Error> {
         let response = self.post_with_raw_response(url, body).await?;
         let body = response.bytes().await.map_err(Error::from)?;
         serde_json::from_slice(&body).map_err(Error::InvalidJson)
@@ -235,13 +235,13 @@ impl ValidatorClientHttpClient {
         &self,
         url: U,
         body: &T,
-    ) -> std::result::Result<V, Error> {
+    ) -> Result<V, Error> {
         let response = self.post_with_raw_response(url, body).await?;
         Ok(response.json().await?)
     }
 
     /// Perform a HTTP PATCH request.
-    async fn patch<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> std::result::Result<(), Error> {
+    async fn patch<T: Serialize, U: IntoUrl>(&self, url: U, body: &T) -> Result<(), Error> {
         let response = self
             .client
             .patch(url)
@@ -259,7 +259,7 @@ impl ValidatorClientHttpClient {
         &self,
         url: U,
         body: &T,
-    ) -> std::result::Result<Response, Error> {
+    ) -> Result<Response, Error> {
         let response = self
             .client
             .delete(url)
@@ -276,13 +276,13 @@ impl ValidatorClientHttpClient {
         &self,
         url: U,
         body: &T,
-    ) -> std::result::Result<V, Error> {
+    ) -> Result<V, Error> {
         let response = self.delete_with_raw_response(url, body).await?;
         Ok(response.json().await?)
     }
 
     /// `GET lighthouse/version`
-    pub async fn get_lighthouse_version(&self) -> std::result::Result<GenericResponse<VersionData>, Error> {
+    pub async fn get_lighthouse_version(&self) -> Result<GenericResponse<VersionData>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -294,7 +294,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// `GET lighthouse/health`
-    pub async fn get_lighthouse_health(&self) -> std::result::Result<GenericResponse<Health>, Error> {
+    pub async fn get_lighthouse_health(&self) -> Result<GenericResponse<Health>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -308,7 +308,7 @@ impl ValidatorClientHttpClient {
     /// `GET lighthouse/spec`
     pub async fn get_lighthouse_spec<T: Serialize + DeserializeOwned>(
         &self,
-    ) -> std::result::Result<GenericResponse<T>, Error> {
+    ) -> Result<GenericResponse<T>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -322,7 +322,7 @@ impl ValidatorClientHttpClient {
     /// `GET lighthouse/validators`
     pub async fn get_lighthouse_validators(
         &self,
-    ) -> std::result::Result<GenericResponse<Vec<ValidatorData>>, Error> {
+    ) -> Result<GenericResponse<Vec<ValidatorData>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -337,7 +337,7 @@ impl ValidatorClientHttpClient {
     pub async fn get_lighthouse_validators_pubkey(
         &self,
         validator_pubkey: &PublicKeyBytes,
-    ) -> std::result::Result<Option<GenericResponse<ValidatorData>>, Error> {
+    ) -> Result<Option<GenericResponse<ValidatorData>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -353,7 +353,7 @@ impl ValidatorClientHttpClient {
     pub async fn post_lighthouse_validators(
         &self,
         validators: Vec<ValidatorRequest>,
-    ) -> std::result::Result<GenericResponse<PostValidatorsResponseData>, Error> {
+    ) -> Result<GenericResponse<PostValidatorsResponseData>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -368,7 +368,7 @@ impl ValidatorClientHttpClient {
     pub async fn post_lighthouse_validators_mnemonic(
         &self,
         request: &CreateValidatorsMnemonicRequest,
-    ) -> std::result::Result<GenericResponse<Vec<CreatedValidator>>, Error> {
+    ) -> Result<GenericResponse<Vec<CreatedValidator>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -384,7 +384,7 @@ impl ValidatorClientHttpClient {
     pub async fn post_lighthouse_validators_keystore(
         &self,
         request: &KeystoreValidatorsPostRequest,
-    ) -> std::result::Result<GenericResponse<ValidatorData>, Error> {
+    ) -> Result<GenericResponse<ValidatorData>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -400,7 +400,7 @@ impl ValidatorClientHttpClient {
     pub async fn post_lighthouse_validators_web3signer(
         &self,
         request: &[Web3SignerValidatorRequest],
-    ) -> std::result::Result<(), Error> {
+    ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -423,7 +423,7 @@ impl ValidatorClientHttpClient {
         builder_boost_factor: Option<u64>,
         prefer_builder_proposals: Option<bool>,
         graffiti: Option<GraffitiString>,
-    ) -> std::result::Result<(), Error> {
+    ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -450,7 +450,7 @@ impl ValidatorClientHttpClient {
     pub async fn delete_lighthouse_keystores(
         &self,
         req: &DeleteKeystoresRequest,
-    ) -> std::result::Result<ExportKeystoresResponse, Error> {
+    ) -> Result<ExportKeystoresResponse, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -461,7 +461,7 @@ impl ValidatorClientHttpClient {
         self.delete_with_unsigned_response(path, req).await
     }
 
-    fn make_keystores_url(&self) -> std::result::Result<Url, Error> {
+    fn make_keystores_url(&self) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -471,7 +471,7 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
-    fn make_remotekeys_url(&self) -> std::result::Result<Url, Error> {
+    fn make_remotekeys_url(&self) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -481,7 +481,7 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
-    fn make_fee_recipient_url(&self, pubkey: &PublicKeyBytes) -> std::result::Result<Url, Error> {
+    fn make_fee_recipient_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -493,7 +493,7 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
-    fn make_graffiti_url(&self, pubkey: &PublicKeyBytes) -> std::result::Result<Url, Error> {
+    fn make_graffiti_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -505,7 +505,7 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
-    fn make_gas_limit_url(&self, pubkey: &PublicKeyBytes) -> std::result::Result<Url, Error> {
+    fn make_gas_limit_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -518,7 +518,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// `GET lighthouse/auth`
-    pub async fn get_auth(&self) -> std::result::Result<AuthResponse, Error> {
+    pub async fn get_auth(&self) -> Result<AuthResponse, Error> {
         let mut url = self.server.full.clone();
         url.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -528,7 +528,7 @@ impl ValidatorClientHttpClient {
     }
 
     /// `GET eth/v1/keystores`
-    pub async fn get_keystores(&self) -> std::result::Result<ListKeystoresResponse, Error> {
+    pub async fn get_keystores(&self) -> Result<ListKeystoresResponse, Error> {
         let url = self.make_keystores_url()?;
         self.get_unsigned(url).await
     }
@@ -537,7 +537,7 @@ impl ValidatorClientHttpClient {
     pub async fn post_keystores(
         &self,
         req: &ImportKeystoresRequest,
-    ) -> std::result::Result<ImportKeystoresResponse, Error> {
+    ) -> Result<ImportKeystoresResponse, Error> {
         let url = self.make_keystores_url()?;
         self.post_with_unsigned_response(url, req).await
     }
@@ -546,13 +546,13 @@ impl ValidatorClientHttpClient {
     pub async fn delete_keystores(
         &self,
         req: &DeleteKeystoresRequest,
-    ) -> std::result::Result<DeleteKeystoresResponse, Error> {
+    ) -> Result<DeleteKeystoresResponse, Error> {
         let url = self.make_keystores_url()?;
         self.delete_with_unsigned_response(url, req).await
     }
 
     /// `GET eth/v1/remotekeys`
-    pub async fn get_remotekeys(&self) -> std::result::Result<ListRemotekeysResponse, Error> {
+    pub async fn get_remotekeys(&self) -> Result<ListRemotekeysResponse, Error> {
         let url = self.make_remotekeys_url()?;
         self.get_unsigned(url).await
     }
@@ -561,7 +561,7 @@ impl ValidatorClientHttpClient {
     pub async fn post_remotekeys(
         &self,
         req: &ImportRemotekeysRequest,
-    ) -> std::result::Result<ImportRemotekeysResponse, Error> {
+    ) -> Result<ImportRemotekeysResponse, Error> {
         let url = self.make_remotekeys_url()?;
         self.post_with_unsigned_response(url, req).await
     }
@@ -570,7 +570,7 @@ impl ValidatorClientHttpClient {
     pub async fn delete_remotekeys(
         &self,
         req: &DeleteRemotekeysRequest,
-    ) -> std::result::Result<DeleteRemotekeysResponse, Error> {
+    ) -> Result<DeleteRemotekeysResponse, Error> {
         let url = self.make_remotekeys_url()?;
         self.delete_with_unsigned_response(url, req).await
     }
@@ -579,7 +579,7 @@ impl ValidatorClientHttpClient {
     pub async fn get_fee_recipient(
         &self,
         pubkey: &PublicKeyBytes,
-    ) -> std::result::Result<GetFeeRecipientResponse, Error> {
+    ) -> Result<GetFeeRecipientResponse, Error> {
         let url = self.make_fee_recipient_url(pubkey)?;
         self.get(url)
             .await
@@ -591,13 +591,13 @@ impl ValidatorClientHttpClient {
         &self,
         pubkey: &PublicKeyBytes,
         req: &UpdateFeeRecipientRequest,
-    ) -> std::result::Result<Response, Error> {
+    ) -> Result<Response, Error> {
         let url = self.make_fee_recipient_url(pubkey)?;
         self.post_with_raw_response(url, req).await
     }
 
     /// `DELETE /eth/v1/validator/{pubkey}/feerecipient`
-    pub async fn delete_fee_recipient(&self, pubkey: &PublicKeyBytes) -> std::result::Result<Response, Error> {
+    pub async fn delete_fee_recipient(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
         let url = self.make_fee_recipient_url(pubkey)?;
         self.delete_with_raw_response(url, &()).await
     }
@@ -606,7 +606,7 @@ impl ValidatorClientHttpClient {
     pub async fn get_gas_limit(
         &self,
         pubkey: &PublicKeyBytes,
-    ) -> std::result::Result<GetGasLimitResponse, Error> {
+    ) -> Result<GetGasLimitResponse, Error> {
         let url = self.make_gas_limit_url(pubkey)?;
         self.get(url)
             .await
@@ -618,13 +618,13 @@ impl ValidatorClientHttpClient {
         &self,
         pubkey: &PublicKeyBytes,
         req: &UpdateGasLimitRequest,
-    ) -> std::result::Result<Response, Error> {
+    ) -> Result<Response, Error> {
         let url = self.make_gas_limit_url(pubkey)?;
         self.post_with_raw_response(url, req).await
     }
 
     /// `DELETE /eth/v1/validator/{pubkey}/gas_limit`
-    pub async fn delete_gas_limit(&self, pubkey: &PublicKeyBytes) -> std::result::Result<Response, Error> {
+    pub async fn delete_gas_limit(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
         let url = self.make_gas_limit_url(pubkey)?;
         self.delete_with_raw_response(url, &()).await
     }
@@ -634,7 +634,7 @@ impl ValidatorClientHttpClient {
         &self,
         pubkey: &PublicKeyBytes,
         epoch: Option<Epoch>,
-    ) -> std::result::Result<GenericResponse<SignedVoluntaryExit>, Error> {
+    ) -> Result<GenericResponse<SignedVoluntaryExit>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -657,7 +657,7 @@ impl ValidatorClientHttpClient {
     pub async fn get_graffiti(
         &self,
         pubkey: &PublicKeyBytes,
-    ) -> std::result::Result<GetGraffitiResponse, Error> {
+    ) -> Result<GetGraffitiResponse, Error> {
         let url = self.make_graffiti_url(pubkey)?;
         self.get(url)
             .await
@@ -669,14 +669,14 @@ impl ValidatorClientHttpClient {
         &self,
         pubkey: &PublicKeyBytes,
         graffiti: GraffitiString,
-    ) -> std::result::Result<(), Error> {
+    ) -> Result<(), Error> {
         let url = self.make_graffiti_url(pubkey)?;
         let set_graffiti_request = SetGraffitiRequest { graffiti };
         self.post(url, &set_graffiti_request).await
     }
 
     /// `DELETE /eth/v1/validator/{pubkey}/graffiti`
-    pub async fn delete_graffiti(&self, pubkey: &PublicKeyBytes) -> std::result::Result<(), Error> {
+    pub async fn delete_graffiti(&self, pubkey: &PublicKeyBytes) -> Result<(), Error> {
         let url = self.make_graffiti_url(pubkey)?;
         self.delete(url).await
     }
