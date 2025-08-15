@@ -133,7 +133,9 @@ pub fn load_private_key(config: &NetworkConfig) -> Keypair {
                     // only accept secp256k1 keys for now
                     if let Ok(secret_key) = secp256k1::SecretKey::try_from_bytes(&mut key_bytes) {
                         let kp: secp256k1::Keypair = secret_key.clone().into();
-                        debug!("Loaded network key from disk (binary format), migrating to hex format.");
+                        debug!(
+                            "Loaded network key from disk (binary format), migrating to hex format."
+                        );
 
                         // Migrate binary key to hex format
                         let hex_key = hex::encode(secret_key.to_bytes());
