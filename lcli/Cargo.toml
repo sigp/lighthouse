@@ -20,7 +20,6 @@ bls = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
 deposit_contract = { workspace = true }
-env_logger = { workspace = true }
 environment = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }
