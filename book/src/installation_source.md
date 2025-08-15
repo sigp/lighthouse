@@ -166,8 +166,8 @@ Commonly used features include:
 - `slasher-lmdb`: support for the LMDB slasher backend. Enabled by default.
 - `slasher-mdbx`: support for the MDBX slasher backend.
 - `beacon-node-leveldb`: support for the leveldb backend. Enabled by default.
-- `jemalloc`: use [`jemalloc`][jemalloc] to allocate memory. Enabled by default on Linux and macOS.
-  Not supported on Windows.
+- `sysmalloc`: use the system memory allocator rather than jemalloc. This is always enabled on
+  Windows.
 - `spec-minimal`: support for the minimal preset (useful for testing).
 
 Default features (e.g. `slasher-lmdb`, `beacon-node-leveldb`) may be opted out of using the `--no-default-features`
@@ -177,8 +177,6 @@ E.g.
 ```
 CARGO_INSTALL_EXTRA_FLAGS="--no-default-features" make
 ```
-
-[jemalloc]: https://jemalloc.net/
 
 ## Compilation Profiles
 

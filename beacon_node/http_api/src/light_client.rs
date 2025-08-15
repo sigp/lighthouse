@@ -34,13 +34,15 @@ pub fn get_light_client_updates<T: BeaconChainTypes>(
     match accept_header {
         Some(api_types::Accept::Ssz) => {
             let response_chunks = light_client_updates
-                .iter()
-                .map(|update| map_light_client_update_to_ssz_chunk::<T>(&chain, update))
-                .collect::<Vec<LightClientUpdateResponseChunk>>();
+                .into_iter()
+                .flat_map(|update| {
+                    map_light_client_update_to_response_chunk::<T>(&chain, update).as_ssz_bytes()
+                })
+                .collect();
 
             Response::builder()
                 .status(200)
-                .body(response_chunks.as_ssz_bytes())
+                .body(response_chunks)
                 .map(|res: Response<Vec<u8>>| add_ssz_content_type_header(res))
                 .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
@@ -146,21 +148,20 @@ pub fn validate_light_client_updates_request<T: BeaconChainTypes>(
     Ok(())
 }
 
-fn map_light_client_update_to_ssz_chunk<T: BeaconChainTypes>(
+fn map_light_client_update_to_response_chunk<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    light_client_update: &LightClientUpdate<T::EthSpec>,
-) -> LightClientUpdateResponseChunk {
+    light_client_update: LightClientUpdate<T::EthSpec>,
+) -> LightClientUpdateResponseChunk<T::EthSpec> {
     let epoch = light_client_update
         .attested_header_slot()
         .epoch(T::EthSpec::slots_per_epoch());
     let fork_digest = chain.compute_fork_digest(epoch);
 
-    let payload = light_client_update.as_ssz_bytes();
-    let response_chunk_len = fork_digest.len() + payload.len();
+    let response_chunk_len = fork_digest.len() + light_client_update.ssz_bytes_len();
 
     let response_chunk = LightClientUpdateResponseChunkInner {
         context: fork_digest,
-        payload,
+        payload: light_client_update,
     };
 
     LightClientUpdateResponseChunk {
