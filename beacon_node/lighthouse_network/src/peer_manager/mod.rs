@@ -25,6 +25,7 @@ pub use libp2p::identity::Keypair;
 pub mod peerdb;
 
 use crate::peer_manager::peerdb::client::ClientKind;
+use itertools::Itertools;
 use libp2p::multiaddr;
 pub use peerdb::peer_info::{
     ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo,
@@ -742,13 +743,14 @@ impl<E: EthSpec> PeerManager<E> {
             let custody_group_count_opt = meta_data.custody_group_count().copied().ok();
             peer_info.set_meta_data(meta_data);
 
-            if self.network_globals.spec.is_peer_das_scheduled() {
+            let spec = &self.network_globals.spec;
+            if spec.is_peer_das_scheduled() {
                 // Gracefully ignore metadata/v2 peers.
                 // We only send metadata v3 requests when PeerDAS is scheduled
                 if let Some(custody_group_count) = custody_group_count_opt {
                     match self.compute_peer_custody_groups(peer_id, custody_group_count) {
                         Ok(custody_groups) => {
-                            let custody_subnets: HashSet<DataColumnSubnetId> = custody_groups
+                            let custody_subnets: Vec<DataColumnSubnetId> = custody_groups
                                 .into_iter()
                                 .flat_map(|custody_index| {
                                     self.subnets_by_custody_group
@@ -763,15 +765,19 @@ impl<E: EthSpec> PeerManager<E> {
                                             vec![]
                                         })
                                 })
+                                .sorted()
                                 .collect();
-                            let cgc = if custody_subnets.len() == 128 {
+
+                            let subnets_str = if custody_subnets.len()
+                                == spec.data_column_sidecar_subnet_count as usize
+                            {
                                 "supernode".to_string()
                             } else {
                                 format!("{:?}", custody_subnets)
                             };
 
-                            debug!(cgc, ?peer_id, "Peer custodied subnets");
-                            peer_info.set_custody_subnets(custody_subnets);
+                            debug!(subnets_str, ?peer_id, "Computed peers' custody subnets");
+                            peer_info.set_custody_subnets(custody_subnets.into_iter().collect());
 
                             updated_cgc = Some(custody_group_count) != known_custody_group_count;
                         }
@@ -970,16 +976,17 @@ impl<E: EthSpec> PeerManager<E> {
                     .network_globals
                     .peers
                     .read()
-                    .good_range_sync_custody_subnet_peers(*custody_subnet)
-                    .count()
-                    < 2
+                    .has_good_peers_in_custody_subnet(
+                        custody_subnet,
+                        MIN_SAMPLING_COLUMN_SUBNET_PEERS as usize,
+                    )
                 {
+                    None
+                } else {
                     Some(SubnetDiscovery {
                         subnet: Subnet::DataColumn(*custody_subnet),
                         min_ttl: None,
                     })
-                } else {
-                    None
                 }
             })
             .collect();
