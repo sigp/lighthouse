@@ -465,6 +465,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they bad signatures.
                         Some(PeerAction::LowToleranceError)
                     }
+                    HistoricalDataColumnError::MissingDataColumns { .. } => {
+                        warn!(
+                            error = ?e,
+                            "Custody backfill batch processing error",
+                        );
+                        // The peer is faulty if they don't return data columns 
+                        // that they advertised as available.
+                        Some(PeerAction::LowToleranceError)
+                    }
                     HistoricalDataColumnError::IndexOutOfBounds => {
                         error!(
                             error = ?e,

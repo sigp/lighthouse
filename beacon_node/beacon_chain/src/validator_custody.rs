@@ -326,11 +326,17 @@ impl<E: EthSpec> CustodyContext<E> {
     }
 
     /// Returns the ordered list of column indices that should be sampled based on a given `custody_group_count`.
-    /// Note: In almost all cases `sampling_columns_for_epoch` should be used. 
+    /// Note: In almost all cases `sampling_columns_for_epoch` should be used.
     /// TODO(custody-sync) This function should probably be removed once we're done testing custody sync
     /// as it might be a potential foot-gun.
-    pub fn sampling_columns_for_custody_count(&self, custody_group_count: u64, spec: &ChainSpec) -> &[ColumnIndex] {
-        let num_of_columns_to_sample = spec.sampling_size_columns(custody_group_count)
+    pub fn sampling_columns_for_custody_count(
+        &self,
+        custody_group_count: u64,
+        spec: &ChainSpec,
+    ) -> &[ColumnIndex] {
+        
+        let num_of_columns_to_sample = spec
+            .sampling_size_columns(custody_group_count)
             .expect("should compute node sampling size from valid cgc value");
 
         let all_columns_ordered = self

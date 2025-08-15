@@ -3811,7 +3811,13 @@ pub fn serve<T: BeaconChainTypes>(
                         let current_slot =
                             chain.slot().map_err(warp_utils::reject::unhandled_error)?;
 
-                        let current_custody_columns = chain.sampling_columns_for_epoch(current_slot.epoch(T::EthSpec::slots_per_epoch())).iter().copied().collect::<HashSet<_>>();
+                        let current_custody_columns = chain
+                            .sampling_columns_for_epoch(
+                                current_slot.epoch(T::EthSpec::slots_per_epoch()),
+                            )
+                            .iter()
+                            .copied()
+                            .collect::<HashSet<_>>();
                         if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()
@@ -3822,8 +3828,15 @@ pub fn serve<T: BeaconChainTypes>(
                                     .effective_epoch
                                     .start_slot(T::EthSpec::slots_per_epoch()),
                             ));
-                            let updated_custody_columns = chain.sampling_columns_for_epoch(cgc_change.effective_epoch).iter().copied().collect::<HashSet<_>>();
-                            let new_column_indices = current_custody_columns.symmetric_difference(&updated_custody_columns).copied().collect::<HashSet<_>>();
+                            let updated_custody_columns = chain
+                                .sampling_columns_for_epoch(cgc_change.effective_epoch)
+                                .iter()
+                                .copied()
+                                .collect::<HashSet<_>>();
+                            let new_column_indices = current_custody_columns
+                                .symmetric_difference(&updated_custody_columns)
+                                .copied()
+                                .collect::<HashSet<_>>();
 
                             network_tx.send(NetworkMessage::CustodyCountChanged {
                                 new_custody_group_count: cgc_change.new_custody_group_count,
@@ -4162,10 +4175,23 @@ pub fn serve<T: BeaconChainTypes>(
                         .data_availability_checker
                         .custody_context()
                         .num_of_custody_groups_to_sample(effective_epoch, &chain.spec);
-                    
-                    let current_custody_columns = chain.sampling_columns_for_epoch(effective_epoch).iter().copied().collect::<HashSet<_>>();
-                    let updated_custody_columns = chain.data_availability_checker.custody_context().sampling_columns_for_custody_count(cgc + request_data.count, &chain.spec).iter().copied().collect::<HashSet<_>>();
-                    let new_column_indices = current_custody_columns.symmetric_difference(&updated_custody_columns).copied().collect::<HashSet<_>>();
+
+                    let current_custody_columns = chain
+                        .sampling_columns_for_epoch(effective_epoch)
+                        .iter()
+                        .copied()
+                        .collect::<HashSet<_>>();
+                    let updated_custody_columns = chain
+                        .data_availability_checker
+                        .custody_context()
+                        .sampling_columns_for_custody_count(cgc + request_data.count, &chain.spec)
+                        .iter()
+                        .copied()
+                        .collect::<HashSet<_>>();
+                    let new_column_indices = current_custody_columns
+                        .symmetric_difference(&updated_custody_columns)
+                        .copied()
+                        .collect::<HashSet<_>>();
 
                     publish_network_message(
                         &network_tx,

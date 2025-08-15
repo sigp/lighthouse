@@ -1,8 +1,8 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::{BeaconChain, BeaconChainTypes};
 use store::{Error as StoreError, KeyValueStore};
-use types::{DataColumnSidecarList, Epoch, EthSpec, Hash256};
+use types::{DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot, ColumnIndex};
 
 #[derive(Debug)]
 pub enum HistoricalDataColumnError {
@@ -19,6 +19,11 @@ pub enum HistoricalDataColumnError {
 
     /// Logic error: should never occur.
     IndexOutOfBounds,
+
+    /// The provided data column sidecar lists doesn't contain columns for the full range of slots for the given epoch.
+    MissingDataColumns {
+        missing_slots_and_data_columns: HashMap<Slot, HashSet<ColumnIndex>>,
+    },
 
     /// Internal store error
     StoreError(StoreError),
@@ -48,9 +53,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let expected_imported = historical_data_column_sidecar_list.len();
         let mut ops = vec![];
 
-        let mut slots_to_update = epoch
+        let unique_column_indices = historical_data_column_sidecar_list
+            .iter()
+            .map(|item| item.index)
+            .collect::<HashSet<_>>();
+
+        let slots_to_update = epoch
             .slot_iter(T::EthSpec::slots_per_epoch())
             .collect::<HashSet<_>>();
+
+        let mut columns_to_update_per_slot: HashMap<Slot, HashSet<u64>> = slots_to_update
+            .iter()
+            .map(|&slot| (slot, unique_column_indices.clone()))
+            .collect();
 
         if historical_data_column_sidecar_list.is_empty() {
             return Ok(total_imported);
@@ -59,7 +74,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for data_column_sidecar in historical_data_column_sidecar_list {
             let block_root = data_column_sidecar.block_root();
             let slot = data_column_sidecar.slot();
-            slots_to_update.remove(&slot);
+
+            if let Some(indices) = columns_to_update_per_slot.get_mut(&slot) {
+                indices.remove(&data_column_sidecar.index);
+                if indices.is_empty() {
+                    columns_to_update_per_slot.remove(&slot);
+                }
+            }
 
             let Some(block) = self.store.get_blinded_block(&block_root)? else {
                 let error = HistoricalDataColumnError::NoBlockFound {
@@ -106,13 +127,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.store.blobs_db.do_atomically(ops)?;
 
-        if slots_to_update.is_empty() {
+        if columns_to_update_per_slot.is_empty() {
             self.store.put_data_column_custody_info(Some(
                 epoch.start_slot(T::EthSpec::slots_per_epoch()),
             ))?;
         } else {
-            // TODO(custody-sync)
-            // we need to tell custody sync to retry this epoch.
+            tracing::warn!(
+                ?epoch,
+                missing_slots = ?columns_to_update_per_slot.keys(),
+                "Some data columns are missing from the batch"
+            );
+            return Err(HistoricalDataColumnError::MissingDataColumns {
+                missing_slots_and_data_columns: columns_to_update_per_slot,
+            });
         }
 
         tracing::debug!(total_imported, "Imported historical data columns");
