@@ -381,7 +381,7 @@ Options:
           Minimum number of states to cull from the state cache when it gets
           full [default: 1]
       --state-cache-size <STATE_CACHE_SIZE>
-          Specifies the size of the state cache [default: 32]
+          Specifies the size of the state cache [default: 128]
       --suggested-fee-recipient <SUGGESTED-FEE-RECIPIENT>
           Emergency fallback fee recipient for use in case the validator client
           does not have one configured. You should set this flag on the
@@ -392,6 +392,9 @@ Options:
           database.
       --target-peers <target-peers>
           The target number of peers.
+      --telemetry-collector-url <URL>
+          URL of the OpenTelemetry collector to export tracing spans (e.g.,
+          http://localhost:4317). If not set, tracing export is disabled.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.
@@ -450,6 +453,8 @@ Flags:
           IP address and port as seen by other peers on the network. This
           disables this feature, fixing the ENR's IP/PORT to those specified on
           boot.
+      --disable-get-blobs
+          Disables the getBlobs optimisation to fetch blobs from the EL mempool
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
       --disable-light-client-server

@@ -5,19 +5,19 @@
 //! syncing.
 
 use handler::RPCHandler;
+use libp2p::PeerId;
 use libp2p::core::transport::PortUse;
 use libp2p::swarm::{
-    handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
-    ToSwarm,
+    CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm,
+    handler::ConnectionHandler,
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
-use libp2p::PeerId;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, trace};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -98,6 +98,13 @@ pub struct InboundRequestId {
     substream_id: SubstreamId,
 }
 
+// An Active inbound request received via Rpc.
+struct ActiveInboundRequest<E: EthSpec> {
+    pub peer_id: PeerId,
+    pub request_type: RequestType<E>,
+    pub peer_disconnected: bool,
+}
+
 impl InboundRequestId {
     /// Creates an _unchecked_ [`InboundRequestId`].
     ///
@@ -150,7 +157,7 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     /// Rate limiter for our own requests.
     outbound_request_limiter: SelfRateLimiter<Id, E>,
     /// Active inbound requests that are awaiting a response.
-    active_inbound_requests: HashMap<InboundRequestId, (PeerId, RequestType<E>)>,
+    active_inbound_requests: HashMap<InboundRequestId, ActiveInboundRequest<E>>,
     /// Queue of events to be processed.
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
@@ -162,12 +169,6 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
 }
 
 impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn new(
         fork_context: Arc<ForkContext>,
         enable_light_client_server: bool,
@@ -199,24 +200,19 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     }
 
     /// Sends an RPC response.
-    ///
-    /// The peer must be connected for this to succeed.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
+    /// Returns an `Err` if the request does exist in the active inbound requests list.
     pub fn send_response(
         &mut self,
-        peer_id: PeerId,
         request_id: InboundRequestId,
         response: RpcResponse<E>,
-    ) {
-        let Some((_peer_id, request_type)) = self.active_inbound_requests.remove(&request_id)
+    ) -> Result<(), RpcResponse<E>> {
+        let Some(ActiveInboundRequest {
+            peer_id,
+            request_type,
+            peer_disconnected,
+        }) = self.active_inbound_requests.remove(&request_id)
         else {
-            error!(%peer_id, ?request_id, %response, "Request not found in active_inbound_requests. Response not sent");
-            return;
+            return Err(response);
         };
 
         // Add the request back to active requests if the response is `Success` and requires stream
@@ -224,11 +220,24 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         if request_type.protocol().terminator().is_some()
             && matches!(response, RpcResponse::Success(_))
         {
-            self.active_inbound_requests
-                .insert(request_id, (peer_id, request_type.clone()));
+            self.active_inbound_requests.insert(
+                request_id,
+                ActiveInboundRequest {
+                    peer_id,
+                    request_type: request_type.clone(),
+                    peer_disconnected,
+                },
+            );
+        }
+
+        if peer_disconnected {
+            trace!(%peer_id, ?request_id, %response,
+                "Discarding response, peer is no longer connected");
+            return Ok(());
         }
 
         self.send_response_inner(peer_id, request_type.protocol(), request_id, response);
+        Ok(())
     }
 
     fn send_response_inner(
@@ -238,17 +247,17 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         request_id: InboundRequestId,
         response: RpcResponse<E>,
     ) {
-        if let Some(response_limiter) = self.response_limiter.as_mut() {
-            if !response_limiter.allows(
+        if let Some(response_limiter) = self.response_limiter.as_mut()
+            && !response_limiter.allows(
                 peer_id,
                 protocol,
                 request_id.connection_id,
                 request_id.substream_id,
                 response.clone(),
-            ) {
-                // Response is logged and queued internally in the response limiter.
-                return;
-            }
+            )
+        {
+            // Response is logged and queued internally in the response limiter.
+            return;
         }
 
         self.events.push(ToSwarm::NotifyHandler {
@@ -261,12 +270,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType<E>) {
         match self
             .outbound_request_limiter
@@ -285,12 +288,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
     /// gracefully terminates the RPC behaviour with a goodbye message.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn shutdown(&mut self, peer_id: PeerId, id: Id, reason: GoodbyeReason) {
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
@@ -299,23 +296,11 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
     }
 
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn update_seq_number(&mut self, seq_number: u64) {
         self.seq_number = seq_number
     }
 
     /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn ping(&mut self, peer_id: PeerId, id: Id) {
         let ping = Ping {
             data: self.seq_number,
@@ -425,9 +410,10 @@ where
                 self.events.push(error_msg);
             }
 
-            self.active_inbound_requests.retain(
-                |_inbound_request_id, (request_peer_id, _request_type)| *request_peer_id != peer_id,
-            );
+            self.active_inbound_requests
+                .values_mut()
+                .filter(|request| request.peer_id == peer_id)
+                .for_each(|request| request.peer_disconnected = true);
 
             if let Some(limiter) = self.response_limiter.as_mut() {
                 limiter.peer_disconnected(peer_id);
@@ -468,9 +454,17 @@ where
                     .active_inbound_requests
                     .iter()
                     .filter(
-                        |(_inbound_request_id, (request_peer_id, active_request_type))| {
+                        |(
+                            _inbound_request_id,
+                            ActiveInboundRequest {
+                                peer_id: request_peer_id,
+                                request_type: active_request_type,
+                                peer_disconnected,
+                            },
+                        )| {
                             *request_peer_id == peer_id
                                 && active_request_type.protocol() == request_type.protocol()
+                                && !peer_disconnected
                         },
                     )
                     .count()
@@ -494,19 +488,25 @@ where
                 }
 
                 // Requests that are below the limit on the number of simultaneous requests are added to the active inbound requests.
-                self.active_inbound_requests
-                    .insert(request_id, (peer_id, request_type.clone()));
+                self.active_inbound_requests.insert(
+                    request_id,
+                    ActiveInboundRequest {
+                        peer_id,
+                        request_type: request_type.clone(),
+                        peer_disconnected: false,
+                    },
+                );
 
                 // If we received a Ping, we queue a Pong response.
                 if let RequestType::Ping(_) = request_type {
                     trace!(connection_id = %connection_id, %peer_id, "Received Ping, queueing Pong");
                     self.send_response(
-                        peer_id,
                         request_id,
                         RpcResponse::Success(RpcSuccessResponse::Pong(Ping {
                             data: self.seq_number,
                         })),
-                    );
+                    )
+                    .expect("Request to exist");
                 }
 
                 self.events.push(ToSwarm::GenerateEvent(RPCMessage {
@@ -564,15 +564,15 @@ where
     }
 
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        if let Some(response_limiter) = self.response_limiter.as_mut() {
-            if let Poll::Ready(responses) = response_limiter.poll_ready(cx) {
-                for response in responses {
-                    self.events.push(ToSwarm::NotifyHandler {
-                        peer_id: response.peer_id,
-                        handler: NotifyHandler::One(response.connection_id),
-                        event: RPCSend::Response(response.substream_id, response.response),
-                    });
-                }
+        if let Some(response_limiter) = self.response_limiter.as_mut()
+            && let Poll::Ready(responses) = response_limiter.poll_ready(cx)
+        {
+            for response in responses {
+                self.events.push(ToSwarm::NotifyHandler {
+                    peer_id: response.peer_id,
+                    handler: NotifyHandler::One(response.connection_id),
+                    event: RPCSend::Response(response.substream_id, response.response),
+                });
             }
         }
 

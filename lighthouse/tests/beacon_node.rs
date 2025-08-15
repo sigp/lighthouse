@@ -1,11 +1,12 @@
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use beacon_node::beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
+    DEFAULT_RE_ORG_CUTOFF_DENOMINATOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
+    DisallowedReOrgOffsets,
 };
 use beacon_node::{
-    beacon_chain::graffiti_calculator::GraffitiOrigin,
-    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend, ClientConfig as Config,
+    ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
+    beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
 };
 use beacon_processor::BeaconProcessorConfig;
 use lighthouse_network::PeerId;
@@ -799,13 +800,6 @@ fn network_subscribe_all_data_column_subnets_flag() {
         .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
 }
 #[test]
-fn network_enable_sampling_flag() {
-    CommandLineTest::new()
-        .flag("enable-sampling", None)
-        .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.enable_sampling));
-}
-#[test]
 fn blob_publication_batches() {
     CommandLineTest::new()
         .flag("blob-publication-batches", Some("3"))
@@ -826,12 +820,6 @@ fn blob_publication_batch_interval() {
         });
 }
 
-#[test]
-fn network_enable_sampling_flag_default() {
-    CommandLineTest::new()
-        .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.enable_sampling));
-}
 #[test]
 fn network_subscribe_all_subnets_flag() {
     CommandLineTest::new()
@@ -1829,7 +1817,7 @@ fn block_cache_size_flag() {
 fn state_cache_size_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(32)));
+        .with_config(|config| assert_eq!(config.store.state_cache_size, new_non_zero_usize(128)));
 }
 #[test]
 fn state_cache_size_flag() {
@@ -2476,6 +2464,13 @@ fn logfile_format_flag() {
             )
         });
 }
+// DEPRECATED but should not crash.
+#[test]
+fn deprecated_logfile() {
+    CommandLineTest::new()
+        .flag("logfile", Some("test.txt"))
+        .run_with_zero_port();
+}
 
 // DEPRECATED but should not crash.
 #[test]
@@ -2535,6 +2530,25 @@ fn light_client_server_disabled() {
         .with_config(|config| {
             assert!(!config.network.enable_light_client_server);
             assert!(!config.chain.enable_light_client_server);
+        });
+}
+
+#[test]
+fn get_blobs_disabled() {
+    CommandLineTest::new()
+        .flag("disable-get-blobs", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.disable_get_blobs);
+        });
+}
+
+#[test]
+fn get_blobs_enabled() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(!config.chain.disable_get_blobs);
         });
 }
 
@@ -2805,10 +2819,12 @@ fn invalid_block_roots_default_holesky() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.chain.invalid_block_roots.len(), 1);
-            assert!(config
-                .chain
-                .invalid_block_roots
-                .contains(&*INVALID_HOLESKY_BLOCK_ROOT));
+            assert!(
+                config
+                    .chain
+                    .invalid_block_roots
+                    .contains(&*INVALID_HOLESKY_BLOCK_ROOT)
+            );
         })
 }
 

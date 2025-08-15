@@ -3,19 +3,19 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
+    BeaconChainError,
     observed_operations::ObservationOutcome,
     test_utils::{
-        test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, test_spec,
     },
-    BeaconChainError,
 };
 use state_processing::per_block_processing::errors::{
     AttesterSlashingInvalid, BlockOperationError, ExitInvalid, ProposerSlashingInvalid,
 };
 use std::sync::{Arc, LazyLock};
-use store::database::interface::BeaconNodeBackend;
 use store::StoreConfig;
-use tempfile::{tempdir, TempDir};
+use store::database::interface::BeaconNodeBackend;
+use tempfile::{TempDir, tempdir};
 use types::*;
 
 pub const VALIDATOR_COUNT: usize = 24;

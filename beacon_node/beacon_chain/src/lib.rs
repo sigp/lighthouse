@@ -45,7 +45,7 @@ pub mod observed_block_producers;
 pub mod observed_data_sidecars;
 pub mod observed_operations;
 mod observed_slashable;
-mod persisted_beacon_chain;
+pub mod persisted_beacon_chain;
 pub mod persisted_custody;
 mod persisted_fork_choice;
 mod pre_finalization_cache;
@@ -65,10 +65,9 @@ pub mod validator_pubkey_cache;
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, AvailabilityProcessingStatus, BeaconBlockResponse,
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus,
-    ChainSegmentResult, ForkChoiceError, LightClientProducerEvent, OverrideForkchoiceUpdate,
+    ChainSegmentResult, ForkChoiceError, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, LightClientProducerEvent, OverrideForkchoiceUpdate,
     ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
-    INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;
@@ -77,9 +76,10 @@ pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{
-    build_blob_data_column_sidecars, get_block_root, BlockError, ExecutionPayloadError,
-    ExecutionPendingBlock, GossipVerifiedBlock, IntoExecutionPendingBlock, IntoGossipVerifiedBlock,
-    InvalidSignature, PayloadVerificationOutcome, PayloadVerificationStatus,
+    BlockError, ExecutionPayloadError, ExecutionPendingBlock, GossipVerifiedBlock,
+    IntoExecutionPendingBlock, IntoGossipVerifiedBlock, InvalidSignature,
+    PayloadVerificationOutcome, PayloadVerificationStatus, build_blob_data_column_sidecars,
+    get_block_root,
 };
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;

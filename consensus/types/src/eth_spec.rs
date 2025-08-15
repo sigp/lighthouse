@@ -3,9 +3,9 @@ use crate::*;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    bit::B0, UInt, U0, U1, U10, U1024, U1048576, U1073741824, U1099511627776, U128, U131072,
-    U134217728, U16, U16777216, U17, U2, U2048, U256, U262144, U32, U33554432, U4, U4096, U512,
-    U625, U64, U65536, U8, U8192,
+    U0, U1, U2, U4, U8, U10, U16, U17, U32, U64, U128, U256, U512, U625, U1024, U2048, U4096,
+    U8192, U65536, U131072, U262144, U1048576, U16777216, U33554432, U134217728, U1073741824,
+    U1099511627776, UInt, bit::B0,
 };
 use std::fmt::{self, Debug};
 use std::str::FromStr;
@@ -49,9 +49,7 @@ impl fmt::Display for EthSpecId {
     }
 }
 
-pub trait EthSpec:
-    'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq + for<'a> arbitrary::Arbitrary<'a>
-{
+pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq + Eq {
     /*
      * Constants
      */
@@ -394,7 +392,8 @@ macro_rules! params_from_eth_spec {
 }
 
 /// Ethereum Foundation specifications.
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MainnetEthSpec;
 
 impl EthSpec for MainnetEthSpec {
@@ -460,7 +459,8 @@ impl EthSpec for MainnetEthSpec {
 }
 
 /// Ethereum Foundation minimal spec, as defined in the eth2.0-specs repo.
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct MinimalEthSpec;
 
 impl EthSpec for MinimalEthSpec {
@@ -529,7 +529,8 @@ impl EthSpec for MinimalEthSpec {
 }
 
 /// Gnosis Beacon Chain specifications.
-#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct GnosisEthSpec;
 
 impl EthSpec for GnosisEthSpec {

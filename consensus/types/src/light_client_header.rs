@@ -1,13 +1,13 @@
-use crate::context_deserialize;
 use crate::ChainSpec;
-use crate::{light_client_update::*, BeaconBlockBody};
-use crate::{
-    test_utils::TestRandom, EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, FixedVector, Hash256,
-    SignedBlindedBeaconBlock,
-};
+use crate::context_deserialize;
+use crate::{BeaconBlockBody, light_client_update::*};
 use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
 use crate::{ContextDeserialize, ForkName};
+use crate::{
+    EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
+    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, FixedVector, Hash256,
+    SignedBlindedBeaconBlock, test_utils::TestRandom,
+};
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
@@ -30,20 +30,27 @@ use tree_hash_derive::TreeHash;
             Decode,
             Encode,
             TestRandom,
-            arbitrary::Arbitrary,
             TreeHash,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
         context_deserialize(ForkName),
     )
 )]
-#[derive(Debug, Clone, Serialize, TreeHash, Encode, arbitrary::Arbitrary, PartialEq)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, TreeHash, Encode, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-#[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientHeader<E: EthSpec> {
     pub beacon: BeaconBlockHeader,
 
@@ -68,7 +75,7 @@ pub struct LightClientHeader<E: EthSpec> {
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[serde(skip)]
-    #[arbitrary(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub _phantom_data: PhantomData<E>,
 }
 
@@ -121,7 +128,7 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientHeader decoding for {fork_name} not implemented"
-                )))
+                )));
             }
         };
 
@@ -349,7 +356,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
                 return Err(serde::de::Error::custom(format!(
                     "LightClientFinalityUpdate failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(Deserialize::deserialize(deserializer).map_err(convert_err)?)
