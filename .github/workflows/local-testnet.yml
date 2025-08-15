@@ -16,7 +16,7 @@ jobs:
   dockerfile-ubuntu:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build Docker image
         run: |
@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs: dockerfile-ubuntu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Kurtosis
         run: |
@@ -102,7 +102,7 @@ jobs:
     needs: dockerfile-ubuntu
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Kurtosis
         run: |
@@ -138,7 +138,7 @@ jobs:
     needs: dockerfile-ubuntu
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Kurtosis
         run: |
@@ -181,7 +181,7 @@ jobs:
       matrix:
         network: [sepolia, devnet]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Kurtosis
         run: |
@@ -224,7 +224,7 @@ jobs:
         fork: [electra, fulu]
         offline_secs: [120, 300]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install Kurtosis
         run: |
@@ -268,7 +268,7 @@ jobs:
       'doppelganger-protection-failure-test',
     ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Check that success job is dependent on all others
         run: |
           exclude_jobs='checkpoint-sync-test|genesis-sync-test'

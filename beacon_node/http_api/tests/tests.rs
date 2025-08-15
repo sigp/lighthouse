@@ -2216,6 +2216,24 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_beacon_light_client_updates_ssz(self) -> Self {
+        let current_epoch = self.chain.epoch().unwrap();
+        let current_sync_committee_period = current_epoch
+            .sync_committee_period(&self.chain.spec)
+            .unwrap();
+
+        match self
+            .client
+            .get_beacon_light_client_updates_ssz::<E>(current_sync_committee_period, 1)
+            .await
+        {
+            Ok(result) => result,
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        self
+    }
+
     pub async fn test_get_beacon_light_client_updates(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
         let current_sync_committee_period = current_epoch
@@ -7073,6 +7091,8 @@ async fn get_light_client_updates() {
     ApiTester::new_from_config(config)
         .await
         .test_get_beacon_light_client_updates()
+        .await
+        .test_get_beacon_light_client_updates_ssz()
         .await;
 }
 

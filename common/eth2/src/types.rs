@@ -11,6 +11,7 @@ use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
+use ssz::Encode;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::fmt::{self, Display};
@@ -823,16 +824,32 @@ pub struct LightClientUpdatesQuery {
     pub count: u64,
 }
 
-#[derive(Encode, Decode)]
-pub struct LightClientUpdateResponseChunk {
+pub struct LightClientUpdateResponseChunk<E: EthSpec> {
     pub response_chunk_len: u64,
-    pub response_chunk: LightClientUpdateResponseChunkInner,
+    pub response_chunk: LightClientUpdateResponseChunkInner<E>,
 }
 
-#[derive(Encode, Decode)]
-pub struct LightClientUpdateResponseChunkInner {
+impl<E: EthSpec> Encode for LightClientUpdateResponseChunk<E> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        0_u64.ssz_bytes_len()
+            + self.response_chunk.context.len()
+            + self.response_chunk.payload.ssz_bytes_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.response_chunk_len.to_le_bytes());
+        buf.extend_from_slice(&self.response_chunk.context);
+        self.response_chunk.payload.ssz_append(buf);
+    }
+}
+
+pub struct LightClientUpdateResponseChunkInner<E: EthSpec> {
     pub context: [u8; 4],
-    pub payload: Vec<u8>,
+    pub payload: LightClientUpdate<E>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]

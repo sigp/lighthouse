@@ -136,7 +136,6 @@ dirs = "3"
 discv5 = { version = "0.9", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 either = "1.9"
-env_logger = "0.9"
 environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
