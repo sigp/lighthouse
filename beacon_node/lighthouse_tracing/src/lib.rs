@@ -1,4 +1,10 @@
-/// DA checker spans
+//! This module contains root span identifiers for key code paths in the beacon node.
+//! These spans are used to track and filter important traces while reducing noise in logging.
+//!
+//! These span identifiers will be used to implement selective tracing export, where only
+//! the listed root spans and their descendants will be exported to the tracing backend.
+
+/// Data Availability checker span identifiers
 pub const SPAN_PENDING_COMPONENTS: &str = "pending_components";
 /// Gossip methods root spans
 pub const SPAN_PROCESS_GOSSIP_DATA_COLUMN: &str = "process_gossip_data_column";
@@ -25,10 +31,11 @@ pub const SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str =
     "handle_light_client_optimistic_update";
 pub const SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE: &str = "handle_light_client_finality_update";
 
-// TODO: Only export allowed root spans and its descendants to the tracing backend, so that
-// we don't get a lot of noise from code paths that are not instrumented.
-// When a new root span is added, it should be added to this list.
+/// List of all root span names that are allowed to be exported to the tracing backend.
+/// Only these spans and their descendants will be processed to reduce noise from
+/// uninstrumented code paths. New root spans must be added to this list to be traced.
 pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
+    SPAN_SYNCING_CHAIN,
     SPAN_PENDING_COMPONENTS,
     SPAN_PROCESS_GOSSIP_DATA_COLUMN,
     SPAN_PROCESS_GOSSIP_BLOB,
