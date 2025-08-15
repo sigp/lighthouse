@@ -35,7 +35,7 @@ pub struct EndpointVersion(pub u64);
 impl FromStr for EndpointVersion {
     type Err = ();
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         if let Some(version_str) = s.strip_prefix('v') {
             u64::from_str(version_str)
                 .map(EndpointVersion)
@@ -47,7 +47,7 @@ impl FromStr for EndpointVersion {
 }
 
 impl std::fmt::Display for EndpointVersion {
-    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
         write!(fmt, "v{}", self.0)
     }
 }
@@ -74,7 +74,7 @@ pub enum BlockId {
 impl FromStr for BlockId {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "head" => Ok(BlockId::Head),
             "genesis" => Ok(BlockId::Genesis),
@@ -122,7 +122,7 @@ pub enum StateId {
 impl FromStr for StateId {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "head" => Ok(StateId::Head),
             "genesis" => Ok(StateId::Genesis),
@@ -257,7 +257,7 @@ pub enum ValidatorId {
 impl TryFrom<std::borrow::Cow<'_, str>> for ValidatorId {
     type Error = String;
 
-    fn try_from(s: std::borrow::Cow<str>) -> Result<Self, Self::Error> {
+    fn try_from(s: std::borrow::Cow<str>) -> std::result::Result<Self, Self::Error> {
         Self::from_str(&s)
     }
 }
@@ -265,7 +265,7 @@ impl TryFrom<std::borrow::Cow<'_, str>> for ValidatorId {
 impl FromStr for ValidatorId {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         if s.starts_with("0x") {
             PublicKeyBytes::from_str(s)
                 .map(ValidatorId::PublicKey)
@@ -404,7 +404,7 @@ impl ValidatorStatus {
 impl FromStr for ValidatorStatus {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "pending_initialized" => Ok(ValidatorStatus::PendingInitialized),
             "pending_queued" => Ok(ValidatorStatus::PendingQueued),
@@ -598,7 +598,7 @@ pub struct QueryVec<T: FromStr> {
     values: Vec<T>,
 }
 
-fn query_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+fn query_vec<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: FromStr,
@@ -607,7 +607,7 @@ where
     Ok(Vec::from(QueryVec::from(vec)))
 }
 
-fn option_query_vec<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
+fn option_query_vec<'de, D, T>(deserializer: D) -> std::result::Result<Option<Vec<T>>, D::Error>
 where
     D: serde::Deserializer<'de>,
     T: FromStr,
@@ -631,7 +631,7 @@ impl<T: FromStr> From<Vec<QueryVec<T>>> for QueryVec<T> {
 impl<T: FromStr> TryFrom<String> for QueryVec<T> {
     type Error = String;
 
-    fn try_from(string: String) -> Result<Self, Self::Error> {
+    fn try_from(string: String) -> std::result::Result<Self, Self::Error> {
         if string.is_empty() {
             return Ok(Self { values: vec![] });
         }
@@ -754,7 +754,7 @@ pub enum SkipRandaoVerification {
 impl TryFrom<Option<String>> for SkipRandaoVerification {
     type Error = String;
 
-    fn try_from(opt: Option<String>) -> Result<Self, String> {
+    fn try_from(opt: Option<String>) -> std::result::Result<Self, String> {
         match opt.as_deref() {
             None => Ok(SkipRandaoVerification::No),
             Some("") => Ok(SkipRandaoVerification::Yes),
@@ -850,7 +850,7 @@ pub enum PeerState {
 impl FromStr for PeerState {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "connected" => Ok(PeerState::Connected),
             "connecting" => Ok(PeerState::Connecting),
@@ -882,7 +882,7 @@ pub enum PeerDirection {
 impl FromStr for PeerDirection {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "inbound" => Ok(PeerDirection::Inbound),
             "outbound" => Ok(PeerDirection::Outbound),
@@ -1062,7 +1062,7 @@ pub type SseExtendedPayloadAttributes = SseExtendedPayloadAttributesGeneric<SseP
 pub type VersionedSsePayloadAttributes = ForkVersionedResponse<SseExtendedPayloadAttributes>;
 
 impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -1093,7 +1093,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
 }
 
 impl<'de> ContextDeserialize<'de, ForkName> for SseExtendedPayloadAttributes {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -1166,7 +1166,7 @@ impl<E: EthSpec> EventKind<E> {
         }
     }
 
-    pub fn from_sse_bytes(event: &str, data: &str) -> Result<Self, ServerError> {
+    pub fn from_sse_bytes(event: &str, data: &str) -> std::result::Result<Self, ServerError> {
         match event {
             "attestation" => Ok(EventKind::Attestation(serde_json::from_str(data).map_err(
                 |e| ServerError::InvalidServerSentEvent(format!("Attestation: {:?}", e)),
@@ -1298,7 +1298,7 @@ pub enum EventTopic {
 impl FromStr for EventTopic {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "head" => Ok(EventTopic::Head),
             "block" => Ok(EventTopic::Block),
@@ -1372,7 +1372,7 @@ impl fmt::Display for Accept {
 impl FromStr for Accept {
     type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         let media_type_list = MediaTypeList::new(s);
 
         // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
@@ -1508,7 +1508,7 @@ impl Display for BroadcastValidation {
 impl FromStr for BroadcastValidation {
     type Err = &'static str;
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s {
             "gossip" => Ok(Self::Gossip),
             "consensus" => Ok(Self::Consensus),
@@ -1529,14 +1529,14 @@ pub mod serde_status_code {
     use crate::StatusCode;
     use serde::{Deserialize, Serialize, de::Error};
 
-    pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(status_code: &StatusCode, ser: S) -> std::result::Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         status_code.as_u16().serialize(ser)
     }
 
-    pub fn deserialize<'de, D>(de: D) -> Result<StatusCode, D::Error>
+    pub fn deserialize<'de, D>(de: D) -> std::result::Result<StatusCode, D::Error>
     where
         D: serde::de::Deserializer<'de>,
     {
@@ -1686,7 +1686,7 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 
     /// SSZ decode with fork variant determined by slot.
-    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> std::result::Result<Self, DecodeError> {
         let slot_len = <Slot as Decode>::ssz_fixed_len();
         let slot_bytes = bytes
             .get(0..slot_len)
@@ -1700,7 +1700,7 @@ impl<E: EthSpec> FullBlockContents<E> {
     }
 
     /// SSZ decode with fork variant passed in explicitly.
-    pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+    pub fn from_ssz_bytes_for_fork(bytes: &[u8], fork_name: ForkName) -> std::result::Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
@@ -1753,7 +1753,7 @@ impl<E: EthSpec> FullBlockContents<E> {
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for FullBlockContents<E> {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -1786,8 +1786,8 @@ pub type SignedBlockContentsTuple<E> = (
 fn parse_required_header<T>(
     headers: &HeaderMap,
     header_name: &str,
-    parse: impl FnOnce(&str) -> Result<T, String>,
-) -> Result<T, String> {
+    parse: impl FnOnce(&str) -> std::result::Result<T, String>,
+) -> std::result::Result<T, String> {
     let str_value = headers
         .get(header_name)
         .ok_or_else(|| format!("missing required header {header_name}"))?
@@ -1799,7 +1799,7 @@ fn parse_required_header<T>(
 impl TryFrom<&HeaderMap> for ProduceBlockV3Metadata {
     type Error = String;
 
-    fn try_from(headers: &HeaderMap) -> Result<Self, Self::Error> {
+    fn try_from(headers: &HeaderMap) -> std::result::Result<Self, Self::Error> {
         let consensus_version = parse_required_header(headers, CONSENSUS_VERSION_HEADER, |s| {
             s.parse::<ForkName>()
                 .map_err(|e| format!("invalid {CONSENSUS_VERSION_HEADER}: {e:?}"))
@@ -1840,7 +1840,7 @@ pub enum PublishBlockRequest<E: EthSpec> {
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for PublishBlockRequest<E> {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -1875,7 +1875,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
     }
 
     /// SSZ decode with fork variant determined by `fork_name`.
-    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+    pub fn from_ssz_bytes(bytes: &[u8], fork_name: ForkName) -> std::result::Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             let mut builder = ssz::SszDecoderBuilder::new(bytes);
             builder.register_anonymous_variable_length_item()?;
@@ -1920,7 +1920,7 @@ impl<E: EthSpec> PublishBlockRequest<E> {
 
 impl<E: EthSpec> TryFrom<Arc<SignedBeaconBlock<E>>> for PublishBlockRequest<E> {
     type Error = &'static str;
-    fn try_from(block: Arc<SignedBeaconBlock<E>>) -> Result<Self, Self::Error> {
+    fn try_from(block: Arc<SignedBeaconBlock<E>>) -> std::result::Result<Self, Self::Error> {
         if block.message().fork_name_unchecked().deneb_enabled() {
             Err("post-Deneb block contents cannot be fully constructed from just the signed block")
         } else {
@@ -1945,7 +1945,7 @@ pub struct SignedBlockContents<E: EthSpec> {
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for SignedBlockContents<E> {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -1980,7 +1980,7 @@ pub struct BlockContents<E: EthSpec> {
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BlockContents<E> {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -2015,7 +2015,7 @@ pub enum FullPayloadContents<E: EthSpec> {
 }
 
 impl<E: EthSpec> ForkVersionDecode for FullPayloadContents<E> {
-    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> std::result::Result<Self, DecodeError> {
         if fork_name.deneb_enabled() {
             Ok(Self::PayloadAndBlobs(
                 ExecutionPayloadAndBlobs::from_ssz_bytes_by_fork(bytes, fork_name)?,
@@ -2071,7 +2071,7 @@ impl<E: EthSpec> FullPayloadContents<E> {
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for FullPayloadContents<E> {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -2099,7 +2099,7 @@ pub struct ExecutionPayloadAndBlobs<E: EthSpec> {
 }
 
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadAndBlobs<E> {
-    fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
+    fn context_deserialize<D>(deserializer: D, context: ForkName) -> std::result::Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
@@ -2123,7 +2123,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayloadAndB
 }
 
 impl<E: EthSpec> ForkVersionDecode for ExecutionPayloadAndBlobs<E> {
-    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, DecodeError> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> std::result::Result<Self, DecodeError> {
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
         builder.register_anonymous_variable_length_item()?;
         builder.register_type::<BlobsBundle<E>>()?;

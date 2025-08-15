@@ -5,11 +5,11 @@ use types::ForkName;
 
 /// Trait for converting a 404 error into an `Option<Response>`.
 pub trait ResponseOptional {
-    fn optional(self) -> Result<Option<Response>, Error>;
+    fn optional(self) -> std::result::Result<Option<Response>, Error>;
 }
 
 impl ResponseOptional for Result<Response, Error> {
-    fn optional(self) -> Result<Option<Response>, Error> {
+    fn optional(self) -> std::result::Result<Option<Response>, Error> {
         match self {
             Ok(x) => Ok(Some(x)),
             Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => Ok(None),
@@ -21,11 +21,11 @@ impl ResponseOptional for Result<Response, Error> {
 /// Trait for extracting the fork name from the headers of a response.
 pub trait ResponseForkName {
     #[allow(clippy::result_unit_err)]
-    fn fork_name_from_header(&self) -> Result<Option<ForkName>, String>;
+    fn fork_name_from_header(&self) -> std::result::Result<Option<ForkName>, String>;
 }
 
 impl ResponseForkName for Response {
-    fn fork_name_from_header(&self) -> Result<Option<ForkName>, String> {
+    fn fork_name_from_header(&self) -> std::result::Result<Option<ForkName>, String> {
         self.headers()
             .get(CONSENSUS_VERSION_HEADER)
             .map(|fork_name| {

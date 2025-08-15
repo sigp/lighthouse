@@ -1,5 +1,5 @@
 //! Centralized error handling for eth2 API clients
-//! 
+//!
 //! This module consolidates all error types, response processing,
 //! and recovery logic for both beacon node and validator client APIs.
 
@@ -8,8 +8,6 @@ use reqwest::{Response, StatusCode};
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::{fmt, path::PathBuf, time::Duration};
-
-pub type Result<T> = std::result::Result<T, Error>;
 
 /// Main error type for eth2 API clients
 #[derive(Debug)]
@@ -223,24 +221,24 @@ pub struct ResponseProcessor;
 
 impl ResponseProcessor {
     /// Process beacon node API response (accepts 200 OK only)
-    pub async fn process_beacon_response(response: Response) -> Result<Response> {
+    pub async fn process_beacon_response(response: Response) -> std::result::Result<Response, Error> {
         Self::process_response(response, &[StatusCode::OK]).await
     }
-    
+
     /// Process validator client API response (accepts 200, 202, 204)
-    pub async fn process_validator_response(response: Response) -> Result<Response> {
+    pub async fn process_validator_response(response: Response) -> std::result::Result<Response, Error> {
         Self::process_response(
-            response, 
+            response,
             &[StatusCode::OK, StatusCode::ACCEPTED, StatusCode::NO_CONTENT]
         ).await
     }
-    
+
     async fn process_response(
         response: Response,
         success_codes: &[StatusCode],
-    ) -> Result<Response> {
+    ) -> std::result::Result<Response, Error> {
         let status = response.status();
-        
+
         if success_codes.contains(&status) {
             Ok(response)
         } else if let Ok(message) = response.json().await {
@@ -256,13 +254,13 @@ impl ResponseProcessor {
 
 /// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
 /// appropriate error message.
-pub async fn ok_or_error(response: Response) -> Result<Response> {
+pub async fn ok_or_error(response: Response) -> std::result::Result<Response, Error> {
     ResponseProcessor::process_beacon_response(response).await
 }
 
 /// Returns `Ok(response)` if the response is a `200 OK`, `202 Accepted`, or `204 No Content` response.
 /// Otherwise, creates an appropriate error message.
-pub async fn ok_or_error_validator(response: Response) -> Result<Response> {
+pub async fn ok_or_error_validator(response: Response) -> std::result::Result<Response, Error> {
     ResponseProcessor::process_validator_response(response).await
 }
 
@@ -270,11 +268,11 @@ pub async fn ok_or_error_validator(response: Response) -> Result<Response> {
 
 /// Trait for converting a 404 error into an `Option<Response>`.
 pub trait ResponseOptional<T> {
-    fn optional(self) -> Result<Option<T>>;
+    fn optional(self) -> std::result::Result<Option<T>, Error>;
 }
 
-impl ResponseOptional<Response> for Result<Response> {
-    fn optional(self) -> Result<Option<Response>> {
+impl ResponseOptional<Response> for std::result::Result<Response, Error> {
+    fn optional(self) -> std::result::Result<Option<Response>, Error> {
         match self {
             Ok(response) => Ok(Some(response)),
             Err(error) if error.is_not_found() => Ok(None),

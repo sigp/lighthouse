@@ -171,7 +171,7 @@ pub struct DepositLog {
 
 impl BeaconNodeHttpClient {
     /// `GET lighthouse/health`
-    pub async fn get_lighthouse_health(&self) -> crate::error::Result<GenericResponse<Health>> {
+    pub async fn get_lighthouse_health(&self) -> std::result::Result<GenericResponse<Health>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -183,7 +183,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET lighthouse/syncing`
-    pub async fn get_lighthouse_syncing(&self) -> crate::error::Result<GenericResponse<SyncState>> {
+    pub async fn get_lighthouse_syncing(&self) -> std::result::Result<GenericResponse<SyncState>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -203,7 +203,7 @@ impl BeaconNodeHttpClient {
      */
 
     /// `GET lighthouse/proto_array`
-    pub async fn get_lighthouse_proto_array(&self) -> crate::error::Result<GenericResponse<ProtoArray>> {
+    pub async fn get_lighthouse_proto_array(&self) -> std::result::Result<GenericResponse<ProtoArray>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -218,7 +218,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_lighthouse_validator_inclusion_global(
         &self,
         epoch: Epoch,
-    ) -> crate::error::Result<GenericResponse<GlobalValidatorInclusionData>> {
+    ) -> std::result::Result<GenericResponse<GlobalValidatorInclusionData>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -236,7 +236,7 @@ impl BeaconNodeHttpClient {
         &self,
         epoch: Epoch,
         validator_id: ValidatorId,
-    ) -> crate::error::Result<GenericResponse<Option<ValidatorInclusionData>>> {
+    ) -> std::result::Result<GenericResponse<Option<ValidatorInclusionData>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -250,7 +250,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST lighthouse/database/reconstruct`
-    pub async fn post_lighthouse_database_reconstruct(&self) -> crate::error::Result<String> {
+    pub async fn post_lighthouse_database_reconstruct(&self) -> std::result::Result<String, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -263,7 +263,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST lighthouse/add_peer`
-    pub async fn post_lighthouse_add_peer(&self, req: AdminPeer) -> crate::error::Result<()> {
+    pub async fn post_lighthouse_add_peer(&self, req: AdminPeer) -> std::result::Result<(), Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -275,7 +275,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `POST lighthouse/remove_peer`
-    pub async fn post_lighthouse_remove_peer(&self, req: AdminPeer) -> crate::error::Result<()> {
+    pub async fn post_lighthouse_remove_peer(&self, req: AdminPeer) -> std::result::Result<(), Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -295,7 +295,7 @@ impl BeaconNodeHttpClient {
         &self,
         start_slot: Slot,
         end_slot: Slot,
-    ) -> crate::error::Result<Vec<BlockReward>> {
+    ) -> std::result::Result<Vec<BlockReward>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -316,7 +316,7 @@ impl BeaconNodeHttpClient {
         &self,
         start_epoch: Epoch,
         end_epoch: Epoch,
-    ) -> crate::error::Result<Vec<BlockPackingEfficiency>> {
+    ) -> std::result::Result<Vec<BlockPackingEfficiency>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -338,7 +338,7 @@ impl BeaconNodeHttpClient {
         start_epoch: Epoch,
         end_epoch: Epoch,
         target: String,
-    ) -> crate::error::Result<Vec<AttestationPerformance>> {
+    ) -> std::result::Result<Vec<AttestationPerformance>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
