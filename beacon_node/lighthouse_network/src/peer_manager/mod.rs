@@ -2425,6 +2425,7 @@ mod tests {
     /// - Non-sampling subnet 2: both peers protected (count <= 2)
     /// - No subnet peers: both should be pruned first
     #[tokio::test]
+    #[allow(clippy::needless_range_loop)]
     async fn test_peer_manager_prune_mixed_custody_subnet_protection() {
         let target = 6;
         let mut peer_manager = build_peer_manager(target).await;
