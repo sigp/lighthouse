@@ -72,12 +72,12 @@ pub fn generate_blobs<E: EthSpec>(n_blobs: usize) -> Result<BlobsBundle<E>, Stri
 #[cfg(test)]
 mod test {
     use super::*;
-    use rand::thread_rng;
+    use rand::rng;
 
     #[test]
     fn test_verify_blob_inclusion_proof() {
         let (_block, blobs) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 6, &mut thread_rng());
+            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 6, &mut rng());
         for blob in blobs {
             assert!(blob.verify_blob_sidecar_inclusion_proof());
         }
@@ -86,7 +86,7 @@ mod test {
     #[test]
     fn test_verify_blob_inclusion_proof_from_existing_proof() {
         let (block, mut blob_sidecars) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut thread_rng());
+            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 1, &mut rng());
         let BlobSidecar {
             index,
             blob,
@@ -115,10 +115,10 @@ mod test {
     #[test]
     fn test_verify_blob_inclusion_proof_invalid() {
         let (_block, blobs) =
-            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 6, &mut thread_rng());
+            generate_rand_block_and_blobs::<MainnetEthSpec>(ForkName::Deneb, 6, &mut rng());
 
         for mut blob in blobs {
-            blob.kzg_commitment_inclusion_proof = FixedVector::random_for_test(&mut thread_rng());
+            blob.kzg_commitment_inclusion_proof = FixedVector::random_for_test(&mut rng());
             assert!(!blob.verify_blob_sidecar_inclusion_proof());
         }
     }

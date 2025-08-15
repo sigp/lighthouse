@@ -506,25 +506,37 @@ mod tests {
         //        |  |  |  |  |
         //        0     1     2
 
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.0), &key, 4)
-            .is_ok());
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.0), &key, 4)
+                .is_ok()
+        );
         limiter.prune(Duration::from_secs_f32(0.1));
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.1), &key, 1)
-            .is_err());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.5), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(1.0), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(1.4), &key, 1)
-            .is_err());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(2.0), &key, 2)
-            .is_ok());
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.1), &key, 1)
+                .is_err()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.5), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(1.0), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(1.4), &key, 1)
+                .is_err()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(2.0), &key, 2)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -539,21 +551,31 @@ mod tests {
         // first half second, when one token will be available again. Check also that before
         // regaining a token, another request is rejected
 
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.0), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.1), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.2), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.3), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.4), &key, 1)
-            .is_err());
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.0), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.1), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.2), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.3), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.4), &key, 1)
+                .is_err()
+        );
     }
 
     #[test]

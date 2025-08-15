@@ -1,4 +1,4 @@
-use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
+use crate::beacon_block_body::{BLOB_KZG_COMMITMENTS_INDEX, KzgCommitments};
 use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{

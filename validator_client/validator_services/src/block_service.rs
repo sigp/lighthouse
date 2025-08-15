@@ -1,7 +1,7 @@
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, Error as FallbackError, Errors};
 use bls::SignatureBytes;
 use eth2::{BeaconNodeHttpClient, StatusCode};
-use graffiti_file::{determine_graffiti, GraffitiFile};
+use graffiti_file::{GraffitiFile, determine_graffiti};
 use logging::crit;
 use slot_clock::SlotClock;
 use std::fmt::Debug;
@@ -148,14 +148,13 @@ impl<T: SlotClock> ProposerFallback<T> {
         Err: Debug,
     {
         // If there are proposer nodes, try calling `func` on them and return early if they are successful.
-        if let Some(proposer_nodes) = &self.proposer_nodes {
-            if proposer_nodes
+        if let Some(proposer_nodes) = &self.proposer_nodes
+            && proposer_nodes
                 .request(ApiTopic::Blocks, func.clone())
                 .await
                 .is_ok()
-            {
-                return Ok(());
-            }
+        {
+            return Ok(());
         }
 
         // If the proposer nodes failed, try on the non-proposer nodes.
@@ -353,7 +352,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 return Err(BlockError::Recoverable(format!(
                     "Unable to sign block: {:?}",
                     e
-                )))
+                )));
             }
         };
 
@@ -422,7 +421,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 return Err(BlockError::Recoverable(format!(
                     "Unable to produce randao reveal signature: {:?}",
                     e
-                )))
+                )));
             }
         };
 

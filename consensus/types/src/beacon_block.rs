@@ -827,7 +827,7 @@ impl fmt::Display for BlockImportSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{test_ssz_tree_hash_pair_with, SeedableRng, XorShiftRng};
+    use crate::test_utils::{SeedableRng, XorShiftRng, test_ssz_tree_hash_pair_with};
     use ssz::Encode;
 
     type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;

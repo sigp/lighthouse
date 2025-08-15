@@ -4,7 +4,7 @@
 //! Additionally, the `BalancesCache` struct is defined; a cache designed to avoid database
 //! reads when fork choice requires the validator balances of the justified state.
 
-use crate::{metrics, BeaconSnapshot};
+use crate::{BeaconSnapshot, metrics};
 use derivative::Derivative;
 use fork_choice::ForkChoiceStore;
 use proto_array::JustifiedBalances;

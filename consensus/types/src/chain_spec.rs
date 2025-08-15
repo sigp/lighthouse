@@ -1,4 +1,4 @@
-use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
+use crate::application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
@@ -780,7 +780,7 @@ impl ChainSpec {
     }
 
     /// Returns the number of column sidecars to sample per slot.
-    pub fn sampling_size_columns(&self, custody_group_count: u64) -> Result<u64, String> {
+    pub fn sampling_size_columns(&self, custody_group_count: u64) -> Result<usize, String> {
         let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
 
         let columns_per_custody_group = self
@@ -792,7 +792,7 @@ impl ChainSpec {
             .safe_mul(sampling_size_groups)
             .map_err(|_| "Computing sampling size should not overflow")?;
 
-        Ok(sampling_size_columns)
+        Ok(sampling_size_columns as usize)
     }
 
     /// Returns the number of custody groups to sample per slot.
@@ -2054,10 +2054,10 @@ where
     D: Deserializer<'de>,
 {
     let decoded: Option<MaybeQuoted<Epoch>> = serde::de::Deserialize::deserialize(deserializer)?;
-    if let Some(fork_epoch) = decoded {
-        if fork_epoch.value != Epoch::max_value() {
-            return Ok(Some(fork_epoch));
-        }
+    if let Some(fork_epoch) = decoded
+        && fork_epoch.value != Epoch::max_value()
+    {
+        return Ok(Some(fork_epoch));
     }
     Ok(None)
 }

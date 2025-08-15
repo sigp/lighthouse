@@ -1,3 +1,4 @@
+pub use eth2::Error;
 use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
@@ -5,20 +6,19 @@ use eth2::types::{
     ForkVersionedResponse, PublicKeyBytes, SignedValidatorRegistrationData, Slot,
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
-pub use eth2::Error;
 use eth2::{
-    ok_or_error, StatusCode, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
-    JSON_CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+    CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
+    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error,
 };
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT};
+use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use ssz::Encode;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;

@@ -73,6 +73,9 @@ Options:
           Path to directory containing eth2_testnet specs. Defaults to a
           hard-coded Lighthouse testnet. Only effective if there is no existing
           database.
+      --telemetry-collector-url <URL>
+          URL of the OpenTelemetry collector to export tracing spans (e.g.,
+          http://localhost:4317). If not set, tracing export is disabled.
       --validators-file <PATH_TO_JSON_FILE>
           The path to a JSON file containing a list of validators to be imported
           to the validator client. This file is usually named "validators.json".

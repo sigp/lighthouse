@@ -8,9 +8,7 @@ use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::error;
-use types::data_column_custody_group::{
-    compute_columns_for_custody_group, compute_subnets_from_custody_group, get_custody_groups,
-};
+use types::data_column_custody_group::{compute_subnets_from_custody_group, get_custody_groups};
 use types::{ChainSpec, ColumnIndex, DataColumnSubnetId, EthSpec};
 
 pub struct NetworkGlobals<E: EthSpec> {
@@ -32,7 +30,6 @@ pub struct NetworkGlobals<E: EthSpec> {
     pub backfill_state: RwLock<BackFillState>,
     /// The computed sampling subnets and columns is stored to avoid re-computing.
     pub sampling_subnets: RwLock<HashSet<DataColumnSubnetId>>,
-    pub sampling_columns: RwLock<HashSet<ColumnIndex>>,
     /// Network-related configuration. Immutable after initialization.
     pub config: Arc<NetworkConfig>,
     /// Ethereum chain configuration. Immutable after initialization.
@@ -78,16 +75,8 @@ impl<E: EthSpec> NetworkGlobals<E> {
             sampling_subnets.extend(subnets);
         }
 
-        let mut sampling_columns = HashSet::new();
-        for custody_index in &custody_groups {
-            let columns = compute_columns_for_custody_group(*custody_index, &spec)
-                .expect("should compute custody columns for node");
-            sampling_columns.extend(columns);
-        }
-
         tracing::debug!(
             cgc = custody_group_count,
-            ?sampling_columns,
             ?sampling_subnets,
             "Starting node with custody params"
         );
@@ -102,20 +91,15 @@ impl<E: EthSpec> NetworkGlobals<E> {
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::Paused),
             sampling_subnets: RwLock::new(sampling_subnets),
-            sampling_columns: RwLock::new(sampling_columns),
             config,
             spec,
         }
     }
 
     /// Update the sampling subnets based on an updated cgc.
-    pub fn update_data_column_subnets(&self, custody_group_count: u64) {
+    pub fn update_data_column_subnets(&self, sampling_size: u64) {
         // The below `expect` calls will panic on start up if the chain spec config values used
         // are invalid
-        let sampling_size = self
-            .spec
-            .sampling_size_custody_groups(custody_group_count)
-            .expect("should compute node sampling size from valid chain spec");
         let custody_groups =
             get_custody_groups(self.local_enr().node_id().raw(), sampling_size, &self.spec)
                 .expect("should compute node custody groups");
@@ -125,13 +109,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
             let subnets = compute_subnets_from_custody_group(*custody_index, &self.spec)
                 .expect("should compute custody subnets for node");
             sampling_subnets.extend(subnets);
-        }
-
-        let mut sampling_columns = self.sampling_columns.write();
-        for custody_index in &custody_groups {
-            let columns = compute_columns_for_custody_group(*custody_index, &self.spec)
-                .expect("should compute custody columns for node");
-            sampling_columns.extend(columns);
         }
     }
 
@@ -248,10 +225,6 @@ impl<E: EthSpec> NetworkGlobals<E> {
         }
     }
 
-    pub fn sampling_columns(&self) -> HashSet<ColumnIndex> {
-        self.sampling_columns.read().clone()
-    }
-
     pub fn sampling_subnets(&self) -> HashSet<DataColumnSubnetId> {
         self.sampling_subnets.read().clone()
     }
@@ -317,29 +290,6 @@ mod test {
         assert_eq!(
             globals.sampling_subnets.read().len(),
             expected_sampling_subnet_count as usize
-        );
-    }
-
-    #[test]
-    fn test_sampling_columns() {
-        create_test_tracing_subscriber();
-        let mut spec = E::default_spec();
-        spec.fulu_fork_epoch = Some(Epoch::new(0));
-
-        let custody_group_count = spec.number_of_custody_groups / 2;
-        let expected_sampling_columns = spec.sampling_size_columns(custody_group_count).unwrap();
-        let metadata = get_metadata(custody_group_count);
-        let config = Arc::new(NetworkConfig::default());
-
-        let globals = NetworkGlobals::<E>::new_test_globals_with_metadata(
-            vec![],
-            metadata,
-            config,
-            Arc::new(spec),
-        );
-        assert_eq!(
-            globals.sampling_columns.read().len(),
-            expected_sampling_columns as usize
         );
     }
 

@@ -1,15 +1,15 @@
+use crate::EthersTransaction;
 use crate::engine_api::{
+    ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
     json_structures::{
         JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
     },
-    ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
 };
 use crate::engines::ForkchoiceState;
-use crate::EthersTransaction;
 use eth2::types::BlobsBundle;
 use kzg::{Kzg, KzgCommitment, KzgProof};
 use parking_lot::Mutex;
-use rand::{rngs::StdRng, Rng, SeedableRng};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use serde::{Deserialize, Serialize};
 use ssz::Decode;
 use ssz_types::VariableList;
@@ -178,7 +178,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
-        let mut gen = Self {
+        let mut generator = Self {
             head_block: <_>::default(),
             finalized_block_hash: <_>::default(),
             blocks: <_>::default(),
@@ -200,9 +200,9 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             spec,
         };
 
-        gen.insert_pow_block(0).unwrap();
+        generator.insert_pow_block(0).unwrap();
 
-        gen
+        generator
     }
 
     pub fn latest_block(&self) -> Option<Block<E>> {
@@ -509,10 +509,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         // This is meant to cover starting post-merge transition at genesis. Useful for
         // testing Capella forks and later.
         let head_block_hash = forkchoice_state.head_block_hash;
-        if let Some(genesis_pow_block) = self.block_by_number(0) {
-            if genesis_pow_block.block_hash() == head_block_hash {
-                self.terminal_block_hash = head_block_hash;
-            }
+        if let Some(genesis_pow_block) = self.block_by_number(0)
+            && genesis_pow_block.block_hash() == head_block_hash
+        {
+            self.terminal_block_hash = head_block_hash;
         }
 
         if let Some(payload) = self.pending_payloads.remove(&head_block_hash) {
@@ -711,7 +711,7 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
             // TODO(EIP-7892): see FIXME below
             // FIXME: this will break with BPO forks. This function needs to calculate the epoch based on block timestamp..
             let max_blobs = self.spec.max_blobs_per_block_within_fork(fork_name) as usize;
-            let num_blobs = rng.gen_range(self.min_blobs_count..=max_blobs);
+            let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
             let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
             for tx in Vec::from(transactions) {
                 execution_payload
@@ -753,8 +753,8 @@ pub fn load_test_blobs_bundle_v1<E: EthSpec>() -> Result<(KzgCommitment, KzgProo
     ))
 }
 
-pub fn load_test_blobs_bundle_v2<E: EthSpec>(
-) -> Result<(KzgCommitment, KzgProofs<E>, Blob<E>), String> {
+pub fn load_test_blobs_bundle_v2<E: EthSpec>()
+-> Result<(KzgCommitment, KzgProofs<E>, Blob<E>), String> {
     let BlobsBundle::<E> {
         commitments,
         proofs,
@@ -937,7 +937,7 @@ pub fn generate_pow_block(
 #[cfg(test)]
 mod test {
     use super::*;
-    use kzg::{trusted_setup::get_trusted_setup, Bytes48, CellRef, KzgBlobRef, TrustedSetup};
+    use kzg::{Bytes48, CellRef, KzgBlobRef, TrustedSetup, trusted_setup::get_trusted_setup};
     use types::{MainnetEthSpec, MinimalEthSpec};
 
     #[test]

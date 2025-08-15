@@ -1,6 +1,6 @@
 use crate::BeaconChainTypes;
 use std::sync::Arc;
-use store::{metadata::SchemaVersion, Error, HotColdDB};
+use store::{Error, HotColdDB, metadata::SchemaVersion};
 
 /// Add `DataColumnCustodyInfo` entry to v27.
 pub fn upgrade_to_v27<T: BeaconChainTypes>(
