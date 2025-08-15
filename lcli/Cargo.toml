@@ -11,7 +11,6 @@ normal = ["malloc_utils"]
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
-jemalloc = ["malloc_utils/jemalloc"]
 
 [dependencies]
 account_utils = { workspace = true }
@@ -31,7 +30,6 @@ hex = { workspace = true }
 lighthouse_network = { workspace = true }
 lighthouse_version = { workspace = true }
 log = { workspace = true }
-malloc_utils = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -44,3 +42,9 @@ tracing-subscriber = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
 validator_dir = { workspace = true }
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+malloc_utils = { workspace = true, features = ["jemalloc"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+malloc_utils = { workspace = true, features = [] }
