@@ -772,7 +772,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     #[instrument(
         name = SPAN_PROCESS_GOSSIP_BLOB,
         parent = None,
-        level = "trace",
+        level = "debug",
         skip_all,
         fields(
             slot = ?blob_sidecar.slot(),
