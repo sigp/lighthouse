@@ -1073,16 +1073,9 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
-
-                            if (self.update_ports.tcp4 && socket_addr.is_ipv4())
-                                || (self.update_ports.tcp6 && socket_addr.is_ipv6())
-                            {
-                                // Update the TCP port in the ENR
-                                self.discv5.update_local_enr_socket(socket_addr, true);
-                            }
                             let enr = self.discv5.local_enr();
                             enr::save_enr_to_disk(Path::new(&self.enr_dir), &enr);
-                            // update  network globals
+                            // update network globals
                             *self.network_globals.local_enr.write() = enr;
                             // A new UDP socket has been detected.
                             // NOTE: We assume libp2p itself can keep track of IP changes and we do
