@@ -309,7 +309,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(hash)) => {
-                Span::current().record("result", "imported");
                 debug!(
                     result = "imported block and blobs",
                     %slot,
@@ -319,7 +318,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.chain.recompute_head_at_current_slot().await;
             }
             Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
-                Span::current().record("result", "missing_components");
                 debug!(
                     block_hash = %block_root,
                     %slot,
@@ -560,7 +558,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
-    #[instrument(skip_all, fields(result = tracing::field::Empty))]
+    #[instrument(skip_all)]
     async fn process_blocks<'a>(
         &self,
         downloaded_blocks: impl Iterator<Item = &'a RpcBlock<T::EthSpec>>,
@@ -573,7 +571,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await
         {
             ChainSegmentResult::Successful { imported_blocks } => {
-                Span::current().record("result", "success");
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if !imported_blocks.is_empty() {
                     self.chain.recompute_head_at_current_slot().await;
@@ -584,7 +581,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 imported_blocks,
                 error,
             } => {
-                Span::current().record("result", "failed");
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
                 if !imported_blocks.is_empty() {

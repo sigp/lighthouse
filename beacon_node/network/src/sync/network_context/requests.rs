@@ -127,7 +127,6 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                             Ok(true) => {
                                 let items = items.consume();
                                 request.state = State::CompletedEarly;
-                                request.span.record("result", "CompletedEarly");
                                 Some(Ok((items, seen_timestamp)))
                             }
                             // Received item, but we are still expecting more
@@ -135,7 +134,6 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                             // Received an invalid item
                             Err(e) => {
                                 request.state = State::Errored;
-                                request.span.record("result", format!("Errored: {e:?}"));
                                 Some(Err(e.into()))
                             }
                         }
@@ -161,13 +159,11 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                     // Received a stream termination in a valid sequence, consume items
                     State::Active(mut items) => {
                         if request.expect_max_responses {
-                            request.span.record("result", "NotEnoughResponsesReturned");
                             Some(Err(LookupVerifyError::NotEnoughResponsesReturned {
                                 actual: items.consume().len(),
                             }
                             .into()))
                         } else {
-                            request.span.record("result", "Completed");
                             Some(Ok((items.consume(), timestamp_now())))
                         }
                     }
@@ -182,7 +178,6 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                 // may be the last message for this request.
                 let request = entry.remove();
                 let _guard = request.span.clone().entered();
-                request.span.record("result", format!("RPCError: {e:?}"));
                 match request.state {
                     // Received error while request is still active, propagate error.
                     State::Active(_) => Some(Err(e.into())),

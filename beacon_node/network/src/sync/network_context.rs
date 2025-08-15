@@ -1125,7 +1125,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "Sync RPC request sent"
         );
 
-        let request_span = debug_span!(parent: parent_request_span, "outgoing_blocks_by_range", %peer_id, %client, result = tracing::field::Empty);
+        let request_span = debug_span!(
+            parent: parent_request_span,
+            "outgoing_blocks_by_range",
+            %peer_id,
+            %client
+        );
         self.blocks_by_range_requests.insert(
             id,
             peer_id,
@@ -1171,7 +1176,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "Sync RPC request sent"
         );
 
-        let request_span = debug_span!(parent: parent_request_span, "outgoing_blobs_by_range", %peer_id, %client, result = tracing::field::Empty);
+        let request_span = debug_span!(
+            parent: parent_request_span,
+            "outgoing_blobs_by_range",
+            %peer_id,
+            %client,
+        );
         let max_blobs_per_block = self.chain.spec.max_blobs_per_block(request_epoch);
         self.blobs_by_range_requests.insert(
             id,
@@ -1218,7 +1228,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "Sync RPC request sent"
         );
 
-        let request_span = debug_span!(parent: parent_request_span, "outgoing_columns_by_range", %peer_id, %client, result = tracing::field::Empty);
+        let request_span = debug_span!(
+            parent: parent_request_span,
+            "outgoing_columns_by_range",
+            %peer_id,
+            %client,
+        );
         self.data_columns_by_range_requests.insert(
             id,
             peer_id,
