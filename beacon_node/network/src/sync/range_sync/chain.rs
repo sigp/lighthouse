@@ -127,7 +127,13 @@ pub enum ChainSyncingState {
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
     #[allow(clippy::too_many_arguments)]
-    #[instrument(name = SPAN_SYNCING_CHAIN, parent = None, level="debug")]
+    #[instrument(
+        name = SPAN_SYNCING_CHAIN,
+        parent = None,
+        level="debug",
+        skip(id),
+        fields(chain_id = %id)
+    )]
     pub fn new(
         id: Id,
         start_epoch: Epoch,

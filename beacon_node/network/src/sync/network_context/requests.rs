@@ -135,7 +135,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                             // Received an invalid item
                             Err(e) => {
                                 request.state = State::Errored;
-                                request.span.record("result", "Errored");
+                                request.span.record("result", format!("Errored: {e:?}"));
                                 Some(Err(e.into()))
                             }
                         }
@@ -182,7 +182,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                 // may be the last message for this request.
                 let request = entry.remove();
                 let _guard = request.span.clone().entered();
-                request.span.record("result", "RPCError");
+                request.span.record("result", format!("RPCError: {e:?}"));
                 match request.state {
                     // Received error while request is still active, propagate error.
                     State::Active(_) => Some(Err(e.into())),

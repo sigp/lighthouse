@@ -519,8 +519,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
-        let range_request_span =
-            debug_span!(parent: None, SPAN_OUTGOING_RANGE_REQUEST, range_req_id = %requester);
+        let range_request_span = debug_span!(
+            parent: None,
+            SPAN_OUTGOING_RANGE_REQUEST,
+            range_req_id = %requester,
+            peers = peers.len()
+        );
         let _guard = range_request_span.clone().entered();
         let active_request_count_by_peer = self.active_request_count_by_peer();
 
@@ -854,7 +858,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // block and the peer must have it.
             true,
             BlocksByRootRequestItems::new(request),
-            // TODO: implement
+            // Not implemented
             Span::none(),
         );
 
@@ -952,7 +956,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // have imported the block+blobs.
             true,
             BlobsByRootRequestItems::new(request),
-            // TODO: implement
+            // Not implemented
             Span::none(),
         );
 
