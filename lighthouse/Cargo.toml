@@ -35,11 +35,8 @@ beacon-node-leveldb = ["store/leveldb"]
 beacon-node-redb = ["store/redb"]
 # Supports console subscriber for debugging
 console-subscriber = ["console-subscriber/default"]
-# Turns off jemalloc so that heaptrack may be used to analyse memory usage.
-heaptrack = []
-
-# Deprecated. This is now enabled by default on non windows targets (unless heaptrack is enabled).
-jemalloc = []
+# Force the use of the system memory allocator rather than jemalloc.
+sysmalloc = ["malloc_utils/sysmalloc"]
 
 [dependencies]
 account_manager = { "path" = "../account_manager" }
@@ -58,7 +55,6 @@ ethereum_hashing = { workspace = true }
 futures = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-malloc_utils = { workspace = true }
 metrics = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true }
@@ -77,11 +73,11 @@ unused_port = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 
-[target.'cfg(any(target_os = "windows", features = "heaptrack"))'.dependencies]
-malloc_utils = { workspace = true }
-
-[target.'cfg(not(any(target_os = "windows", features = "heaptrack")))'.dependencies]
+[target.'cfg(not(target_os = "windows"))'.dependencies]
 malloc_utils = { workspace = true, features = ["jemalloc"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+malloc_utils = { workspace = true, features = [] }
 
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }

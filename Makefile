@@ -16,7 +16,7 @@ BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc,beacon-node-leveldb,beacon-node-redb
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
