@@ -112,11 +112,11 @@ jobs:
 
             - name: Set up Docker Buildx
               if: env.SELF_HOSTED_RUNNERS == 'false'
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@v5
 
             - name: Build and push (Lighthouse)
               if: startsWith(matrix.binary, 'lighthouse')
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v6
               with:
                 file: ./Dockerfile.cross
                 context: .
@@ -127,7 +127,7 @@ jobs:
 
             - name: Build and push (lcli)
               if: startsWith(matrix.binary, 'lcli')
-              uses: docker/build-push-action@v5
+              uses: docker/build-push-action@v6
               with:
                 file: ./lcli/Dockerfile.cross
                 context: .
@@ -151,7 +151,7 @@ jobs:
             VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@v5
 
             - name: Dockerhub login
               run: |
