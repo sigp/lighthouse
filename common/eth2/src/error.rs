@@ -122,7 +122,9 @@ impl Error {
         match self {
             Error::HttpClient(_) => true,
             Error::SseClient(_) => true,
-            Error::StatusCode(status) => status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS,
+            Error::StatusCode(status) => {
+                status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS
+            }
             Error::ServerMessage(msg) => {
                 if let Ok(status) = StatusCode::try_from(msg.code) {
                     status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS
@@ -185,7 +187,13 @@ impl fmt::Display for Error {
             Error::SseClient(error) => write!(f, "SSE client error: {}", error),
             Error::ServerMessage(msg) => write!(f, "Server error {}: {}", msg.code, msg.message),
             Error::ServerIndexedMessage(msg) => {
-                write!(f, "Server error {}: {} ({} failures)", msg.code, msg.message, msg.failures.len())
+                write!(
+                    f,
+                    "Server error {}: {} ({} failures)",
+                    msg.code,
+                    msg.message,
+                    msg.failures.len()
+                )
             }
             Error::StatusCode(status) => write!(f, "HTTP status error: {}", status),
             Error::InvalidUrl(url) => write!(f, "Invalid URL: {}", url),
@@ -193,10 +201,14 @@ impl fmt::Display for Error {
             Error::InvalidSignatureHeader => write!(f, "Invalid signature header"),
             Error::MissingSignatureHeader => write!(f, "Missing signature header"),
             Error::InvalidJson(error) => write!(f, "JSON parsing error: {}", error),
-            Error::InvalidServerSentEvent(event) => write!(f, "Invalid server-sent event: {}", event),
+            Error::InvalidServerSentEvent(event) => {
+                write!(f, "Invalid server-sent event: {}", event)
+            }
             Error::InvalidHeaders(details) => write!(f, "Invalid response headers: {}", details),
             Error::InvalidSsz(error) => write!(f, "SSZ decoding error: {:?}", error),
-            Error::TokenReadError(path, error) => write!(f, "Token read error from {}: {}", path.display(), error),
+            Error::TokenReadError(path, error) => {
+                write!(f, "Token read error from {}: {}", path.display(), error)
+            }
             Error::NoServerPubkey => write!(f, "Server public key required but not configured"),
             Error::NoToken => write!(f, "Authentication token required but not configured"),
         }
@@ -229,8 +241,9 @@ impl ResponseProcessor {
     pub async fn process_validator_response(response: Response) -> Result<Response, Error> {
         Self::process_response(
             response,
-            &[StatusCode::OK, StatusCode::ACCEPTED, StatusCode::NO_CONTENT]
-        ).await
+            &[StatusCode::OK, StatusCode::ACCEPTED, StatusCode::NO_CONTENT],
+        )
+        .await
     }
 
     async fn process_response(

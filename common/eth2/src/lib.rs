@@ -15,7 +15,7 @@ pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
 
-pub use self::error::{Error, ok_or_error, ResponseOptional};
+pub use self::error::{Error, ResponseOptional, ok_or_error};
 use self::mixin::RequestAccept;
 use self::types::*;
 use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
@@ -65,7 +65,6 @@ const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
 const HTTP_GET_VALIDATOR_BLOCK_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_DEFAULT_TIMEOUT_QUOTIENT: u32 = 4;
-
 
 /// A struct to define a variety of different timeouts for different validator tasks to ensure
 /// proper fallback behaviour.
@@ -2766,4 +2765,3 @@ impl BeaconNodeHttpClient {
         .await
     }
 }
-

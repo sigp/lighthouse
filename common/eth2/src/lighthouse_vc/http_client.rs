@@ -681,4 +681,3 @@ impl ValidatorClientHttpClient {
         self.delete(url).await
     }
 }
-

@@ -27,7 +27,7 @@ pub use types::*;
 use crate::lighthouse::BlockReward;
 
 // Re-export error types from the unified error module
-pub use crate::error::{ErrorMessage, IndexedErrorMessage, Failure, ResponseError as Error};
+pub use crate::error::{ErrorMessage, Failure, IndexedErrorMessage, ResponseError as Error};
 
 /// The version of a single API endpoint, e.g. the `v1` in `/eth/v1/beacon/blocks`.
 #[derive(Debug, Clone, Copy, PartialEq)]
