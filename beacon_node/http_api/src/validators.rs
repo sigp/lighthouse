@@ -43,7 +43,8 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                             );
 
                             let status_matches = query_statuses.as_ref().is_none_or(|statuses| {
-                                statuses.contains(&status)
+                                statuses.is_empty()
+                                    || statuses.contains(&status)
                                     || statuses.contains(&status.superstatus())
                             });
 
