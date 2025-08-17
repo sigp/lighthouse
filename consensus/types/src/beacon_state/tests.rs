@@ -53,6 +53,8 @@ async fn build_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
         .head_beacon_state_cloned()
 }
 
+/// TODO(EIP7732) Add test for ptc attester index using get_ptc_attester_seed
+
 async fn test_beacon_proposer_index<E: EthSpec>() {
     let spec = E::default_spec();
 

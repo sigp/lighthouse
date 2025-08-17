@@ -173,6 +173,9 @@ pub enum Error {
     AggregatorNotInCommittee {
         aggregator_index: u64,
     },
+    PTCConstructionError,
+    InvalidIndicesCount,
+    RandomBytesOutOfBounds,
     PleaseNotifyTheDevs(String),
 }
 
@@ -1044,7 +1047,14 @@ impl<E: EthSpec> BeaconState<E> {
                 let mut preimage = seed.to_vec();
                 preimage.append(&mut int_to_bytes8(slot.as_u64()));
                 let seed = hash(&preimage);
-                self.compute_proposer_index(indices, &seed, spec)
+
+                if self.fork_name_unchecked().gloas_enabled() {
+                    let selected =
+                        self.compute_balance_weighted_selection(indices, &seed, 1, true, spec)?;
+                    Ok(selected[0])
+                } else {
+                    self.compute_proposer_index(indices, &seed, spec)
+                }
             })
             .collect()
     }
@@ -1268,41 +1278,51 @@ impl<E: EthSpec> BeaconState<E> {
     /// Compute the sync committee indices for the next sync committee.
     fn get_next_sync_committee_indices(&self, spec: &ChainSpec) -> Result<Vec<usize>, Error> {
         let epoch = self.current_epoch().safe_add(1)?;
-
         let active_validator_indices = self.get_active_validator_indices(epoch, spec)?;
-        let active_validator_count = active_validator_indices.len();
-
         let seed = self.get_seed(epoch, Domain::SyncCommittee, spec)?;
-        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
-        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
-            MAX_RANDOM_VALUE
-        } else {
-            MAX_RANDOM_BYTE
-        };
 
-        let mut i = 0;
-        let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
-        while sync_committee_indices.len() < E::SyncCommitteeSize::to_usize() {
-            let shuffled_index = compute_shuffled_index(
-                i.safe_rem(active_validator_count)?,
-                active_validator_count,
+        if self.fork_name_unchecked().gloas_enabled() {
+            self.compute_balance_weighted_selection(
+                &active_validator_indices,
                 seed.as_slice(),
-                spec.shuffle_round_count,
+                E::SyncCommitteeSize::to_usize(),
+                true,
+                spec,
             )
-            .ok_or(Error::UnableToShuffle)?;
-            let candidate_index = *active_validator_indices
-                .get(shuffled_index)
-                .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
-            let random_value = self.shuffling_random_value(i, seed.as_slice())?;
-            let effective_balance = self.get_validator(candidate_index)?.effective_balance;
-            if effective_balance.safe_mul(max_random_value)?
-                >= max_effective_balance.safe_mul(random_value)?
-            {
-                sync_committee_indices.push(candidate_index);
+        } else {
+            let active_validator_count = active_validator_indices.len();
+            let max_effective_balance =
+                spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+            let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+                MAX_RANDOM_VALUE
+            } else {
+                MAX_RANDOM_BYTE
+            };
+
+            let mut i = 0;
+            let mut sync_committee_indices = Vec::with_capacity(E::SyncCommitteeSize::to_usize());
+            while sync_committee_indices.len() < E::SyncCommitteeSize::to_usize() {
+                let shuffled_index = compute_shuffled_index(
+                    i.safe_rem(active_validator_count)?,
+                    active_validator_count,
+                    seed.as_slice(),
+                    spec.shuffle_round_count,
+                )
+                .ok_or(Error::UnableToShuffle)?;
+                let candidate_index = *active_validator_indices
+                    .get(shuffled_index)
+                    .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
+                let random_value = self.shuffling_random_value(i, seed.as_slice())?;
+                let effective_balance = self.get_validator(candidate_index)?.effective_balance;
+                if effective_balance.safe_mul(max_random_value)?
+                    >= max_effective_balance.safe_mul(random_value)?
+                {
+                    sync_committee_indices.push(candidate_index);
+                }
+                i.safe_add_assign(1)?;
             }
-            i.safe_add_assign(1)?;
+            Ok(sync_committee_indices)
         }
-        Ok(sync_committee_indices)
     }
 
     /// Compute the next sync committee.
@@ -2650,6 +2670,110 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         Ok(())
+    }
+
+    /// Get the PTC
+    /// Requires the committee cache to be initialized.
+    /// TODO(EIP-7732): definitely gonna have to cache this..
+    pub fn get_ptc(&self, slot: Slot, spec: &ChainSpec) -> Result<PTC<E>, Error> {
+        let committee_cache = self.committee_cache_at_slot(slot)?;
+        let committees = committee_cache.get_beacon_committees_at_slot(slot)?;
+
+        let seed = self.get_ptc_attester_seed(slot, spec)?;
+
+        let committee_indices: Vec<usize> = committees
+            .iter()
+            .flat_map(|committee| committee.committee.iter().copied())
+            .collect();
+        let selected_indices = self.compute_balance_weighted_selection(
+            &committee_indices,
+            &seed,
+            E::ptc_size(),
+            false,
+            spec,
+        )?;
+
+        Ok(PTC(FixedVector::from(selected_indices)))
+    }
+
+    /// Compute the seed to use for the ptc attester selection at the given `slot`.
+    ///
+    /// Spec v0.12.1
+    pub fn get_ptc_attester_seed(&self, slot: Slot, spec: &ChainSpec) -> Result<Vec<u8>, Error> {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let mut preimage = self
+            .get_seed(epoch, Domain::PTCAttester, spec)?
+            .as_slice()
+            .to_vec();
+        preimage.append(&mut int_to_bytes8(slot.as_u64()));
+        Ok(hash(&preimage))
+    }
+
+    /// Return size indices sampled by effective balance, using indices as candidates.
+    ///
+    /// If shuffle_indices is True, candidate indices are themselves sampled from indices
+    /// by shuffling it, otherwise indices is traversed in order.
+    ///
+    /// Spec: compute_balance_weighted_selection helper
+    fn compute_balance_weighted_selection(
+        &self,
+        indices: &[usize],
+        seed: &[u8],
+        size: usize,
+        shuffle_indices: bool,
+        spec: &ChainSpec,
+    ) -> Result<Vec<usize>, Error> {
+        let total = indices.len();
+        if total == 0 {
+            return Err(Error::InvalidIndicesCount);
+        }
+
+        let mut selected = Vec::with_capacity(size);
+        let mut count = 0usize;
+
+        while selected.len() < size {
+            let mut next_index = count % total;
+
+            if shuffle_indices {
+                next_index =
+                    compute_shuffled_index(next_index, total, seed, spec.shuffle_round_count)
+                        .ok_or(Error::UnableToShuffle)?;
+            }
+
+            let candidate_index = indices.get(next_index).ok_or(Error::InvalidIndicesCount)?;
+
+            if self.compute_balance_weighted_acceptance(*candidate_index, seed, count, spec)? {
+                selected.push(*candidate_index);
+            }
+
+            count += 1;
+        }
+
+        Ok(selected)
+    }
+
+    /// Return whether to accept the selection of the validator `index`, with probability
+    /// proportional to its `effective_balance`, and randomness given by `seed` and `iteration`.
+    fn compute_balance_weighted_acceptance(
+        &self,
+        index: usize,
+        seed: &[u8],
+        iteration: usize,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error> {
+        let effective_balance = self.get_effective_balance(index)?;
+        let max_effective_balance = spec.max_effective_balance_for_fork(self.fork_name_unchecked());
+
+        let random_value = self.shuffling_random_value(iteration, seed)?;
+
+        // this codepath should technically never be hit pre-gloas, but added this defensively
+        let max_random_value = if self.fork_name_unchecked().electra_enabled() {
+            MAX_RANDOM_VALUE
+        } else {
+            MAX_RANDOM_BYTE
+        };
+
+        Ok(effective_balance * max_random_value >= max_effective_balance * random_value)
     }
 }
 
