@@ -1,4 +1,5 @@
 use integer_sqrt::IntegerSquareRoot;
+use safe_arith::SafeArith;
 use smallvec::SmallVec;
 use types::{AttestationData, BeaconState, ChainSpec, EthSpec};
 use types::{
@@ -22,18 +23,46 @@ pub fn get_attestation_participation_flag_indices<E: EthSpec>(
     inclusion_delay: u64,
     spec: &ChainSpec,
 ) -> Result<SmallVec<[usize; NUM_FLAG_INDICES]>, Error> {
+    // Matching source
     let justified_checkpoint = if data.target.epoch == state.current_epoch() {
         state.current_justified_checkpoint()
     } else {
         state.previous_justified_checkpoint()
     };
-
-    // Matching roots.
     let is_matching_source = data.source == justified_checkpoint;
-    let is_matching_target = is_matching_source
-        && data.target.root == *state.get_block_root_at_epoch(data.target.epoch)?;
-    let is_matching_head =
-        is_matching_target && data.beacon_block_root == *state.get_block_root(data.slot)?;
+
+    // Matching target
+    let target_root = *state.get_block_root_at_epoch(data.target.epoch)?;
+    let target_root_matches = data.target.root == target_root;
+    let is_matching_target = is_matching_source && target_root_matches;
+
+    // Matching head
+    let head_root = *state.get_block_root(data.slot)?;
+    let head_root_matches = data.beacon_block_root == head_root;
+
+    let is_matching_head = if state.fork_name_unchecked().gloas_enabled() {
+        let payload_matches = if state.is_attestation_same_slot(data)? {
+            // For same-slot attestations, data.index must be 0
+            if data.index != 0 {
+                return Err(Error::BadOverloadedDataIndex(data.index));
+            }
+            true
+        } else {
+            // For non same-slot attestations, check execution payload availability
+            // TODO(EIP7732) Discuss if we want to return new error BeaconStateError::InvalidExecutionPayloadAvailabilityIndex here for bit out of bounds or use something like BeaconStateError::InvalidBitfield
+            let slot_index = data
+                .slot
+                .as_usize()
+                .safe_rem(E::slots_per_historical_root())?;
+            state
+                .execution_payload_availability()?
+                .get(slot_index)
+                .map_err(|_| Error::InvalidExecutionPayloadAvailabilityIndex(slot_index))?
+        };
+        is_matching_target && head_root_matches && payload_matches
+    } else {
+        is_matching_target && head_root_matches
+    };
 
     if !is_matching_source {
         return Err(Error::IncorrectAttestationSource);

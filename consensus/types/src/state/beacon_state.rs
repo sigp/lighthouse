@@ -25,8 +25,8 @@ use typenum::Unsigned;
 use crate::{
     BuilderPendingPayment, BuilderPendingWithdrawal, ExecutionBlockHash, ExecutionPayloadBid,
     attestation::{
-        AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC, ParticipationFlags,
-        PendingAttestation,
+        AttestationData, AttestationDuty, BeaconCommittee, Checkpoint, CommitteeIndex, PTC,
+        ParticipationFlags, PendingAttestation,
     },
     block::{BeaconBlock, BeaconBlockHeader, SignedBeaconBlockHash},
     consolidation::PendingConsolidation,
@@ -175,6 +175,8 @@ pub enum BeaconStateError {
     NonExecutionAddressWithdrawalCredential,
     NoCommitteeFound(CommitteeIndex),
     InvalidCommitteeIndex(CommitteeIndex),
+    /// `Attestation.data.index` field is invalid in overloaded data index scenario.
+    BadOverloadedDataIndex(u64),
     InvalidSelectionProof {
         aggregator_index: u64,
     },
@@ -198,6 +200,7 @@ pub enum BeaconStateError {
     },
     InvalidIndicesCount,
     PleaseNotifyTheDevs(String),
+    InvalidExecutionPayloadAvailabilityIndex(usize),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -2053,6 +2056,25 @@ impl<E: EthSpec> BeaconState<E> {
         let cache = self.committee_cache(relative_epoch)?;
 
         Ok(cache.get_attestation_duties(validator_index))
+    }
+
+    /// Check if the attestation is for the block proposed at the attestation slot.
+    ///
+    /// Returns `true` if the attestation's block root matches the block root at the
+    /// attestation's slot, and the block root differs from the previous slot's root.
+    pub fn is_attestation_same_slot(
+        &self,
+        data: &AttestationData,
+    ) -> Result<bool, BeaconStateError> {
+        if data.slot == 0 {
+            return Ok(true);
+        }
+
+        let blockroot = data.beacon_block_root;
+        let slot_blockroot = *self.get_block_root(data.slot)?;
+        let prev_blockroot = *self.get_block_root(data.slot.safe_sub(1)?)?;
+
+        Ok(blockroot == slot_blockroot && blockroot != prev_blockroot)
     }
 
     /// Compute the total active balance cache from scratch.

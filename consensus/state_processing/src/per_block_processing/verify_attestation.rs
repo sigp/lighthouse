@@ -66,6 +66,10 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
     // NOTE: choosing a validation based on the attestation's fork
     // rather than the state's fork makes this simple, but technically the spec
     // defines this verification based on the state's fork.
+    // Verify data.index based on attestation variant.
+    // The attestation variant is determined by the block body variant, which matches the fork.
+
+    // TODO(EIP-7732): discuss if it makes more sense to match on `ForkName` instead of attestation type.  A reason against is an edge case like at the Gloas fork boundary, the first gloas block will contain attestations for a Fulu block, so I would think we would want this validation to still be with respect to fulu rules. But perhaps I'm wrong?
     match attestation {
         AttestationRef::Base(_) => {
             verify!(
@@ -74,7 +78,12 @@ pub fn verify_attestation_for_state<'ctxt, E: EthSpec>(
             );
         }
         AttestationRef::Electra(_) => {
-            verify!(data.index == 0, Invalid::BadCommitteeIndex);
+            let fork_at_attestation_slot = spec.fork_name_at_slot::<E>(data.slot);
+            if fork_at_attestation_slot.gloas_enabled() {
+                verify!(data.index < 2, Invalid::BadOverloadedDataIndex);
+            } else {
+                verify!(data.index == 0, Invalid::BadCommitteeIndex);
+            }
         }
     }
 
