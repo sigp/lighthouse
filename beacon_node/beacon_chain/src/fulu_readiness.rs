@@ -92,7 +92,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         missing_methods.push_str(ENGINE_GET_PAYLOAD_V5);
                         all_good = false;
                     }
-                    // TODO(fulu) switch to v5 when the EL is ready
                     if !capabilities.new_payload_v4 {
                         missing_methods.push(' ');
                         missing_methods.push_str(ENGINE_NEW_PAYLOAD_V4);
