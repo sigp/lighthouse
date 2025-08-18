@@ -334,7 +334,6 @@ impl<E: EthSpec> CustodyContext<E> {
         custody_group_count: u64,
         spec: &ChainSpec,
     ) -> &[ColumnIndex] {
-        
         let num_of_columns_to_sample = spec
             .sampling_size_columns(custody_group_count)
             .expect("should compute node sampling size from valid cgc value");

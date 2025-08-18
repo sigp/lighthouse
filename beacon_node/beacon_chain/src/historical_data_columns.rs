@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{BeaconChain, BeaconChainTypes};
 use store::{Error as StoreError, KeyValueStore};
-use types::{DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot, ColumnIndex};
+use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum HistoricalDataColumnError {
@@ -49,6 +49,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<usize, HistoricalDataColumnError> {
+        tracing::info!("Importing historical data columns to the store");
         let mut total_imported = 0;
         let expected_imported = historical_data_column_sidecar_list.len();
         let mut ops = vec![];

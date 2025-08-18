@@ -425,6 +425,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_id: Epoch,
         downloaded_columns: DataColumnSidecarList<T::EthSpec>,
     ) {
+        info!("procses_data_columns");
         let sent_columns = downloaded_columns.len();
         let result = match self
             .chain
@@ -470,7 +471,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             error = ?e,
                             "Custody backfill batch processing error",
                         );
-                        // The peer is faulty if they don't return data columns 
+                        // The peer is faulty if they don't return data columns
                         // that they advertised as available.
                         Some(PeerAction::LowToleranceError)
                     }

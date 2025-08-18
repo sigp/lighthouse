@@ -3842,6 +3842,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 new_custody_group_count: cgc_change.new_custody_group_count,
                                 sampling_count: cgc_change.sampling_count,
                                 new_column_indices,
+                                trigger_custody_sync: false
                             }).unwrap_or_else(|e| {
                                 debug!(error = %e, "Could not send message to the network service. \
                                 Likely shutdown")
@@ -4146,7 +4147,7 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // POST lighthouse/finalize
+    // POST lighthouse/custody_count
     let post_lighthouse_increase_custody_count = warp::path("lighthouse")
         .and(warp::path("custody_count"))
         .and(warp::path::end())
@@ -4164,12 +4165,13 @@ pub fn serve<T: BeaconChainTypes>(
                         .canonical_head
                         .cached_head()
                         .head_slot()
-                        .epoch(T::EthSpec::slots_per_epoch());
+                        .epoch(T::EthSpec::slots_per_epoch())
+                        - 1;
 
                     let cgc = chain
                         .data_availability_checker
                         .custody_context()
-                        .custody_group_count_at_head(&chain.spec);
+                        .num_of_custody_groups_to_sample(effective_epoch, &chain.spec);
 
                     let sampling_count = chain
                         .data_availability_checker
@@ -4181,24 +4183,43 @@ pub fn serve<T: BeaconChainTypes>(
                         .iter()
                         .copied()
                         .collect::<HashSet<_>>();
+
+                    info!(?cgc, "Custody count cgc");
+
+                    info!(
+                        ?current_custody_columns,
+                        "This is what we're custodying currently"
+                    );
+
+                    let _ = chain.store.put_data_column_custody_info(Some(
+                        (effective_epoch).end_slot(T::EthSpec::slots_per_epoch()),
+                    ));
+
                     let updated_custody_columns = chain
                         .data_availability_checker
                         .custody_context()
-                        .sampling_columns_for_custody_count(cgc + request_data.count, &chain.spec)
+                        .sampling_columns_for_custody_count(cgc, &chain.spec)
                         .iter()
                         .copied()
                         .collect::<HashSet<_>>();
-                    let new_column_indices = current_custody_columns
-                        .symmetric_difference(&updated_custody_columns)
-                        .copied()
-                        .collect::<HashSet<_>>();
+
+                    info!(
+                        ?updated_custody_columns,
+                        "This is what we'd like to custody"
+                    );
+
+                    // let new_column_indices = current_custody_columns
+                    // .symmetric_difference(&updated_custody_columns)
+                    // .copied()
+                    // .collect::<HashSet<_>>();
 
                     publish_network_message(
                         &network_tx,
                         NetworkMessage::CustodyCountChanged {
-                            new_custody_group_count: cgc + request_data.count,
-                            sampling_count: sampling_count + request_data.count,
-                            new_column_indices,
+                            new_custody_group_count: cgc,
+                            sampling_count: sampling_count,
+                            new_column_indices: updated_custody_columns,
+                            trigger_custody_sync: true,
                         },
                     )?;
                     Ok(())

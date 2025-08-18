@@ -8,11 +8,14 @@ use std::{
 use crate::sync::BatchOperationOutcome;
 use crate::sync::range_sync::BatchProcessingResult;
 use lighthouse_network::{PeerId, rpc::methods::DataColumnsByRangeRequest, service::api_types::Id};
+use tracing::info;
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
 /// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: usize = 10;
+
+#[derive(Debug)]
 pub struct WrongState(pub(crate) String);
 
 #[derive(Debug)]
@@ -77,8 +80,10 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
     }
 
     pub fn start_downloading(&mut self, request_id: Id) -> Result<(), WrongState> {
+        info!("Start downloading");
         match self.state.poison() {
             CustodyBatchState::AwaitingDownload => {
+                info!("Starting download");
                 self.state = CustodyBatchState::Downloading(request_id);
                 Ok(())
             }
@@ -101,9 +106,11 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         data_columns: DataColumnSidecarList<E>,
         peer: PeerId,
     ) -> Result<usize /* Received blocks */, WrongState> {
+        info!("Download complete");
         match self.state.poison() {
             CustodyBatchState::Downloading(_) => {
                 let received = data_columns.len();
+                info!(?received, "recevined data columns");
                 self.state =
                     CustodyBatchState::AwaitingProcessing(peer, data_columns, Instant::now());
                 Ok(received)
@@ -129,6 +136,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         &mut self,
         peer: Option<PeerId>,
     ) -> Result<BatchOperationOutcome, WrongState> {
+        info!("Download failed");
         match self.state.poison() {
             CustodyBatchState::Downloading(_) => {
                 // register the attempt and check if the batch can be tried again

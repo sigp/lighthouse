@@ -114,9 +114,11 @@ pub enum NetworkMessage<E: EthSpec> {
         new_custody_group_count: u64,
         new_column_indices: HashSet<ColumnIndex>,
         sampling_count: u64,
+        trigger_custody_sync: bool,
     },
 }
 
+#[derive(Debug)]
 pub enum SyncServiceMessage {
     CustodyCountChanged { columns: HashSet<ColumnIndex> },
 }
@@ -741,23 +743,34 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 new_custody_group_count,
                 sampling_count,
                 new_column_indices,
+                trigger_custody_sync,
             } => {
                 // subscribe to `sampling_count` subnets
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
 
-                // TODO(custody-sync) columns hashset needs the columns we need to backfill
-                if let Err(e) =
-                    self.sync_service_send
-                        .send(SyncServiceMessage::CustodyCountChanged {
-                            columns: new_column_indices,
-                        })
-                {
-                    warn!(
-                        error = ?e,
-                        "Failed to send custody count change to the sync service"
-                    );
+                // TODO(custody-sync-testing) remove this eventually
+                info!(
+                    ?new_custody_group_count,
+                    ?sampling_count,
+                    ?new_column_indices,
+                    "Recieved CustodyCountChanged NetworkMessage"
+                );
+
+                if trigger_custody_sync {
+                    if let Err(e) =
+                        self.sync_service_send
+                            .send(SyncServiceMessage::CustodyCountChanged {
+                                columns: new_column_indices,
+                            })
+                    {
+                        warn!(
+                            error = ?e,
+                            "Failed to send custody count change to the sync service"
+                        );
+                    }
                 }
+
                 if self
                     .network_globals
                     .config
