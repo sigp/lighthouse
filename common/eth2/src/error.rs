@@ -230,8 +230,11 @@ impl std::error::Error for Error {
 /// Otherwise, creates an appropriate error message.
 pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
-    
-    if status == StatusCode::OK || status == StatusCode::ACCEPTED || status == StatusCode::NO_CONTENT {
+
+    if status == StatusCode::OK
+        || status == StatusCode::ACCEPTED
+        || status == StatusCode::NO_CONTENT
+    {
         Ok(response)
     } else {
         // Try to parse body as JSON error message
