@@ -1153,7 +1153,7 @@ impl ApiTester {
                         validators
                     });
 
-                    assert_eq!(result_index_ids, expected, "{:?}", state_id,);
+                    assert_eq!(result_index_ids, expected, "{:?}", state_id);
                     assert_eq!(result_pubkey_ids, expected, "{:?}", state_id);
                     assert_eq!(post_result_index_ids, expected, "{:?}", state_id);
                     assert_eq!(post_result_pubkey_ids, expected, "{:?}", state_id);
