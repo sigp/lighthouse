@@ -924,7 +924,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .cloned()
                 .collect::<HashSet<_>>();
 
-            match network.block_components_by_range_request(
+            match network.block_components_by_range_request_without_components(
                 batch_type,
                 request,
                 RangeRequestId::RangeSync {

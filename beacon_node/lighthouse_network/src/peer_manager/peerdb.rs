@@ -323,6 +323,34 @@ impl<E: EthSpec> PeerDB<E> {
             .map(|(peer_id, _)| peer_id)
     }
 
+    pub fn good_custody_subnet_peer_range_sync(
+        &self,
+        subnet: DataColumnSubnetId,
+        epoch: Epoch,
+    ) -> impl Iterator<Item = &PeerId> {
+        self.peers
+            .iter()
+            .filter(move |(_, info)| {
+                // The custody_subnets hashset can be populated via enr or metadata
+                let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
+
+                info.is_connected()
+                    && is_custody_subnet_peer
+                    && match info.sync_status() {
+                        SyncStatus::Synced { info } => {
+                            info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                        }
+                        SyncStatus::Advanced { info } => {
+                            info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                        }
+                        SyncStatus::IrrelevantPeer
+                        | SyncStatus::Behind { .. }
+                        | SyncStatus::Unknown => false,
+                    }
+            })
+            .map(|(peer_id, _)| peer_id)
+    }
+
     /// Returns an iterator of all peers that are supposed to be custodying
     /// the given subnet id.
     pub fn good_range_sync_custody_subnet_peers(

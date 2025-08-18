@@ -5,6 +5,7 @@ use lighthouse_network::{
     PeerAction, PeerId,
     service::api_types::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
+        DataColumnsByRootRequestId,
     },
 };
 use std::{collections::HashMap, sync::Arc};
@@ -51,6 +52,17 @@ enum RangeBlockDataRequest<E: EthSpec> {
         expected_custody_columns: Vec<ColumnIndex>,
         attempt: usize,
     },
+    DataColumnsFromRoot {
+        requests: HashMap<
+            DataColumnsByRootRequestId,
+            ByRangeRequest<DataColumnsByRootRequestId, DataColumnSidecarList<E>>,
+        >,
+        init: bool,
+        /// The column indices corresponding to the request
+        column_peers: HashMap<DataColumnsByRootRequestId, Vec<ColumnIndex>>,
+        expected_custody_columns: Vec<ColumnIndex>,
+        attempt: usize,
+    },
 }
 
 #[derive(Debug)]
@@ -81,6 +93,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
             Vec<ColumnIndex>,
         )>,
+        data_columns_from_root: bool,
     ) -> Self {
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
@@ -94,6 +107,14 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 column_peers,
                 expected_custody_columns,
                 attempt: 0,
+            }
+        } else if data_columns_from_root {
+            RangeBlockDataRequest::DataColumnsFromRoot {
+                requests: HashMap::new(),
+                init: false,
+                attempt: 0,
+                column_peers: HashMap::new(),
+                expected_custody_columns: Vec::new(),
             }
         } else {
             RangeBlockDataRequest::NoData
@@ -128,6 +149,35 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    /// `column_requests`: each element represents a request id and the columns requested under that request.
+    pub fn insert_column_request_after_block_request(
+        &mut self,
+        column_requests: Vec<(DataColumnsByRootRequestId, Vec<ColumnIndex>)>,
+        custody_columns: &[ColumnIndex],
+    ) -> Result<(), String> {
+        match &mut self.block_data_request {
+            RangeBlockDataRequest::DataColumnsFromRoot {
+                init,
+                requests,
+                attempt: _,
+                column_peers,
+                expected_custody_columns,
+            } => {
+                *init = true;
+                for (request, peers) in column_requests {
+                    requests.insert(request, ByRangeRequest::Active(request));
+                    column_peers.insert(request, peers);
+                }
+                for column in custody_columns {
+                    expected_custody_columns.push(*column);
+                }
+
+                Ok(())
+            }
+            _ => Err("Invalid initialization".to_string()),
+        }
+    }
+
     /// Adds received blocks to the request.
     ///
     /// Returns an error if the request ID doesn't match the expected blocks request.
@@ -150,6 +200,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     ) -> Result<(), String> {
         match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => Err("received blobs but expected no data".to_owned()),
+            RangeBlockDataRequest::DataColumnsFromRoot { .. } => {
+                Err("received blobs but expected no data columns by root".to_owned())
+            }
             RangeBlockDataRequest::Blobs(req) => req.finish(req_id, blobs),
             RangeBlockDataRequest::DataColumns { .. } => {
                 Err("received blobs but expected data columns".to_owned())
@@ -173,7 +226,38 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::Blobs(_) => {
                 Err("received data columns but expected blobs".to_owned())
             }
+            RangeBlockDataRequest::DataColumnsFromRoot { .. } => {
+                Err("received data columns by root but expected range".to_owned())
+            }
             RangeBlockDataRequest::DataColumns { requests, .. } => {
+                let req = requests
+                    .get_mut(&req_id)
+                    .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
+                req.finish(req_id, columns)
+            }
+        }
+    }
+
+    /// Adds received custody columns to the request.
+    ///
+    /// Returns an error if this request expects blobs instead of data columns,
+    /// or if the request ID is unknown.
+    pub fn add_custody_columns_by_root(
+        &mut self,
+        req_id: DataColumnsByRootRequestId,
+        columns: Vec<Arc<DataColumnSidecar<E>>>,
+    ) -> Result<(), String> {
+        match &mut self.block_data_request {
+            RangeBlockDataRequest::NoData => {
+                Err("received data columns but expected no data".to_owned())
+            }
+            RangeBlockDataRequest::Blobs(_) => {
+                Err("received data columns but expected blobs".to_owned())
+            }
+            RangeBlockDataRequest::DataColumns { .. } => {
+                Err("received data columns by range but expected root".to_owned())
+            }
+            RangeBlockDataRequest::DataColumnsFromRoot { requests, .. } => {
                 let req = requests
                     .get_mut(&req_id)
                     .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
@@ -209,6 +293,64 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     blobs.to_vec(),
                     spec,
                 ))
+            }
+            RangeBlockDataRequest::DataColumnsFromRoot {
+                init,
+                attempt,
+                column_peers,
+                expected_custody_columns,
+                requests,
+            } => {
+                if !*init {
+                    return None;
+                }
+
+                let mut data_columns = vec![];
+                let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
+                for req in requests.values() {
+                    let Some(data) = req.to_finished() else {
+                        return None;
+                    };
+                    data_columns.extend(data.clone())
+                }
+
+                // An "attempt" is complete here after we have received a response for all the
+                // requests we made. i.e. `req.to_finished()` returns Some for all requests.
+                *attempt += 1;
+
+                // Note: this assumes that only 1 peer is responsible for a column
+                // with a batch.
+                for (id, columns) in column_peers {
+                    for column in columns {
+                        column_to_peer_id.insert(*column, id.peer);
+                    }
+                }
+
+                let resp = Self::responses_with_custody_columns(
+                    blocks.to_vec(),
+                    data_columns,
+                    column_to_peer_id,
+                    expected_custody_columns,
+                    *attempt,
+                    spec,
+                );
+
+                if let Err(CouplingError::DataColumnPeerFailure {
+                    error: _,
+                    faulty_peers,
+                    action: _,
+                    exceeded_retries: _,
+                }) = &resp
+                {
+                    for (_, peer) in faulty_peers.iter() {
+                        // find the req id associated with the peer and
+                        // delete it from the entries as we are going to make
+                        // a separate attempt for those components.
+                        requests.retain(|&k, _| k.peer != *peer);
+                    }
+                }
+
+                Some(resp)
             }
             RangeBlockDataRequest::DataColumns {
                 requests,

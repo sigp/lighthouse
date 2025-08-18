@@ -38,6 +38,7 @@ pub enum SyncRequestId {
 pub struct DataColumnsByRootRequestId {
     pub id: Id,
     pub requester: DataColumnsByRootRequester,
+    pub peer: PeerId,
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -46,6 +47,18 @@ pub struct BlocksByRangeRequestId {
     pub id: Id,
     /// The Id of the overall By Range request for block components.
     pub parent_request_id: ComponentsByRangeRequestId,
+}
+
+impl BlocksByRangeRequestId {
+    pub fn batch_id(&self) -> Epoch {
+        match self.parent_request_id.requester {
+            RangeRequestId::BackfillSync { batch_id } => batch_id,
+            RangeRequestId::RangeSync {
+                chain_id: _,
+                batch_id,
+            } => batch_id,
+        }
+    }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -92,6 +105,7 @@ pub enum RangeRequestId {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
     Custody(CustodyId),
+    RangeSync { parent: ComponentsByRangeRequestId },
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -222,6 +236,7 @@ impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Custody(id) => write!(f, "Custody/{id}"),
+            Self::RangeSync { parent } => write!(f, "Range/{parent}"),
         }
     }
 }
