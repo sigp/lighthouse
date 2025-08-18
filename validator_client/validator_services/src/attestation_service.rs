@@ -1,6 +1,6 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
-use eth2::types::EventTopic;
+use eth2::types::{EventTopic, EventKind};
 use futures::future::join_all;
 use futures::StreamExt;
 use logging::crit;
@@ -719,12 +719,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 async fn poll_head_event_on_all_beacon_nodes<T: SlotClock, E: EthSpec>(
     beacon_nodes: &Arc<BeaconNodeFallback<T>>
 ) -> Result<(), String> {
-    use eth2::types::EventKind;
-    
+
     beacon_nodes.first_success(|beacon_node| async move {
         let mut event_stream = beacon_node.get_events::<E>(&[EventTopic::Head]).await
             .map_err(|e| format!("Failed to get event stream: {:?}", e))?;
-        
+
         // Poll once for a head event to trigger early attestation processing
         if let Some(event_result) = event_stream.next().await {
             let event = event_result.map_err(|e| format!("Head event stream error: {:?}", e))?;
