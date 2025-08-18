@@ -4200,6 +4200,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .custody_context()
                         .sampling_columns_for_custody_count(cgc, &chain.spec)
                         .iter()
+                        .take(4)
                         .copied()
                         .collect::<HashSet<_>>();
 

@@ -1687,7 +1687,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
         attempt: usize,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
-        info!("custody_data_columns_batch_response");
+        info!(?custody_sync_request_id, "custody_data_columns_batch_response");
         let Entry::Occupied(mut entry) = self
             .custody_sync_data_column_batch_requests
             .entry(custody_sync_request_id.parent_request_id)

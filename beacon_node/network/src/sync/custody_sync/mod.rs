@@ -256,6 +256,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             .unwrap_or(Slot::new(0));
 
         self.current_start = earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        info!(?self.current_start, "Set start epoch");
         self.to_be_downloaded = self.current_start;
         Ok(())
     }
@@ -327,13 +329,13 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         
         // Don't request batches at or before the Fulu fork epoch since data columns don't exist before Fulu
         if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch {
-            if self.to_be_downloaded <= fulu_fork_epoch {
-                info!(batch_id = ?self.to_be_downloaded, fulu_fork_epoch = ?fulu_fork_epoch, "Batch is at or before Fulu fork epoch, not creating");
+            if self.to_be_downloaded < fulu_fork_epoch {
+                info!(batch_id = ?self.to_be_downloaded, fulu_fork_epoch = ?fulu_fork_epoch, "Batch is before Fulu fork epoch, not creating");
                 return None;
             }
         }
         
-        // don't request batches beyond the DA window;
+        // Don't request batches beyond the DA window;
         if self.last_batch_downloaded {
             info!(last_batch_downloaded = ?self.last_batch_downloaded);
             info!("Beyond DA window");
@@ -430,6 +432,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
         self.current_processing_batch = Some(batch_id);
 
+        info!("Send data columns!!!!");
         if let Err(e) = network
             .beacon_processor()
             .send_data_columns(batch_id, data_columns)
@@ -686,10 +689,18 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<ProcessResult, CustodyBackfillError> {
-        info!("Process completed batches");
+        info!(processing_target=?self.processing_target, "Process completed batches");
         // Only process batches if backfill is syncing and only process one batch at a time
         if self.state() != BackFillState::Syncing || self.current_processing_batch.is_some() {
             return Ok(ProcessResult::Successful);
+        }
+
+        // Don't try to process batches before the Fulu fork epoch since data columns don't exist
+        if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch {
+            if self.processing_target < fulu_fork_epoch {
+                info!(processing_target = ?self.processing_target, fulu_fork_epoch = ?fulu_fork_epoch, "Processing target is before Fulu fork epoch, skipping");
+                return Ok(ProcessResult::Successful);
+            }
         }
 
         info!(?self.batches, "batches to process");
@@ -760,19 +771,38 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             return;
         }
 
-        // We can now validate higher batches that the current batch. Here we remove all
-        // batches that are higher than the current batch. We add on an extra
-        // `BACKFILL_EPOCHS_PER_BATCH` as `split_off` is inclusive.
-        let removed_batches = self
-            .batches
-            .split_off(&(validating_epoch + BACKFILL_EPOCHS_PER_BATCH));
-
-        for (id, batch) in removed_batches.into_iter() {
-            self.validated_batches = self.validated_batches.saturating_add(1);
-            // only for batches awaiting validation can we be sure the last attempt is
-            // right, and thus, that any different attempt is wrong
+        // Only remove batches that are in "completed" states to avoid removing unprocessed batches
+        let mut batches_to_remove = Vec::new();
+        
+        for (&batch_id, batch) in self.batches.range((validating_epoch + BACKFILL_EPOCHS_PER_BATCH)..) {
             match batch.state() {
-                CustodyBatchState::AwaitingValidation(processed_attempt) => {
+                // Safe to remove - these are done processing
+                CustodyBatchState::AwaitingValidation(_) => {
+                    batches_to_remove.push(batch_id);
+                }
+                // Safe to remove - these are failed and won't be processed
+                CustodyBatchState::Failed | CustodyBatchState::Poisoned => {
+                    batches_to_remove.push(batch_id);
+                }
+                // NOT safe to remove - these still need processing
+                CustodyBatchState::AwaitingProcessing(..) 
+                | CustodyBatchState::Downloading(..) 
+                | CustodyBatchState::Processing(_) 
+                | CustodyBatchState::AwaitingDownload => {
+                    debug!(batch_epoch = ?batch_id, state = ?batch.state(), "Keeping batch that still needs processing");
+                    // Leave these batches alone - they still need to be processed
+                }
+            }
+        }
+
+        // Remove only the safe batches
+        for batch_id in batches_to_remove {
+            if let Some(batch) = self.batches.remove(&batch_id) {
+                self.validated_batches = self.validated_batches.saturating_add(1);
+                debug!(batch_epoch = ?batch_id, "Removing validated batch");
+                
+                // Handle peer scoring logic for awaiting validation batches
+                if let CustodyBatchState::AwaitingValidation(processed_attempt) = batch.state() {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
@@ -782,7 +812,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                                 // We negatively score the original peer.
                                 let action = PeerAction::LowToleranceError;
                                 debug!(
-                                    batch_epoch = ?id,
+                                    batch_epoch = ?batch_id,
                                     score_adjustment = %action,
                                     original_peer = %attempt.peer_id,
                                     new_peer = %processed_attempt.peer_id,
@@ -798,7 +828,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                                 // negative score the original peer.
                                 let action = PeerAction::MidToleranceError;
                                 debug!(
-                                    batch_epoch = ?id,
+                                    batch_epoch = ?batch_id,
                                     score_adjustment = %action,
                                     original_peer = %attempt.peer_id,
                                     new_peer = %processed_attempt.peer_id,
@@ -810,21 +840,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                                     "custody_backfill_reprocessed_same_peer",
                                 );
                             }
-                        }
-                    }
-                }
-                CustodyBatchState::Downloading(..) => {}
-                CustodyBatchState::Failed
-                | CustodyBatchState::Poisoned
-                | CustodyBatchState::AwaitingDownload => {
-                    crit!("batch indicates inconsistent state while advancing custody sync")
-                }
-                CustodyBatchState::AwaitingProcessing(..) => {}
-                CustodyBatchState::Processing(_) => {
-                    debug!(batch = %id, %batch, "Advancing custody sync while processing a batch");
-                    if let Some(processing_id) = self.current_processing_batch {
-                        if id >= processing_id {
-                            self.current_processing_batch = None;
                         }
                     }
                 }

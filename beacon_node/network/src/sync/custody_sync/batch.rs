@@ -211,6 +211,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
             CustodyBatchState::Processing(attempt) => {
                 self.state = match procesing_result {
                     BatchProcessingResult::Success => {
+                        info!("Awaiting Validation");
                         CustodyBatchState::AwaitingValidation(attempt)
                     }
                     BatchProcessingResult::FaultyFailure => {
@@ -267,6 +268,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
     pub fn start_processing(&mut self) -> Result<(DataColumnSidecarList<E>, Duration), WrongState> {
         match self.state.poison() {
             CustodyBatchState::AwaitingProcessing(peer, data_columns, start_instant) => {
+                info!(data_columns = ?data_columns.len(), "Start Processing");
                 self.state = CustodyBatchState::Processing(Attempt::new::<E>(peer, &data_columns));
                 Ok((data_columns, start_instant.elapsed()))
             }
