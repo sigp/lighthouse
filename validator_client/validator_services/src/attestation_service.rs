@@ -162,8 +162,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
-
                     tokio::select! {
                         _ = sleep(duration_to_next_slot + slot_duration / 3) => {},
                         _ = poll_head_event_on_all_beacon_nodes::<T, S::E>(&self.beacon_nodes) => {}
