@@ -1079,7 +1079,7 @@ impl ApiTester {
                         .get_beacon_states_validators(
                             state_id.0,
                             Some(validator_index_ids.as_slice()),
-                            None,
+                            Some(statuses.as_slice()),
                         )
                         .await
                         .unwrap()
@@ -1089,20 +1089,28 @@ impl ApiTester {
                         .get_beacon_states_validators(
                             state_id.0,
                             Some(validator_pubkey_ids.as_slice()),
-                            None,
+                            Some(statuses.as_slice()),
                         )
                         .await
                         .unwrap()
                         .map(|res| res.data);
                     let post_result_index_ids = self
                         .client
-                        .post_beacon_states_validators(state_id.0, Some(validator_index_ids), None)
+                        .post_beacon_states_validators(
+                            state_id.0,
+                            Some(validator_index_ids),
+                            Some(statuses.clone()),
+                        )
                         .await
                         .unwrap()
                         .map(|res| res.data);
                     let post_result_pubkey_ids = self
                         .client
-                        .post_beacon_states_validators(state_id.0, Some(validator_pubkey_ids), None)
+                        .post_beacon_states_validators(
+                            state_id.0,
+                            Some(validator_pubkey_ids),
+                            Some(statuses.clone()),
+                        )
                         .await
                         .unwrap()
                         .map(|res| res.data);
@@ -1113,7 +1121,13 @@ impl ApiTester {
 
                         let mut validators = Vec::with_capacity(validator_indices.len());
 
-                        for i in validator_indices {
+                        let expected_indices = if validator_indices.is_empty() {
+                            (0..state.validators().len() as u64).collect()
+                        } else {
+                            validator_indices.clone()
+                        };
+
+                        for i in expected_indices {
                             if i >= state.validators().len() as u64 {
                                 continue;
                             }
@@ -1123,8 +1137,8 @@ impl ApiTester {
                                 epoch,
                                 far_future_epoch,
                             );
-                            if statuses.contains(&status)
-                                || statuses.is_empty()
+                            if statuses.is_empty()
+                                || statuses.contains(&status)
                                 || statuses.contains(&status.superstatus())
                             {
                                 validators.push(ValidatorData {
