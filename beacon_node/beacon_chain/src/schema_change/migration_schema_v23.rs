@@ -1,6 +1,6 @@
 use crate::BeaconForkChoiceStore;
 use crate::beacon_chain::BeaconChainTypes;
-use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::persisted_fork_choice::PersistedForkChoiceV17;
 use crate::schema_change::StoreError;
 use crate::test_utils::{BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY, PersistedBeaconChain};
 use fork_choice::{ForkChoice, ResetPayloadStatuses};
@@ -80,7 +80,7 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
     };
 
     // Recreate head-tracker from fork choice.
-    let Some(persisted_fork_choice) = db.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
+    let Some(persisted_fork_choice) = db.get_item::<PersistedForkChoiceV17>(&FORK_CHOICE_DB_KEY)?
     else {
         // Fork choice should exist if the database exists.
         return Err(Error::MigrationError(
@@ -88,19 +88,30 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
         ));
     };
 
-    let fc_store =
-        BeaconForkChoiceStore::from_persisted(persisted_fork_choice.fork_choice_store, db.clone())
-            .map_err(|e| {
-                Error::MigrationError(format!(
-                    "Error loading fork choise store from persisted: {e:?}"
-                ))
-            })?;
+    // We use dummy roots for the justified states because we can source the balances from the v17
+    // persited fork choice. The justified state root isn't required to look up the justified state's
+    // balances (as it would be in V28). This fork choice object with corrupt state roots SHOULD NOT
+    // be written to disk.
+    let dummy_justified_state_root = Hash256::repeat_byte(0x66);
+    let dummy_unrealized_justified_state_root = Hash256::repeat_byte(0x77);
+
+    let fc_store = BeaconForkChoiceStore::from_persisted_v17(
+        persisted_fork_choice.fork_choice_store_v17,
+        dummy_justified_state_root,
+        dummy_unrealized_justified_state_root,
+        db.clone(),
+    )
+    .map_err(|e| {
+        Error::MigrationError(format!(
+            "Error loading fork choice store from persisted: {e:?}"
+        ))
+    })?;
 
     // Doesn't matter what policy we use for invalid payloads, as our head calculation just
     // considers descent from finalization.
     let reset_payload_statuses = ResetPayloadStatuses::OnlyWithInvalidPayload;
     let fork_choice = ForkChoice::from_persisted(
-        persisted_fork_choice.fork_choice,
+        persisted_fork_choice.fork_choice_v17.try_into()?,
         reset_payload_statuses,
         fc_store,
         &db.spec,

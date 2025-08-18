@@ -220,7 +220,7 @@ reqwest = { version = "0.11", default-features = false, features = [
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
-rust_eth_kzg = "0.5.4"
+rust_eth_kzg = "0.8.0"
 safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
 serde = { version = "1", features = ["derive"] }
