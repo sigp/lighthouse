@@ -1,8 +1,8 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
-use eth2::types::{EventTopic, EventKind};
-use futures::future::join_all;
+use eth2::types::{EventKind, EventTopic};
 use futures::StreamExt;
+use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -715,30 +715,35 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 }
 
 async fn poll_head_event_on_all_beacon_nodes<T: SlotClock, E: EthSpec>(
-    beacon_nodes: &Arc<BeaconNodeFallback<T>>
+    beacon_nodes: &Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), String> {
+    beacon_nodes
+        .first_success(|beacon_node| async move {
+            let mut event_stream = beacon_node
+                .get_events::<E>(&[EventTopic::Head])
+                .await
+                .map_err(|e| format!("Failed to get event stream: {:?}", e))?;
 
-    beacon_nodes.first_success(|beacon_node| async move {
-        let mut event_stream = beacon_node.get_events::<E>(&[EventTopic::Head]).await
-            .map_err(|e| format!("Failed to get event stream: {:?}", e))?;
-
-        // Poll once for a head event to trigger early attestation processing
-        if let Some(event_result) = event_stream.next().await {
-            let event = event_result.map_err(|e| format!("Head event stream error: {:?}", e))?;
-            match event {
-                EventKind::Head(_) => {
-                    trace!("Received head event, triggering early attestation processing");
-                    Ok(())
-                },
-                _ => Err("Received non-head event when expecting head event".to_string())
+            // Poll once for a head event to trigger early attestation processing
+            if let Some(event_result) = event_stream.next().await {
+                let event =
+                    event_result.map_err(|e| format!("Head event stream error: {:?}", e))?;
+                match event {
+                    EventKind::Head(_) => {
+                        trace!("Received head event, triggering early attestation processing");
+                        Ok(())
+                    }
+                    _ => Err("Received non-head event when expecting head event".to_string()),
+                }
+            } else {
+                Err("No head events received".to_string())
             }
-        } else {
-            Err("No head events received".to_string())
-        }
-    }).await.map_err(|e| {
-        debug!(error = %e, "Failed to get head events from any beacon node");
-        e.to_string()
-    })
+        })
+        .await
+        .map_err(|e| {
+            debug!(error = %e, "Failed to get head events from any beacon node");
+            e.to_string()
+        })
 }
 
 #[cfg(test)]
