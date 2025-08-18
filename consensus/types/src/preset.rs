@@ -297,6 +297,10 @@ pub struct FuluPreset {
     pub field_elements_per_ext_blob: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub kzg_commitments_inclusion_proof_depth: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub cells_per_ext_blob: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub number_of_columns: u64,
 }
 
 impl FuluPreset {
@@ -306,6 +310,8 @@ impl FuluPreset {
             field_elements_per_ext_blob: E::field_elements_per_ext_blob() as u64,
             kzg_commitments_inclusion_proof_depth: E::kzg_commitments_inclusion_proof_depth()
                 as u64,
+            cells_per_ext_blob: E::cells_per_ext_blob() as u64,
+            number_of_columns: E::number_of_columns() as u64,
         }
     }
 }
