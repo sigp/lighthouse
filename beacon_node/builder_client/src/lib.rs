@@ -1,5 +1,5 @@
-pub use eth2::error::Error;
-use eth2::error::ok_or_error;
+pub use eth2::Error;
+use eth2::ok_or_error;
 use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{

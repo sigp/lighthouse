@@ -226,36 +226,17 @@ impl std::error::Error for Error {
     }
 }
 
-// === Response Processing ===
-
-/// Centralized response processing for different API types
-pub struct ResponseProcessor;
-
-impl ResponseProcessor {
-    /// Process beacon node API response (accepts 200 OK only)
-    pub async fn process_beacon_response(response: Response) -> Result<Response, Error> {
-        Self::process_response(response, &[StatusCode::OK]).await
-    }
-
-    /// Process validator client API response (accepts 200, 202, 204)
-    pub async fn process_validator_response(response: Response) -> Result<Response, Error> {
-        Self::process_response(
-            response,
-            &[StatusCode::OK, StatusCode::ACCEPTED, StatusCode::NO_CONTENT],
-        )
-        .await
-    }
-
-    async fn process_response(
-        response: Response,
-        success_codes: &[StatusCode],
-    ) -> Result<Response, Error> {
-        let status = response.status();
-
-        if success_codes.contains(&status) {
-            Ok(response)
-        } else if let Ok(message) = response.json().await {
-            match message {
+/// Returns `Ok(response)` if the response is a `200 OK`, `202 Accepted`, or `204 No Content` response.
+/// Otherwise, creates an appropriate error message.
+pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
+    let status = response.status();
+    
+    if status == StatusCode::OK || status == StatusCode::ACCEPTED || status == StatusCode::NO_CONTENT {
+        Ok(response)
+    } else {
+        // Try to parse body as JSON error message
+        if let Ok(error_json) = response.json::<ResponseError>().await {
+            match error_json {
                 ResponseError::Message(msg) => Err(Error::ServerMessage(msg)),
                 ResponseError::Indexed(msg) => Err(Error::ServerIndexedMessage(msg)),
             }
@@ -263,18 +244,6 @@ impl ResponseProcessor {
             Err(Error::StatusCode(status))
         }
     }
-}
-
-/// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
-/// appropriate error message.
-pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
-    ResponseProcessor::process_beacon_response(response).await
-}
-
-/// Returns `Ok(response)` if the response is a `200 OK`, `202 Accepted`, or `204 No Content` response.
-/// Otherwise, creates an appropriate error message.
-pub async fn ok_or_error_validator(response: Response) -> Result<Response, Error> {
-    ResponseProcessor::process_validator_response(response).await
 }
 
 // === Trait for Optional Responses ===
