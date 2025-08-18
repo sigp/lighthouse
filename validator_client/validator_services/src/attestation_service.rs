@@ -1,6 +1,8 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
+use eth2::types::EventTopic;
 use futures::future::join_all;
+use futures::StreamExt;
 use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::HashMap;
@@ -161,6 +163,11 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(duration_to_next_slot + slot_duration / 3).await;
+
+                    tokio::select! {
+                        _ = sleep(duration_to_next_slot + slot_duration / 3) => {},
+                        _ = poll_head_event_on_all_beacon_nodes(&self.beacon_nodes) => {}
+                    }
 
                     if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
                         crit!(error = e, "Failed to spawn attestation tasks")
@@ -706,6 +713,31 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             },
             "slashing_protection_pre_pruning",
         );
+    }
+}
+
+async fn poll_head_event_on_all_beacon_nodes<T: SlotClock>(
+    beacon_nodes: &Arc<BeaconNodeFallback<T>>
+) -> Result<(), String> {
+    match beacon_nodes.first_success(|beacon_node| async move {
+        let mut event_stream = beacon_node.get_events::<types::MainnetEthSpec>(&[EventTopic::Head]).await
+            .map_err(|e| format!("Failed to get event stream: {:?}", e))?;
+        
+        // Poll once for a head event to trigger early attestation processing
+        if let Some(event_result) = event_stream.next().await {
+            match event_result {
+                Ok(_event) => Ok(()),
+                Err(e) => Err(format!("Head event stream error: {:?}", e))
+            }
+        } else {
+            Err("No head events received".to_string())
+        }
+    }).await {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            debug!("Failed to get head events from any beacon node: {}", e);
+            Ok(()) // Don't fail the entire process if head events aren't available
+        }
     }
 }
 
