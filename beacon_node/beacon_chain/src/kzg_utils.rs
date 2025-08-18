@@ -423,7 +423,7 @@ mod test {
     use bls::Signature;
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
-    use kzg::{Kzg, KzgCommitment, TrustedSetup, trusted_setup::get_trusted_setup};
+    use kzg::{Kzg, KzgCommitment, trusted_setup::get_trusted_setup};
     use types::{
         BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec, EmptyBlock, EthSpec, ForkName,
         FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
@@ -569,10 +569,7 @@ mod test {
     }
 
     fn get_kzg() -> Kzg {
-        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .expect("should have trusted setup");
-        Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg")
+        Kzg::new_from_trusted_setup(&get_trusted_setup()).expect("should create kzg")
     }
 
     fn create_test_fulu_block_and_blobs<E: EthSpec>(
