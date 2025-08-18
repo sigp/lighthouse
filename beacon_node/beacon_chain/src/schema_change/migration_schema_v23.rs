@@ -103,7 +103,7 @@ pub fn downgrade_from_v23<T: BeaconChainTypes>(
     )
     .map_err(|e| {
         Error::MigrationError(format!(
-            "Error loading fork choise store from persisted: {e:?}"
+            "Error loading fork choice store from persisted: {e:?}"
         ))
     })?;
 

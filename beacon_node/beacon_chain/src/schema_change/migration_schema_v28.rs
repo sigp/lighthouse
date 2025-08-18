@@ -75,7 +75,7 @@ pub fn upgrade_to_v28<T: BeaconChainTypes>(
     )
     .map_err(|e| {
         Error::MigrationError(format!(
-            "Error loading fork choise store from persisted: {e:?}"
+            "Error loading fork choice store from persisted: {e:?}"
         ))
     })?;
 
