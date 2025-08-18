@@ -166,7 +166,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
                     tokio::select! {
                         _ = sleep(duration_to_next_slot + slot_duration / 3) => {},
-                        _ = poll_head_event_on_all_beacon_nodes(&self.beacon_nodes) => {}
+                        _ = poll_head_event_on_all_beacon_nodes::<T, S::E>(&self.beacon_nodes) => {}
                     }
 
                     if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
@@ -716,29 +716,32 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     }
 }
 
-async fn poll_head_event_on_all_beacon_nodes<T: SlotClock>(
+async fn poll_head_event_on_all_beacon_nodes<T: SlotClock, E: EthSpec>(
     beacon_nodes: &Arc<BeaconNodeFallback<T>>
 ) -> Result<(), String> {
-    match beacon_nodes.first_success(|beacon_node| async move {
-        let mut event_stream = beacon_node.get_events::<types::MainnetEthSpec>(&[EventTopic::Head]).await
+    use eth2::types::EventKind;
+    
+    beacon_nodes.first_success(|beacon_node| async move {
+        let mut event_stream = beacon_node.get_events::<E>(&[EventTopic::Head]).await
             .map_err(|e| format!("Failed to get event stream: {:?}", e))?;
         
         // Poll once for a head event to trigger early attestation processing
         if let Some(event_result) = event_stream.next().await {
-            match event_result {
-                Ok(_event) => Ok(()),
-                Err(e) => Err(format!("Head event stream error: {:?}", e))
+            let event = event_result.map_err(|e| format!("Head event stream error: {:?}", e))?;
+            match event {
+                EventKind::Head(_) => {
+                    trace!("Received head event, triggering early attestation processing");
+                    Ok(())
+                },
+                _ => Err("Received non-head event when expecting head event".to_string())
             }
         } else {
             Err("No head events received".to_string())
         }
-    }).await {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            debug!("Failed to get head events from any beacon node: {}", e);
-            Ok(()) // Don't fail the entire process if head events aren't available
-        }
-    }
+    }).await.map_err(|e| {
+        debug!(error = %e, "Failed to get head events from any beacon node");
+        e.to_string()
+    })
 }
 
 #[cfg(test)]
