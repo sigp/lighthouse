@@ -49,6 +49,11 @@ excluded_paths = [
     "tests/.*/eip7805",
     # Ignore MatrixEntry SSZ tests for now.
     "tests/.*/fulu/ssz_static/MatrixEntry/.*",
+    # EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
+    "tests/general/phase0/ssz_generic/progressive_bitlist",
+    "tests/general/phase0/ssz_generic/basic_progressive_list",
+    "tests/general/phase0/ssz_generic/containers/.*/ProgressiveBitsStruct.*",
+    "tests/general/phase0/ssz_generic/containers/.*/ProgressiveTestStruct.*",
     # Ignore full epoch tests for now (just test the sub-transitions).
     "tests/.*/.*/epoch_processing/.*/pre_epoch.ssz_snappy",
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",

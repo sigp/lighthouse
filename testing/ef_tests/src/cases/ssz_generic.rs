@@ -111,6 +111,8 @@ macro_rules! type_dispatch {
             "VarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* VarTestStruct>, $($rest)*),
             "ComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ComplexTestStruct>, $($rest)*),
             "BitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* BitsStruct>, $($rest)*),
+            // EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
+            "ProgressiveTestStruct" | "ProgressiveBitsStruct" => Err(Error::SkippedKnownFailure),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };
