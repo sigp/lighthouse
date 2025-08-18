@@ -27,6 +27,7 @@ pub enum Error {
     FailedToReadState(StoreError),
     MissingState(Hash256),
     BeaconStateError(BeaconStateError),
+    UnalignedCheckpoint { block_slot: Slot, state_slot: Slot },
     Arith(ArithError),
 }
 
@@ -166,16 +167,31 @@ where
         store: Arc<HotColdDB<E, Hot, Cold>>,
         anchor: BeaconSnapshot<E>,
     ) -> Result<Self, Error> {
-        let mut anchor_state = anchor.beacon_state.clone();
+        let unadvanced_state_root = anchor.beacon_state_root();
+        let mut anchor_state = anchor.beacon_state;
         let mut anchor_block_header = anchor_state.latest_block_header().clone();
-        if anchor_block_header.state_root == Hash256::zero() {
-            anchor_block_header.state_root = anchor.beacon_state_root();
+
+        // The anchor state MUST be on an epoch boundary (it should be advanced by the caller).
+        if !anchor_state
+            .slot()
+            .as_u64()
+            .is_multiple_of(E::slots_per_epoch())
+        {
+            return Err(Error::UnalignedCheckpoint {
+                block_slot: anchor_block_header.slot,
+                state_slot: anchor_state.slot(),
+            });
         }
-        let anchor_root = anchor_block_header.canonical_root();
+
+        // Compute the accurate block root for the checkpoint block.
+        if anchor_block_header.state_root.is_zero() {
+            anchor_block_header.state_root = unadvanced_state_root;
+        }
+        let anchor_block_root = anchor_block_header.canonical_root();
         let anchor_epoch = anchor_state.current_epoch();
         let justified_checkpoint = Checkpoint {
             epoch: anchor_epoch,
-            root: anchor_root,
+            root: anchor_block_root,
         };
         let finalized_checkpoint = justified_checkpoint;
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
