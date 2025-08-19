@@ -361,54 +361,100 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block: RpcBlock<T::EthSpec>,
     ) -> Result<MaybeAvailableBlock<T::EthSpec>, AvailabilityCheckError> {
         let (block_root, block, blobs, data_columns) = block.deconstruct();
+
+        // Handle blob-required blocks (Deneb era)
         if self.blobs_required_for_block(&block) {
-            return if let Some(blob_list) = blobs {
-                verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
-                    .map_err(AvailabilityCheckError::InvalidBlobs)?;
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    blob_data: AvailableBlockData::Blobs(blob_list),
-                    blobs_available_timestamp: None,
-                    spec: self.spec.clone(),
-                }))
-            } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
+            let Some(blob_list) = blobs else {
+                return Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block });
             };
-        }
-        if self.data_columns_required_for_block(&block) {
-            return if let Some(data_column_list) = data_columns.as_ref() {
-                verify_kzg_for_data_column_list_with_scoring(
-                    data_column_list
-                        .iter()
-                        .map(|custody_column| custody_column.as_data_column()),
-                    &self.kzg,
-                )
-                .map_err(AvailabilityCheckError::InvalidColumn)?;
-                Ok(MaybeAvailableBlock::Available(AvailableBlock {
-                    block_root,
-                    block,
-                    blob_data: AvailableBlockData::DataColumns(
-                        data_column_list
-                            .into_iter()
-                            .map(|d| d.clone_arc())
-                            .collect(),
-                    ),
-                    blobs_available_timestamp: None,
-                    spec: self.spec.clone(),
-                }))
-            } else {
-                Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block })
-            };
+
+            // Verify KZG for blobs
+            verify_kzg_for_blob_list(blob_list.iter(), &self.kzg)
+                .map_err(AvailabilityCheckError::InvalidBlobs)?;
+
+            return Ok(MaybeAvailableBlock::Available(
+                self.create_available_block_with_blobs(block_root, block, blob_list),
+            ));
         }
 
-        Ok(MaybeAvailableBlock::Available(AvailableBlock {
+        // Handle data-column-required blocks (Fusaka/PeerDAS era)
+        if self.data_columns_required_for_block(&block) {
+            let Some(data_column_list) = data_columns.as_ref() else {
+                return Ok(MaybeAvailableBlock::AvailabilityPending { block_root, block });
+            };
+
+            // Verify KZG for data columns
+            verify_kzg_for_data_column_list_with_scoring(
+                data_column_list
+                    .iter()
+                    .map(|custody_column| custody_column.as_data_column()),
+                &self.kzg,
+            )
+            .map_err(AvailabilityCheckError::InvalidColumn)?;
+
+            return Ok(MaybeAvailableBlock::Available(
+                self.create_available_block_with_columns(
+                    block_root,
+                    block,
+                    data_column_list.clone(),
+                ),
+            ));
+        }
+
+        // Pre-Deneb blocks - no additional data required
+        Ok(MaybeAvailableBlock::Available(
+            self.create_available_block_no_data(block_root, block),
+        ))
+    }
+
+    /// Helper: Create AvailableBlock with blob data
+    fn create_available_block_with_blobs(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        blob_list: BlobSidecarList<T::EthSpec>,
+    ) -> AvailableBlock<T::EthSpec> {
+        AvailableBlock {
+            block_root,
+            block,
+            blob_data: AvailableBlockData::Blobs(blob_list),
+            blobs_available_timestamp: None,
+            spec: self.spec.clone(),
+        }
+    }
+    /// Helper: Create AvailableBlock with data column data
+    fn create_available_block_with_columns(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        data_column_list: RuntimeVariableList<crate::data_column_verification::CustodyDataColumn<T::EthSpec>>,
+    ) -> AvailableBlock<T::EthSpec> {
+        AvailableBlock {
+            block_root,
+            block,
+            blob_data: AvailableBlockData::DataColumns(
+                data_column_list
+                    .into_iter()
+                    .map(|d| d.clone_arc())
+                    .collect(),
+            ),
+            blobs_available_timestamp: None,
+            spec: self.spec.clone(),
+        }
+    }
+    /// Helper: Create AvailableBlock with no additional data (pre-Deneb)
+    fn create_available_block_no_data(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    ) -> AvailableBlock<T::EthSpec> {
+        AvailableBlock {
             block_root,
             block,
             blob_data: AvailableBlockData::NoData,
             blobs_available_timestamp: None,
             spec: self.spec.clone(),
-        }))
+        }
     }
 
     /// Checks if a vector of blocks are available. Returns a vector of `MaybeAvailableBlock`
