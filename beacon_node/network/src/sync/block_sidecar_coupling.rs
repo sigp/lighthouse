@@ -163,14 +163,17 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 column_peers,
                 expected_custody_columns,
             } => {
-                *init = true;
                 for (request, peers) in column_requests {
                     requests.insert(request, ByRangeRequest::Active(request));
                     column_peers.insert(request, peers);
                 }
-                for column in custody_columns {
-                    expected_custody_columns.push(*column);
+                // expected custody columns should be populated only once during initialization
+                if !*init {
+                    for column in custody_columns {
+                        expected_custody_columns.push(*column);
+                    }
                 }
+                *init = true;
 
                 Ok(())
             }

@@ -405,7 +405,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
 
         // Try to make range requests that we failed to make because of lack of peers.
-        self.network.retry_pending_requests();
+        let _ = self.network.retry_pending_requests();
     }
 
     /// Trigger range sync for a set of peers that claim to have imported a head unknown to us.

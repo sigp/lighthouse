@@ -755,7 +755,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Create the overall components_by_range request ID before its individual components
         let id = ComponentsByRangeRequestId {
             id: self.next_id(),
-            requester,
+            requester: requester.clone(),
         };
 
         let blocks_req_id = self.send_blocks_by_range_request(block_peer, request.clone(), id)?;
@@ -774,6 +774,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         let data_columns_by_root = matches!(batch_type, ByRangeRequestType::BlocksAndColumns);
+
+        debug!(?requester, data_columns_by_root, "Batch type");
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
@@ -1607,7 +1609,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let resp = self
             .data_columns_by_root_range_requests
             .on_response(id, rpc_event);
-        self.on_rpc_response_result(id, "DataColumnsByRootRange", resp, peer_id, |_| 1)
+        self.on_rpc_response_result(id, "DataColumnsByRootRange", resp, peer_id, |b| b.len())
     }
 
     #[allow(clippy::type_complexity)]
@@ -1624,7 +1626,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 // We have blocks here, check if they need data columns and request them
                 let mut block_roots = Vec::new();
                 let batch_epoch = id.batch_id();
-                if !self.chain.spec.is_peer_das_enabled_for_epoch(batch_epoch) {
+                if !matches!(
+                    self.batch_type(batch_epoch),
+                    ByRangeRequestType::BlocksAndColumns
+                ) {
                     return self
                         .on_rpc_response_result(id, "BlocksByRange", resp, peer_id, |b| b.len());
                 }
@@ -1659,7 +1664,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                             "Not enough column peers for batch, need to retry"
                         );
                         no_peers_for_column.push(*column);
-                        continue;
                     }
                 }
 
@@ -1687,13 +1691,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     ));
                 }
 
-                let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
-                    block_roots: block_roots.clone(),
-                    indices: no_peers_for_column,
-                };
+                if !no_peers_for_column.is_empty() {
+                    let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
+                        block_roots: block_roots.clone(),
+                        indices: no_peers_for_column,
+                    };
 
-                self.requests_to_retry
-                    .insert(id.parent_request_id, data_columns_by_root_request);
+                    self.requests_to_retry
+                        .insert(id.parent_request_id, data_columns_by_root_request);
+                }
 
                 if let Some(req) = self
                     .components_by_range_requests
