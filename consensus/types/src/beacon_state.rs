@@ -1444,6 +1444,12 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::StateRootsOutOfBounds(i))
     }
 
+    /// Gets the state root for the start slot of some epoch.
+    pub fn get_state_root_at_epoch_start(&self, epoch: Epoch) -> Result<Hash256, Error> {
+        self.get_state_root(epoch.start_slot(E::slots_per_epoch()))
+            .copied()
+    }
+
     /// Gets the oldest (earliest slot) state root.
     pub fn get_oldest_state_root(&self) -> Result<&Hash256, Error> {
         let oldest_slot = self.slot().saturating_sub(self.state_roots().len());

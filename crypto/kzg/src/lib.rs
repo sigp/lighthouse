@@ -16,6 +16,7 @@ pub use c_kzg::{
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
 
+use crate::trusted_setup::load_trusted_setup;
 pub use rust_eth_kzg::{
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
@@ -37,6 +38,8 @@ pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
 
 #[derive(Debug)]
 pub enum Error {
+    /// An error from initialising the trusted setup.
+    TrustedSetupError(String),
     /// An error from the underlying kzg library.
     Kzg(c_kzg::Error),
     /// A prover/verifier error from the rust-eth-kzg library.
@@ -65,16 +68,15 @@ pub struct Kzg {
 }
 
 impl Kzg {
-    pub fn new_from_trusted_setup_no_precomp(trusted_setup: TrustedSetup) -> Result<Self, Error> {
-        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-
-        let context = DASContext::new(&peerdas_trusted_setup, rust_eth_kzg::UsePrecomp::No);
+    pub fn new_from_trusted_setup_no_precomp(trusted_setup: &[u8]) -> Result<Self, Error> {
+        let (ckzg_trusted_setup, rkzg_trusted_setup) = load_trusted_setup(trusted_setup)?;
+        let context = DASContext::new(&rkzg_trusted_setup, rust_eth_kzg::UsePrecomp::No);
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
-                &trusted_setup.g1_monomial(),
-                &trusted_setup.g1_lagrange(),
-                &trusted_setup.g2_monomial(),
+                &ckzg_trusted_setup.g1_monomial(),
+                &ckzg_trusted_setup.g1_lagrange(),
+                &ckzg_trusted_setup.g2_monomial(),
                 NO_PRECOMPUTE,
             )?,
             context,
@@ -82,39 +84,14 @@ impl Kzg {
     }
 
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
-    pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
-        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-
-        let context = DASContext::new(
-            &peerdas_trusted_setup,
-            rust_eth_kzg::UsePrecomp::Yes {
-                width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
-            },
-        );
-
-        Ok(Self {
-            trusted_setup: KzgSettings::load_trusted_setup(
-                &trusted_setup.g1_monomial(),
-                &trusted_setup.g1_lagrange(),
-                &trusted_setup.g2_monomial(),
-                NO_PRECOMPUTE,
-            )?,
-            context,
-        })
-    }
-
-    pub fn new_from_trusted_setup_das_enabled(trusted_setup: TrustedSetup) -> Result<Self, Error> {
-        // Initialize the trusted setup using default parameters
-        //
-        // Note: One can also use `from_json` to initialize it from the consensus-specs
-        // json string.
-        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
+    pub fn new_from_trusted_setup(trusted_setup: &[u8]) -> Result<Self, Error> {
+        let (ckzg_trusted_setup, rkzg_trusted_setup) = load_trusted_setup(trusted_setup)?;
 
         // It's not recommended to change the config parameter for precomputation as storage
         // grows exponentially, but the speedup is exponential - after a while the speedup
         // starts to become sublinear.
         let context = DASContext::new(
-            &peerdas_trusted_setup,
+            &rkzg_trusted_setup,
             rust_eth_kzg::UsePrecomp::Yes {
                 width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
             },
@@ -122,9 +99,9 @@ impl Kzg {
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
-                &trusted_setup.g1_monomial(),
-                &trusted_setup.g1_lagrange(),
-                &trusted_setup.g2_monomial(),
+                &ckzg_trusted_setup.g1_monomial(),
+                &ckzg_trusted_setup.g1_lagrange(),
+                &ckzg_trusted_setup.g2_monomial(),
                 NO_PRECOMPUTE,
             )?,
             context,
@@ -266,7 +243,7 @@ impl Kzg {
             .collect();
         let verification_result = self.context().verify_cell_kzg_proof_batch(
             commitments.to_vec(),
-            columns,
+            &columns,
             cells.to_vec(),
             proofs.to_vec(),
         );
@@ -274,7 +251,7 @@ impl Kzg {
         // Modify the result so it matches roughly what the previous method was doing.
         match verification_result {
             Ok(_) => Ok(()),
-            Err(e) if e.invalid_proof() => Err(Error::KzgVerificationFailed),
+            Err(e) if e.is_proof_invalid() => Err(Error::KzgVerificationFailed),
             Err(e) => Err(Error::PeerDASKZG(e)),
         }
     }

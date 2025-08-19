@@ -41,5 +41,4 @@ types = { workspace = true }
 
 [dev-dependencies]
 beacon_chain = { workspace = true }
-env_logger = { workspace = true }
 tokio = { workspace = true }

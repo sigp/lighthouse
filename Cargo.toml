@@ -136,7 +136,6 @@ dirs = "3"
 discv5 = { version = "0.9", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 either = "1.9"
-env_logger = "0.9"
 environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
@@ -221,7 +220,7 @@ reqwest = { version = "0.11", default-features = false, features = [
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
-rust_eth_kzg = "0.5.4"
+rust_eth_kzg = "0.8.0"
 safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
 serde = { version = "1", features = ["derive"] }

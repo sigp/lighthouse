@@ -1,5 +1,4 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
-use beacon_chain::TrustedSetup;
 use beacon_chain::chain_config::{
     DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
@@ -349,25 +348,13 @@ pub fn get_config<E: EthSpec>(
     // Store the EL config in the client config.
     client_config.execution_layer = Some(el_config);
 
-    // 4844 params
-    if let Some(trusted_setup) = context
-        .eth2_network_config
-        .as_ref()
-        .map(|config| serde_json::from_slice(&config.kzg_trusted_setup))
-        .transpose()
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?
-    {
-        client_config.trusted_setup = trusted_setup;
-    };
-
     // Override default trusted setup file if required
     if let Some(trusted_setup_file_path) = cli_args.get_one::<String>("trusted-setup-file-override")
     {
-        let file = std::fs::File::open(trusted_setup_file_path)
-            .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;
-        let trusted_setup: TrustedSetup = serde_json::from_reader(file)
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
-        client_config.trusted_setup = trusted_setup;
+        client_config.trusted_setup = std::fs::read(trusted_setup_file_path)
+            .map_err(|e| format!("Failed to read trusted setup file: {}", e))?;
+    } else if let Some(eth2_network_config) = context.eth2_network_config.as_ref() {
+        client_config.trusted_setup = eth2_network_config.kzg_trusted_setup.clone();
     }
 
     if let Some(freezer_dir) = cli_args.get_one::<String>("freezer-dir") {

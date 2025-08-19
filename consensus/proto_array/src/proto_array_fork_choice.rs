@@ -866,14 +866,25 @@ impl ProtoArrayForkChoice {
         self.proto_array.iter_block_roots(block_root)
     }
 
+    pub fn as_ssz_container(&self) -> SszContainer {
+        SszContainer::from(self)
+    }
+
     pub fn as_bytes(&self) -> Vec<u8> {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8], balances: JustifiedBalances) -> Result<Self, String> {
         let container = SszContainer::from_ssz_bytes(bytes)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
-        container
+        Self::from_container(container, balances)
+    }
+
+    pub fn from_container(
+        container: SszContainer,
+        balances: JustifiedBalances,
+    ) -> Result<Self, String> {
+        (container, balances)
             .try_into()
             .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }

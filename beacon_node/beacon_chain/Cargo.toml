@@ -1,4 +1,4 @@
- 
+
 [package]
 name = "beacon_chain"
 version = "0.2.0"
@@ -65,6 +65,7 @@ tracing = { workspace = true }
 tree_hash = { workspace = true }
 tree_hash_derive = { workspace = true }
 types = { workspace = true }
+zstd = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
