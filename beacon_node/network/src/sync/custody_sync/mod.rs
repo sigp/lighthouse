@@ -256,8 +256,9 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             .unwrap_or(Slot::new(0));
 
         self.current_start = earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
+        self.processing_target = self.current_start;
 
-        info!(?self.current_start, "Set start epoch");
+        info!(?self.current_start, ?self.processing_target, "Set start epoch");
         self.to_be_downloaded = self.current_start;
         Ok(())
     }
@@ -703,7 +704,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             }
         }
 
-        info!(?self.batches, "batches to process");
 
         // Find the id of the batch we are going to process.
         if let Some(batch) = self.batches.get(&self.processing_target) {
@@ -846,7 +846,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             }
         }
 
-        
+        info!(old=?self.processing_target, new=?self.processing_target.min(validating_epoch), "Updating processing target");
         self.processing_target = self.processing_target.min(validating_epoch);
         self.current_start = validating_epoch;
         self.to_be_downloaded = self.to_be_downloaded.min(validating_epoch);
@@ -900,6 +900,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
         // no batch maxed out it process attempts, so now the chain's volatile progress must be
         // reset
+        info!(?self.processing_target, ?self.current_start, "Handle invalid batch, processing target is set to current target");
         self.processing_target = self.current_start;
 
         for id in redownload_queue {
