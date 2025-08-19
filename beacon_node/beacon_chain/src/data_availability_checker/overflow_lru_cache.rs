@@ -121,16 +121,23 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Blobs are only inserted if:
     /// 1. The blob entry at the index is empty and no block exists, or
     /// 2. The block exists and its commitment matches the blob's commitment.
+    /// Otherwise, the blob is silently dropped.
     pub fn merge_single_blob(&mut self, index: usize, blob: KzgVerifiedBlob<E>) {
-        if let Some(cached_block) = self.get_cached_block() {
-            let block_commitment_opt = cached_block.get_commitments().get(index).copied();
-            if let Some(block_commitment) = block_commitment_opt
-                && block_commitment == *blob.get_commitment()
-            {
-                self.insert_blob_at_index(index, blob)
+        // Case 1: No cached block exists - insert blob if slot is empty
+        let Some(cached_block) = self.get_cached_block() else {
+            if !self.blob_exists(index) {
+                self.insert_blob_at_index(index, blob);
             }
-        } else if !self.blob_exists(index) {
-            self.insert_blob_at_index(index, blob)
+            return;
+        };
+
+        // Case 2: Block exists - check commitment matches
+        let Some(block_commitment) = cached_block.get_commitments().get(index).copied() else {
+            return; // Invalid index for this block
+        };
+
+        if block_commitment == *blob.get_commitment() {
+            self.insert_blob_at_index(index, blob);
         }
     }
 
