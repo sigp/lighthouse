@@ -1,5 +1,4 @@
 pub use eth2::Error;
-use eth2::ok_or_error;
 use eth2::types::beacon_response::EmptyMetadata;
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
@@ -9,7 +8,7 @@ use eth2::types::{
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
     CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
-    SSZ_CONTENT_TYPE_HEADER, StatusCode,
+    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error,
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};

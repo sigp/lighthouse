@@ -15,9 +15,8 @@ pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
 
-pub use self::error::Error;
-pub use self::error::{ResponseOptional, ok_or_error};
-use self::mixin::RequestAccept;
+pub use self::error::{Error, ok_or_error};
+use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::*;
 use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
 use derivative::Derivative;

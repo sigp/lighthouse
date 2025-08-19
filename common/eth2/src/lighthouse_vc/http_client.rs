@@ -1,6 +1,5 @@
 use super::types::*;
-use crate::error::Error;
-use crate::ok_or_error;
+use crate::{Error, ok_or_error};
 use reqwest::{
     IntoUrl,
     header::{HeaderMap, HeaderValue},

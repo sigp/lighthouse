@@ -6,8 +6,7 @@ mod block_rewards;
 pub mod sync_state;
 
 use crate::{
-    BeaconNodeHttpClient, DepositData, Hash256, Slot,
-    error::Error,
+    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
     lighthouse::sync_state::SyncState,
     types::{AdminPeer, Epoch, GenericResponse, ValidatorId},
 };
