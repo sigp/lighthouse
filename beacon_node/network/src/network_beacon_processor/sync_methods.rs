@@ -425,13 +425,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_id: Epoch,
         downloaded_columns: DataColumnSidecarList<T::EthSpec>,
     ) {
-        info!("procses_data_columns");
         let sent_columns = downloaded_columns.len();
         let result = match self
             .chain
             .import_historical_data_column_batch(process_id, downloaded_columns)
         {
             Ok(imported_columns) => {
+                // TODO(custody-sync) metrics
                 // metrics::inc_counter(
                 //     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
                 // );

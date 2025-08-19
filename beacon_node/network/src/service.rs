@@ -749,13 +749,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
 
-                // TODO(custody-sync-testing) remove this eventually
-                info!(
-                    ?new_custody_group_count,
-                    ?sampling_count,
-                    ?new_column_indices,
-                    "Recieved CustodyCountChanged NetworkMessage"
-                );
 
                 if trigger_custody_sync {
                     if let Err(e) =

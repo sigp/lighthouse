@@ -725,17 +725,16 @@ impl<T: BeaconChainTypes> Router<T> {
             "Received DataColumnsByRange Response"
         );
 
-        match app_request_id {
-            AppRequestId::Sync(sync_request_id) => {
-                self.send_to_sync(SyncMessage::RpcDataColumn {
-                    peer_id,
-                    sync_request_id,
-                    data_column,
-                    seen_timestamp: timestamp_now(),
-                });
-            }
-            _ => crit!("All data columns by range responses should belong to sync"),
-        };
+        if let AppRequestId::Sync(sync_request_id) = app_request_id {
+            self.send_to_sync(SyncMessage::RpcDataColumn {
+                peer_id,
+                sync_request_id,
+                data_column,
+                seen_timestamp: timestamp_now(),
+            });
+        } else {
+            crit!("All data columns by range responses should belong to sync");
+        }
     }
 
     fn handle_beacon_processor_send_result(

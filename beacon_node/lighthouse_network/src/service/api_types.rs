@@ -102,7 +102,7 @@ pub struct CustodySyncByRangeRequestId {
     pub peer: PeerId,
 }
 
-// TODO add comments
+// TODO(custody-sync) add comments
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodySyncBatchRequestId {
     /// For each `epoch` we may request the same data in a later retry. This Id identifies the

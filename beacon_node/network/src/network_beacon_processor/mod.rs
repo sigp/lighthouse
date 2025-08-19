@@ -499,7 +499,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_id: Epoch,
         data_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(), Error<T::EthSpec>> {
-        tracing::info!("send_data_columns");
         let processor = self.clone();
         let process_fn = async move {
             processor

@@ -685,6 +685,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
                     // If there is a backfill or custody sync in progress pause it.
+                    // TODO(custody-sync) we need the node to remember that it needs to retart 
+                    // custody sync
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
                     self.custody_sync.pause();
@@ -696,6 +698,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 Some((RangeSyncType::Head, start_slot, target_slot)) => {
                     // If there is a backfill or custody sync in progress pause it.
+                    // TODO(custody-sync) we need the node to remember that it needs to restart
+                    // custody sync
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
                     self.custody_sync.pause();
@@ -925,7 +929,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             },
             SyncMessage::CustodyBatchProcessed { result } => {
-                info!(?result, "CustodyBatchProcessed");
                 match self.custody_sync.on_batch_process_result(
                     &mut self.network,
                     result.batch_id(),
@@ -944,8 +947,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     pub(crate) fn handle_sync_service_message(&mut self, sync_service_message: SyncServiceMessage) {
-        info!(?sync_service_message, "Handling sync service message");
-        let mut sync_state = {
+        let sync_state = {
             let head = self.chain.best_slot();
             let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
 
@@ -975,13 +977,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 completed,
                                 remaining,
                             }) => {
-                                info!("Starting custody sync");
+                                info!(?completed, ?remaining, "Starting Custody Sync");
                             }
-                            Ok(SyncStart::NotSyncing) => {
-                                info!("Sync state is NotSyncing");
-                            } // Ignore updating the state if the custody backfill sync state didn't start.
+                            // TODO(custody-sync) review ignore comment
+                            Ok(SyncStart::NotSyncing) => { } // Ignore updating the state if the custody backfill sync state didn't start.
                             Err(e) => {
-                                info!("Custody backfill failed");
                                 error!(error = ?e, "Custody backfill sync failed to start");
                             }
                         }
@@ -1430,7 +1430,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         ) {
             match resp {
                 Ok(data_columns) => {
-                    info!("Successful data column response");
                     match self.custody_sync.on_data_column_response(
                         &mut self.network,
                         custody_sync_request_id.parent_request_id,
@@ -1447,7 +1446,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Err(e) => {
-                    info!(?e, "error for some reason");
                     match self.custody_sync.inject_error(
                         &mut self.network,
                         custody_sync_request_id.parent_request_id,
