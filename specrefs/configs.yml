@@ -1,324 +1,454 @@
 - name: ALTAIR_FORK_EPOCH
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ALTAIR_FORK_EPOCH:
   spec: |
     <spec config_var="ALTAIR_FORK_EPOCH" fork="altair" hash="e62f5307" />
 
 - name: ALTAIR_FORK_VERSION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ALTAIR_FORK_VERSION:
   spec: |
     <spec config_var="ALTAIR_FORK_VERSION" fork="altair" hash="d9a64536" />
 
 - name: ATTESTATION_PROPAGATION_SLOT_RANGE
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ATTESTATION_PROPAGATION_SLOT_RANGE:
   spec: |
     <spec config_var="ATTESTATION_PROPAGATION_SLOT_RANGE" fork="phase0" hash="40bcdb02" />
 
 - name: ATTESTATION_SUBNET_COUNT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ATTESTATION_SUBNET_COUNT:
   spec: |
     <spec config_var="ATTESTATION_SUBNET_COUNT" fork="phase0" hash="1c8c0a1b" />
 
 - name: ATTESTATION_SUBNET_EXTRA_BITS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ATTESTATION_SUBNET_EXTRA_BITS:
   spec: |
     <spec config_var="ATTESTATION_SUBNET_EXTRA_BITS" fork="phase0" hash="e233b5ba" />
 
 - name: ATTESTATION_SUBNET_PREFIX_BITS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ATTESTATION_SUBNET_PREFIX_BITS:
   spec: |
     <spec config_var="ATTESTATION_SUBNET_PREFIX_BITS" fork="phase0" hash="d6f5ea62" />
 
 - name: BALANCE_PER_ADDITIONAL_CUSTODY_GROUP
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: BALANCE_PER_ADDITIONAL_CUSTODY_GROUP:
   spec: |
     <spec config_var="BALANCE_PER_ADDITIONAL_CUSTODY_GROUP" fork="fulu" hash="5b556450" />
 
 - name: BELLATRIX_FORK_EPOCH
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: BELLATRIX_FORK_EPOCH:
   spec: |
     <spec config_var="BELLATRIX_FORK_EPOCH" fork="bellatrix" hash="f0afe6d8" />
 
 - name: BELLATRIX_FORK_VERSION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: BELLATRIX_FORK_VERSION:
   spec: |
     <spec config_var="BELLATRIX_FORK_VERSION" fork="bellatrix" hash="e87eb2b4" />
 
 - name: BLOB_SIDECAR_SUBNET_COUNT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: BLOB_SIDECAR_SUBNET_COUNT:
   spec: |
     <spec config_var="BLOB_SIDECAR_SUBNET_COUNT" fork="deneb" hash="03cc9976" />
 
 - name: BLOB_SIDECAR_SUBNET_COUNT_ELECTRA
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: BLOB_SIDECAR_SUBNET_COUNT_ELECTRA:
   spec: |
     <spec config_var="BLOB_SIDECAR_SUBNET_COUNT_ELECTRA" fork="electra" hash="37ca2860" />
 
 - name: CAPELLA_FORK_EPOCH
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: CAPELLA_FORK_EPOCH:
   spec: |
     <spec config_var="CAPELLA_FORK_EPOCH" fork="capella" hash="65767661" />
 
 - name: CAPELLA_FORK_VERSION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: CAPELLA_FORK_VERSION:
   spec: |
     <spec config_var="CAPELLA_FORK_VERSION" fork="capella" hash="5f94766c" />
 
 - name: CHURN_LIMIT_QUOTIENT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: CHURN_LIMIT_QUOTIENT:
   spec: |
     <spec config_var="CHURN_LIMIT_QUOTIENT" fork="phase0" hash="a43a1d33" />
 
 - name: CUSTODY_REQUIREMENT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: CUSTODY_REQUIREMENT:
   spec: |
     <spec config_var="CUSTODY_REQUIREMENT" fork="fulu" hash="b7340203" />
 
 - name: DATA_COLUMN_SIDECAR_SUBNET_COUNT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: DATA_COLUMN_SIDECAR_SUBNET_COUNT:
   spec: |
     <spec config_var="DATA_COLUMN_SIDECAR_SUBNET_COUNT" fork="fulu" hash="626172a6" />
 
 - name: DENEB_FORK_EPOCH
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: DENEB_FORK_EPOCH:
   spec: |
     <spec config_var="DENEB_FORK_EPOCH" fork="deneb" hash="46d3dfee" />
 
 - name: DENEB_FORK_VERSION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: DENEB_FORK_VERSION:
   spec: |
     <spec config_var="DENEB_FORK_VERSION" fork="deneb" hash="da95e3b9" />
 
 - name: EJECTION_BALANCE
-  sources: []
+  sources:  
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: EJECTION_BALANCE:
   spec: |
     <spec config_var="EJECTION_BALANCE" fork="phase0" hash="3f86d864" />
 
 - name: ELECTRA_FORK_EPOCH
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ELECTRA_FORK_EPOCH:
   spec: |
     <spec config_var="ELECTRA_FORK_EPOCH" fork="electra" hash="53fa3efa" />
 
 - name: ELECTRA_FORK_VERSION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ELECTRA_FORK_VERSION:
   spec: |
     <spec config_var="ELECTRA_FORK_VERSION" fork="electra" hash="918d6c63" />
 
 - name: EPOCHS_PER_SUBNET_SUBSCRIPTION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: EPOCHS_PER_SUBNET_SUBSCRIPTION:
   spec: |
     <spec config_var="EPOCHS_PER_SUBNET_SUBSCRIPTION" fork="phase0" hash="1b832329" />
 
 - name: ETH1_FOLLOW_DISTANCE
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: ETH1_FOLLOW_DISTANCE:
   spec: |
     <spec config_var="ETH1_FOLLOW_DISTANCE" fork="phase0" hash="2f5ba1a0" />
 
 - name: FULU_FORK_EPOCH
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: FULU_FORK_EPOCH:
   spec: |
     <spec config_var="FULU_FORK_EPOCH" fork="fulu" hash="673334be" />
 
 - name: FULU_FORK_VERSION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: FULU_FORK_VERSION:
   spec: |
     <spec config_var="FULU_FORK_VERSION" fork="fulu" hash="1e7fa12a" />
 
 - name: GENESIS_DELAY
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: GENESIS_DELAY:
   spec: |
     <spec config_var="GENESIS_DELAY" fork="phase0" hash="c50c75f1" />
 
 - name: GENESIS_FORK_VERSION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: GENESIS_FORK_VERSION:
   spec: |
     <spec config_var="GENESIS_FORK_VERSION" fork="phase0" hash="32bbe06e" />
 
 - name: INACTIVITY_SCORE_BIAS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: INACTIVITY_SCORE_BIAS:
   spec: |
     <spec config_var="INACTIVITY_SCORE_BIAS" fork="altair" hash="c84c24a9" />
 
 - name: INACTIVITY_SCORE_RECOVERY_RATE
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: INACTIVITY_SCORE_RECOVERY_RATE:
   spec: |
     <spec config_var="INACTIVITY_SCORE_RECOVERY_RATE" fork="altair" hash="d7876320" />
 
 - name: MAXIMUM_GOSSIP_CLOCK_DISPARITY
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAXIMUM_GOSSIP_CLOCK_DISPARITY:
   spec: |
     <spec config_var="MAXIMUM_GOSSIP_CLOCK_DISPARITY" fork="phase0" hash="12990b53" />
 
 - name: MAX_BLOBS_PER_BLOCK
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_BLOBS_PER_BLOCK:
   spec: |
     <spec config_var="MAX_BLOBS_PER_BLOCK" fork="deneb" hash="3e0b5383" />
 
 - name: MAX_BLOBS_PER_BLOCK_ELECTRA
-  sources: []
+  sources:  
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_BLOBS_PER_BLOCK_ELECTRA:
   spec: |
     <spec config_var="MAX_BLOBS_PER_BLOCK_ELECTRA" fork="electra" hash="0d8ea1c9" />
 
 - name: MAX_PAYLOAD_SIZE
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_PAYLOAD_SIZE:
   spec: |
     <spec config_var="MAX_PAYLOAD_SIZE" fork="phase0" hash="7f1566fb" />
 
 - name: MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT:
   spec: |
     <spec config_var="MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT" fork="deneb" hash="c4d9b0bb" />
 
 - name: MAX_PER_EPOCH_ACTIVATION_EXIT_CHURN_LIMIT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_PER_EPOCH_ACTIVATION_EXIT_CHURN_LIMIT:
   spec: |
     <spec config_var="MAX_PER_EPOCH_ACTIVATION_EXIT_CHURN_LIMIT" fork="electra" hash="87c05125" />
 
 - name: MAX_REQUEST_BLOB_SIDECARS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_REQUEST_BLOB_SIDECARS:
   spec: |
     <spec config_var="MAX_REQUEST_BLOB_SIDECARS" fork="deneb" hash="9b8ad30b" />
 
 - name: MAX_REQUEST_BLOB_SIDECARS_ELECTRA
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_REQUEST_BLOB_SIDECARS_ELECTRA:
   spec: |
     <spec config_var="MAX_REQUEST_BLOB_SIDECARS_ELECTRA" fork="electra" hash="decc80ab" />
 
 - name: MAX_REQUEST_BLOCKS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_REQUEST_BLOCKS:
   spec: |
     <spec config_var="MAX_REQUEST_BLOCKS" fork="phase0" hash="a9ae6c77" />
 
 - name: MAX_REQUEST_BLOCKS_DENEB
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_REQUEST_BLOCKS_DENEB:
   spec: |
     <spec config_var="MAX_REQUEST_BLOCKS_DENEB" fork="deneb" hash="8318964a" />
 
 - name: MAX_REQUEST_DATA_COLUMN_SIDECARS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MAX_REQUEST_DATA_COLUMN_SIDECARS:
   spec: |
     <spec config_var="MAX_REQUEST_DATA_COLUMN_SIDECARS" fork="fulu" hash="bbe5c650" />
 
 - name: MESSAGE_DOMAIN_INVALID_SNAPPY
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MESSAGE_DOMAIN_INVALID_SNAPPY:
   spec: |
     <spec config_var="MESSAGE_DOMAIN_INVALID_SNAPPY" fork="phase0" hash="6b6fc19a" />
 
 - name: MESSAGE_DOMAIN_VALID_SNAPPY
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MESSAGE_DOMAIN_VALID_SNAPPY:
   spec: |
     <spec config_var="MESSAGE_DOMAIN_VALID_SNAPPY" fork="phase0" hash="a6de155f" />
 
 - name: MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS:
   spec: |
     <spec config_var="MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS" fork="deneb" hash="3df9114c" />
 
 - name: MIN_EPOCHS_FOR_BLOCK_REQUESTS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_EPOCHS_FOR_BLOCK_REQUESTS:
   spec: |
     <spec config_var="MIN_EPOCHS_FOR_BLOCK_REQUESTS" fork="phase0" hash="8ab131c4" />
 
 - name: MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS:
   spec: |
     <spec config_var="MIN_EPOCHS_FOR_DATA_COLUMN_SIDECARS_REQUESTS" fork="fulu" hash="910e49bb" />
 
 - name: MIN_GENESIS_ACTIVE_VALIDATOR_COUNT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_GENESIS_ACTIVE_VALIDATOR_COUNT:
   spec: |
     <spec config_var="MIN_GENESIS_ACTIVE_VALIDATOR_COUNT" fork="phase0" hash="7715513b" />
 
 - name: MIN_GENESIS_TIME
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_GENESIS_TIME:
   spec: |
     <spec config_var="MIN_GENESIS_TIME" fork="phase0" hash="75c06876" />
 
 - name: MIN_PER_EPOCH_CHURN_LIMIT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_PER_EPOCH_CHURN_LIMIT:
   spec: |
     <spec config_var="MIN_PER_EPOCH_CHURN_LIMIT" fork="phase0" hash="ff24b223" />
 
 - name: MIN_PER_EPOCH_CHURN_LIMIT_ELECTRA
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_PER_EPOCH_CHURN_LIMIT_ELECTRA:
   spec: |
     <spec config_var="MIN_PER_EPOCH_CHURN_LIMIT_ELECTRA" fork="electra" hash="201809f8" />
 
 - name: MIN_VALIDATOR_WITHDRAWABILITY_DELAY
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: MIN_VALIDATOR_WITHDRAWABILITY_DELAY:
   spec: |
     <spec config_var="MIN_VALIDATOR_WITHDRAWABILITY_DELAY" fork="phase0" hash="5c4eeded" />
 
 - name: NUMBER_OF_COLUMNS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: NUMBER_OF_COLUMNS:
   spec: |
     <spec config_var="NUMBER_OF_COLUMNS" fork="fulu" hash="f6441e62" />
 
 - name: NUMBER_OF_CUSTODY_GROUPS
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: NUMBER_OF_CUSTODY_GROUPS:
   spec: |
     <spec config_var="NUMBER_OF_CUSTODY_GROUPS" fork="fulu" hash="05e3016e" />
 
 - name: PROPOSER_SCORE_BOOST
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: PROPOSER_SCORE_BOOST:
   spec: |
     <spec config_var="PROPOSER_SCORE_BOOST" fork="phase0" hash="fbc878c6" />
 
 - name: REORG_HEAD_WEIGHT_THRESHOLD
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: REORG_HEAD_WEIGHT_THRESHOLD:
   spec: |
     <spec config_var="REORG_HEAD_WEIGHT_THRESHOLD" fork="phase0" hash="d4ecaa84" />
 
 - name: REORG_MAX_EPOCHS_SINCE_FINALIZATION
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: REORG_MAX_EPOCHS_SINCE_FINALIZATION:
   spec: |
     <spec config_var="REORG_MAX_EPOCHS_SINCE_FINALIZATION" fork="phase0" hash="8567706e" />
 
 - name: REORG_PARENT_WEIGHT_THRESHOLD
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: REORG_PARENT_WEIGHT_THRESHOLD:
   spec: |
     <spec config_var="REORG_PARENT_WEIGHT_THRESHOLD" fork="phase0" hash="cb81e3da" />
 
 - name: SAMPLES_PER_SLOT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: SAMPLES_PER_SLOT:
   spec: |
     <spec config_var="SAMPLES_PER_SLOT" fork="fulu" hash="158798b8" />
 
 - name: SECONDS_PER_ETH1_BLOCK
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: SECONDS_PER_ETH1_BLOCK:
   spec: |
     <spec config_var="SECONDS_PER_ETH1_BLOCK" fork="phase0" hash="90c9f3d1" />
 
 - name: SECONDS_PER_SLOT
-  sources: []
+  sources:
+    - file: lighthouse/common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: SECONDS_PER_SLOT:
   spec: |
     <spec config_var="SECONDS_PER_SLOT" fork="phase0" hash="a9118f10" />
 
 - name: SHARD_COMMITTEE_PERIOD
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: SHARD_COMMITTEE_PERIOD:
   spec: |
     <spec config_var="SHARD_COMMITTEE_PERIOD" fork="phase0" hash="5d0e85a4" />
 
 - name: SUBNETS_PER_NODE
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: SUBNETS_PER_NODE:
   spec: |
     <spec config_var="SUBNETS_PER_NODE" fork="phase0" hash="4799f8f3" />
 
 - name: TERMINAL_BLOCK_HASH
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: TERMINAL_BLOCK_HASH:
   spec: |
     <spec config_var="TERMINAL_BLOCK_HASH" fork="bellatrix" hash="964c3bfe" />
 
 - name: TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH:
   spec: |
     <spec config_var="TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH" fork="bellatrix" hash="81928369" />
 
 - name: TERMINAL_TOTAL_DIFFICULTY
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: TERMINAL_TOTAL_DIFFICULTY:
   spec: |
     <spec config_var="TERMINAL_TOTAL_DIFFICULTY" fork="bellatrix" hash="e0f3a816" />
 
 - name: VALIDATOR_CUSTODY_REQUIREMENT
-  sources: []
+  sources: 
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+      search: VALIDATOR_CUSTODY_REQUIREMENT:
   spec: |
     <spec config_var="VALIDATOR_CUSTODY_REQUIREMENT" fork="fulu" hash="4dfc4457" />

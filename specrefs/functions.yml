@@ -9,7 +9,9 @@
     <spec fn="add_validator_to_registry" fork="phase0" hash="53699dc0" />
 
 - name: add_validator_to_registry#altair
-  sources: []
+  sources: 
+    - file: consensus/types/src/beacon_state.rs
+      search: pub fn add_validator_to_registry(
   spec: |
     <spec fn="add_validator_to_registry" fork="altair" hash="18054f42" />
 

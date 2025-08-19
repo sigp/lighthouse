@@ -5,11 +5,11 @@ specrefs:
   search_root: ..
   files:
     - configs.yml
-    - constants.yml
-    - containers.yml
-    - dataclasses.yml
-    - functions.yml
-    - presets.yml
+    # - constants.yml
+    # - containers.yml
+    # - dataclasses.yml
+    # - functions.yml
+    # - presets.yml
 
 exceptions:
   configs:
