@@ -3,12 +3,12 @@
 use maplit::hashset;
 use rayon::prelude::*;
 use slasher::{
+    Config, Slasher,
     config::DEFAULT_CHUNK_SIZE,
     test_utils::{
-        att_slashing, chain_spec, indexed_att, indexed_att_electra,
-        slashed_validators_from_slashings, E,
+        E, att_slashing, chain_spec, indexed_att, indexed_att_electra,
+        slashed_validators_from_slashings,
     },
-    Config, Slasher,
 };
 use std::collections::HashSet;
 use tempfile::tempdir;

@@ -1,6 +1,6 @@
 use crate::{
     json_structures::{EncodableJsonWithdrawal, JsonWithdrawal},
-    keccak::{keccak256, KeccakHasher},
+    keccak::{KeccakHasher, keccak256},
 };
 use alloy_rlp::Encodable;
 use keccak_hash::KECCAK_EMPTY_LIST_RLP;
@@ -80,7 +80,7 @@ mod test {
     use super::*;
     use hex::FromHex;
     use std::str::FromStr;
-    use types::{Address, Hash256, Hash64, Uint256};
+    use types::{Address, Hash64, Hash256, Uint256};
 
     fn test_rlp_encoding(
         header: &ExecutionBlockHeader,

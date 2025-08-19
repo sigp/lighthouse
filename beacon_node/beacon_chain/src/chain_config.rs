@@ -114,6 +114,8 @@ pub struct ChainConfig {
     /// On Holesky there is a block which is added to this set by default but which can be removed
     /// by using `--invalid-block-roots ""`.
     pub invalid_block_roots: HashSet<Hash256>,
+    /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
+    pub disable_get_blobs: bool,
 }
 
 impl Default for ChainConfig {
@@ -152,6 +154,7 @@ impl Default for ChainConfig {
             block_publishing_delay: None,
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
+            disable_get_blobs: false,
         }
     }
 }

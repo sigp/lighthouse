@@ -1,10 +1,11 @@
 use kzg::{
-    Blob as KzgBlob, Bytes48, Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs,
-    Error as KzgError, Kzg, CELLS_PER_EXT_BLOB,
+    Blob as KzgBlob, Bytes48, CELLS_PER_EXT_BLOB, Cell as KzgCell, CellRef as KzgCellRef,
+    CellsAndKzgProofs, Error as KzgError, Kzg,
 };
 use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
 use std::sync::Arc;
+use tracing::instrument;
 use types::beacon_block_body::KzgCommitments;
 use types::data_column_sidecar::{Cell, DataColumn, DataColumnSidecarError};
 use types::{
@@ -163,6 +164,7 @@ pub fn verify_kzg_proof<E: EthSpec>(
 }
 
 /// Build data column sidecars from a signed beacon block and its blobs.
+#[instrument(skip_all, level = "debug", fields(blob_count = blobs.len()))]
 pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     blobs: &[&Blob<E>],
     cell_proofs: Vec<KzgProof>,
@@ -421,10 +423,11 @@ mod test {
     use bls::Signature;
     use eth2::types::BlobsBundle;
     use execution_layer::test_utils::generate_blobs;
-    use kzg::{trusted_setup::get_trusted_setup, Kzg, KzgCommitment, TrustedSetup};
+    use kzg::{Kzg, KzgCommitment, trusted_setup::get_trusted_setup};
     use types::{
-        beacon_block_body::KzgCommitments, BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec,
-        EmptyBlock, EthSpec, ForkName, FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+        BeaconBlock, BeaconBlockFulu, BlobsList, ChainSpec, EmptyBlock, EthSpec, ForkName,
+        FullPayload, KzgProofs, MainnetEthSpec, SignedBeaconBlock,
+        beacon_block_body::KzgCommitments,
     };
 
     type E = MainnetEthSpec;
@@ -566,10 +569,7 @@ mod test {
     }
 
     fn get_kzg() -> Kzg {
-        let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-            .expect("should have trusted setup");
-        Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg")
+        Kzg::new_from_trusted_setup(&get_trusted_setup()).expect("should create kzg")
     }
 
     fn create_test_fulu_block_and_blobs<E: EthSpec>(

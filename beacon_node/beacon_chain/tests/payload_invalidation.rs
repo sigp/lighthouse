@@ -2,15 +2,15 @@
 
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
+    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
+    StateSkipConfig, WhenSlotSkipped,
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError, NotifyExecutionLayer,
-    OverrideForkchoiceUpdate, StateSkipConfig, WhenSlotSkipped,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
+    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
@@ -822,9 +822,10 @@ async fn switches_heads() {
     assert_eq!(rig.harness.head_block_root(), fork_parent_root);
 
     // The fork block has not yet been validated.
-    assert!(rig
-        .execution_status(fork_block_root)
-        .is_optimistic_or_invalid());
+    assert!(
+        rig.execution_status(fork_block_root)
+            .is_optimistic_or_invalid()
+    );
 
     for root in blocks {
         let slot = rig
@@ -872,12 +873,13 @@ async fn invalid_during_processing() {
     ];
 
     // 0 should be present in the chain.
-    assert!(rig
-        .harness
-        .chain
-        .get_blinded_block(&roots[0])
-        .unwrap()
-        .is_some());
+    assert!(
+        rig.harness
+            .chain
+            .get_blinded_block(&roots[0])
+            .unwrap()
+            .is_some()
+    );
     // 1 should *not* be present in the chain.
     assert_eq!(
         rig.harness.chain.get_blinded_block(&roots[1]).unwrap(),
@@ -1193,10 +1195,10 @@ async fn attesting_to_optimistic_head() {
             .unwrap();
 
         match &mut attestation {
-            Attestation::Base(ref mut att) => {
+            Attestation::Base(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
-            Attestation::Electra(ref mut att) => {
+            Attestation::Electra(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
         }
@@ -1354,11 +1356,12 @@ impl InvalidHeadSetup {
         // head block as invalid should not result in another head being chosen.
         // Rather, it should fail to run fork choice and leave the invalid block as
         // the head.
-        assert!(rig
-            .canonical_head()
-            .head_execution_status()
-            .unwrap()
-            .is_invalid());
+        assert!(
+            rig.canonical_head()
+                .head_execution_status()
+                .unwrap()
+                .is_invalid()
+        );
 
         // Ensure that we're getting the correct error when trying to find a new
         // head.
@@ -1511,7 +1514,12 @@ async fn weights_after_resetting_optimistic_status() {
             .fork_choice_read_lock()
             .get_block_weight(&head.head_block_root())
             .unwrap(),
-        head.snapshot.beacon_state.validators().get(0).unwrap().effective_balance,
+        head.snapshot
+            .beacon_state
+            .validators()
+            .get(0)
+            .unwrap()
+            .effective_balance,
         "proposer boost should be removed from the head block and the vote of a single validator applied"
     );
 

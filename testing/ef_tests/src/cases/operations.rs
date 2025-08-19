@@ -10,16 +10,17 @@ use state_processing::per_block_processing::process_operations::{
     process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
 };
 use state_processing::{
+    ConsensusContext,
     per_block_processing::{
+        VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
             altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
             process_deposits, process_exits, process_proposer_slashings,
         },
-        process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
+        process_sync_aggregate, process_withdrawals,
     },
-    ConsensusContext,
 };
 use std::fmt::Debug;
 use types::{
@@ -171,7 +172,7 @@ impl<E: EthSpec> Operation<E> for Deposit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposits(state, &[self.clone()], spec)
+        process_deposits(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -194,7 +195,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
-            &[self.clone()],
+            std::slice::from_ref(self),
             VerifySignatures::True,
             &mut ctxt,
             spec,
@@ -217,7 +218,12 @@ impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_exits(state, &[self.clone()], VerifySignatures::True, spec)
+        process_exits(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -438,7 +444,12 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+        process_bls_to_execution_changes(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -462,7 +473,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_withdrawal_requests(state, &[self.clone()], spec)
+        process_withdrawal_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -485,7 +496,7 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposit_requests(state, &[self.clone()], spec)
+        process_deposit_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -509,7 +520,7 @@ impl<E: EthSpec> Operation<E> for ConsolidationRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_consolidation_requests(state, &[self.clone()], spec)
+        process_consolidation_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -587,10 +598,10 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        if O::handler_name() != "withdrawals" {
-            if let Some(post_state) = expected.as_mut() {
-                post_state.build_all_committee_caches(spec).unwrap();
-            }
+        if O::handler_name() != "withdrawals"
+            && let Some(post_state) = expected.as_mut()
+        {
+            post_state.build_all_committee_caches(spec).unwrap();
         }
 
         let mut result = self

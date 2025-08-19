@@ -37,7 +37,7 @@ impl TryFrom<String> for HexBytes {
     fn try_from(s: String) -> Result<Self, Self::Error> {
         // Left-pad with a zero if there is not an even number of hex digits to ensure
         // `hex::decode` doesn't return an error.
-        let s = if s.len() % 2 != 0 {
+        let s = if !s.len().is_multiple_of(2) {
             format!("0{}", s)
         } else {
             s

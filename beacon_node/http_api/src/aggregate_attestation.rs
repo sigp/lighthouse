@@ -1,6 +1,6 @@
 use crate::api_types::GenericResponse;
 use crate::unsupported_version_rejection;
-use crate::version::{add_consensus_version_header, V1, V2};
+use crate::version::{V1, V2, add_consensus_version_header};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::types::{self, EndpointVersion, Hash256, Slot};
 use std::sync::Arc;
@@ -63,6 +63,6 @@ pub fn get_aggregate_attestation<T: BeaconChainTypes>(
     } else if endpoint_version == V1 {
         Ok(warp::reply::json(&GenericResponse::from(aggregate_attestation)).into_response())
     } else {
-        return Err(unsupported_version_rejection(endpoint_version));
+        Err(unsupported_version_rejection(endpoint_version))
     }
 }

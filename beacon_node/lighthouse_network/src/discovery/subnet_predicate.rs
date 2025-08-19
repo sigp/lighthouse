@@ -3,8 +3,8 @@ use super::*;
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use std::ops::Deref;
 use tracing::trace;
-use types::data_column_custody_group::compute_subnets_for_node;
 use types::ChainSpec;
+use types::data_column_custody_group::compute_subnets_for_node;
 
 /// Returns the predicate for a given subnet.
 pub fn subnet_predicate<E>(

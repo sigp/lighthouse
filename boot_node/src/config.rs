@@ -2,10 +2,11 @@ use beacon_node::{get_data_dir, set_network_config};
 use bytes::Bytes;
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
-use lighthouse_network::discv5::{self, enr::CombinedKey, Enr};
+use lighthouse_network::discv5::{self, Enr, enr::CombinedKey};
 use lighthouse_network::{
+    CombinedKeyExt, NetworkConfig,
     discovery::{load_enr_from_disk, use_or_load_enr},
-    load_private_key, CombinedKeyExt, NetworkConfig,
+    load_private_key,
 };
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
@@ -56,26 +57,30 @@ impl<E: EthSpec> BootNodeConfig<E> {
         set_network_config(&mut network_config, matches, &data_dir)?;
 
         // Set the Enr Discovery ports to the listening ports if not present.
-        if let Some(listening_addr_v4) = network_config.listen_addrs().v4() {
-            if network_config.enr_udp4_port.is_none() {
-                network_config.enr_udp4_port =
-                    Some(network_config.enr_udp4_port.unwrap_or(
-                        listening_addr_v4.disc_port.try_into().map_err(|_| {
-                            "boot node enr-udp-port not set and listening port is zero"
-                        })?,
-                    ))
-            }
+        if let Some(listening_addr_v4) = network_config.listen_addrs().v4()
+            && network_config.enr_udp4_port.is_none()
+        {
+            network_config.enr_udp4_port = Some(
+                network_config.enr_udp4_port.unwrap_or(
+                    listening_addr_v4
+                        .disc_port
+                        .try_into()
+                        .map_err(|_| "boot node enr-udp-port not set and listening port is zero")?,
+                ),
+            )
         };
 
-        if let Some(listening_addr_v6) = network_config.listen_addrs().v6() {
-            if network_config.enr_udp6_port.is_none() {
-                network_config.enr_udp6_port =
-                    Some(network_config.enr_udp6_port.unwrap_or(
-                        listening_addr_v6.disc_port.try_into().map_err(|_| {
-                            "boot node enr-udp-port not set and listening port is zero"
-                        })?,
-                    ))
-            }
+        if let Some(listening_addr_v6) = network_config.listen_addrs().v6()
+            && network_config.enr_udp6_port.is_none()
+        {
+            network_config.enr_udp6_port = Some(
+                network_config.enr_udp6_port.unwrap_or(
+                    listening_addr_v6
+                        .disc_port
+                        .try_into()
+                        .map_err(|_| "boot node enr-udp-port not set and listening port is zero")?,
+                ),
+            )
         };
 
         // By default this is enabled. If it is not set, revert to false.

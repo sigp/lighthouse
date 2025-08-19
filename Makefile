@@ -16,7 +16,7 @@ BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc,beacon-node-leveldb,beacon-node-redb
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
@@ -143,7 +143,7 @@ build-release-tarballs:
 # test vectors.
 test-release:
 	cargo test --workspace --release --features "$(TEST_FEATURES)" \
- 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+ 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
 		--exclude http_api
 
 # Runs the full workspace tests in **release**, without downloading any additional
@@ -279,7 +279,7 @@ lint:
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
-	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
+	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint-full
 
 # Also run the lints on the optimized-only tests
 lint-full:

@@ -86,6 +86,11 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
     /// `add_item` may convert ReqResp success chunks into errors. This function handles the
     /// multiple errors / stream termination internally ensuring that a single `Some<Result>` is
     /// returned.
+    ///
+    /// ## Returns
+    /// - `Some` if the request has either completed or errored, and needs to be actioned by the
+    ///   caller.
+    /// - `None` if no further action is currently needed.
     pub fn on_response(
         &mut self,
         id: K,

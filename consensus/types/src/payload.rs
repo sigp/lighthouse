@@ -305,18 +305,10 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
             FullPayload::Bellatrix(_) => Err(Error::IncorrectStateVariant),
-            FullPayload::Capella(ref inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
-            FullPayload::Deneb(ref inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
-            FullPayload::Electra(ref inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
-            FullPayload::Fulu(ref inner) => {
-                Ok(inner.execution_payload.withdrawals.tree_hash_root())
-            }
+            FullPayload::Capella(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
+            FullPayload::Deneb(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
+            FullPayload::Electra(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
+            FullPayload::Fulu(inner) => Ok(inner.execution_payload.withdrawals.tree_hash_root()),
         }
     }
 
@@ -325,9 +317,9 @@ impl<E: EthSpec> ExecPayload<E> for FullPayload<E> {
             FullPayload::Bellatrix(_) | FullPayload::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
-            FullPayload::Deneb(ref inner) => Ok(inner.execution_payload.blob_gas_used),
-            FullPayload::Electra(ref inner) => Ok(inner.execution_payload.blob_gas_used),
-            FullPayload::Fulu(ref inner) => Ok(inner.execution_payload.blob_gas_used),
+            FullPayload::Deneb(inner) => Ok(inner.execution_payload.blob_gas_used),
+            FullPayload::Electra(inner) => Ok(inner.execution_payload.blob_gas_used),
+            FullPayload::Fulu(inner) => Ok(inner.execution_payload.blob_gas_used),
         }
     }
 
@@ -650,14 +642,10 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
     fn withdrawals_root(&self) -> Result<Hash256, Error> {
         match self {
             BlindedPayload::Bellatrix(_) => Err(Error::IncorrectStateVariant),
-            BlindedPayload::Capella(ref inner) => {
-                Ok(inner.execution_payload_header.withdrawals_root)
-            }
-            BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.withdrawals_root),
-            BlindedPayload::Electra(ref inner) => {
-                Ok(inner.execution_payload_header.withdrawals_root)
-            }
-            BlindedPayload::Fulu(ref inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Capella(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Deneb(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Electra(inner) => Ok(inner.execution_payload_header.withdrawals_root),
+            BlindedPayload::Fulu(inner) => Ok(inner.execution_payload_header.withdrawals_root),
         }
     }
 
@@ -666,9 +654,9 @@ impl<E: EthSpec> ExecPayload<E> for BlindedPayload<E> {
             BlindedPayload::Bellatrix(_) | BlindedPayload::Capella(_) => {
                 Err(Error::IncorrectStateVariant)
             }
-            BlindedPayload::Deneb(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
-            BlindedPayload::Electra(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
-            BlindedPayload::Fulu(ref inner) => Ok(inner.execution_payload_header.blob_gas_used),
+            BlindedPayload::Deneb(inner) => Ok(inner.execution_payload_header.blob_gas_used),
+            BlindedPayload::Electra(inner) => Ok(inner.execution_payload_header.blob_gas_used),
+            BlindedPayload::Fulu(inner) => Ok(inner.execution_payload_header.blob_gas_used),
         }
     }
 

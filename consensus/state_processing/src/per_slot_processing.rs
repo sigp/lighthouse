@@ -4,6 +4,7 @@ use crate::upgrade::{
 };
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
+use tracing::instrument;
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -25,6 +26,7 @@ impl From<ArithError> for Error {
 /// If the root of the supplied `state` is known, then it can be passed as `state_root`. If
 /// `state_root` is `None`, the root of `state` will be computed using a cached tree hash.
 /// Providing the `state_root` makes this function several orders of magnitude faster.
+#[instrument(skip_all)]
 pub fn per_slot_processing<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Option<Hash256>,
@@ -85,6 +87,7 @@ pub fn per_slot_processing<E: EthSpec>(
     Ok(summary)
 }
 
+#[instrument(skip_all)]
 fn cache_state<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Option<Hash256>,
