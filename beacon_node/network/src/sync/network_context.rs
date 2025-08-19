@@ -22,9 +22,7 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-};
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRequest};
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, RequestType};
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
@@ -212,6 +210,14 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     components_by_range_requests:
         FnvHashMap<ComponentsByRangeRequestId, RangeBlockComponentsRequest<T::EthSpec>>,
 
+    // todo(pawan): make this a bounded queue, make the types better, add better docs
+    // A hashmap with the key being the parent request and the value being the data column by root
+    // requests that we have to retry because of one of the following reasons:
+    // 1. The root requests couldn't be made after the parent blocks request because there were no
+    // column peers available
+    // 2. The root request errored (either peer sent an RPC error or an empty response)
+    requests_to_retry: HashMap<ComponentsByRangeRequestId, DataColumnsByRootBatchBlockRequest>,
+
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
     execution_engine_state: EngineState,
@@ -293,6 +299,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
             custody_by_root_requests: <_>::default(),
             components_by_range_requests: FnvHashMap::default(),
+            requests_to_retry: Default::default(),
             network_beacon_processor,
             chain,
             fork_context,
@@ -323,6 +330,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
             components_by_range_requests: _,
+            requests_to_retry: _,
             execution_engine_state: _,
             network_beacon_processor: _,
             chain: _,
@@ -429,6 +437,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             components_by_range_requests: _,
             execution_engine_state: _,
             network_beacon_processor: _,
+            requests_to_retry: _,
             chain: _,
             fork_context: _,
             // Don't use a fallback match. We want to be sure that all requests are considered when
@@ -519,6 +528,84 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         range_request.reinsert_failed_column_requests(data_column_requests)?;
+        Ok(())
+    }
+
+    /// Try to make all the requests that we failed to make earlier because of lack of peers
+    /// in the required subnets.
+    ///
+    /// This function must be manually invoked at regular intervals.
+    pub fn retry_pending_requests(&mut self) -> Result<(), String> {
+        let active_requests = self.active_request_count_by_peer();
+
+        // Collect entries to process and remove from requests_to_retry
+        let entries_to_process: Vec<_> = self.requests_to_retry.drain().collect();
+        let mut entries_to_keep = Vec::new();
+
+        for (parent_request, requests) in entries_to_process {
+            let mut data_column_requests = Vec::new();
+            let requester = DataColumnsByRootRequester::RangeSync {
+                parent: parent_request.clone(),
+            };
+            let custody_indices = requests.indices.iter().cloned().collect();
+            let synced_peers = self
+                .network_globals()
+                .peers
+                .read()
+                .synced_peers_for_epoch(parent_request.requester.batch_id(), None)
+                .cloned()
+                .collect();
+
+            match self.select_columns_by_range_peers_to_request(
+                &custody_indices,
+                &synced_peers,
+                active_requests.clone(),
+                &HashSet::new(),
+            ) {
+                Ok(peer_to_columns) => {
+                    for (peer, indices) in peer_to_columns.into_iter() {
+                        let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
+                            block_roots: requests.block_roots.clone(),
+                            indices: indices.clone(),
+                        };
+
+                        data_column_requests.push((
+                            self.send_data_columns_by_root_range_requests(
+                                peer,
+                                data_columns_by_root_request,
+                                requester,
+                            )
+                            .expect("should be able to send request"),
+                            indices,
+                        ));
+                    }
+                    // we have sent out requests to peers, register these requests with the coupling service.
+                    if let Some(req) = self.components_by_range_requests.get_mut(&parent_request) {
+                        req.insert_column_request_after_block_request(
+                            data_column_requests,
+                            self.chain
+                                .sampling_columns_for_epoch(parent_request.requester.batch_id()),
+                        )
+                        .expect("should be in the right state");
+                    }
+                    debug!(?requests, "Successfully retried requests");
+                    // Successfully processed, don't keep this entry
+                }
+                Err(err) => {
+                    debug!(
+                        ?err,
+                        ?parent_request,
+                        "Failed to retry request, no peers in subnets",
+                    );
+                    // Failed to process, keep this entry for next retry
+                    entries_to_keep.push((parent_request, requests));
+                }
+            }
+        }
+
+        // Re-insert entries that still need to be retried
+        self.requests_to_retry.extend(entries_to_keep);
+
         Ok(())
     }
 
@@ -1568,7 +1655,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     } else {
                         debug!(
                             ?data_column,
-                            ?id,
+                            block_request_id=?id,
                             "Not enough column peers for batch, need to retry"
                         );
                         no_peers_for_column.push(*column);
@@ -1599,6 +1686,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         indices,
                     ));
                 }
+
+                let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
+                    block_roots: block_roots.clone(),
+                    indices: no_peers_for_column,
+                };
+
+                self.requests_to_retry
+                    .insert(id.parent_request_id, data_columns_by_root_request);
 
                 if let Some(req) = self
                     .components_by_range_requests

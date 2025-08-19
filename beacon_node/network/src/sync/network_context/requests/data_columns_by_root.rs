@@ -30,7 +30,6 @@ impl DataColumnsByRootBatchBlockRequest {
                 columns: columns.clone(),
             })
             .collect();
-        tracing::debug!(?ids, "Length ids");
         assert!(ids.len() <= 32);
         Ok(DataColumnsByRootRequest::new(
             ids,
@@ -147,8 +146,13 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRangeRequestItems<E> {
             .items
             .values()
             .flatten()
-            .any(|d| d.index == data_column.index)
+            .any(|d| d.index == data_column.index && d.block_root() == block_root)
         {
+            tracing::debug!(
+                ?data_column,
+                existing_items=?self.items,
+                "Duplicated data",
+            );
             return Err(LookupVerifyError::DuplicatedData(
                 data_column.slot(),
                 data_column.index,

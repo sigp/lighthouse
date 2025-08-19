@@ -403,6 +403,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         for (id, result) in self.network.continue_custody_by_root_requests() {
             self.on_custody_by_root_result(id, result);
         }
+
+        // Try to make range requests that we failed to make because of lack of peers.
+        self.network.retry_pending_requests();
     }
 
     /// Trigger range sync for a set of peers that claim to have imported a head unknown to us.
