@@ -323,10 +323,6 @@ pub enum CustodyBatchState<E: EthSpec> {
     /// The batch is being processed.
     Processing(Attempt),
     /// The batch was successfully processed and is waiting to be validated.
-    ///
-    /// It is not sufficient to process a batch successfully to consider it correct. This is
-    /// because batches could be erroneously empty, or incomplete. Therefore, a batch is considered
-    /// valid, only if the next sequential batch imports at least a block.
     AwaitingValidation(Attempt),
     /// Intermediate state for inner state handling.
     Poisoned,

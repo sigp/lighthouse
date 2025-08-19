@@ -300,7 +300,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 return None;
             }
         }
-        
+
         // Don't request batches beyond the DA window
         if self.last_batch_downloaded {
             info!(last_batch_downloaded = ?self.last_batch_downloaded);
@@ -364,7 +364,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<ProcessResult, CustodyBackfillError> {
-        info!("Process batch");
         if self.state() != BackFillState::Syncing || self.current_processing_batch.is_some() {
             return Ok(ProcessResult::Successful);
         }
@@ -552,8 +551,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 let fulu_fork_epoch = self.beacon_chain.spec.fulu_fork_epoch.unwrap();
 
                 if batch_id == self.processing_target {
-
-                    if self.processing_target.saturating_sub(Epoch::new(1)) >= fulu_fork_epoch {
+                    // Advance processing target if we're above the Fulu fork epoch
+                    if self.processing_target > fulu_fork_epoch {
                         self.processing_target = self
                             .processing_target
                             .saturating_sub(CUSTODY_BACKFILL_EPOCHS_PER_BATCH);
@@ -640,6 +639,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<ProcessResult, CustodyBackfillError> {
+        info!(?self.processing_target, "process completed batch");
         // Only process batches if backfill is syncing and only process one batch at a time
         if self.state() != BackFillState::Syncing || self.current_processing_batch.is_some() {
             return Ok(ProcessResult::Successful);
@@ -652,7 +652,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 return Ok(ProcessResult::Successful);
             }
         }
-
 
         // Find the id of the batch we are going to process.
         if let Some(batch) = self.batches.get(&self.processing_target) {
@@ -679,16 +678,18 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     return Ok(ProcessResult::Successful);
                 }
                 CustodyBatchState::AwaitingValidation(_) => {
+                    // TODO(custody-sync) this is possible when running custody sync a second time
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
                     crit!(
                         batch = ?self.processing_target,
-                        "Chain encountered a robust batch awaiting validation"
+                        "Custody Sync encountered a robust batch awaiting validation"
                     );
 
                     self.processing_target -= CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
                     if self.to_be_downloaded >= self.processing_target {
-                        self.to_be_downloaded = self.processing_target - CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
+                        self.to_be_downloaded =
+                            self.processing_target - CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
                     }
                     self.request_batches(network)?;
                 }
@@ -722,8 +723,11 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         // TODO(custody-sync) review this and compare with backfill
         // Only remove batches that are AwaitingValidation or Failed
         let mut batches_to_remove = Vec::new();
-        
-        for (&batch_id, batch) in self.batches.range((validating_epoch + CUSTODY_BACKFILL_EPOCHS_PER_BATCH)..) {
+
+        for (&batch_id, batch) in self
+            .batches
+            .range((validating_epoch + CUSTODY_BACKFILL_EPOCHS_PER_BATCH)..)
+        {
             match batch.state() {
                 // Safe to remove - these are done processing
                 CustodyBatchState::AwaitingValidation(_) => {
@@ -742,7 +746,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             if let Some(batch) = self.batches.remove(&batch_id) {
                 self.validated_batches = self.validated_batches.saturating_add(1);
                 debug!(batch_epoch = ?batch_id, "Removing validated batch");
-                
+
                 // Handle peer scoring logic for awaiting validation batches
                 if let CustodyBatchState::AwaitingValidation(processed_attempt) = batch.state() {
                     for attempt in batch.attempts() {
@@ -853,6 +857,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     /// Checks with the beacon chain if custody sync has completed.
     /// TODO(custody-sync) clean up this implementation
     fn check_completed(&mut self) -> bool {
+        info!(?self.current_start, "check completed");
         if self.would_complete(self.current_start) {
             // Check that the data column custody info `earliest_available_slot`
             // is less than or equal to the current DA boundary
@@ -879,8 +884,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     column_da_boundary = fulu_fork_epoch;
                 }
 
+                info!(earliest_data_column_slot=?earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch()), ?column_da_boundary, "Ther result");
+
                 return earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch())
-                    <= column_da_boundary - 1;
+                    <= column_da_boundary;
             }
 
             return false;
@@ -892,7 +899,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     /// TODO(custody-sync) clean up this implementation
     fn would_complete(&self, start_epoch: Epoch) -> bool {
         if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch {
-            return start_epoch <= fulu_fork_epoch
+            return start_epoch <= fulu_fork_epoch;
         }
         start_epoch
             <= self

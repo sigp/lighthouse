@@ -749,7 +749,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
 
-
                 if trigger_custody_sync {
                     if let Err(e) =
                         self.sync_service_send
