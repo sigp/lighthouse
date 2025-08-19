@@ -161,7 +161,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         block_root = ?self.block_root,
                         %req_id,
                         %peer_id,
-                        // TODO(das): this property can become very noisy, being the full range 0..128
                         ?missing_column_indexes,
                         "Custody column peer claims to not have some data"
                     );
