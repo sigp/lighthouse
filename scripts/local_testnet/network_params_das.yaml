@@ -2,7 +2,7 @@ participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
     el_type: geth
-    el_image: ethpandaops/geth:fusaka-devnet-3
+    el_image: ethpandaops/geth:master
     supernode: true
     cl_extra_params:
       # Note: useful for testing range sync (only produce block if the node is in sync to prevent forking)
@@ -12,7 +12,7 @@ participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
     el_type: geth
-    el_image: ethpandaops/geth:fusaka-devnet-3
+    el_image: ethpandaops/geth:master
     supernode: false
     cl_extra_params:
       # Note: useful for testing range sync (only produce block if the node is in sync to prevent forking)
@@ -29,7 +29,9 @@ additional_services:
   - dora
   - spamoor
   - prometheus_grafana
+  - tempo
 spamoor_params:
+  image: ethpandaops/spamoor:master
   spammers:
     - scenario: eoatx
       config:
