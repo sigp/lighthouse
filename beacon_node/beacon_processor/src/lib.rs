@@ -178,8 +178,9 @@ impl BeaconProcessorQueueLengths {
             unknown_light_client_update_queue: 128,
             rpc_block_queue: 1024,
             rpc_blob_queue: 1024,
-            // TODO(das): Placeholder values
-            rpc_custody_column_queue: 1000,
+            // We don't request more than `PARENT_DEPTH_TOLERANCE` (32) lookups, so we can limit
+            // this queue size. With 48 max blobs per block, each column sidecar list could be up to 12MB.
+            rpc_custody_column_queue: 64,
             column_reconstruction_queue: 64,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
@@ -192,7 +193,6 @@ impl BeaconProcessorQueueLengths {
             bbroots_queue: 1024,
             blbroots_queue: 1024,
             blbrange_queue: 1024,
-            // TODO(das): pick proper values
             dcbroots_queue: 1024,
             dcbrange_queue: 1024,
             gossip_bls_to_execution_change_queue: 16384,
