@@ -1,15 +1,16 @@
 //! This module contains root span identifiers for key code paths in the beacon node.
-//! These spans are used to track and filter important traces while reducing noise in logging.
 //!
-//! These span identifiers will be used to implement selective tracing export, where only
-//! the listed root spans and their descendants will be exported to the tracing backend.
+//! TODO: These span identifiers will be used to implement selective tracing export (to be implemented),
+//! where only the listed root spans and their descendants will be exported to the tracing backend.
 
 /// Data Availability checker span identifiers
 pub const SPAN_PENDING_COMPONENTS: &str = "pending_components";
+
 /// Gossip methods root spans
 pub const SPAN_PROCESS_GOSSIP_DATA_COLUMN: &str = "process_gossip_data_column";
 pub const SPAN_PROCESS_GOSSIP_BLOB: &str = "process_gossip_blob";
 pub const SPAN_PROCESS_GOSSIP_BLOCK: &str = "process_gossip_block";
+
 /// Sync methods root spans
 pub const SPAN_SYNCING_CHAIN: &str = "syncing_chain";
 pub const SPAN_OUTGOING_RANGE_REQUEST: &str = "outgoing_range_request";
@@ -18,6 +19,7 @@ pub const SPAN_PROCESS_RPC_BLOCK: &str = "process_rpc_block";
 pub const SPAN_PROCESS_RPC_BLOBS: &str = "process_rpc_blobs";
 pub const SPAN_PROCESS_RPC_CUSTODY_COLUMNS: &str = "process_rpc_custody_columns";
 pub const SPAN_PROCESS_CHAIN_SEGMENT: &str = "process_chain_segment";
+
 /// RPC methods root spans
 pub const SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST: &str = "handle_blocks_by_range_request";
 pub const SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST: &str = "handle_blobs_by_range_request";

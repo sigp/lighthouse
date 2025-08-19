@@ -32,6 +32,7 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
+    /// Span to track the range request and all children range requests.
     pub(crate) request_span: Span,
 }
 

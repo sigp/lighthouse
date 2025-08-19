@@ -207,8 +207,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             }
         };
 
-        // Close the span explicitly as the batch request has ended
-        drop(std::mem::replace(&mut batch_request.span, Span::none()));
         self.continue_requests(cx)
     }
 

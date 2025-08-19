@@ -229,7 +229,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         let _guard = self.span.clone().entered();
-        debug!(peer = %peer_id, ?batch_id, blocks = blocks.len(), "RPC blocks received");
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
             None => {
@@ -259,7 +258,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
             / EPOCHS_PER_BATCH;
-        debug!(epoch = %batch_id, blocks = received, batch_state = self.visualize_batch_state(), %awaiting_batches,"Batch downloaded");
+        debug!(
+            epoch = %batch_id,
+            blocks = received,
+            batch_state = self.visualize_batch_state(),
+            %awaiting_batches,
+            %peer_id,
+            "Batch downloaded"
+        );
 
         // pre-emptively request more blocks from peers whilst we process current blocks,
         self.request_batches(network)?;
@@ -433,7 +439,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         result: &BatchProcessResult,
     ) -> ProcessingResult {
         let _guard = self.span.clone().entered();
-        debug!(%batch_id, ?result, "Batch processing result");
         // the first two cases are possible if the chain advances while waiting for a processing
         // result
         let batch_state = self.visualize_batch_state();
@@ -848,7 +853,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         err: RpcResponseError,
     ) -> ProcessingResult {
         let _guard = self.span.clone().entered();
-        debug!(%peer_id, ?batch_id, ?request_id, "An RPC error has occurred");
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             if let RpcResponseError::BlockComponentCouplingError(coupling_error) = &err {

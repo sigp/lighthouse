@@ -373,8 +373,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         skip_all,
         fields(
             peer_id = %peer_id,
+            client = tracing::field::Empty,
             non_custody_indices = tracing::field::Empty,
-            client = tracing::field::Empty
         )
     )]
     pub fn handle_data_columns_by_root_request(
@@ -395,6 +395,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             None,
             Span::current(),
         );
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -465,6 +466,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let client = self.network_globals.client(&peer_id);
         Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -1090,30 +1092,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Ok(())
     }
 
-    fn record_data_column_request_in_span(
-        &self,
-        peer_id: &PeerId,
-        requested_indices: &[ColumnIndex],
-        epoch_opt: Option<Epoch>,
-        span: Span,
-    ) {
-        let non_custody_indices = {
-            let custody_columns = self
-                .chain
-                .data_availability_checker
-                .custody_context()
-                .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
-            requested_indices
-                .iter()
-                .filter(|subnet_id| !custody_columns.contains(subnet_id))
-                .collect::<Vec<_>>()
-        };
-        span.record("non_custody_indices", field::debug(non_custody_indices));
-
-        let client = self.network_globals.client(peer_id);
-        span.record("client", field::display(client.kind));
-    }
-
     /// Handle a `DataColumnsByRange` request from the peer.
     #[instrument(
         name = SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST,
@@ -1135,6 +1113,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Some(epoch),
             Span::current(),
         );
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -1303,5 +1282,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_error_response(peer_id, error_code, reason.into(), inbound_request_id);
             }
         }
+    }
+
+    fn record_data_column_request_in_span(
+        &self,
+        peer_id: &PeerId,
+        requested_indices: &[ColumnIndex],
+        epoch_opt: Option<Epoch>,
+        span: Span,
+    ) {
+        let non_custody_indices = {
+            let custody_columns = self
+                .chain
+                .data_availability_checker
+                .custody_context()
+                .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
+            requested_indices
+                .iter()
+                .filter(|subnet_id| !custody_columns.contains(subnet_id))
+                .collect::<Vec<_>>()
+        };
+        // This field is used to identify if peers are sending requests on columns we don't custody.
+        span.record("non_custody_indices", field::debug(non_custody_indices));
+
+        let client = self.network_globals.client(peer_id);
+        span.record("client", field::display(client.kind));
     }
 }

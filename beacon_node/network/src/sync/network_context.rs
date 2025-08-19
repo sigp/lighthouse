@@ -56,6 +56,18 @@ use types::{
 pub mod custody;
 mod requests;
 
+macro_rules! new_range_request_span {
+    ($self:expr, $name:literal, $parent:expr, $peer_id:expr) => {{
+        let client = $self.client_type(&$peer_id).kind;
+        debug_span!(
+            parent: $parent,
+            $name,
+            peer_id = %$peer_id,
+            client = %client
+        )
+    }};
+}
+
 /// Max retries for block components after which we fail the batch.
 pub const MAX_COLUMN_RETRIES: usize = 3;
 
@@ -492,7 +504,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         columns,
                     },
                     id,
-                    parent_request_span.clone(),
+                    new_range_request_span!(
+                        self,
+                        "outgoing_columns_by_range_retry",
+                        parent_request_span.clone(),
+                        peer_id
+                    ),
                 )
             })
             .collect::<Result<Vec<_>, _>>()
@@ -580,7 +597,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             block_peer,
             request.clone(),
             id,
-            range_request_span.clone(),
+            new_range_request_span!(
+                self,
+                "outgoing_blocks_by_range",
+                range_request_span.clone(),
+                block_peer
+            ),
         )?;
 
         let blobs_req_id = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
@@ -591,7 +613,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     count: *request.count(),
                 },
                 id,
-                range_request_span.clone(),
+                new_range_request_span!(
+                    self,
+                    "outgoing_blobs_by_range",
+                    range_request_span.clone(),
+                    block_peer
+                ),
             )?)
         } else {
             None
@@ -610,7 +637,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                                 columns,
                             },
                             id,
-                            range_request_span.clone(),
+                            new_range_request_span!(
+                                self,
+                                "outgoing_columns_by_range",
+                                range_request_span.clone(),
+                                peer_id
+                            ),
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()
@@ -841,13 +873,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
-        let client = self.network_globals().client(&peer_id).kind;
         debug!(
             method = "BlocksByRoot",
             ?block_root,
             peer = %peer_id,
             %id,
-            %client,
             "Sync RPC request sent"
         );
 
@@ -937,14 +967,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
-        let client = self.network_globals().client(&peer_id).kind;
         debug!(
             method = "BlobsByRoot",
             ?block_root,
             blob_indices = ?indices,
             peer = %peer_id,
             %id,
-            %client,
             "Sync RPC request sent"
         );
 
@@ -986,14 +1014,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
         })?;
 
-        let client = self.network_globals().client(&peer_id).kind;
         debug!(
             method = "DataColumnsByRoot",
             block_root = ?request.block_root,
             indices = ?request.indices,
             peer = %peer_id,
             %id,
-            %client,
             "Sync RPC request sent"
         );
 
@@ -1100,7 +1126,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlocksByRangeRequest,
         parent_request_id: ComponentsByRangeRequestId,
-        parent_request_span: Span,
+        request_span: Span,
     ) -> Result<BlocksByRangeRequestId, RpcRequestSendError> {
         let id = BlocksByRangeRequestId {
             id: self.next_id(),
@@ -1114,23 +1140,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
-        let client = self.network_globals().client(&peer_id).kind;
         debug!(
             method = "BlocksByRange",
             slots = request.count(),
             epoch = %Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch()),
             peer = %peer_id,
             %id,
-            %client,
             "Sync RPC request sent"
         );
 
-        let request_span = debug_span!(
-            parent: parent_request_span,
-            "outgoing_blocks_by_range",
-            %peer_id,
-            %client
-        );
         self.blocks_by_range_requests.insert(
             id,
             peer_id,
@@ -1148,7 +1166,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlobsByRangeRequest,
         parent_request_id: ComponentsByRangeRequestId,
-        parent_request_span: Span,
+        request_span: Span,
     ) -> Result<BlobsByRangeRequestId, RpcRequestSendError> {
         let id = BlobsByRangeRequestId {
             id: self.next_id(),
@@ -1165,23 +1183,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
-        let client = self.network_globals().client(&peer_id).kind;
         debug!(
             method = "BlobsByRange",
             slots = request.count,
             epoch = %request_epoch,
             peer = %peer_id,
             %id,
-            %client,
             "Sync RPC request sent"
         );
 
-        let request_span = debug_span!(
-            parent: parent_request_span,
-            "outgoing_blobs_by_range",
-            %peer_id,
-            %client,
-        );
         let max_blobs_per_block = self.chain.spec.max_blobs_per_block(request_epoch);
         self.blobs_by_range_requests.insert(
             id,
@@ -1200,7 +1210,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: DataColumnsByRangeRequest,
         parent_request_id: ComponentsByRangeRequestId,
-        parent_request_span: Span,
+        request_span: Span,
     ) -> Result<(DataColumnsByRangeRequestId, Vec<u64>), RpcRequestSendError> {
         let requested_columns = request.columns.clone();
         let id = DataColumnsByRangeRequestId {
@@ -1216,7 +1226,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
-        let client = self.network_globals().client(&peer_id).kind;
         debug!(
             method = "DataColumnsByRange",
             slots = request.count,
@@ -1224,16 +1233,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             columns = ?request.columns,
             peer = %peer_id,
             %id,
-            %client,
             "Sync RPC request sent"
         );
 
-        let request_span = debug_span!(
-            parent: parent_request_span,
-            "outgoing_columns_by_range",
-            %peer_id,
-            %client,
-        );
         self.data_columns_by_range_requests.insert(
             id,
             peer_id,

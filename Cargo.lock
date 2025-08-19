@@ -5750,10 +5750,6 @@ dependencies = [
 [[package]]
 name = "lighthouse_tracing"
 version = "0.1.0"
-dependencies = [
- "tracing",
- "tracing-subscriber",
-]
 
 [[package]]
 name = "lighthouse_validator_store"

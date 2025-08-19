@@ -1227,8 +1227,7 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         signature_verifier
             .include_all_signatures_except_proposal(block.as_ref(), &mut consensus_context)?;
 
-        let _sig_verify_span = info_span!("signature_verify").entered();
-        let result = signature_verifier.verify();
+        let result = info_span!("signature_verify").in_scope(|| signature_verifier.verify());
         match result {
             Ok(_) => Ok(Self {
                 block: MaybeAvailableBlock::AvailabilityPending {

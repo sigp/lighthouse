@@ -54,7 +54,6 @@ struct ActiveRequest<T: ActiveRequestItems> {
     span: Span,
 }
 
-#[derive(Debug)]
 enum State<T> {
     Active(T),
     CompletedEarly,

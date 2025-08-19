@@ -25,7 +25,7 @@ use lighthouse_tracing::{
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
-use tracing::{Span, debug, error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
@@ -259,7 +259,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(?block_root, result = tracing::field::Empty),
+        fields(?block_root),
     )]
     pub async fn process_rpc_blobs(
         self: Arc<NetworkBeaconProcessor<T>>,
@@ -445,7 +445,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(sync_type = ?sync_type, downloaded_blocks = downloaded_blocks.len(), imported_blocks = tracing::field::Empty)
+        fields(sync_type = ?sync_type, downloaded_blocks = downloaded_blocks.len())
     )]
     pub async fn process_chain_segment(
         &self,
@@ -465,7 +465,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .await
                 {
                     (imported_blocks, Ok(_)) => {
-                        Span::current().record("imported_blocks", imported_blocks);
                         debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
@@ -480,7 +479,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         }
                     }
                     (imported_blocks, Err(e)) => {
-                        Span::current().record("imported_blocks", imported_blocks);
                         debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
@@ -516,7 +514,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 match self.process_backfill_blocks(downloaded_blocks) {
                     (imported_blocks, Ok(_)) => {
-                        Span::current().record("imported_blocks", imported_blocks);
                         debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
@@ -592,7 +589,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Helper function to process backfill block batches which only consumes the chain and blocks to process.
-    #[instrument(skip_all, fields(result = tracing::field::Empty))]
+    #[instrument(skip_all)]
     fn process_backfill_blocks(
         &self,
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
