@@ -99,7 +99,7 @@
 - name: CUSTODY_REQUIREMENT
   sources: 
     - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
-      search: CUSTODY_REQUIREMENT:
+      search: CUSTODY_REQUIREMENT: # To avoid ambiguous search we can use regex: ^\s*CUSTODY_REQUIREMENT:\s  make sure to turn on regex mode
   spec: |
     <spec config_var="CUSTODY_REQUIREMENT" fork="fulu" hash="b7340203" />
 
@@ -406,7 +406,7 @@
 
 - name: SECONDS_PER_SLOT
   sources:
-    - file: lighthouse/common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
+    - file: common/eth2_network_config/built_in_network_configs/mainnet/config.yaml
       search: SECONDS_PER_SLOT:
   spec: |
     <spec config_var="SECONDS_PER_SLOT" fork="phase0" hash="a9118f10" />
