@@ -12,6 +12,7 @@ use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -19,7 +20,7 @@ use tracing::{debug, instrument};
 use types::data_column_sidecar::ColumnIndex;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -315,7 +316,8 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 }
 
-pub type CustodyDataColumnList<E> = RuntimeVariableList<CustodyDataColumn<E>>;
+pub type CustodyDataColumnList<E> =
+    VariableList<CustodyDataColumn<E>, <E as EthSpec>::NumberOfColumns>;
 
 /// Data column that we must custody
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
@@ -479,7 +481,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
     let column_slot = data_column.slot();
-    verify_data_column_sidecar(&data_column, &chain.spec)?;
+    verify_data_column_sidecar(&data_column)?;
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
@@ -533,9 +535,8 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
 /// Verify if the data column sidecar is valid.
 fn verify_data_column_sidecar<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
-    spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
-    if data_column.index >= spec.number_of_columns {
+    if data_column.index >= E::number_of_columns() as u64 {
         return Err(GossipDataColumnError::InvalidColumnIndex(data_column.index));
     }
     if data_column.kzg_commitments.is_empty() {

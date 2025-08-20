@@ -58,8 +58,8 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
         self.index
     }
 
-    fn max_num_of_items(spec: &ChainSpec, _slot: Slot) -> usize {
-        spec.number_of_columns as usize
+    fn max_num_of_items(_spec: &ChainSpec, _slot: Slot) -> usize {
+        E::number_of_columns()
     }
 }
 

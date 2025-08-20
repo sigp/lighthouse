@@ -822,8 +822,9 @@ impl<E: EthSpec> PeerDB<E> {
         } else {
             let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
             let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
-            let subnets = compute_subnets_for_node(node_id.raw(), spec.custody_requirement, spec)
-                .expect("should compute custody subnets");
+            let subnets =
+                compute_subnets_for_node::<E>(node_id.raw(), spec.custody_requirement, spec)
+                    .expect("should compute custody subnets");
             peer_info.set_custody_subnets(subnets);
         }
 
