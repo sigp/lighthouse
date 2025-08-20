@@ -49,7 +49,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<usize, HistoricalDataColumnError> {
-        tracing::info!(?epoch, "Uploading historical data column batch to the store");
+        tracing::info!(
+            ?epoch,
+            "Uploading historical data column batch to the store"
+        );
         let mut total_imported = 0;
         let expected_imported = historical_data_column_sidecar_list.len();
         let mut ops = vec![];

@@ -6,7 +6,7 @@ use std::{
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
     NetworkGlobals, PeerAction, PeerId, service::api_types::CustodySyncBatchRequestId,
-    types::BackFillState,
+    types::CustodyBackFillState,
 };
 use logging::crit;
 use tracing::{debug, error, info, warn};
@@ -118,15 +118,24 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
     /// Pauses the custody sync if it's currently syncing.
     pub fn pause(&mut self) {
-        if let BackFillState::Syncing = self.state() {
+        if let CustodyBackFillState::Syncing = self.state() {
             debug!(processed_epochs = %self.validated_batches, to_be_processed = %self.current_start,"Custody backfill sync paused");
-            self.set_state(BackFillState::Paused);
+            self.set_state(CustodyBackFillState::Paused);
         }
     }
 
-    /// Starts or resumes syncing.
-    ///
+
+    /// Resumes syncing.
     /// If resuming is successful, reports back the current syncing metrics.
+    pub fn resume(&mut self) -> Result<SyncStart, CustodyBackfillError> {
+        // TODO(custody-sync) should handle situations where custody sync needs to restart
+        // after being set to pending
+        todo!()
+    }
+
+
+
+    /// Starts syncing.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn start(
         &mut self,
@@ -134,15 +143,15 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
     ) -> Result<SyncStart, CustodyBackfillError> {
         match self.state() {
-            BackFillState::Syncing => {
+            CustodyBackFillState::Syncing => {
                 if self.check_completed() {
-                    self.set_state(BackFillState::Completed);
+                    self.set_state(CustodyBackFillState::Completed);
                     return Ok(SyncStart::NotSyncing);
                 }
             } // already syncing ignore.
-            BackFillState::Paused => {
+            CustodyBackFillState::Paused => {
                 if self.check_completed() {
-                    self.set_state(BackFillState::Completed);
+                    self.set_state(CustodyBackFillState::Completed);
                     return Ok(SyncStart::NotSyncing);
                 }
                 self.columns = column_indices;
@@ -156,7 +165,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     .is_some()
                 {
                     // If there are peers to resume with, begin the resume.
-                    self.set_state(BackFillState::Syncing);
+                    self.set_state(CustodyBackFillState::Syncing);
                     // Resume any previously failed batches.
                     self.resume_batches(network)?;
                     // begin requesting blocks from the peer pool, until all peers are exhausted.
@@ -168,7 +177,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     return Ok(SyncStart::NotSyncing);
                 }
             }
-            BackFillState::Failed => {
+            CustodyBackFillState::Failed => {
                 // Attempt to recover from a failed sync. All local variables should be reset and
                 // cleared already for a fresh start.
                 // We only attempt to restart a failed backfill sync if a new synced peer has been
@@ -177,7 +186,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 //    return Ok(SyncStart::NotSyncing);
                 // }
 
-                self.set_state(BackFillState::Syncing);
+                self.set_state(CustodyBackFillState::Syncing);
 
                 debug!(start_epoch = %self.current_start, "Resuming a failed backfill sync");
 
@@ -185,7 +194,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 self.request_batches(network)?;
             }
             // TODO(custody-sync) Completed looks alot like Paused
-            BackFillState::Completed => {
+            CustodyBackFillState::Completed => {
                 if !self.check_completed() {
                     self.columns = column_indices;
                     self.set_start_epoch()?;
@@ -198,7 +207,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                         .is_some()
                     {
                         // If there are peers to resume with, begin the resume.
-                        self.set_state(BackFillState::Syncing);
+                        self.set_state(CustodyBackFillState::Syncing);
                         // Resume any previously failed batches.
                         self.resume_batches(network)?;
                         // begin requesting blocks from the peer pool, until all peers are exhausted.
@@ -211,6 +220,9 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     }
                 }
                 return Ok(SyncStart::NotSyncing);
+            }
+            CustodyBackFillState::Pending { .. } => {
+                return Ok(SyncStart::NotSyncing)
             }
         }
         Ok(SyncStart::Syncing {
@@ -246,7 +258,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<(), CustodyBackfillError> {
-        if !matches!(self.state(), BackFillState::Syncing) {
+        if !matches!(self.state(), CustodyBackFillState::Syncing) {
             return Ok(());
         }
 
@@ -364,7 +376,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<ProcessResult, CustodyBackfillError> {
-        if self.state() != BackFillState::Syncing || self.current_processing_batch.is_some() {
+        if self.state() != CustodyBackFillState::Syncing || self.current_processing_batch.is_some() {
             return Ok(ProcessResult::Successful);
         }
 
@@ -430,7 +442,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     ) -> Result<ProcessResult, CustodyBackfillError> {
         // check if we have this batch
         let Some(batch) = self.batches.get_mut(&custody_sync_request_id.epoch) else {
-            if !matches!(self.state(), BackFillState::Failed) {
+            if !matches!(self.state(), CustodyBackFillState::Failed) {
                 // A batch might get removed when custody sync advances, so this is non fatal.
                 debug!(epoch = %custody_sync_request_id.epoch, "Received a column for unknown batch");
             }
@@ -482,6 +494,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         batch_id: BatchId,
         result: &CustodyBatchProcessResult,
     ) -> Result<ProcessResult, CustodyBackfillError> {
+        info!("On batch process result");
         // The first two cases are possible in regular sync, should not occur in backfill, but we
         // keep this logic for handling potential processing race conditions.
         // result
@@ -534,6 +547,15 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             "Custody backfill batch processed"
         );
 
+        info!(
+            ?result,
+            %batch,
+            batch_epoch = %batch_id,
+            %peer,
+            client = %network.client_type(peer),
+            "Custody backfill batch processed"
+        );
+
         match result {
             CustodyBatchProcessResult::Success {
                 imported_columns, ..
@@ -541,6 +563,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 if let Err(e) = batch.processing_completed(BatchProcessingResult::Success) {
                     self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
                 }
+                info!(?imported_columns, "Processing completed checking this");
                 // If the processed batch was not empty, we can validate previous un-validated
                 // columns.
                 if *imported_columns > 0 {
@@ -566,7 +589,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                         slots_processed = self.validated_batches * T::EthSpec::slots_per_epoch(),
                         "Custody sync completed"
                     );
-                    self.set_state(BackFillState::Completed);
+                    self.set_state(CustodyBackFillState::Completed);
                     Ok(ProcessResult::SyncCompleted)
                 } else {
                     // custody sync is not completed
@@ -641,7 +664,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     ) -> Result<ProcessResult, CustodyBackfillError> {
         info!(?self.processing_target, "process completed batch");
         // Only process batches if backfill is syncing and only process one batch at a time
-        if self.state() != BackFillState::Syncing || self.current_processing_batch.is_some() {
+        if self.state() != CustodyBackFillState::Syncing || self.current_processing_batch.is_some() {
             return Ok(ProcessResult::Successful);
         }
 
@@ -715,40 +738,25 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
         validating_epoch: Epoch,
     ) {
+        info!(?validating_epoch, ?self.current_start, "Start advance custody sync");
         // make sure this epoch produces an advancement
         if validating_epoch >= self.current_start {
             return;
         }
 
-        // TODO(custody-sync) review this and compare with backfill
-        // Only remove batches that are AwaitingValidation or Failed
-        let mut batches_to_remove = Vec::new();
-
-        for (&batch_id, batch) in self
+        // We can now validate higher batches that the current batch. Here we remove all
+        // batches that are higher than the current batch. We add on an extra
+        // `BACKFILL_EPOCHS_PER_BATCH` as `split_off` is inclusive.
+        let removed_batches = self
             .batches
-            .range((validating_epoch + CUSTODY_BACKFILL_EPOCHS_PER_BATCH)..)
-        {
+            .split_off(&(validating_epoch + CUSTODY_BACKFILL_EPOCHS_PER_BATCH));
+
+        for (id, batch) in removed_batches.into_iter() {
+            self.validated_batches = self.validated_batches.saturating_add(1);
+            // only for batches awaiting validation can we be sure the last attempt is
+            // right, and thus, that any different attempt is wrong
             match batch.state() {
-                // Safe to remove - these are done processing
-                CustodyBatchState::AwaitingValidation(_) => {
-                    batches_to_remove.push(batch_id);
-                }
-                // Safe to remove - these are failed and won't be processed
-                CustodyBatchState::Failed | CustodyBatchState::Poisoned => {
-                    batches_to_remove.push(batch_id);
-                }
-                _ => {}
-            }
-        }
-
-        // Remove only the safe batches
-        for batch_id in batches_to_remove {
-            if let Some(batch) = self.batches.remove(&batch_id) {
-                self.validated_batches = self.validated_batches.saturating_add(1);
-                debug!(batch_epoch = ?batch_id, "Removing validated batch");
-
-                // Handle peer scoring logic for awaiting validation batches
-                if let CustodyBatchState::AwaitingValidation(processed_attempt) = batch.state() {
+                CustodyBatchState::AwaitingValidation(processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
@@ -758,7 +766,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                                 // We negatively score the original peer.
                                 let action = PeerAction::LowToleranceError;
                                 debug!(
-                                    batch_epoch = ?batch_id,
+                                    batch_epoch = ?id,
                                     score_adjustment = %action,
                                     original_peer = %attempt.peer_id,
                                     new_peer = %processed_attempt.peer_id,
@@ -767,14 +775,14 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                                 network.report_peer(
                                     attempt.peer_id,
                                     action,
-                                    "backfill_reprocessed_original_peer",
+                                    "custody_backfill_reprocessed_original_peer",
                                 );
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
                                 let action = PeerAction::MidToleranceError;
                                 debug!(
-                                    batch_epoch = ?batch_id,
+                                    batch_epoch = ?id,
                                     score_adjustment = %action,
                                     original_peer = %attempt.peer_id,
                                     new_peer = %processed_attempt.peer_id,
@@ -789,12 +797,27 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                         }
                     }
                 }
+                CustodyBatchState::Downloading(..) => {}
+                CustodyBatchState::Failed | CustodyBatchState::Poisoned | CustodyBatchState::AwaitingDownload => {
+                    crit!("batch indicates inconsistent data columns while advancing custody sync")
+                }
+                CustodyBatchState::AwaitingProcessing(..) => {}
+                CustodyBatchState::Processing(_) => {
+                    debug!(batch = %id, %batch, "Advancing custody sync while processing a batch");
+                    if let Some(processing_id) = self.current_processing_batch
+                        && id >= processing_id
+                    {
+                        self.current_processing_batch = None;
+                    }
+                }
             }
         }
 
         self.processing_target = self.processing_target.min(validating_epoch);
-        self.current_start = validating_epoch;
+        self.current_start = self.current_start.min(validating_epoch);
         self.to_be_downloaded = self.to_be_downloaded.min(validating_epoch);
+
+        info!(processing_target = ?self.processing_target, current_start = ?self.current_start, ?self.to_be_downloaded, "Check on advance custody sync");
         if self.batches.contains_key(&self.to_be_downloaded) {
             // if custody sync is advanced by Range beyond the previous `self.to_be_downloaded`, we
             // won't have this batch, so we need to request it.
@@ -949,7 +972,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                             "reason" = format!("insufficient_synced_peers({no_peer:?})"),
                             "Custody sync paused"
                         );
-                        self.set_state(BackFillState::Paused);
+                        self.set_state(CustodyBackFillState::Paused);
                         return Err(CustodyBackfillError::Paused);
                     }
                     crate::sync::network_context::RpcRequestSendError::InternalError(e) => {
@@ -990,7 +1013,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         }
 
         // Set the state
-        self.set_state(BackFillState::Failed);
+        self.set_state(CustodyBackFillState::Failed);
         // Remove all batches and active requests and participating peers.
         self.batches.clear();
         self.participating_peers.clear();
@@ -1016,7 +1039,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     /// If the peer has active batches, those are considered failed and re-requested.
     #[must_use = "A failure here indicates custody sync has failed and the global sync state should be updated"]
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), CustodyBackfillError> {
-        if matches!(self.state(), BackFillState::Failed) {
+        if matches!(self.state(), CustodyBackFillState::Failed) {
             return Ok(());
         }
 
@@ -1025,12 +1048,12 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         Ok(())
     }
 
-    fn state(&self) -> BackFillState {
+    pub fn state(&self) -> CustodyBackFillState {
         self.network_globals.custody_sync_state.read().clone()
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.
-    fn set_state(&self, state: BackFillState) {
+    fn set_state(&self, state: CustodyBackFillState) {
         *self.network_globals.custody_sync_state.write() = state;
     }
 
@@ -1038,7 +1061,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     /// If we are in a failed state, update a local variable to indicate we are able to restart
     /// the failed sync on the next attempt.
     pub fn fully_synced_peer_joined(&mut self) {
-        if matches!(self.state(), BackFillState::Failed) {
+        if matches!(self.state(), CustodyBackFillState::Failed) {
             self.restart_failed_sync = true;
         }
     }

@@ -685,7 +685,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
                     // If there is a backfill or custody sync in progress pause it.
-                    // TODO(custody-sync) we need the node to remember that it needs to retart
+                    // TODO(custody-sync) we need the node to remember that it needs to restart
                     // custody sync
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
@@ -968,6 +968,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         };
 
+        // Custody sync can only start if the node is synced to head and fully backfilled synced.
+        // TODO(custody-sync) check anchor info to decide wether to start or not.
         match sync_state {
             SyncState::Synced => {
                 match sync_service_message {

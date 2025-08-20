@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use types::Slot;
+use types::{ColumnIndex, Slot};
+use std::collections::HashSet;
 
 /// The current state of the node.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -41,6 +42,23 @@ pub enum BackFillState {
     Completed,
     /// Too many failed attempts at backfilling. Consider it failed.
     Failed,
+}
+
+
+#[derive(PartialEq, Debug, Clone,Serialize, Deserialize )]
+/// The state of the custody backfill sync.
+pub enum CustodyBackFillState {
+    /// The sync is partially completed and currently paused.
+    Paused,
+    /// We are currently backfilling custody columns.
+    Syncing,
+    /// A custody backfill sync has completed.
+    Completed,
+    /// Too many failed attempts at backfilling. Consider it failed.
+    Failed,
+    /// A custody sync should is set to Pending if the node is undergoing range/backfill syncing.
+    /// It should resume syncing after the node is fully synced.
+    Pending { columns: HashSet<ColumnIndex> },
 }
 
 impl PartialEq for SyncState {
