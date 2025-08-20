@@ -76,11 +76,7 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
             .map(|(req, _)| (req, ByRangeRequest::Active(req)))
             .collect::<HashMap<_, _>>();
 
-        let column_peers = by_range_requests
-            .clone()
-            .into_iter()
-            .map(|(req, column_indices)| (req, column_indices))
-            .collect();
+        let column_peers = by_range_requests.clone().into_iter().collect();
 
         let expected_custody_columns = by_range_requests
             .into_iter()

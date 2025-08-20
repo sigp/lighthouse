@@ -46,7 +46,7 @@ use std::time::Duration;
 #[cfg(test)]
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,

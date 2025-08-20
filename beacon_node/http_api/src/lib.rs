@@ -4151,13 +4151,11 @@ pub fn serve<T: BeaconChainTypes>(
     let post_lighthouse_increase_custody_count = warp::path("lighthouse")
         .and(warp::path("custody_count"))
         .and(warp::path::end())
-        .and(warp_utils::json::json())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .then(
-            |request_data: api_types::IncreaseCustodyCount,
-             task_spawner: TaskSpawner<T::EthSpec>,
+            |task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.blocking_json_task(Priority::P0, move || {
@@ -4178,19 +4176,6 @@ pub fn serve<T: BeaconChainTypes>(
                         .custody_context()
                         .num_of_custody_groups_to_sample(effective_epoch, &chain.spec);
 
-                    let current_custody_columns = chain
-                        .sampling_columns_for_epoch(effective_epoch)
-                        .iter()
-                        .copied()
-                        .collect::<HashSet<_>>();
-
-                    info!(?cgc, "Custody count cgc");
-
-                    info!(
-                        ?current_custody_columns,
-                        "This is what we're custodying currently"
-                    );
-
                     let _ = chain.store.put_data_column_custody_info(Some(
                         (effective_epoch).end_slot(T::EthSpec::slots_per_epoch()),
                     ));
@@ -4204,21 +4189,11 @@ pub fn serve<T: BeaconChainTypes>(
                         .copied()
                         .collect::<HashSet<_>>();
 
-                    info!(
-                        ?updated_custody_columns,
-                        "This is what we'd like to custody"
-                    );
-
-                    // let new_column_indices = current_custody_columns
-                    // .symmetric_difference(&updated_custody_columns)
-                    // .copied()
-                    // .collect::<HashSet<_>>();
-
                     publish_network_message(
                         &network_tx,
                         NetworkMessage::CustodyCountChanged {
                             new_custody_group_count: cgc,
-                            sampling_count: sampling_count,
+                            sampling_count,
                             new_column_indices: updated_custody_columns,
                             trigger_custody_sync: true,
                         },

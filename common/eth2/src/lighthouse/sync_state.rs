@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use types::{ColumnIndex, Slot};
 use std::collections::HashSet;
+use types::{ColumnIndex, Slot};
 
 /// The current state of the node.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -44,8 +44,7 @@ pub enum BackFillState {
     Failed,
 }
 
-
-#[derive(PartialEq, Debug, Clone,Serialize, Deserialize )]
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 /// The state of the custody backfill sync.
 pub enum CustodyBackFillState {
     /// The sync is partially completed and currently paused.

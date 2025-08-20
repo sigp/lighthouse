@@ -8,7 +8,6 @@ use std::{
 use crate::sync::BatchOperationOutcome;
 use crate::sync::range_sync::BatchProcessingResult;
 use lighthouse_network::{PeerId, rpc::methods::DataColumnsByRangeRequest, service::api_types::Id};
-use tracing::info;
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
 /// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed

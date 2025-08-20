@@ -148,10 +148,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 SyncState::CustodyBackFillSyncing { .. } => {
                     match beacon_chain.store.get_data_column_custody_info() {
                         Ok(data_column_custody_info) => {
-                            if let Some(earliest_data_column_slot) = data_column_custody_info.map(|info| info.earliest_data_column_slot).flatten() {
+                            if let Some(earliest_data_column_slot) = data_column_custody_info
+                                .and_then(|info| info.earliest_data_column_slot)
+                            {
                                 speedo.observe(earliest_data_column_slot, Instant::now())
                             }
-                        },
+                        }
                         Err(e) => error!(error=?e, "Unable to get data column custody info"),
                     }
                 }
