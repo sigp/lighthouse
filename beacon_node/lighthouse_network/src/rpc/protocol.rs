@@ -493,7 +493,7 @@ impl AsRef<str> for ProtocolId {
 
 impl ProtocolId {
     /// Returns min and max size for messages of given protocol id requests.
-    pub fn rpc_request_limits(&self, spec: &ChainSpec) -> RpcLimits {
+    pub fn rpc_request_limits<E: EthSpec>(&self, spec: &ChainSpec) -> RpcLimits {
         match self.versioned_protocol.protocol() {
             Protocol::Status => RpcLimits::new(
                 <StatusMessageV1 as Encode>::ssz_fixed_len(),
@@ -517,7 +517,7 @@ impl ProtocolId {
             Protocol::DataColumnsByRoot => RpcLimits::new(0, spec.max_data_columns_by_root_request),
             Protocol::DataColumnsByRange => RpcLimits::new(
                 DataColumnsByRangeRequest::ssz_min_len(),
-                DataColumnsByRangeRequest::ssz_max_len(spec),
+                DataColumnsByRangeRequest::ssz_max_len::<E>(),
             ),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -725,7 +725,7 @@ pub enum RequestType<E: EthSpec> {
     BlocksByRoot(BlocksByRootRequest),
     BlobsByRange(BlobsByRangeRequest),
     BlobsByRoot(BlobsByRootRequest),
-    DataColumnsByRoot(DataColumnsByRootRequest),
+    DataColumnsByRoot(DataColumnsByRootRequest<E>),
     DataColumnsByRange(DataColumnsByRangeRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,

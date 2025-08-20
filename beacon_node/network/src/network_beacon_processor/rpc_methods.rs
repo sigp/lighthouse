@@ -346,7 +346,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest,
+        request: DataColumnsByRootRequest<T::EthSpec>,
     ) {
         self.terminate_response_stream(
             peer_id,
@@ -361,7 +361,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest,
+        request: DataColumnsByRootRequest<T::EthSpec>,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
         // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.

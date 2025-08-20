@@ -1247,8 +1247,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             if let Some(columns) = self.store.get_data_columns(block_root)? {
-                let num_required_columns = self.spec.number_of_columns / 2;
-                let reconstruction_possible = columns.len() >= num_required_columns as usize;
+                let num_required_columns = T::EthSpec::number_of_columns() / 2;
+                let reconstruction_possible = columns.len() >= num_required_columns;
                 if reconstruction_possible {
                     reconstruct_blobs(&self.kzg, &columns, None, &block, &self.spec)
                         .map(Some)
