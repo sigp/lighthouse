@@ -212,6 +212,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             }
             CustodyBackFillState::Pending { .. } => return Ok(SyncStart::NotSyncing),
         }
+
         Ok(SyncStart::Syncing {
             completed: (self.validated_batches
                 * CUSTODY_BACKFILL_EPOCHS_PER_BATCH
@@ -219,7 +220,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             remaining: self
                 .current_start
                 .start_slot(T::EthSpec::slots_per_epoch())
-                .saturating_sub(self.beacon_chain.genesis_backfill_slot)
+                .saturating_sub(
+                    self.get_column_da_boundary()
+                        .end_slot(T::EthSpec::slots_per_epoch()),
+                )
                 .as_usize(),
         })
     }
@@ -294,10 +298,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     /// `None` is returned.
     fn include_next_batch(&mut self) -> Option<BatchId> {
         // Don't request batches before the Fulu fork epoch
-        if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch {
-            if self.to_be_downloaded < fulu_fork_epoch {
-                return None;
-            }
+        if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch
+            && self.to_be_downloaded < fulu_fork_epoch
+        {
+            return None;
         }
 
         // Don't request batches beyond the DA window
@@ -566,6 +570,11 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                         "Custody sync completed"
                     );
                     self.set_state(CustodyBackFillState::Completed);
+                    // Re-initialize custody sync values so it can be ran again
+                    self.validated_batches = 0;
+                    self.last_batch_downloaded = false;
+                    self.current_processing_batch = None;
+                    self.columns = HashSet::new();
                     Ok(ProcessResult::SyncCompleted)
                 } else {
                     // custody sync is not completed
@@ -645,10 +654,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         }
 
         // Don't try to process batches before the Fulu fork epoch since data columns don't exist
-        if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch {
-            if self.processing_target < fulu_fork_epoch {
-                return Ok(ProcessResult::Successful);
-            }
+        if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch
+            && self.processing_target < fulu_fork_epoch
+        {
+            return Ok(ProcessResult::Successful);
         }
 
         // Find the id of the batch we are going to process.
@@ -866,20 +875,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 .and_then(|info| info.earliest_data_column_slot);
 
             if let Some(earliest_data_column_slot) = earliest_data_column_slot {
-                let mut column_da_boundary = self
-                    .beacon_chain
-                    .data_availability_boundary()
-                    .unwrap_or(Epoch::new(u64::MAX));
-
-                let fulu_fork_epoch = self.beacon_chain.spec.fulu_fork_epoch;
-
-                let Some(fulu_fork_epoch) = fulu_fork_epoch else {
-                    return true;
-                };
-
-                if fulu_fork_epoch > column_da_boundary {
-                    column_da_boundary = fulu_fork_epoch;
-                }
+                let column_da_boundary = self.get_column_da_boundary();
 
                 return earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch())
                     <= column_da_boundary;
@@ -888,6 +884,28 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             return false;
         }
         false
+    }
+
+    // TODO(custody-sync) clean this up
+    /// Calculates the minimum amount of epochs a node should custody data columns. In
+    /// most cases this is simply the DA boundary, unless we are near the fulu fork epoch.
+    fn get_column_da_boundary(&self) -> Epoch {
+        let mut column_da_boundary = self
+            .beacon_chain
+            .data_availability_boundary()
+            .unwrap_or(Epoch::new(u64::MAX));
+
+        let fulu_fork_epoch = self
+            .beacon_chain
+            .spec
+            .fulu_fork_epoch
+            .unwrap_or(Epoch::new(u64::MAX));
+
+        if fulu_fork_epoch > column_da_boundary {
+            column_da_boundary = fulu_fork_epoch;
+        }
+
+        column_da_boundary
     }
 
     /// Checks if custody backfill would complete by syncing to `start_epoch`.
