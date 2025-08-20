@@ -197,7 +197,7 @@ impl<E: EthSpec> CustodyContext<E> {
     ) -> Result<(), String> {
         let mut ordered_custody_columns = vec![];
         for custody_index in all_custody_groups_ordered {
-            let columns = compute_columns_for_custody_group(custody_index, spec)
+            let columns = compute_columns_for_custody_group::<E>(custody_index, spec)
                 .map_err(|e| format!("Failed to compute columns for custody group {e:?}"))?;
             ordered_custody_columns.extend(columns);
         }
@@ -303,7 +303,7 @@ impl<E: EthSpec> CustodyContext<E> {
     /// Returns the count of columns this node must _sample_ for a block at `epoch` to import.
     pub fn num_of_data_columns_to_sample(&self, epoch: Epoch, spec: &ChainSpec) -> usize {
         let custody_group_count = self.custody_group_count_at_epoch(epoch, spec);
-        spec.sampling_size_columns(custody_group_count)
+        spec.sampling_size_columns::<E>(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
 
@@ -641,7 +641,7 @@ mod tests {
         let expected_sampling_columns = &all_custody_groups_ordered
             .iter()
             .flat_map(|custody_index| {
-                compute_columns_for_custody_group(*custody_index, &spec)
+                compute_columns_for_custody_group::<E>(*custody_index, &spec)
                     .expect("should compute columns for custody group")
             })
             .collect::<Vec<_>>()[0..sampling_size];

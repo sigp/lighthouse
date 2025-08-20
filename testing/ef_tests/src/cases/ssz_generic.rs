@@ -80,12 +80,16 @@ macro_rules! type_dispatch {
             "7" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U7>, $($rest)*),
             "8" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U8>, $($rest)*),
             "9" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U9>, $($rest)*),
+            "15" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U15>, $($rest)*),
             "16" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U16>, $($rest)*),
+            "17" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U17>, $($rest)*),
             "31" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U31>, $($rest)*),
             "32" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U32>, $($rest)*),
+            "33" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U33>, $($rest)*),
             "64" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U64>, $($rest)*),
             "128" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U128>, $($rest)*),
             "256" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U256>, $($rest)*),
+            "511" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U511>, $($rest)*),
             "512" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U512>, $($rest)*),
             "513" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U513>, $($rest)*),
             "1024" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* U1024>, $($rest)*),
@@ -107,6 +111,8 @@ macro_rules! type_dispatch {
             "VarTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* VarTestStruct>, $($rest)*),
             "ComplexTestStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* ComplexTestStruct>, $($rest)*),
             "BitsStruct" => type_dispatch!($function, ($($arg),*), $base_ty, <$($param_ty,)* BitsStruct>, $($rest)*),
+            // EIP-7916 is still in draft and hasn't been implemented yet https://eips.ethereum.org/EIPS/eip-7916
+            "ProgressiveTestStruct" | "ProgressiveBitsStruct" => Err(Error::SkippedKnownFailure),
             _ => Err(Error::FailedToParseTest(format!("unsupported: {}", $value))),
         }
     };

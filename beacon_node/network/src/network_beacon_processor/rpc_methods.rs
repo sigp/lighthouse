@@ -346,7 +346,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest,
+        request: DataColumnsByRootRequest<T::EthSpec>,
     ) {
         self.terminate_response_stream(
             peer_id,
@@ -361,14 +361,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest,
+        request: DataColumnsByRootRequest<T::EthSpec>,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
 
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
             match self.chain.get_data_columns_checking_all_caches(
                 data_column_ids_by_root.block_root,
-                data_column_ids_by_root.columns.as_slice(),
+                data_column_ids_by_root.columns.iter().as_slice(),
             ) {
                 Ok(data_columns) => {
                     send_data_column_count += data_columns.len();

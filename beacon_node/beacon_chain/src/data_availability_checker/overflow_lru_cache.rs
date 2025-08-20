@@ -591,7 +591,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         };
 
         // If we're sampling all columns, it means we must be custodying all columns.
-        let total_column_count = self.spec.number_of_columns as usize;
+        let total_column_count = T::EthSpec::number_of_columns();
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
