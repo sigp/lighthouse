@@ -303,7 +303,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// Returns the epoch of:
     /// - The block if it is cached
     /// - The first available blob
-    /// - The first available data column
+    /// - The first data column
     /// Otherwise, returns None
     pub fn epoch(&self) -> Option<Epoch> {
         // Get epoch from cached executed block
@@ -318,7 +318,7 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         }
 
-        // Or, get epoch from first available data column
+        // Or, get epoch from first data column
         if let Some(data_column) = self.verified_data_columns.first() {
             return Some(data_column.as_data_column().epoch());
         }
