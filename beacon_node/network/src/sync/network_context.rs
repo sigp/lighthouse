@@ -1623,6 +1623,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         match &resp {
             // todo(pawan): send the data column request as soon as you get each chunk to spread out requests
             Some(Ok((blocks, _))) => {
+                // Return early if this is a backfill batch, backfill batches are handled by range requests instead of root
+                if matches!(
+                    id.parent_request_id.requester,
+                    RangeRequestId::BackfillSync { .. }
+                ) {
+                    return self
+                        .on_rpc_response_result(id, "BlocksByRange", resp, peer_id, |b| b.len());
+                }
                 // We have blocks here, check if they need data columns and request them
                 let mut block_roots = Vec::new();
                 let batch_epoch = id.batch_id();
