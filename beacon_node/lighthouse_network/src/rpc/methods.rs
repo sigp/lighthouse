@@ -400,11 +400,11 @@ impl DataColumnsByRangeRequest {
         .len()
     }
 
-    pub fn ssz_max_len(spec: &ChainSpec) -> usize {
+    pub fn ssz_max_len<E: EthSpec>() -> usize {
         DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
-            columns: vec![0; spec.number_of_columns as usize],
+            columns: vec![0; E::number_of_columns()],
         }
         .as_ssz_bytes()
         .len()
@@ -517,14 +517,14 @@ impl BlobsByRootRequest {
 
 /// Request a number of data columns from a peer.
 #[derive(Clone, Debug, PartialEq)]
-pub struct DataColumnsByRootRequest {
+pub struct DataColumnsByRootRequest<E: EthSpec> {
     /// The list of beacon block roots and column indices being requested.
-    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier>,
+    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier<E>>,
 }
 
-impl DataColumnsByRootRequest {
+impl<E: EthSpec> DataColumnsByRootRequest<E> {
     pub fn new(
-        data_column_ids: Vec<DataColumnsByRootIdentifier>,
+        data_column_ids: Vec<DataColumnsByRootIdentifier<E>>,
         max_request_blocks: usize,
     ) -> Self {
         let data_column_ids = RuntimeVariableList::from_vec(data_column_ids, max_request_blocks);
@@ -924,7 +924,7 @@ impl std::fmt::Display for BlobsByRangeRequest {
     }
 }
 
-impl std::fmt::Display for DataColumnsByRootRequest {
+impl<E: EthSpec> std::fmt::Display for DataColumnsByRootRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

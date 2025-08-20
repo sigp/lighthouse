@@ -1094,22 +1094,12 @@ mod tests {
                 slot: fulu_slot,
                 ..<_>::random_for_test(rng)
             });
-            // It's invalid to have a Fulu block with a epoch lower than the fork epoch.
-            let _bad_block = {
-                let mut bad = good_block.clone();
-                *bad.slot_mut() = electra_slot;
-                bad
-            };
 
             assert_eq!(
                 BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
                     .expect("good fulu block can be decoded"),
                 good_block
             );
-            // TODO(fulu): Uncomment once Fulu has features since without features
-            // and with an Electra slot it decodes successfully to Electra.
-            //BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
-            //    .expect_err("bad fulu block cannot be decoded");
         }
     }
 }

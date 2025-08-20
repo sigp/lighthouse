@@ -243,7 +243,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     column_to_peer_id,
                     expected_custody_columns,
                     *attempt,
-                    spec,
                 );
 
                 if let Err(CouplingError::DataColumnPeerFailure {
@@ -336,7 +335,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         column_to_peer: HashMap<u64, PeerId>,
         expects_custody_columns: &[ColumnIndex],
         attempt: usize,
-        spec: &ChainSpec,
     ) -> Result<Vec<RpcBlock<E>>, CouplingError> {
         // Group data columns by block_root and index
         let mut data_columns_by_block =
@@ -415,7 +413,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     );
                 }
 
-                RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, spec)
+                RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns)
                     .map_err(|e| CouplingError::InternalError(format!("{:?}", e)))?
             } else {
                 // Block has no data, expects zero columns

@@ -169,7 +169,9 @@ impl<E: EthSpec> Decoder for SSZSnappyInboundCodec<E> {
 
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
-        let ssz_limits = self.protocol.rpc_request_limits(&self.fork_context.spec);
+        let ssz_limits = self
+            .protocol
+            .rpc_request_limits::<E>(&self.fork_context.spec);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData(format!(
                 "RPC request length for protocol {:?} is out of bounds, length {}",
@@ -560,10 +562,9 @@ fn handle_rpc_request<E: EthSpec>(
         SupportedProtocol::DataColumnsByRootV1 => Ok(Some(RequestType::DataColumnsByRoot(
             DataColumnsByRootRequest {
                 data_column_ids:
-                    <RuntimeVariableList<DataColumnsByRootIdentifier>>::from_ssz_bytes_with_nested(
+                    <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
                         decoded_buffer,
                         spec.max_request_blocks(current_fork),
-                        spec.number_of_columns as usize,
                     )?,
             },
         ))),
@@ -1066,13 +1067,12 @@ mod tests {
         }
     }
 
-    fn dcbroot_request(fork_name: ForkName, spec: &ChainSpec) -> DataColumnsByRootRequest {
-        let number_of_columns = spec.number_of_columns as usize;
+    fn dcbroot_request(fork_name: ForkName, spec: &ChainSpec) -> DataColumnsByRootRequest<Spec> {
         DataColumnsByRootRequest {
             data_column_ids: RuntimeVariableList::new(
                 vec![DataColumnsByRootIdentifier {
                     block_root: Hash256::zero(),
-                    columns: RuntimeVariableList::from_vec(vec![0, 1, 2], number_of_columns),
+                    columns: VariableList::from(vec![0, 1, 2]),
                 }],
                 spec.max_request_blocks(fork_name),
             )
@@ -2283,7 +2283,7 @@ mod tests {
         ));
 
         // Request limits
-        let limit = protocol_id.rpc_request_limits(&fork_context.spec);
+        let limit = protocol_id.rpc_request_limits::<Spec>(&fork_context.spec);
         let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
             protocol_id.clone(),
