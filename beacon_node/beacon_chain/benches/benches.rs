@@ -7,7 +7,7 @@ use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use bls::Signature;
 use kzg::{KzgCommitment, KzgProof};
 use types::{
-    BeaconBlock, BeaconBlockDeneb, Blob, BlobsList, ChainSpec, EmptyBlock, EthSpec, KzgProofs,
+    BeaconBlock, BeaconBlockFulu, Blob, BlobsList, ChainSpec, EmptyBlock, EthSpec, KzgProofs,
     MainnetEthSpec, SignedBeaconBlock, beacon_block_body::KzgCommitments,
 };
 
@@ -15,7 +15,7 @@ fn create_test_block_and_blobs<E: EthSpec>(
     num_of_blobs: usize,
     spec: &ChainSpec,
 ) -> (SignedBeaconBlock<E>, BlobsList<E>, KzgProofs<E>) {
-    let mut block = BeaconBlock::Deneb(BeaconBlockDeneb::empty(spec));
+    let mut block = BeaconBlock::Fulu(BeaconBlockFulu::empty(spec));
     let mut body = block.body_mut();
     let blob_kzg_commitments = body.blob_kzg_commitments_mut().unwrap();
     *blob_kzg_commitments =
@@ -27,7 +27,7 @@ fn create_test_block_and_blobs<E: EthSpec>(
         .map(|_| Blob::<E>::default())
         .collect::<Vec<_>>()
         .into();
-    let proofs = vec![KzgProof::empty(); num_of_blobs * spec.number_of_columns as usize].into();
+    let proofs = vec![KzgProof::empty(); num_of_blobs * E::number_of_columns()].into();
 
     (signed_block, blobs, proofs)
 }

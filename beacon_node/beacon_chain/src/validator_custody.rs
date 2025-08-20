@@ -197,7 +197,7 @@ impl<E: EthSpec> CustodyContext<E> {
     ) -> Result<(), String> {
         let mut ordered_custody_columns = vec![];
         for custody_index in all_custody_groups_ordered {
-            let columns = compute_columns_for_custody_group(custody_index, spec)
+            let columns = compute_columns_for_custody_group::<E>(custody_index, spec)
                 .map_err(|e| format!("Failed to compute columns for custody group {e:?}"))?;
             ordered_custody_columns.extend(columns);
         }
@@ -304,7 +304,7 @@ impl<E: EthSpec> CustodyContext<E> {
     /// Returns the count of columns this node must _sample_ for a block at `epoch` to import.
     pub fn num_of_data_columns_to_sample(&self, epoch: Epoch, spec: &ChainSpec) -> usize {
         let custody_group_count = self.custody_group_count_at_epoch(epoch, spec);
-        spec.sampling_size_columns(custody_group_count)
+        spec.sampling_size_columns::<E>(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
     }
 
@@ -325,24 +325,43 @@ impl<E: EthSpec> CustodyContext<E> {
         &all_columns_ordered[..num_of_columns_to_sample]
     }
 
-    /// Returns the ordered list of column indices that should be sampled based on a given `custody_group_count`.
-    /// Note: In almost all cases `sampling_columns_for_epoch` should be used.
-    /// TODO(custody-sync) This function should probably be removed once we're done testing custody sync
-    /// as it might be a potential foot-gun.
-    pub fn sampling_columns_for_custody_count(
+    // TODO(custody-sync) delete this once it becomes unused (after testing)
+    pub fn get_all_custody_columns(&self) -> &[ColumnIndex] {
+        self.all_custody_columns_ordered
+            .get()
+            .expect("Should be init")
+    }
+
+    /// Returns the ordered list of column indices that the node is assigned to custody
+    /// (and advertised to peers) at the given epoch. If epoch is `None`, this function
+    /// computes the custody columns at head.
+    ///
+    /// This method differs from [`self::sampling_columns_for_epoch`] which returns all sampling columns.
+    /// The columns returned by this method are either identical to or a subset of the sampling columns,
+    /// representing only those columns that this node is responsible for maintaining custody of.
+    ///
+    /// # Parameters
+    /// * `epoch_opt` - Optional epoch to determine custody columns for.
+    ///
+    /// # Returns
+    /// A slice of ordered custody column indices for this epoch based on the node's custody configuration
+    pub fn custody_columns_for_epoch(
         &self,
-        custody_group_count: u64,
+        epoch_opt: Option<Epoch>,
         spec: &ChainSpec,
     ) -> &[ColumnIndex] {
-        let num_of_columns_to_sample = spec
-            .sampling_size_columns(custody_group_count)
-            .expect("should compute node sampling size from valid cgc value");
+        let custody_group_count = if let Some(epoch) = epoch_opt {
+            self.custody_group_count_at_epoch(epoch, spec) as usize
+        } else {
+            self.custody_group_count_at_head(spec) as usize
+        };
 
         let all_columns_ordered = self
             .all_custody_columns_ordered
             .get()
             .expect("all_custody_columns_ordered should be initialized");
-        &all_columns_ordered[..num_of_columns_to_sample]
+
+        &all_columns_ordered[..custody_group_count]
     }
 }
 
@@ -663,7 +682,7 @@ mod tests {
         let expected_sampling_columns = &all_custody_groups_ordered
             .iter()
             .flat_map(|custody_index| {
-                compute_columns_for_custody_group(*custody_index, &spec)
+                compute_columns_for_custody_group::<E>(*custody_index, &spec)
                     .expect("should compute columns for custody group")
             })
             .collect::<Vec<_>>()[0..sampling_size];
@@ -691,5 +710,83 @@ mod tests {
 
             assert_eq!(updated_custody_count_opt, expected_cgc_change);
         }
+    }
+
+    #[test]
+    fn custody_columns_for_epoch_no_validators_fullnode() {
+        let custody_context = CustodyContext::<E>::new(false);
+        let spec = E::default_spec();
+        let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(all_custody_groups_ordered, &spec)
+            .expect("should initialise ordered data columns");
+
+        assert_eq!(
+            custody_context.custody_columns_for_epoch(None, &spec).len(),
+            spec.custody_requirement as usize
+        );
+    }
+
+    #[test]
+    fn custody_columns_for_epoch_no_validators_supernode() {
+        let custody_context = CustodyContext::<E>::new(true);
+        let spec = E::default_spec();
+        let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(all_custody_groups_ordered, &spec)
+            .expect("should initialise ordered data columns");
+
+        assert_eq!(
+            custody_context.custody_columns_for_epoch(None, &spec).len(),
+            spec.number_of_custody_groups as usize
+        );
+    }
+
+    #[test]
+    fn custody_columns_for_epoch_with_validators_should_match_cgc() {
+        let custody_context = CustodyContext::<E>::new(false);
+        let spec = E::default_spec();
+        let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+        let val_custody_units = 10;
+
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(all_custody_groups_ordered, &spec)
+            .expect("should initialise ordered data columns");
+
+        let _ = custody_context.register_validators(
+            vec![(
+                0,
+                val_custody_units * spec.balance_per_additional_custody_group,
+            )],
+            Slot::new(10),
+            &spec,
+        );
+
+        assert_eq!(
+            custody_context.custody_columns_for_epoch(None, &spec).len(),
+            val_custody_units as usize
+        );
+    }
+
+    #[test]
+    fn custody_columns_for_epoch_specific_epoch_uses_epoch_cgc() {
+        let custody_context = CustodyContext::<E>::new(false);
+        let spec = E::default_spec();
+        let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+        let test_epoch = Epoch::new(5);
+
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(all_custody_groups_ordered, &spec)
+            .expect("should initialise ordered data columns");
+
+        let expected_cgc = custody_context.custody_group_count_at_epoch(test_epoch, &spec);
+        assert_eq!(
+            custody_context
+                .custody_columns_for_epoch(Some(test_epoch), &spec)
+                .len(),
+            expected_cgc as usize
+        );
     }
 }

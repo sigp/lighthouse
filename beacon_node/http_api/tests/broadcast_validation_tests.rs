@@ -18,8 +18,6 @@ use warp_utils::reject::CustomBadRequest;
 type E = MainnetEthSpec;
 
 /*
- * TODO(fulu): write PeerDAS equivalent tests for these.
- *
  * We have the following test cases, which are duplicated for the blinded variant of the route:
  *
  * -  `broadcast_validation=gossip`

@@ -4183,7 +4183,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let updated_custody_columns = chain
                         .data_availability_checker
                         .custody_context()
-                        .sampling_columns_for_custody_count(cgc, &chain.spec)
+                        .get_all_custody_columns()
                         .iter()
                         .take(4)
                         .copied()

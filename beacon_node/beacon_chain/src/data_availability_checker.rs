@@ -446,7 +446,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>();
         let all_data_columns =
-            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns as usize);
+            RuntimeVariableList::from_vec(all_data_columns, T::EthSpec::number_of_columns());
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {

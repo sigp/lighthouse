@@ -230,8 +230,6 @@ pub async fn handle_rpc<E: EthSpec>(
                     if method == ENGINE_NEW_PAYLOAD_V1
                         || method == ENGINE_NEW_PAYLOAD_V2
                         || method == ENGINE_NEW_PAYLOAD_V3
-                    // TODO(fulu): Uncomment this once v5 method is ready for Fulu
-                    // || method == ENGINE_NEW_PAYLOAD_V4
                     {
                         return Err((
                             format!("{} called after Fulu fork!", method),
@@ -265,16 +263,6 @@ pub async fn handle_rpc<E: EthSpec>(
                             GENERIC_ERROR_CODE,
                         ));
                     }
-                    // TODO(fulu): remove once we switch to v5
-                    // if matches!(request, JsonExecutionPayload::V4(_)) {
-                    //     return Err((
-                    //         format!(
-                    //             "{} called with `ExecutionPayloadV4` after Fulu fork!",
-                    //             method
-                    //         ),
-                    //         GENERIC_ERROR_CODE,
-                    //     ));
-                    // }
                 }
                 _ => unreachable!(),
             };
