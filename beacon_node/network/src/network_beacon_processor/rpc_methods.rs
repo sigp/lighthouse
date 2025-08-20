@@ -268,12 +268,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        let Some(_requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
-        else {
-            // No blob ids requested.
-            return Ok(());
-        };
-
         let mut send_blob_count = 0;
 
         let fulu_start_slot = self
@@ -283,9 +277,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
 
         let mut blob_list_results = HashMap::new();
-        let mut retrieve_blob_slot = HashMap::new();
+        let mut slots_by_block_root = HashMap::new();
         // For logging purpose, to display one log per block root
-        let mut logging = HashMap::new();
+        let mut logging_index_by_block_root = HashMap::new();
         for id in request.blob_ids.as_slice() {
             let BlobIdentifier {
                 block_root: root,
@@ -293,7 +287,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             } = id;
 
             // Get the slot for where the blob belongs to from the HashMap or cache without touching the database
-            let slot = if let Some(slot) = retrieve_blob_slot.get(root) {
+            let slot = if let Some(slot) = slots_by_block_root.get(root) {
                 Some(*slot)
             } else {
                 // Try to get block from caches to extract slot
@@ -304,10 +298,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     .or_else(|| self.chain.early_attester_cache.get_block(*root))
                 {
                     let slot = block.slot();
-                    retrieve_blob_slot.insert(*root, slot);
+                    slots_by_block_root.insert(*root, slot);
                     Some(slot)
                 } else {
-                    // Blobs not found in cache, return None to avoid hitting the database
+                    // Block not found in cache, returning None to query blobs from the database later
                     None
                 }
             };
@@ -316,13 +310,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             if let (Some(slot), Some(fulu_slot)) = (slot, fulu_start_slot)
                 && slot >= fulu_slot
             {
-                debug!(
-                    %peer_id,
-                    request_root = %root,
-                    %slot,
-                    %fulu_slot,
-                    "BlobsByRoot request is at or after Fulu slot, returning empty response"
-                );
                 continue;
             }
 
@@ -334,7 +321,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Response::BlobsByRoot(Some(blob)),
                 );
                 send_blob_count += 1;
-                logging.entry(*root).or_insert(Vec::new()).push(*index);
+                logging_index_by_block_root
+                    .entry(*root)
+                    .or_insert(Vec::new())
+                    .push(*index);
             } else {
                 let blob_list_result = match blob_list_results.entry(root) {
                     Entry::Vacant(entry) => {
@@ -347,27 +337,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Ok(blobs_sidecar_list) => {
                         'inner: for blob_sidecar in blobs_sidecar_list.iter() {
                             if blob_sidecar.index == *index {
-                                // Check for Fulu slot
-                                if let Some(fulu_slot) = fulu_start_slot
-                                    && blob_sidecar.slot() >= fulu_slot
-                                {
-                                    debug!(
-                                        %peer_id,
-                                        request_root = %root,
-                                        blob_slot = %blob_sidecar.slot(),
-                                        %fulu_slot,
-                                        "BlobsByRoot request is at or after Fulu slot, returning empty response"
-                                    );
-                                    break 'inner;
-                                }
-
                                 self.send_response(
                                     peer_id,
                                     inbound_request_id,
                                     Response::BlobsByRoot(Some(blob_sidecar.clone())),
                                 );
                                 send_blob_count += 1;
-                                logging.entry(*root).or_insert(Vec::new()).push(*index);
+                                logging_index_by_block_root
+                                    .entry(*root)
+                                    .or_insert(Vec::new())
+                                    .push(*index);
                                 break 'inner;
                             }
                         }
@@ -384,16 +363,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
 
-        // log once per block_root
-        for (block_root, blobs_indices) in &logging {
-            debug!(
-                %peer_id,
-                %block_root,
-                ?blobs_indices,
-                returned = send_blob_count,
-                "BlobsByRoot outgoing response processed"
-            );
-        }
+        debug!(
+            %peer_id,
+            block_root = ?logging_index_by_block_root.keys(),
+            returned = send_blob_count,
+            "BlobsByRoot outgoing response processed"
+        );
 
         Ok(())
     }
@@ -952,9 +927,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let request_start_slot = Slot::from(req.start_slot);
         let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
+        let fork_name = self.chain.spec.fork_name_at_epoch(request_start_epoch);
         // Should not send more than max request blob sidecars
         if req.max_blobs_requested(request_start_epoch, &self.chain.spec)
-            > self.chain.spec.max_request_blob_sidecars_electra
+            > self.chain.spec.max_request_blob_sidecars(fork_name) as u64
         {
             return Err((
                 RpcErrorResponse::InvalidRequest,
@@ -968,26 +944,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
             // If the request_start_slot is at or after a Fulu slot, return an empty response
             if request_start_slot >= fulu_start_slot {
-                debug!(
-                    %peer_id,
-                    %request_start_slot,
-                    %fulu_start_slot,
-                    returned = 0,
-                    "BlobsByRange request is at or after a Fulu slot, returning empty response"
-                );
                 return Ok(());
             // For the case that the request slots spans across the Fulu fork slot
             } else if request_end_slot >= fulu_start_slot {
-                let count = (fulu_start_slot - request_start_slot).as_u64();
-                debug!(
-                    %peer_id,
-                    %request_start_slot,
-                    %fulu_start_slot,
-                    requested = req.count,
-                    effective_count = count,
-                    "BlobsByRange request spans across Fulu fork, only serving blobs before Fulu slots"
-                );
-                count
+                (fulu_start_slot - request_start_slot).as_u64()
             } else {
                 req.count
             }

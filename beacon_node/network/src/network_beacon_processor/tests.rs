@@ -1462,6 +1462,70 @@ async fn test_blobs_by_range_spans_fulu_fork() {
 }
 
 #[tokio::test]
+async fn test_blobs_by_root() {
+    if test_spec::<E>().deneb_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+
+    // Get the block root of a sample slot, e.g., slot 1
+    let block_root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+
+    let blobs = rig.chain.get_blobs(&block_root).unwrap();
+    let blob_count = blobs.len();
+
+    let blob_ids: Vec<BlobIdentifier> = (0..blob_count)
+        .map(|index| BlobIdentifier {
+            block_root,
+            index: index as u64,
+        })
+        .collect();
+
+    let blob_ids_list = RuntimeVariableList::new(blob_ids, blob_count).unwrap();
+
+    rig.enqueue_blobs_by_root_request(blob_ids_list);
+
+    let mut blob_count = 0;
+    let root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap();
+    blob_count += root
+        .map(|root| {
+            rig.chain
+                .get_blobs(&root)
+                .map(|list| list.len())
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRoot(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
 async fn test_blobs_by_root_post_fulu_should_return_empty() {
     // Only test for Fulu fork
     if test_spec::<E>().fulu_fork_epoch.is_none() {
@@ -1470,7 +1534,6 @@ async fn test_blobs_by_root_post_fulu_should_return_empty() {
 
     let mut rig = TestRig::new(64).await;
 
-    // Get the block root of a sample slot, e.g., slot 1
     let block_root = rig
         .chain
         .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
