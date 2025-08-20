@@ -179,78 +179,133 @@ impl<E: EthSpec> PendingComponents<E> {
             &Span,
         ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
     {
+        // Early exit: No block cached yet (so block is not available)
         let Some(block) = &self.executed_block else {
-            // Block not available yet
             return Ok(None);
         };
 
-        let num_expected_blobs = block.num_blobs_expected();
-        let blob_data = if num_expected_blobs == 0 {
-            Some(AvailableBlockData::NoData)
-        } else if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-            let num_received_columns = self.verified_data_columns.len();
-            match num_received_columns.cmp(&num_expected_columns) {
-                Ordering::Greater => {
-                    // Should never happen
-                    return Err(AvailabilityCheckError::Unexpected(format!(
-                        "too many columns got {num_received_columns} expected {num_expected_columns}"
-                    )));
-                }
-                Ordering::Equal => {
-                    // Block is post-peerdas, and we got enough columns
-                    let data_columns = self
-                        .verified_data_columns
-                        .iter()
-                        .map(|d| d.clone().into_inner())
-                        .collect::<Vec<_>>();
-                    Some(AvailableBlockData::DataColumns(data_columns))
-                }
-                Ordering::Less => {
-                    // Not enough data columns received yet
-                    None
-                }
-            }
-        } else {
-            // Before PeerDAS, blobs
-            let num_received_blobs = self.verified_blobs.iter().flatten().count();
-            match num_received_blobs.cmp(&num_expected_blobs) {
-                Ordering::Greater => {
-                    // Should never happen
-                    return Err(AvailabilityCheckError::Unexpected(format!(
-                        "too many blobs got {num_received_blobs} expected {num_expected_blobs}"
-                    )));
-                }
-                Ordering::Equal => {
-                    let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
-                    let blobs_vec = self
-                        .verified_blobs
-                        .iter()
-                        .flatten()
-                        .map(|blob| blob.clone().to_blob())
-                        .collect::<Vec<_>>();
-                    let blobs_len = blobs_vec.len();
-                    let blobs = RuntimeVariableList::new(blobs_vec, max_blobs).map_err(|_| {
-                        AvailabilityCheckError::Unexpected(format!(
-                            "over max_blobs len {blobs_len} max {max_blobs}"
-                        ))
-                    })?;
-                    Some(AvailableBlockData::Blobs(blobs))
-                }
-                Ordering::Less => {
-                    // Not enough blobs received yet
-                    None
-                }
-            }
-        };
-
-        // Block's data not available yet
+        // Check if all required components are available
+        let blob_data =
+            self.check_blob_data_availability(spec, block, num_expected_columns)?;
         let Some(blob_data) = blob_data else {
-            return Ok(None);
+            return Ok(None); // Missing blobs/columns
         };
 
-        // Block is available, construct `AvailableExecutedBlock`
+        let recovered_block = recover(block.clone(), &self.span)?;
 
-        let blobs_available_timestamp = match blob_data {
+        Ok(Some(self.create_available_executed_block(
+            spec,
+            blob_data,
+            recovered_block,
+        )))
+    }
+
+    /// Check if blob/column data requirements are satisfied
+    fn check_blob_data_availability(
+        &self,
+        spec: &Arc<ChainSpec>,
+        block: &DietAvailabilityPendingExecutedBlock<E>,
+        num_expected_columns: usize,
+    ) -> Result<Option<AvailableBlockData<E>>, AvailabilityCheckError> {
+        let num_expected_blobs = block.num_blobs_expected();
+
+        // Pre-Deneb: No additional data required
+        //
+        // Note: This could also happen if the block came with no blobs.
+        if num_expected_blobs == 0 {
+            return Ok(Some(AvailableBlockData::NoData));
+        }
+
+        // Post-PeerDAS: Check data columns
+        if spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+            return self.check_data_column_availability(num_expected_columns);
+        }
+
+        // Deneb era: Check blobs
+        self.check_blob_availability(spec, block, num_expected_blobs)
+    }
+
+    /// Checks data column availability by comparing the number of verified columns
+    /// against `num_expected_columns`
+    ///
+    /// Returns:
+    /// -  Ok(None): if we have not received enough columns
+    /// -  Ok(Some): if we have received `num_expected_columns` columns
+    /// -  Err: if we have received too many columns
+    fn check_data_column_availability(
+        &self,
+        num_expected_columns: usize,
+    ) -> Result<Option<AvailableBlockData<E>>, AvailabilityCheckError> {
+        let num_received_columns = self.verified_data_columns.len();
+
+        match num_received_columns.cmp(&num_expected_columns) {
+            Ordering::Greater => {
+                // Should never happen
+                Err(AvailabilityCheckError::Unexpected(format!(
+                    "too many columns got {num_received_columns} expected {num_expected_columns}"
+                )))
+            }
+            Ordering::Equal => {
+                let data_columns = self
+                    .verified_data_columns
+                    .iter()
+                    .map(|d| d.clone().into_inner())
+                    .collect::<Vec<_>>();
+                Ok(Some(AvailableBlockData::DataColumns(data_columns)))
+            }
+            Ordering::Less => Ok(None), // Not enough columns yet
+        }
+    }
+
+    /// Checks blob availability by comparing the number of verified blobs
+    /// against `num_expected_blobs`
+    ///
+    /// Returns:
+    /// -  Ok(None): if we have not received enough blobs
+    /// -  Ok(Some): if we have received `num_expected_blobs` blobs
+    /// -  Err: if we have received too many blobs
+    fn check_blob_availability(
+        &self,
+        spec: &Arc<ChainSpec>,
+        block: &DietAvailabilityPendingExecutedBlock<E>,
+        num_expected_blobs: usize,
+    ) -> Result<Option<AvailableBlockData<E>>, AvailabilityCheckError> {
+        let num_received_blobs = self.verified_blobs.iter().flatten().count();
+
+        match num_received_blobs.cmp(&num_expected_blobs) {
+            Ordering::Greater => {
+                // Should never happen
+                Err(AvailabilityCheckError::Unexpected(format!(
+                    "too many blobs got {num_received_blobs} expected {num_expected_blobs}"
+                )))
+            }
+            Ordering::Equal => {
+                let max_blobs = spec.max_blobs_per_block(block.epoch()) as usize;
+                let blobs_vec = self
+                    .verified_blobs
+                    .iter()
+                    .flatten()
+                    .map(|blob| blob.clone().to_blob())
+                    .collect::<Vec<_>>();
+                let blobs_len = blobs_vec.len();
+                let blobs = RuntimeVariableList::new(blobs_vec, max_blobs).map_err(|_| {
+                    AvailabilityCheckError::Unexpected(format!(
+                        "over max_blobs len {blobs_len} max {max_blobs}"
+                    ))
+                })?;
+                Ok(Some(AvailableBlockData::Blobs(blobs)))
+            }
+            Ordering::Less => Ok(None), // Not enough blobs yet
+        }
+    }
+
+    fn create_available_executed_block(
+        &self,
+        spec: &Arc<ChainSpec>,
+        blob_data: AvailableBlockData<E>,
+        recovered_block: AvailabilityPendingExecutedBlock<E>,
+    ) -> AvailableExecutedBlock<E> {
+        let blobs_available_timestamp = match &blob_data {
             AvailableBlockData::NoData => None,
             AvailableBlockData::Blobs(_) => self
                 .verified_blobs
@@ -266,7 +321,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             import_data,
             payload_verification_outcome,
-        } = recover(block.clone(), &self.span)?;
+        } = recovered_block;
 
         let available_block = AvailableBlock {
             block_root: self.block_root,
@@ -279,11 +334,7 @@ impl<E: EthSpec> PendingComponents<E> {
         self.span.in_scope(|| {
             debug!("Block and all data components are available");
         });
-        Ok(Some(AvailableExecutedBlock::new(
-            available_block,
-            import_data,
-            payload_verification_outcome,
-        )))
+        AvailableExecutedBlock::new(available_block, import_data, payload_verification_outcome)
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
