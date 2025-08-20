@@ -412,11 +412,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: DataColumnsByRootRequest<T::EthSpec>,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
+        // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
+        let available_columns = self.chain.custody_columns_for_epoch(None);
 
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
+            let indices_to_retrieve = data_column_ids_by_root
+                .columns
+                .iter()
+                .copied()
+                .filter(|c| available_columns.contains(c))
+                .collect::<Vec<_>>();
             match self.chain.get_data_columns_checking_all_caches(
                 data_column_ids_by_root.block_root,
-                data_column_ids_by_root.columns.iter().as_slice(),
+                &indices_to_retrieve,
             ) {
                 Ok(data_columns) => {
                     send_data_column_count += data_columns.len();
@@ -1186,8 +1194,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.get_block_roots_for_slot_range(req.start_slot, req.count, "DataColumnsByRange")?;
         let mut data_columns_sent = 0;
 
+        // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
+        let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
+        let available_columns = self
+            .chain
+            .custody_columns_for_epoch(Some(request_start_epoch));
+
         for root in block_roots {
-            for index in &req.columns {
+            for index in available_columns {
                 match self.chain.get_data_column(&root, index) {
                     Ok(Some(data_column_sidecar)) => {
                         // Due to skip slots, data columns could be out of the range, we ensure they

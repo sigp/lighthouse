@@ -7153,6 +7153,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .custody_context()
             .sampling_columns_for_epoch(epoch, &self.spec)
     }
+
+    /// Returns a list of column indices that the node is expected to custody for a given epoch.
+    /// i.e. the node must have validated and persisted the column samples and should be able to
+    /// serve them to peers.
+    ///
+    /// If epoch is `None`, this function computes the custody columns at head.
+    pub fn custody_columns_for_epoch(&self, epoch_opt: Option<Epoch>) -> &[ColumnIndex] {
+        self.data_availability_checker
+            .custody_context()
+            .custody_columns_for_epoch(epoch_opt, &self.spec)
+    }
 }
 
 impl<T: BeaconChainTypes> Drop for BeaconChain<T> {
