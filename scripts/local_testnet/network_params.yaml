@@ -16,3 +16,4 @@ additional_services:
   - dora
   - spamoor
   - prometheus_grafana
+  - tempo

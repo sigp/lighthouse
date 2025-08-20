@@ -185,7 +185,7 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     let signed_block_header = block.signed_block_header();
 
     let proof_chunks = cell_proofs
-        .chunks_exact(spec.number_of_columns as usize)
+        .chunks_exact(E::number_of_columns())
         .collect::<Vec<_>>();
 
     // NOTE: assumes blob sidecars are ordered by index
@@ -243,7 +243,7 @@ pub(crate) fn build_data_column_sidecars<E: EthSpec>(
     blob_cells_and_proofs_vec: Vec<CellsAndKzgProofs>,
     spec: &ChainSpec,
 ) -> Result<DataColumnSidecarList<E>, String> {
-    let number_of_columns = spec.number_of_columns as usize;
+    let number_of_columns = E::number_of_columns();
     let max_blobs_per_block = spec
         .max_blobs_per_block(signed_block_header.message.slot.epoch(E::slots_per_epoch()))
         as usize;
@@ -495,7 +495,7 @@ mod test {
             .kzg_commitments_merkle_proof()
             .unwrap();
 
-        assert_eq!(column_sidecars.len(), spec.number_of_columns as usize);
+        assert_eq!(column_sidecars.len(), E::number_of_columns());
         for (idx, col_sidecar) in column_sidecars.iter().enumerate() {
             assert_eq!(col_sidecar.index, idx as u64);
 
@@ -530,7 +530,7 @@ mod test {
         )
         .unwrap();
 
-        for i in 0..spec.number_of_columns as usize {
+        for i in 0..E::number_of_columns() {
             assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
         }
     }

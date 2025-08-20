@@ -2358,8 +2358,7 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
-                .unwrap()
+            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns).unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             RpcBlock::new(Some(block_root), block, blobs).unwrap()
@@ -2386,7 +2385,7 @@ where
                     .filter(|d| sampling_columns.contains(&d.index))
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+                RpcBlock::new_with_custody_columns(Some(block_root), block, columns)?
             } else {
                 RpcBlock::new_without_blobs(Some(block_root), block)
             }
@@ -3310,7 +3309,7 @@ fn generate_data_column_sidecars_from_block<E: EthSpec>(
     // load the precomputed column sidecar to avoid computing them for every block in the tests.
     let template_data_columns = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
         TEST_DATA_COLUMN_SIDECARS_SSZ,
-        spec.number_of_columns as usize,
+        E::number_of_columns(),
     )
     .unwrap();
 

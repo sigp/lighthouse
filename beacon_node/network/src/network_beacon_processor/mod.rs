@@ -629,7 +629,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest,
+        request: DataColumnsByRootRequest<T::EthSpec>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
         let process_fn = move || {
@@ -1008,7 +1008,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 let blob_publication_batch_interval = chain.config.blob_publication_batch_interval;
                 let blob_publication_batches = chain.config.blob_publication_batches;
-                let number_of_columns = chain.spec.number_of_columns as usize;
+                let number_of_columns = T::EthSpec::number_of_columns();
                 let batch_size = number_of_columns / blob_publication_batches;
                 let mut publish_count = 0usize;
 

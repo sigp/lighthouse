@@ -111,11 +111,13 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type BytesPerFieldElement: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in PeerDAS
+     * New in Fulu
      */
     type FieldElementsPerCell: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type FieldElementsPerExtBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type KzgCommitmentsInclusionProofDepth: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type CellsPerExtBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type NumberOfColumns: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type ProposerLookaheadSlots: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
@@ -378,6 +380,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::KzgCommitmentsInclusionProofDepth::to_usize()
     }
 
+    fn cells_per_ext_blob() -> usize {
+        Self::CellsPerExtBlob::to_usize()
+    }
+
+    fn number_of_columns() -> usize {
+        Self::NumberOfColumns::to_usize()
+    }
+
     fn proposer_lookahead_slots() -> usize {
         Self::ProposerLookaheadSlots::to_usize()
     }
@@ -433,6 +443,8 @@ impl EthSpec for MainnetEthSpec {
     type MaxCellsPerBlock = U33554432;
     type KzgCommitmentInclusionProofDepth = U17;
     type KzgCommitmentsInclusionProofDepth = U4; // inclusion of the whole list of commitments
+    type CellsPerExtBlob = U128;
+    type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U64; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
@@ -487,6 +499,8 @@ impl EthSpec for MinimalEthSpec {
     type MaxCellsPerBlock = U33554432;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type CellsPerExtBlob = U128;
+    type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U16; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
 
     params_from_eth_spec!(MainnetEthSpec {
@@ -584,6 +598,8 @@ impl EthSpec for GnosisEthSpec {
     type MaxCellsPerBlock = U33554432;
     type BytesPerCell = U2048;
     type KzgCommitmentsInclusionProofDepth = U4;
+    type CellsPerExtBlob = U128;
+    type NumberOfColumns = U128;
     type ProposerLookaheadSlots = U32; // Derived from (MIN_SEED_LOOKAHEAD + 1) * SLOTS_PER_EPOCH
 
     fn default_spec() -> ChainSpec {
