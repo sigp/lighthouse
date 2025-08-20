@@ -155,6 +155,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         column_requests: Vec<(DataColumnsByRootRequestId, Vec<ColumnIndex>)>,
         custody_columns: &[ColumnIndex],
     ) -> Result<(), String> {
+        // Nothing to insert, do not initialize
+        if column_requests.is_empty() {
+            return Ok(());
+        }
         match &mut self.block_data_request {
             RangeBlockDataRequest::DataColumnsFromRoot {
                 init,
