@@ -304,7 +304,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// - The block if it is cached
     /// - The first available blob
     /// - The first data column
-    /// Otherwise, returns None
+    ///   Otherwise, returns None
     pub fn epoch(&self) -> Option<Epoch> {
         // Get epoch from cached executed block
         if let Some(executed_block) = &self.executed_block {
@@ -312,10 +312,8 @@ impl<E: EthSpec> PendingComponents<E> {
         }
 
         // Or, get epoch from first available blob
-        for maybe_blob in &self.verified_blobs {
-            if let Some(blob) = maybe_blob {
-                return Some(blob.as_blob().slot().epoch(E::slots_per_epoch()));
-            }
+        if let Some(blob) = self.verified_blobs.iter().flatten().next() {
+            return Some(blob.as_blob().slot().epoch(E::slots_per_epoch()));
         }
 
         // Or, get epoch from first data column
