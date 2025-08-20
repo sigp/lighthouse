@@ -9,3 +9,6 @@ development = ["compare_fields_derive"] # used in doc-tests
 
 [dependencies]
 itertools = { workspace = true }
+
+[dev-dependencies]
+compare_fields_derive = { workspace = true }

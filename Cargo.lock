@@ -1655,6 +1655,7 @@ dependencies = [
 name = "compare_fields"
 version = "0.2.0"
 dependencies = [
+ "compare_fields_derive",
  "itertools 0.10.5",
 ]
 
@@ -2537,6 +2538,7 @@ dependencies = [
  "fs2",
  "hex",
  "kzg",
+ "logging",
  "rayon",
  "serde",
  "serde_json",
@@ -3298,6 +3300,7 @@ dependencies = [
  "fork_choice",
  "futures",
  "hex",
+ "logging",
  "reqwest 0.11.27",
  "sensitive_url",
  "serde_json",
@@ -5076,7 +5079,6 @@ dependencies = [
  "hex",
  "lighthouse_network",
  "lighthouse_version",
- "log",
  "malloc_utils",
  "rayon",
  "serde",
@@ -9008,6 +9010,7 @@ dependencies = [
  "ethereum_ssz_derive",
  "itertools 0.10.5",
  "leveldb",
+ "logging",
  "lru",
  "metrics",
  "parking_lot 0.12.3",
@@ -10545,6 +10548,7 @@ dependencies = [
  "futures",
  "initialized_validators",
  "lighthouse_validator_store",
+ "logging",
  "parking_lot 0.12.3",
  "reqwest 0.11.27",
  "serde",

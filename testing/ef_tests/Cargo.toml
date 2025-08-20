@@ -26,6 +26,7 @@ fork_choice = { workspace = true }
 fs2 = { workspace = true }
 hex = { workspace = true }
 kzg = { workspace = true }
+logging = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
