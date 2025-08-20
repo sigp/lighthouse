@@ -6,8 +6,10 @@ use crate::sync::{
     manager::{BlockProcessType, SyncMessage},
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
+use beacon_chain::data_availability_checker::{
+    AvailabilityCheckError, AvailabilityCheckErrorCategory,
+};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     ExecutionPayloadError, HistoricalBlockError, NotifyExecutionLayer,
@@ -835,6 +837,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     message: format!("Banned block: {block_root:?}"),
                     peer_action: Some(PeerAction::Fatal),
                 })
+            }
+            BlockError::AvailabilityCheck(err) => {
+                if matches!(err.category(), AvailabilityCheckErrorCategory::Malicious) {
+                    debug!(
+                        msg = "peer sent invalid block",
+                        outcome = ?err,
+                        "Invalid block received"
+                    );
+
+                    Err(ChainSegmentFailed {
+                        message: format!("Peer sent invalid block. Reason: {:?}", err),
+                        // Do not penalize peers for internal errors.
+                        peer_action: Some(PeerAction::MidToleranceError),
+                    })
+                } else {
+                    Err(ChainSegmentFailed {
+                        message: format!("Peer sent invalid block. Reason: {:?}", err),
+                        // Do not penalize peers for internal errors.
+                        peer_action: None,
+                    })
+                }
             }
             other => {
                 debug!(
