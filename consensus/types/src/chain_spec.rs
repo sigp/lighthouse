@@ -784,7 +784,7 @@ impl ChainSpec {
         custody_group_count: u64,
     ) -> Result<usize, String> {
         let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
-        let columns_per_custody_group = self.data_columns_per_group();
+        let columns_per_custody_group = self.data_columns_per_group::<E>();
 
         let sampling_size_columns = columns_per_custody_group
             .safe_mul(sampling_size_groups)
