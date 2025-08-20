@@ -327,7 +327,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     return Ok(KeepChain);
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Processing(_) | BatchState::AwaitingDownload | BatchState::Failed => {
+                BatchState::AwaitingDownload => return Ok(KeepChain),
+                BatchState::Processing(_) | BatchState::Failed => {
                     // these are all inconsistent states:
                     // - Processing -> `self.current_processing_batch` is None
                     // - Failed -> non recoverable batch. For an optimistic batch, it should
@@ -361,7 +362,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // Batch is not ready, nothing to process
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
+                BatchState::AwaitingDownload => return Ok(KeepChain),
+                BatchState::Failed | BatchState::Processing(_) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -559,7 +561,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 batch.processing_completed(BatchProcessingResult::NonFaultyFailure)?;
 
                 // Simply re-download the batch.
-                self.send_batch(network, batch_id)
+                self.attempt_send_awaiting_download_batches(network, "non-faulty-failure")
             }
         }
     }
@@ -729,7 +731,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
         // this is our robust `processing_target`. All previous batches must be awaiting
         // validation
-        let mut redownload_queue = Vec::new();
 
         for (id, batch) in self.batches.range_mut(..batch_id) {
             if let BatchOperationOutcome::Failed { blacklist } = batch.validation_failed()? {
@@ -739,18 +740,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     failing_batch: *id,
                 });
             }
-            redownload_queue.push(*id);
         }
 
         // no batch maxed out it process attempts, so now the chain's volatile progress must be
         // reset
         self.processing_target = self.start_epoch;
 
-        for id in redownload_queue {
-            self.send_batch(network, id)?;
-        }
         // finally, re-request the failed batch.
-        self.send_batch(network, batch_id)
+        self.attempt_send_awaiting_download_batches(network, "handle_invalid_batch")
     }
 
     pub fn stop_syncing(&mut self) {
@@ -891,7 +888,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     failing_batch: batch_id,
                 });
             }
-            self.send_batch(network, batch_id)
+            self.attempt_send_awaiting_download_batches(network, "injecting error")
         } else {
             debug!(
                 batch_epoch = %batch_id,
@@ -903,6 +900,24 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // this could be an error for an old batch, removed when the chain advances
             Ok(KeepChain)
         }
+    }
+
+    pub fn attempt_send_awaiting_download_batches(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+        src: &str,
+    ) -> ProcessingResult {
+        debug!(?src, "In attempt_send_awaiting download batches");
+        // Check all batches in AwaitingDownload state and see if they can be sent
+        for (batch_id, batch) in self.batches.iter() {
+            if matches!(batch.state(), BatchState::AwaitingDownload) {
+                debug!(?src, ?batch_id, "Sending batch");
+                if self.good_peers_on_sampling_subnets(*batch_id, network) {
+                    return self.send_batch(network, *batch_id);
+                }
+            }
+        }
+        Ok(KeepChain)
     }
 
     /// Requests the batch assigned to the given id from a given peer.
