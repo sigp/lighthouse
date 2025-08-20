@@ -320,9 +320,20 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             DatabaseBackend::Redb => redb_impl::Redb::open(path).map(BeaconNodeBackend::Redb),
             #[cfg(feature = "postgres")]
             DatabaseBackend::PostgresDB => {
-                Err(Error::DBError {
-                    message: "PostgresDB requires async initialization> Use open_async()".into(),
-                })
+                let db_url = "postgres://postgres:admin@localhost:5432/postgres";
+                let db_result = match tokio::runtime::Handle::try_current() {
+                    Ok(handle) => handle.block_on(postgres_impl::PostgresDB::open(db_url)),
+                    Err(_) => {
+                        let rt = tokio::runtime::Runtime::new()
+                            .map_err(|e| Error::DBError { message: e.to_string() })?;
+                        rt.block_on(postgres_impl::PostgresDB::open(db_url))
+                    }
+                };
+
+                let db = db_result.map_err(|e| Error::DBError {
+                    message: format!("Failed to init PostgresDB: {:?}", e)
+                })?;
+                Ok(BeaconNodeBackend::PostgresDB(db))
             }
         }
     }
