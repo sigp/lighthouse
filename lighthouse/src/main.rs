@@ -298,6 +298,7 @@ fn main() {
                     Defaults to 'lighthouse-bn' for beacon node, 'lighthouse-vc' for validator \
                     client, or 'lighthouse' for other subcommands."
                 )
+                .requires("telemetry-collector-url")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
