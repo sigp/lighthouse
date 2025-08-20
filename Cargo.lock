@@ -6393,6 +6393,7 @@ dependencies = [
  "serde_json",
  "slot_clock",
  "smallvec",
+ "ssz_types",
  "store",
  "strum",
  "task_executor",
