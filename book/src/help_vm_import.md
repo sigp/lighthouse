@@ -76,6 +76,10 @@ Options:
       --telemetry-collector-url <URL>
           URL of the OpenTelemetry collector to export tracing spans (e.g.,
           http://localhost:4317). If not set, tracing export is disabled.
+      --telemetry-service-name <NAME>
+          Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
+          for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
+          for other subcommands.
       --validators-file <PATH_TO_JSON_FILE>
           The path to a JSON file containing a list of validators to be imported
           to the validator client. This file is usually named "validators.json".
