@@ -396,8 +396,8 @@ impl BlockId {
         })?;
 
         let num_found_column_keys = column_indices.len();
-        let num_required_columns = chain.spec.number_of_columns / 2;
-        let is_blob_available = num_found_column_keys >= num_required_columns as usize;
+        let num_required_columns = T::EthSpec::number_of_columns() / 2;
+        let is_blob_available = num_found_column_keys >= num_required_columns;
 
         if is_blob_available {
             let data_columns = column_indices

@@ -13,15 +13,13 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tracing::{debug, warn};
-use types::EthSpec;
 use types::{DataColumnSidecar, Hash256, data_column_sidecar::ColumnIndex};
+use types::{DataColumnSidecarList, EthSpec};
 
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
 
 const FAILED_PEERS_CACHE_EXPIRY_SECONDS: u64 = 5;
 const MAX_STALE_NO_PEERS_DURATION: Duration = Duration::from_secs(30);
-
-type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_root: Hash256,
