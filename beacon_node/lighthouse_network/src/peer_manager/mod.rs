@@ -17,7 +17,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::{debug, error, trace, warn};
-use types::{DataColumnSubnetId, EthSpec, SyncSubnetId};
+use types::{DataColumnSubnetId, EthSpec, SubnetId, SyncSubnetId};
 
 pub use libp2p::core::Multiaddr;
 pub use libp2p::identity::Keypair;
@@ -744,8 +744,7 @@ impl<E: EthSpec> PeerManager<E> {
             let custody_group_count_opt = meta_data.custody_group_count().copied().ok();
             peer_info.set_meta_data(meta_data);
 
-            let spec = &self.network_globals.spec;
-            if spec.is_peer_das_scheduled() {
+            if self.network_globals.spec.is_peer_das_scheduled() {
                 // Gracefully ignore metadata/v2 peers.
                 // We only send metadata v3 requests when PeerDAS is scheduled
                 if let Some(custody_group_count) = custody_group_count_opt {
@@ -1134,7 +1133,8 @@ impl<E: EthSpec> PeerManager<E> {
         //    uniformly distributed, remove random peers.
         if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
             // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
-            let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<E>)>> = HashMap::new();
+            let mut att_subnet_to_peer: HashMap<SubnetId, Vec<(PeerId, PeerInfo<E>)>> =
+                HashMap::new();
             // These variables are used to track if a peer is in a long-lived sync-committee as we
             // may wish to retain this peer over others when pruning.
             let mut sync_committee_peer_count: HashMap<SyncSubnetId, u64> = HashMap::new();
@@ -1157,9 +1157,9 @@ impl<E: EthSpec> PeerManager<E> {
                 // the dense sync committees.
                 for subnet in info.long_lived_subnets() {
                     match subnet {
-                        Subnet::Attestation(_) => {
-                            subnet_to_peer
-                                .entry(subnet)
+                        Subnet::Attestation(subnet_id) => {
+                            att_subnet_to_peer
+                                .entry(subnet_id)
                                 .or_default()
                                 .push((*peer_id, info.clone()));
                         }
@@ -1183,7 +1183,7 @@ impl<E: EthSpec> PeerManager<E> {
 
             // Add to the peers to prune mapping
             while peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
-                if let Some((_, peers_on_subnet)) = subnet_to_peer
+                if let Some((_, peers_on_subnet)) = att_subnet_to_peer
                     .iter_mut()
                     .max_by_key(|(_, peers)| peers.len())
                 {
@@ -1276,7 +1276,7 @@ impl<E: EthSpec> PeerManager<E> {
                         if let Some(index) = removed_peer_index {
                             let (candidate_peer, _) = peers_on_subnet.remove(index);
                             // Remove pruned peers from other subnet counts
-                            for subnet_peers in subnet_to_peer.values_mut() {
+                            for subnet_peers in att_subnet_to_peer.values_mut() {
                                 subnet_peers.retain(|(peer_id, _)| peer_id != &candidate_peer);
                             }
                             // Remove pruned peers from all sync-committee counts
