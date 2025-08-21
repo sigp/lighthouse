@@ -352,7 +352,7 @@ impl Default for Config {
             disable_discovery: false,
             disable_quic_support: false,
             upnp_enabled: true,
-            network_load: 4,
+            network_load: 3,
             private: false,
             subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,

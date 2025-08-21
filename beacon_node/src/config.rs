@@ -1,12 +1,12 @@
-use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
-use beacon_chain::TrustedSetup;
+use account_utils::{read_input_from_user, STDIN_INPUTS_FLAG};
 use beacon_chain::chain_config::{
-    DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
-    DisallowedReOrgOffsets, INVALID_HOLESKY_BLOCK_ROOT, ReOrgThreshold,
+    DisallowedReOrgOffsets, ReOrgThreshold, DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR,
+    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_PARENT_THRESHOLD, INVALID_HOLESKY_BLOCK_ROOT,
 };
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
-use clap::{ArgMatches, Id, parser::ValueSource};
+use beacon_chain::TrustedSetup;
+use clap::{parser::ValueSource, ArgMatches, Id};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::{parse_flag, parse_optional, parse_required};
 use client::{ClientConfig, ClientGenesis};
@@ -15,7 +15,7 @@ use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
 use http_api::TlsConfig;
 use lighthouse_network::ListenAddress;
-use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
+use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use std::collections::HashSet;
 use std::fmt::Debug;
