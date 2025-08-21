@@ -4185,7 +4185,6 @@ pub fn serve<T: BeaconChainTypes>(
                         .custody_context()
                         .get_all_custody_columns()
                         .iter()
-                        .take(4)
                         .copied()
                         .collect::<HashSet<_>>();
 

@@ -71,6 +71,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
         // Perform post-genesis logging.
         let mut last_backfill_log_slot = None;
+        let mut last_custody_backfill_log_slot = None;
 
         loop {
             // Run the notifier half way through each slot.
@@ -193,6 +194,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             // Log if we are backfilling.
             let is_backfilling = matches!(current_sync_state, SyncState::BackFillSyncing { .. });
+            let is_custody_backfilling =
+                matches!(current_sync_state, SyncState::CustodyBackFillSyncing { .. });
             if is_backfilling
                 && last_backfill_log_slot
                     .is_none_or(|slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
@@ -235,6 +238,55 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             } else if !is_backfilling && last_backfill_log_slot.is_some() {
                 last_backfill_log_slot = None;
                 info!("Historical block download complete");
+            }
+
+            if is_custody_backfilling
+                && last_custody_backfill_log_slot
+                    .is_none_or(|slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
+            {
+                last_custody_backfill_log_slot = Some(current_slot);
+
+                if let Some(data_column_custody_info) = beacon_chain
+                    .store
+                    .get_data_column_custody_info()
+                    .ok()
+                    .flatten()
+                    .and_then(|custody_info| custody_info.earliest_data_column_slot)
+                {
+                    let distance = format!(
+                        "{} slots ({})",
+                        sync_distance.as_u64(),
+                        slot_distance_pretty(sync_distance, slot_duration)
+                    );
+
+                    let speed = speedo.slots_per_second();
+                    let display_speed = speed.is_some_and(|speed| speed != 0.0);
+
+                    if display_speed {
+                        info!(
+                            distance,
+                            speed = sync_speed_pretty(speed),
+                            est_time = estimated_time_pretty(
+                                speedo.estimated_time_till_slot(
+                                    original_oldest_block_slot
+                                        .saturating_sub(beacon_chain.genesis_backfill_slot)
+                                )
+                            ),
+                            "Downloading historical blocks"
+                        );
+                    } else {
+                        info!(
+                            distance,
+                            est_time = estimated_time_pretty(
+                                speedo.estimated_time_till_slot(
+                                    original_oldest_block_slot
+                                        .saturating_sub(beacon_chain.genesis_backfill_slot)
+                                )
+                            ),
+                            "Downloading historical blocks"
+                        );
+                    }
+                }
             }
 
             // Log if we are syncing

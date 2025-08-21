@@ -160,55 +160,56 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
         expected_custody_columns: &[ColumnIndex],
         _attempt: usize,
     ) -> Result<DataColumnSidecarList<E>, CouplingError> {
-        let mut custody_columns = vec![];
-        let mut naughty_peers = vec![];
-        let expected_custody_columns_set = expected_custody_columns.iter().collect::<HashSet<_>>();
-        let mut block_root_to_custody_column = data_columns
-            .iter()
-            .map(|col| (col.block_root(), expected_custody_columns_set.clone()))
-            .collect::<HashMap<_, _>>();
-        for data_column in data_columns.clone() {
-            if let Some(expected_custody_columns) =
-                block_root_to_custody_column.get_mut(&data_column.block_root())
-            {
-                if !expected_custody_columns.remove(&data_column.index) {
-                    let Some(responsible_peer) = column_to_peer.get(&data_column.index) else {
-                        return Err(CouplingError::InternalError(format!(
-                            "Internal error, no request made for column {}",
-                            data_column.index
-                        )));
-                    };
-                    naughty_peers.push((data_column.index, *responsible_peer));
-                } else {
-                    // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
-                    // this column is in the set of `expects_custody_columns`. We have not checked that it matches
-                    // the expected block root. We make that check before inserting the column into the store.
-                    custody_columns.push(CustodyDataColumn::from_asserted_custody(
-                        data_column.clone(),
-                    ));
-                    // If the custody columns set is empty for this block root, remove the block root from the map.
-                    if custody_columns.is_empty() {
-                        block_root_to_custody_column.remove(&data_column.block_root());
-                    }
-                }
-            } else {
-                let Some(responsible_peer) = column_to_peer.get(&data_column.index) else {
-                    return Err(CouplingError::InternalError(format!(
-                        "Internal error, no request made for column {}",
-                        data_column.index
-                    )));
-                };
-                naughty_peers.push((data_column.index, *responsible_peer));
-            }
-        }
+        
+        // let mut custody_columns = vec![];
+        // let mut naughty_peers = vec![];
+        // let expected_custody_columns_set = expected_custody_columns.iter().collect::<HashSet<_>>();
+        // let mut block_root_to_custody_column = data_columns
+        //    .iter()
+        //    .map(|col| (col.block_root(), expected_custody_columns_set.clone()))
+        //    .collect::<HashMap<_, _>>();
+        // for data_column in data_columns.clone() {
+        // if let Some(expected_custody_columns) =
+        // block_root_to_custody_column.get_mut(&data_column.block_root())
+        // {
+        // if !expected_custody_columns.remove(&data_column.index) {
+        // let Some(responsible_peer) = column_to_peer.get(&data_column.index) else {
+        // return Err(CouplingError::InternalError(format!(
+        // "Internal error, no request made for column {}",
+        // data_column.index
+        // )));
+        // };
+        // naughty_peers.push((data_column.index, *responsible_peer));
+        // } else {
+        // // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
+        // // this column is in the set of `expects_custody_columns`. We have not checked that it matches
+        // // the expected block root. We make that check before inserting the column into the store.
+        // custody_columns.push(CustodyDataColumn::from_asserted_custody(
+        // data_column.clone(),
+        // ));
+        // // If the custody columns set is empty for this block root, remove the block root from the map.
+        // if custody_columns.is_empty() {
+        // block_root_to_custody_column.remove(&data_column.block_root());
+        // }
+        // }
+        // } else {
+        // let Some(responsible_peer) = column_to_peer.get(&data_column.index) else {
+        // return Err(CouplingError::InternalError(format!(
+        // "Internal error, no request made for column {}",
+        // data_column.index
+        // )));
+        // };
+        // naughty_peers.push((data_column.index, *responsible_peer));
+        // }
+        // }
 
-        // Assert that there are no columns left for other blocks
-        if !block_root_to_custody_column.is_empty() {
-            let remaining_roots = block_root_to_custody_column.keys().collect::<Vec<_>>();
-            // log the error but don't return an error, we can still progress with responses.
-            // this is most likely an internal error with over-requesting or a client bug.
-            tracing::debug!(?remaining_roots, "Not all columns consumed for block");
-        }
+        // // Assert that there are no columns left for other blocks
+        // if !block_root_to_custody_column.is_empty() {
+        // let remaining_roots = block_root_to_custody_column.keys().collect::<Vec<_>>();
+        // // log the error but don't return an error, we can still progress with responses.
+        // // this is most likely an internal error with over-requesting or a client bug.
+        // tracing::debug!(?remaining_roots, "Not all columns consumed for block");
+        // }
         Ok(data_columns)
     }
 }

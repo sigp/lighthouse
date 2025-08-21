@@ -219,10 +219,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 * T::EthSpec::slots_per_epoch()) as usize,
             remaining: self
                 .current_start
-                .start_slot(T::EthSpec::slots_per_epoch())
+                .end_slot(T::EthSpec::slots_per_epoch())
                 .saturating_sub(
                     self.get_column_da_boundary()
-                        .end_slot(T::EthSpec::slots_per_epoch()),
+                        .start_slot(T::EthSpec::slots_per_epoch()),
                 )
                 .as_usize(),
         })
@@ -570,11 +570,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                         "Custody sync completed"
                     );
                     self.set_state(CustodyBackFillState::Completed);
-                    // Re-initialize custody sync values so it can be ran again
-                    self.validated_batches = 0;
-                    self.last_batch_downloaded = false;
-                    self.current_processing_batch = None;
-                    self.columns = HashSet::new();
                     Ok(ProcessResult::SyncCompleted)
                 } else {
                     // custody sync is not completed
@@ -653,6 +648,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             return Ok(ProcessResult::Successful);
         }
 
+        info!(?self.processing_target, "process_completed batches");
+
         // Don't try to process batches before the Fulu fork epoch since data columns don't exist
         if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch
             && self.processing_target < fulu_fork_epoch
@@ -722,8 +719,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
         validating_epoch: Epoch,
     ) {
-        // make sure this epoch produces an advancement
-        if validating_epoch >= self.current_start {
+        // make sure this epoch produces an advancement, unless its at the column DA boundary
+        if validating_epoch >= self.current_start && validating_epoch > self.get_column_da_boundary() {
             return;
         }
 
@@ -735,6 +732,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             .split_off(&(validating_epoch + CUSTODY_BACKFILL_EPOCHS_PER_BATCH));
 
         for (id, batch) in removed_batches.into_iter() {
+            info!(?id, "validated batch");
             self.validated_batches = self.validated_batches.saturating_add(1);
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
@@ -798,6 +796,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             }
         }
 
+        info!(?validating_epoch, "check validating epoch");
         self.processing_target = self.processing_target.min(validating_epoch);
         self.current_start = self.current_start.min(validating_epoch);
         self.to_be_downloaded = self.to_be_downloaded.min(validating_epoch);
@@ -807,7 +806,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             // won't have this batch, so we need to request it.
             self.to_be_downloaded -= CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
         }
-        debug!(?validating_epoch, processing_target = ?self.processing_target, "Custody backfill advanced");
+        // TODO(custody-sync) change to debug
+        info!(?validating_epoch, processing_target = ?self.processing_target, "Custody backfill advanced");
     }
 
     /// An invalid batch has been received that could not be processed, but that can be retried.
@@ -864,7 +864,12 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     /// Checks with the beacon chain if custody sync has completed.
     /// TODO(custody-sync) clean up this implementation
     fn check_completed(&mut self) -> bool {
+        if !self.batches.is_empty() {
+            return false
+        }
+        
         if self.would_complete(self.current_start) {
+            
             // Check that the data column custody info `earliest_available_slot`
             // is less than or equal to the current DA boundary
             let earliest_data_column_slot = self
@@ -904,6 +909,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         if fulu_fork_epoch > column_da_boundary {
             column_da_boundary = fulu_fork_epoch;
         }
+
+        info!(?column_da_boundary, "get_column_da_boundary");
 
         column_da_boundary
     }
@@ -1074,7 +1081,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             if !batch.is_expecting_data_column(&request.id) {
                 return Ok(());
             }
-            debug!(batch_epoch = %request.epoch, error = ?err, "Batch download failed");
+            // TODO(custody-sync) this should be a
+            info!(batch_epoch = %request.epoch, error = ?err, "Batch download failed");
             match batch.download_failed(Some(*peer_id)) {
                 Err(e) => {
                     self.fail_sync(CustodyBackfillError::BatchInvalidState(request.epoch, e.0))
