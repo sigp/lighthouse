@@ -1480,10 +1480,6 @@ pub fn set_network_config(
     if parse_flag(cli_args, "proposer-only") {
         config.subscribe_all_subnets = false;
 
-        if cli_args.get_one::<String>("target-peers").is_none() {
-            // If a custom value is not set, change the default to 15
-            config.target_peers = 50;
-        }
         config.proposer_only = true;
         warn!(
             info = "Proposer-only mode enabled",
