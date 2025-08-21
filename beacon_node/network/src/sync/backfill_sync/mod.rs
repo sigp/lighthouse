@@ -1120,13 +1120,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .sampling_subnets()
                 .iter()
                 .all(|subnet_id| {
-                    let peer_count = network
+                    let min_peer_count = 1;
+                    network
                         .network_globals()
                         .peers
                         .read()
-                        .good_range_sync_custody_subnet_peers(*subnet_id)
-                        .count();
-                    peer_count > 0
+                        .has_good_peers_in_custody_subnet(subnet_id, min_peer_count)
                 })
         } else {
             true

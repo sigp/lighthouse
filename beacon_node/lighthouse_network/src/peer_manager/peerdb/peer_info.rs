@@ -176,7 +176,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
     /// Returns the number of long lived subnets a peer is subscribed to.
     // NOTE: This currently excludes sync committee subnets
-    pub fn long_lived_subnet_count(&self) -> usize {
+    pub fn long_lived_attnet_count(&self) -> usize {
         if let Some(meta_data) = self.meta_data.as_ref() {
             return meta_data.attnets().num_set_bits();
         } else if let Some(enr) = self.enr.as_ref()
@@ -262,6 +262,16 @@ impl<E: EthSpec> PeerInfo<E> {
         {
             return true;
         }
+
+        // Check if the peer's subscribed to any of its custody subnets
+        let subscribed_to_all_custody_subnets = self
+            .custody_subnets
+            .iter()
+            .all(|subnet_id| self.subnets.contains(&Subnet::DataColumn(*subnet_id)));
+        if subscribed_to_all_custody_subnets && !self.custody_subnets.is_empty() {
+            return true;
+        }
+
         false
     }
 
@@ -315,6 +325,14 @@ impl<E: EthSpec> PeerInfo<E> {
         matches!(
             self.connection_status,
             PeerConnectionStatus::Connected { .. }
+        )
+    }
+
+    /// Checks if the peer is synced or advanced.
+    pub fn is_synced_or_advanced(&self) -> bool {
+        matches!(
+            self.sync_status,
+            SyncStatus::Synced { .. } | SyncStatus::Advanced { .. }
         )
     }
 
@@ -643,5 +661,72 @@ impl From<PeerConnectionStatus> for PeerState {
             Disconnecting { .. } => PeerState::Disconnecting,
             Disconnected { .. } | Banned { .. } | Unknown => PeerState::Disconnected,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Subnet;
+    use types::{DataColumnSubnetId, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    fn create_test_peer_info() -> PeerInfo<E> {
+        PeerInfo::default()
+    }
+
+    #[test]
+    fn test_has_long_lived_subnet_empty_custody_subnets() {
+        let peer_info = create_test_peer_info();
+        // peer has no custody subnets or subscribed to any subnets hence return false
+        assert!(!peer_info.has_long_lived_subnet());
+    }
+
+    #[test]
+    fn test_has_long_lived_subnet_empty_subnets_with_custody_subnets() {
+        let mut peer_info = create_test_peer_info();
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(1));
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(2));
+        // Peer has custody subnets but isn't subscribed to any hence return false
+        assert!(!peer_info.has_long_lived_subnet());
+    }
+
+    #[test]
+    fn test_has_long_lived_subnet_all_custody_subnets_subscribed() {
+        let mut peer_info = create_test_peer_info();
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(1));
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(2));
+
+        peer_info
+            .subnets
+            .insert(Subnet::DataColumn(DataColumnSubnetId::new(1)));
+        peer_info
+            .subnets
+            .insert(Subnet::DataColumn(DataColumnSubnetId::new(2)));
+        peer_info
+            .subnets
+            .insert(Subnet::DataColumn(DataColumnSubnetId::new(3))); // Extra subnet
+
+        // Peer is subscribed to all custody subnets - return true
+        assert!(peer_info.has_long_lived_subnet());
+    }
+
+    #[test]
+    fn test_has_long_lived_subnet_partial_custody_subnets_subscribed() {
+        let mut peer_info = create_test_peer_info();
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(1));
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(2));
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(3));
+
+        peer_info
+            .subnets
+            .insert(Subnet::DataColumn(DataColumnSubnetId::new(1)));
+        peer_info
+            .subnets
+            .insert(Subnet::DataColumn(DataColumnSubnetId::new(2)));
+        // Missing DataColumnSubnetId::new(3) - not all custody subnets subscribed
+        // Peer is not subscribed to all custody subnets - return false
+        assert!(!peer_info.has_long_lived_subnet());
     }
 }
