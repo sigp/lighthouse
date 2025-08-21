@@ -76,21 +76,23 @@ fn test_tcp_status_rpc() {
         .await;
 
         // Dummy STATUS RPC message
-        let rpc_request = RequestType::Status(StatusMessage::V1(StatusMessageV1 {
+        let rpc_request = RequestType::Status(StatusMessage::V2(StatusMessageV2 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::zero(),
             head_slot: Slot::new(1),
+            earliest_available_slot: Slot::new(0),
         }));
 
         // Dummy STATUS RPC message
-        let rpc_response = Response::Status(StatusMessage::V1(StatusMessageV1 {
+        let rpc_response = Response::Status(StatusMessage::V2(StatusMessageV2 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::zero(),
             head_slot: Slot::new(1),
+            earliest_available_slot: Slot::new(0),
         }));
 
         // build the sender future
@@ -1205,21 +1207,23 @@ fn test_delayed_rpc_response() {
         .await;
 
         // Dummy STATUS RPC message
-        let rpc_request = RequestType::Status(StatusMessage::V1(StatusMessageV1 {
+        let rpc_request = RequestType::Status(StatusMessage::V2(StatusMessageV2 {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::from_low_u64_be(0),
             head_slot: Slot::new(1),
+            earliest_available_slot: Slot::new(0),
         }));
 
         // Dummy STATUS RPC message
-        let rpc_response = Response::Status(StatusMessage::V1(StatusMessageV1 {
+        let rpc_response = Response::Status(StatusMessage::V2(StatusMessageV2 {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::from_low_u64_be(0),
             head_slot: Slot::new(1),
+            earliest_available_slot: Slot::new(0),
         }));
 
         // build the sender future
@@ -1335,21 +1339,23 @@ fn test_active_requests() {
         .await;
 
         // Dummy STATUS RPC request.
-        let rpc_request = RequestType::Status(StatusMessage::V1(StatusMessageV1 {
+        let rpc_request = RequestType::Status(StatusMessage::V2(StatusMessageV2 {
             fork_digest: [0; 4],
             finalized_root: Hash256::from_low_u64_be(0),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::from_low_u64_be(0),
             head_slot: Slot::new(1),
+            earliest_available_slot: Slot::new(0),
         }));
 
         // Dummy STATUS RPC response.
-        let rpc_response = Response::Status(StatusMessage::V1(StatusMessageV1 {
+        let rpc_response = Response::Status(StatusMessage::V2(StatusMessageV2 {
             fork_digest: [0; 4],
             finalized_root: Hash256::zero(),
             finalized_epoch: Epoch::new(1),
             head_root: Hash256::zero(),
             head_slot: Slot::new(1),
+            earliest_available_slot: Slot::new(0),
         }));
 
         // Number of requests.
