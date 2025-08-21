@@ -161,7 +161,8 @@ fork_choice = { path = "consensus/fork_choice" }
 fs2 = "0.4"
 futures = "0.3"
 genesis = { path = "beacon_node/genesis" }
-gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "61b2820" }
+# This is tracking the sigp-gossipsub branch on sigp/rust-libp2p commit: Aug 20 2025
+gossipsub = { package = "libp2p-gossipsub", git = "https://github.com/sigp/rust-libp2p.git", rev = "5acdf89a65d64098f9346efa5769e57bcd19dea9", "features" = ["metrics"] }
 graffiti_file = { path = "validator_client/graffiti_file" }
 hashlink = "0.9.0"
 health_metrics = { path = "common/health_metrics" }
