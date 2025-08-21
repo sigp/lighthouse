@@ -167,10 +167,12 @@ impl<E: EthSpec> PeerManager<E> {
         let subnets_by_custody_group = if network_globals.spec.is_peer_das_scheduled() {
             (0..network_globals.spec.number_of_custody_groups)
                 .map(|custody_index| {
-                    let subnets =
-                        compute_subnets_from_custody_group(custody_index, &network_globals.spec)
-                            .expect("Should compute subnets for all custody groups")
-                            .collect();
+                    let subnets = compute_subnets_from_custody_group::<E>(
+                        custody_index,
+                        &network_globals.spec,
+                    )
+                    .expect("Should compute subnets for all custody groups")
+                    .collect();
                     (custody_index, subnets)
                 })
                 .collect::<HashMap<_, Vec<DataColumnSubnetId>>>()

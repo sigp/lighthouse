@@ -121,8 +121,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
-    BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
-    KeyValueStoreOp, StoreItem, StoreOp,
+    BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
+    KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
@@ -618,12 +618,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
-        let Some(persisted_fork_choice) =
-            store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
+        let Some(persisted_fork_choice_bytes) = store
+            .hot_db
+            .get_bytes(DBColumn::ForkChoice, FORK_CHOICE_DB_KEY.as_slice())?
         else {
             return Ok(None);
         };
 
+        let persisted_fork_choice =
+            PersistedForkChoice::from_bytes(&persisted_fork_choice_bytes, store.get_config())?;
         let fc_store =
             BeaconForkChoiceStore::from_persisted(persisted_fork_choice.fork_choice_store, store)?;
 
@@ -1244,8 +1247,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             if let Some(columns) = self.store.get_data_columns(block_root)? {
-                let num_required_columns = self.spec.number_of_columns / 2;
-                let reconstruction_possible = columns.len() >= num_required_columns as usize;
+                let num_required_columns = T::EthSpec::number_of_columns() / 2;
+                let reconstruction_possible = columns.len() >= num_required_columns;
                 if reconstruction_possible {
                     reconstruct_blobs(&self.kzg, &columns, None, &block, &self.spec)
                         .map(Some)
@@ -7149,6 +7152,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.data_availability_checker
             .custody_context()
             .sampling_columns_for_epoch(epoch, &self.spec)
+    }
+
+    /// Returns a list of column indices that the node is expected to custody for a given epoch.
+    /// i.e. the node must have validated and persisted the column samples and should be able to
+    /// serve them to peers.
+    ///
+    /// If epoch is `None`, this function computes the custody columns at head.
+    pub fn custody_columns_for_epoch(&self, epoch_opt: Option<Epoch>) -> &[ColumnIndex] {
+        self.data_availability_checker
+            .custody_context()
+            .custody_columns_for_epoch(epoch_opt, &self.spec)
     }
 }
 

@@ -201,7 +201,6 @@ pub struct ChainSpec {
     pub fulu_fork_version: [u8; 4],
     /// The Fulu fork epoch is optional, with `None` representing "Fulu never happens".
     pub fulu_fork_epoch: Option<Epoch>,
-    pub number_of_columns: u64,
     pub number_of_custody_groups: u64,
     pub data_column_sidecar_subnet_count: u64,
     pub samples_per_slot: u64,
@@ -773,20 +772,19 @@ impl ChainSpec {
     }
 
     /// Returns the number of data columns per custody group.
-    pub fn data_columns_per_group(&self) -> u64 {
-        self.number_of_columns
+    pub fn data_columns_per_group<E: EthSpec>(&self) -> u64 {
+        (E::number_of_columns() as u64)
             .safe_div(self.number_of_custody_groups)
             .expect("Custody group count must be greater than 0")
     }
 
     /// Returns the number of column sidecars to sample per slot.
-    pub fn sampling_size_columns(&self, custody_group_count: u64) -> Result<usize, String> {
+    pub fn sampling_size_columns<E: EthSpec>(
+        &self,
+        custody_group_count: u64,
+    ) -> Result<usize, String> {
         let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
-
-        let columns_per_custody_group = self
-            .number_of_columns
-            .safe_div(self.number_of_custody_groups)
-            .map_err(|_| "number_of_custody_groups must be greater than 0")?;
+        let columns_per_custody_group = self.data_columns_per_group::<E>();
 
         let sampling_size_columns = columns_per_custody_group
             .safe_mul(sampling_size_groups)
@@ -1048,7 +1046,6 @@ impl ChainSpec {
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
-            number_of_columns: 128,
             samples_per_slot: 8,
             validator_custody_requirement: 8,
             balance_per_additional_custody_group: 32000000000,
@@ -1088,7 +1085,6 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
-            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Networking Electra specific
@@ -1103,6 +1099,7 @@ impl ChainSpec {
             blob_schedule: BlobSchedule::default(),
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -1386,7 +1383,6 @@ impl ChainSpec {
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
-            number_of_columns: 128,
             samples_per_slot: 8,
             validator_custody_requirement: 8,
             balance_per_additional_custody_group: 32000000000,
@@ -1426,7 +1422,6 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
-            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Networking Electra specific
@@ -1441,6 +1436,7 @@ impl ChainSpec {
             blob_schedule: BlobSchedule::default(),
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -1759,9 +1755,6 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blob_sidecars_electra: u64,
 
-    #[serde(default = "default_number_of_columns")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    number_of_columns: u64,
     #[serde(default = "default_number_of_custody_groups")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_custody_groups: u64,
@@ -1938,10 +1931,6 @@ const fn default_data_column_sidecar_subnet_count() -> u64 {
     128
 }
 
-const fn default_number_of_columns() -> u64 {
-    128
-}
-
 const fn default_number_of_custody_groups() -> u64 {
     128
 }
@@ -1987,19 +1976,15 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
-fn max_data_columns_by_root_request_common(
-    max_request_blocks: u64,
-    number_of_columns: u64,
-) -> usize {
+fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
-    let number_of_columns = number_of_columns as usize;
 
     let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        columns: RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns),
+        columns: VariableList::from(vec![0]),
     };
 
-    RuntimeVariableList::<DataColumnsByRootIdentifier>::from_vec(
+    RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::from_vec(
         vec![empty_data_columns_by_root_id; max_request_blocks],
         max_request_blocks,
     )
@@ -2020,10 +2005,7 @@ fn default_max_blobs_by_root_request() -> usize {
 }
 
 fn default_data_columns_by_root_request() -> usize {
-    max_data_columns_by_root_request_common(
-        default_max_request_blocks_deneb(),
-        default_number_of_columns(),
-    )
+    max_data_columns_by_root_request_common::<MainnetEthSpec>(default_max_request_blocks_deneb())
 }
 
 impl Default for Config {
@@ -2165,7 +2147,6 @@ impl Config {
             blob_sidecar_subnet_count_electra: spec.blob_sidecar_subnet_count_electra,
             max_request_blob_sidecars_electra: spec.max_request_blob_sidecars_electra,
 
-            number_of_columns: spec.number_of_columns,
             number_of_custody_groups: spec.number_of_custody_groups,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             samples_per_slot: spec.samples_per_slot,
@@ -2248,7 +2229,6 @@ impl Config {
             max_blobs_per_block_electra,
             blob_sidecar_subnet_count_electra,
             max_request_blob_sidecars_electra,
-            number_of_columns,
             number_of_custody_groups,
             data_column_sidecar_subnet_count,
             samples_per_slot,
@@ -2330,12 +2310,10 @@ impl Config {
                 max_request_blocks_deneb,
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
-            max_data_columns_by_root_request: max_data_columns_by_root_request_common(
+            max_data_columns_by_root_request: max_data_columns_by_root_request_common::<E>(
                 max_request_blocks_deneb,
-                number_of_columns,
             ),
 
-            number_of_columns,
             number_of_custody_groups,
             data_column_sidecar_subnet_count,
             samples_per_slot,
@@ -2815,7 +2793,6 @@ mod yaml_tests {
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
         CUSTODY_REQUIREMENT: 1
         DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
-        NUMBER_OF_COLUMNS: 128
         SAMPLES_PER_SLOT: 8
         "#;
 

@@ -18,12 +18,10 @@ use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
-use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 
 fn main() {
-    env_logger::init();
-
     let matches = Command::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
         .display_order(0)
@@ -653,7 +651,7 @@ fn main() {
 }
 
 fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> Result<(), String> {
-    let (env_builder, _file_logging_layer, _stdout_logging_layer, _sse_logging_layer_opt) =
+    let (env_builder, file_logging_layer, stdout_logging_layer, _sse_logging_layer_opt) =
         env_builder
             .multi_threaded_tokio_runtime()
             .map_err(|e| format!("should start tokio runtime: {:?}", e))?
@@ -681,6 +679,18 @@ fn run<E: EthSpec>(env_builder: EnvironmentBuilder<E>, matches: &ArgMatches) -> 
     let env = env_builder
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
+
+    let mut logging_layers = vec![file_logging_layer];
+    if let Some(stdout) = stdout_logging_layer {
+        logging_layers.push(stdout);
+    }
+    let logging_result = tracing_subscriber::registry()
+        .with(logging_layers)
+        .try_init();
+
+    if let Err(e) = logging_result {
+        eprintln!("Failed to initialize logger: {e}");
+    }
 
     // Determine testnet-dir path or network name depending on CLI flags.
     let (testnet_dir, network_name) =

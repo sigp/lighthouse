@@ -32,8 +32,8 @@ use execution_layer::{
 use futures::channel::mpsc::Receiver;
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
+use kzg::Kzg;
 use kzg::trusted_setup::get_trusted_setup;
-use kzg::{Kzg, TrustedSetup};
 use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
@@ -81,33 +81,18 @@ pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        .expect("should have trusted setup");
-    let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-    Arc::new(kzg)
-});
-
-static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        .expect("should have trusted setup");
-    let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg");
+    let kzg = Kzg::new_from_trusted_setup(&get_trusted_setup()).expect("should create kzg");
     Arc::new(kzg)
 });
 
 static KZG_NO_PRECOMP: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        .expect("should have trusted setup");
-    let kzg = Kzg::new_from_trusted_setup_no_precomp(trusted_setup).expect("should create kzg");
+    let kzg =
+        Kzg::new_from_trusted_setup_no_precomp(&get_trusted_setup()).expect("should create kzg");
     Arc::new(kzg)
 });
 
 pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
     if spec.fulu_fork_epoch.is_some() {
-        KZG_PEERDAS.clone()
-    } else if spec.deneb_fork_epoch.is_some() {
         KZG.clone()
     } else {
         KZG_NO_PRECOMP.clone()
@@ -2373,8 +2358,7 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
-                .unwrap()
+            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns).unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             RpcBlock::new(Some(block_root), block, blobs).unwrap()
@@ -2401,7 +2385,7 @@ where
                     .filter(|d| sampling_columns.contains(&d.index))
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+                RpcBlock::new_with_custody_columns(Some(block_root), block, columns)?
             } else {
                 RpcBlock::new_without_blobs(Some(block_root), block)
             }
@@ -3325,7 +3309,7 @@ fn generate_data_column_sidecars_from_block<E: EthSpec>(
     // load the precomputed column sidecar to avoid computing them for every block in the tests.
     let template_data_columns = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
         TEST_DATA_COLUMN_SIDECARS_SSZ,
-        spec.number_of_columns as usize,
+        E::number_of_columns(),
     )
     .unwrap();
 

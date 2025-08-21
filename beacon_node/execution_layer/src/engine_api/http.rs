@@ -845,7 +845,6 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
     pub async fn new_payload_v4_fulu<E: EthSpec>(
         &self,
         new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
@@ -1285,7 +1284,6 @@ impl HttpJsonRpc {
                 }
             }
             NewPayloadRequest::Fulu(new_payload_request_fulu) => {
-                // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
                 if engine_capabilities.new_payload_v4 {
                     self.new_payload_v4_fulu(new_payload_request_fulu).await
                 } else {
