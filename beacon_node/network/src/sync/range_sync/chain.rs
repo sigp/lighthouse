@@ -9,10 +9,11 @@ use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::service::api_types::Id;
 use lighthouse_network::{PeerAction, PeerId};
+use lighthouse_tracing::SPAN_SYNCING_CHAIN;
 use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use strum::IntoStaticStr;
-use tracing::{debug, warn};
+use tracing::{Span, debug, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
@@ -111,6 +112,9 @@ pub struct SyncingChain<T: BeaconChainTypes> {
 
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
+
+    /// The span to track the lifecycle of the syncing chain.
+    span: Span,
 }
 
 #[derive(PartialEq, Debug)]
@@ -123,6 +127,13 @@ pub enum ChainSyncingState {
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
     #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = SPAN_SYNCING_CHAIN,
+        parent = None,
+        level="debug",
+        skip(id),
+        fields(chain_id = %id)
+    )]
     pub fn new(
         id: Id,
         start_epoch: Epoch,
@@ -131,6 +142,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         peer_id: PeerId,
         chain_type: SyncingChainType,
     ) -> Self {
+        let span = Span::current();
         SyncingChain {
             id,
             chain_type,
@@ -145,6 +157,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             attempted_optimistic_starts: HashSet::default(),
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
+            span,
         }
     }
 
@@ -186,6 +199,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Removes a peer from the chain.
     /// If the peer has active batches, those are considered failed and re-requested.
     pub fn remove_peer(&mut self, peer_id: &PeerId) -> ProcessingResult {
+        let _guard = self.span.clone().entered();
+        debug!(peer = %peer_id, "Removing peer from chain");
         self.peers.remove(peer_id);
 
         if self.peers.is_empty() {
@@ -213,6 +228,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> ProcessingResult {
+        let _guard = self.span.clone().entered();
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
             None => {
@@ -242,7 +258,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
             / EPOCHS_PER_BATCH;
-        debug!(epoch = %batch_id, blocks = received, batch_state = self.visualize_batch_state(), %awaiting_batches,"Batch downloaded");
+        debug!(
+            epoch = %batch_id,
+            blocks = received,
+            batch_state = self.visualize_batch_state(),
+            %awaiting_batches,
+            %peer_id,
+            "Batch downloaded"
+        );
 
         // pre-emptively request more blocks from peers whilst we process current blocks,
         self.request_batches(network)?;
@@ -415,6 +438,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         result: &BatchProcessResult,
     ) -> ProcessingResult {
+        let _guard = self.span.clone().entered();
         // the first two cases are possible if the chain advances while waiting for a processing
         // result
         let batch_state = self.visualize_batch_state();
@@ -754,6 +778,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     pub fn stop_syncing(&mut self) {
+        debug!(parent: &self.span, "Stopping syncing");
         self.state = ChainSyncingState::Stopped;
     }
 
@@ -767,6 +792,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         local_finalized_epoch: Epoch,
         optimistic_start_epoch: Epoch,
     ) -> ProcessingResult {
+        let _guard = self.span.clone().entered();
+        debug!(
+            ?local_finalized_epoch,
+            ?optimistic_start_epoch,
+            "Start syncing chain"
+        );
         // to avoid dropping local progress, we advance the chain wrt its batch boundaries. This
         let align = |epoch| {
             // start_epoch + (number of batches in between)*length_of_batch
@@ -804,6 +835,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         peer_id: PeerId,
     ) -> ProcessingResult {
+        let _guard = self.span.clone().entered();
+        debug!(peer_id = %peer_id, "Adding peer to chain");
         self.peers.insert(peer_id);
         self.request_batches(network)
     }
@@ -819,6 +852,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         request_id: Id,
         err: RpcResponseError,
     ) -> ProcessingResult {
+        let _guard = self.span.clone().entered();
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             if let RpcResponseError::BlockComponentCouplingError(coupling_error) = &err {
@@ -911,6 +945,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
+        let _guard = self.span.clone().entered();
+        debug!(batch_epoch = %batch_id, "Requesting batch");
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
@@ -981,7 +1017,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 
     /// Retries partial column requests within the batch by creating new requests for the failed columns.
-    pub fn retry_partial_batch(
+    fn retry_partial_batch(
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
@@ -989,6 +1025,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         failed_columns: HashSet<ColumnIndex>,
         mut failed_peers: HashSet<PeerId>,
     ) -> ProcessingResult {
+        let _guard = self.span.clone().entered();
+        debug!(%batch_id, %id, ?failed_columns, "Retrying partial batch");
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             failed_peers.extend(&batch.failed_peers());
             let req = batch.to_blocks_by_range_request().0;
@@ -1037,6 +1075,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<KeepChain, RemoveChain> {
+        let _guard = self.span.clone().entered();
+        debug!("Resuming chain");
         // Request more batches if needed.
         self.request_batches(network)?;
         // If there is any batch ready for processing, send it.

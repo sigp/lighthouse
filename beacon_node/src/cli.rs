@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
-use clap_utils::{get_color_style, FLAG_HEADER};
+use clap::{Arg, ArgAction, ArgGroup, Command, builder::ArgPredicate, crate_version};
+use clap_utils::{FLAG_HEADER, get_color_style};
 use strum::VariantNames;
 
 #[allow(clippy::large_stack_frames)]

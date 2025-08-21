@@ -11,6 +11,7 @@ members = [
     "beacon_node/http_api",
     "beacon_node/http_metrics",
     "beacon_node/lighthouse_network",
+    "beacon_node/lighthouse_tracing",
     "beacon_node/network",
     "beacon_node/operation_pool",
     "beacon_node/store",
@@ -136,7 +137,6 @@ dirs = "3"
 discv5 = { version = "0.9", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 either = "1.9"
-env_logger = "0.9"
 environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }
 eth2_config = { path = "common/eth2_config" }
@@ -174,6 +174,7 @@ itertools = "0.10"
 kzg = { path = "crypto/kzg" }
 libsecp256k1 = "0.7"
 lighthouse_network = { path = "beacon_node/lighthouse_network" }
+lighthouse_tracing = { path = "beacon_node/lighthouse_tracing" }
 lighthouse_validator_store = { path = "validator_client/lighthouse_validator_store" }
 lighthouse_version = { path = "common/lighthouse_version" }
 lockfile = { path = "common/lockfile" }
@@ -221,7 +222,7 @@ reqwest = { version = "0.11", default-features = false, features = [
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
-rust_eth_kzg = "0.5.4"
+rust_eth_kzg = "0.8.0"
 safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
 serde = { version = "1", features = ["derive"] }

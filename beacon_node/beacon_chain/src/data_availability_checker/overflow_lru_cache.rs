@@ -9,6 +9,7 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::cmp::Ordering;
@@ -288,7 +289,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns an empty `PendingComponents` object with the given block root.
     pub fn empty(block_root: Hash256, max_len: usize) -> Self {
-        let span = debug_span!(parent: None, "pending_components", %block_root);
+        let span = debug_span!(parent: None, SPAN_PENDING_COMPONENTS, %block_root);
         let _guard = span.clone().entered();
         Self {
             block_root,
@@ -591,7 +592,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         };
 
         // If we're sampling all columns, it means we must be custodying all columns.
-        let total_column_count = self.spec.number_of_columns as usize;
+        let total_column_count = T::EthSpec::number_of_columns();
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {

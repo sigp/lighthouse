@@ -4,12 +4,12 @@ use crate::{DBColumn, Error, StoreItem};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use strum::{Display, EnumString, EnumVariantNames};
 use types::EthSpec;
 use types::non_zero_usize::new_non_zero_usize;
-use zstd::Encoder;
+use zstd::{Decoder, Encoder};
 
 #[cfg(all(feature = "redb", not(feature = "leveldb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;
@@ -194,14 +194,22 @@ impl StoreConfig {
         }
     }
 
-    pub fn compress_bytes(&self, ssz_bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    /// Compress bytes using zstd and the compression level from `self`.
+    pub fn compress_bytes(&self, ssz_bytes: &[u8]) -> Result<Vec<u8>, std::io::Error> {
         let mut compressed_value =
             Vec::with_capacity(self.estimate_compressed_size(ssz_bytes.len()));
-        let mut encoder = Encoder::new(&mut compressed_value, self.compression_level)
-            .map_err(Error::Compression)?;
-        encoder.write_all(ssz_bytes).map_err(Error::Compression)?;
-        encoder.finish().map_err(Error::Compression)?;
+        let mut encoder = Encoder::new(&mut compressed_value, self.compression_level)?;
+        encoder.write_all(ssz_bytes)?;
+        encoder.finish()?;
         Ok(compressed_value)
+    }
+
+    /// Decompress bytes compressed using zstd.
+    pub fn decompress_bytes(&self, input: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+        let mut out = Vec::with_capacity(self.estimate_decompressed_size(input.len()));
+        let mut decoder = Decoder::new(input)?;
+        decoder.read_to_end(&mut out)?;
+        Ok(out)
     }
 }
 
