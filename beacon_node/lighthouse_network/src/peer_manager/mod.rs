@@ -1190,9 +1190,11 @@ impl<E: EthSpec> PeerManager<E> {
                     // and the subnet still contains peers
                     if !peers_on_subnet.is_empty() {
                         // Order the peers by the number of subnets they are long-lived
-                        // subscribed too, shuffle equal peers.
+                        // subscribed too, shuffle equal peers. Prioritize unsynced peers for pruning.
                         peers_on_subnet.shuffle(&mut rand::rng());
-                        peers_on_subnet.sort_by_key(|(_, info)| info.long_lived_attnet_count());
+                        peers_on_subnet.sort_by_key(|(_, info)| {
+                            (info.long_lived_attnet_count(), info.is_synced_or_advanced())
+                        });
 
                         // Try and find a candidate peer to remove from the subnet.
                         // We ignore peers that would put us below our target outbound peers
@@ -2376,6 +2378,83 @@ mod tests {
         assert_eq!(subnet_1_peers_remaining, 3,);
     }
 
+    /// Test that custody subnet peers below threshold are protected from pruning.
+    /// Creates 3 peers: 2 on sampling subnet (below MIN_SAMPLING_COLUMN_SUBNET_PEERS=3),
+    /// 1 with no subnet. Should prune the peer with no subnet and keep the custody subnet peers.
+    #[tokio::test]
+    async fn test_peer_manager_protect_custody_subnet_peers_below_threshold() {
+        let target = 2;
+        let mut peer_manager = build_peer_manager(target).await;
+
+        // Set up sampling subnets
+        let mut sampling_subnets = HashSet::new();
+        sampling_subnets.insert(0.into());
+        *peer_manager.network_globals.sampling_subnets.write() = sampling_subnets;
+
+        let mut peers = Vec::new();
+
+        // Create 3 peers
+        for i in 0..3 {
+            let peer_id = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer_id, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            let custody_subnets = if i < 2 {
+                // First 2 peers on sampling subnet 0
+                [0.into()].into_iter().collect()
+            } else {
+                // Last peer has no custody subnets
+                HashSet::new()
+            };
+
+            // Set custody subnets for the peer
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer_id)
+                .unwrap()
+                .set_custody_subnets(custody_subnets.clone());
+
+            // Add subscriptions for custody subnets
+            for subnet_id in custody_subnets {
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .add_subscription(&peer_id, Subnet::DataColumn(subnet_id));
+            }
+
+            peers.push(peer_id);
+        }
+
+        // Verify initial setup
+        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
+
+        // Perform the heartbeat to trigger pruning
+        peer_manager.heartbeat();
+
+        // Should prune down to target of 2 peers
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            target
+        );
+
+        let connected_peers: std::collections::HashSet<_> = peer_manager
+            .network_globals
+            .peers
+            .read()
+            .connected_or_dialing_peers()
+            .cloned()
+            .collect();
+
+        // The 2 custody subnet peers should be protected
+        assert!(connected_peers.contains(&peers[0]));
+        assert!(connected_peers.contains(&peers[1]));
+
+        // The peer with no custody subnets should be pruned
+        assert!(!connected_peers.contains(&peers[2]));
+    }
+
     /// Test the pruning logic to prioritise peers with the most subnets, but not at the expense of
     /// removing our few sync-committee subnets.
     ///
@@ -2488,7 +2567,7 @@ mod tests {
     /// This test is for reproducing the issue:
     /// https://github.com/sigp/lighthouse/pull/3236#issue-1256432659
     ///
-    /// Whether the issue happens depends on `subnet_to_peer` (HashMap), since HashMap doesn't
+    /// Whether the issue happens depends on `att_subnet_to_peer` (HashMap), since HashMap doesn't
     /// guarantee a particular order of iteration. So we repeat the test case to try to reproduce
     /// the issue.
     #[tokio::test]
