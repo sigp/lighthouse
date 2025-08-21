@@ -717,6 +717,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             previous_start = %old_start,
             new_start = %self.start_epoch,
             processing_target = %self.processing_target,
+            id=%self.id,
             "Chain advanced"
         );
     }
