@@ -3,7 +3,9 @@ use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::block_sidecar_coupling::CouplingError;
+use crate::sync::manager::FaultyComponent;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
+use crate::sync::range_sync::batch::ResponsiblePeers;
 use crate::sync::{BatchOperationOutcome, BatchProcessResult, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -209,9 +211,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
-        peer_id: &PeerId,
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
+        responsible_peers: ResponsiblePeers,
     ) -> ProcessingResult {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {
@@ -238,7 +240,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // Remove the request from the peer's active batches
 
         // TODO(das): should use peer group here https://github.com/sigp/lighthouse/issues/6258
-        let received = batch.download_completed(blocks, *peer_id)?;
+        let received = batch.download_completed(blocks, responsible_peers)?;
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
             / EPOCHS_PER_BATCH;
@@ -328,7 +330,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
                 BatchState::AwaitingDownload => return Ok(KeepChain),
-                BatchState::Processing(_) | BatchState::Failed => {
+                BatchState::Processing(_, _) | BatchState::Failed => {
                     // these are all inconsistent states:
                     // - Processing -> `self.current_processing_batch` is None
                     // - Failed -> non recoverable batch. For an optimistic batch, it should
@@ -340,7 +342,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         state
                     )));
                 }
-                BatchState::AwaitingValidation(_) => {
+                BatchState::AwaitingValidation(_, _) => {
                     // If an optimistic start is given to the chain after the corresponding
                     // batch has been requested and processed we can land here. We drop the
                     // optimistic candidate since we can't conclude whether the batch included
@@ -363,7 +365,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
                 BatchState::AwaitingDownload => return Ok(KeepChain),
-                BatchState::Failed | BatchState::Processing(_) => {
+                BatchState::Failed | BatchState::Processing(_, _) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -374,7 +376,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         state
                     )));
                 }
-                BatchState::AwaitingValidation(_) => {
+                BatchState::AwaitingValidation(_, _) => {
                     // we can land here if an empty optimistic batch succeeds processing and is
                     // inside the download buffer (between `self.processing_target` and
                     // `self.to_be_downloaded`). In this case, eventually the chain advances to the
@@ -441,7 +443,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        let peer = batch.processing_peer().cloned().ok_or_else(|| {
+        let peers = batch.processing_peers().cloned().ok_or_else(|| {
             RemoveChain::WrongBatchState(format!(
                 "Processing target is in wrong state: {:?}",
                 batch.state(),
@@ -452,7 +454,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         debug!(
             result = ?result,
             batch_epoch = %batch_id,
-            client = %network.client_type(&peer),
+            ?peers,
             batch_state = ?batch_state,
             ?batch,
             "Batch processing result"
@@ -516,9 +518,29 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             BatchProcessResult::FaultyFailure {
                 imported_blocks,
                 penalty,
+                faulty_component,
             } => {
+                let Some(responsible_peers) = batch.responsible_peers() else {
+                    crit!("Shouldn't happen");
+                    return Ok(KeepChain);
+                };
                 // Penalize the peer appropriately.
-                network.report_peer(peer, *penalty, "faulty_batch");
+                match faulty_component {
+                    Some(FaultyComponent::Blocks) | Some(FaultyComponent::Blobs) => {
+                        network.report_peer(responsible_peers.block_blob, *penalty, "faulty_batch");
+                    }
+                    // todo(pawan): clean this up
+                    Some(FaultyComponent::Columns(faulty_columns)) => {
+                        for (peer, columns) in responsible_peers.data_columns.iter() {
+                            for faulty_column in faulty_columns {
+                                if columns.contains(faulty_column) {
+                                    network.report_peer(*peer, *penalty, "faulty_batch");
+                                }
+                            }
+                        }
+                    }
+                    None => {}
+                }
 
                 // Check if this batch is allowed to continue
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure)? {
@@ -621,11 +643,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::AwaitingValidation(processed_attempt) => {
+                BatchState::AwaitingValidation(processed_attempt, responsible_peers) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
-                            // The re-downloaded version was different
+                            // The re-downloaded version had a different block peer
                             if processed_attempt.peer_id != attempt.peer_id {
                                 // A different peer sent the correct batch, the previous peer did not
                                 // We negatively score the original peer.
@@ -665,7 +687,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     crit!("batch indicates inconsistent chain state while advancing chain")
                 }
                 BatchState::AwaitingProcessing(..) => {}
-                BatchState::Processing(_) => {
+                BatchState::Processing(_, _) => {
                     debug!(batch = %id, %batch, "Advancing chain while processing a batch");
                     if let Some(processing_id) = self.current_processing_batch
                         && id <= processing_id
@@ -812,9 +834,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
-        peer_id: &PeerId,
         request_id: Id,
         err: RpcResponseError,
+        responsible_peers: ResponsiblePeers,
     ) -> ProcessingResult {
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
@@ -865,7 +887,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 debug!(
                     batch_epoch = %batch_id,
                     batch_state = ?batch.state(),
-                    %peer_id,
+                    ?responsible_peers,
                     %request_id,
                     ?batch_state,
                     "Batch not expecting block"
@@ -876,12 +898,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 batch_epoch = %batch_id,
                 batch_state = ?batch.state(),
                 error = ?err,
-                %peer_id,
+                ?responsible_peers,
                 %request_id,
                 "Batch download error"
             );
             if let BatchOperationOutcome::Failed { blacklist } =
-                batch.download_failed(Some(*peer_id))?
+                batch.download_failed(Some(responsible_peers.block_blob))?
             {
                 return Err(RemoveChain::ChainFailed {
                     blacklist,
@@ -892,7 +914,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         } else {
             debug!(
                 batch_epoch = %batch_id,
-                %peer_id,
+                ?responsible_peers,
                 %request_id,
                 batch_state,
                 "Batch not found"

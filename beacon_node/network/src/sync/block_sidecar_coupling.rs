@@ -1,3 +1,5 @@
+use crate::sync::network_context::MAX_COLUMN_RETRIES;
+use crate::sync::range_sync::ResponsiblePeers;
 use beacon_chain::{
     block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
 };
@@ -14,8 +16,6 @@ use types::{
     Hash256, RuntimeVariableList, SignedBeaconBlock,
 };
 
-use crate::sync::network_context::MAX_COLUMN_RETRIES;
-
 /// Accumulates and couples beacon blocks with their associated data (blobs or data columns)
 /// from range sync network responses.
 ///
@@ -30,6 +30,7 @@ use crate::sync::network_context::MAX_COLUMN_RETRIES;
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
+    block_peer: PeerId,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
 }
@@ -95,6 +96,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         )>,
         data_columns_from_root: bool,
     ) -> Self {
+        let block_peer = blocks_req_id.peer_id;
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
         } else if let Some((requests, expected_custody_columns)) = data_columns {
@@ -122,7 +124,25 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
         Self {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
+            block_peer,
             block_data_request,
+        }
+    }
+
+    pub fn responsible_peers(&self) -> ResponsiblePeers {
+        ResponsiblePeers {
+            block_blob: self.block_peer,
+            data_columns: match &self.block_data_request {
+                RangeBlockDataRequest::NoData | RangeBlockDataRequest::Blobs(_) => HashMap::new(),
+                RangeBlockDataRequest::DataColumns { column_peers, .. } => column_peers
+                    .iter()
+                    .map(|(k, v)| (k.peer, v.clone()))
+                    .collect(),
+                RangeBlockDataRequest::DataColumnsFromRoot { column_peers, .. } => column_peers
+                    .iter()
+                    .map(|(k, v)| (k.peer, v.clone()))
+                    .collect(),
+            },
         }
     }
 

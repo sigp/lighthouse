@@ -70,7 +70,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, ColumnIndex, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock,
+    Slot,
 };
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -205,8 +206,17 @@ pub enum BatchProcessResult {
     FaultyFailure {
         imported_blocks: usize,
         penalty: PeerAction,
+        faulty_component: Option<FaultyComponent>,
     },
     NonFaultyFailure,
+}
+
+/// Identifies the specific component that was faulty if the batch was a faulty failure.
+#[derive(Debug)]
+pub enum FaultyComponent {
+    Blocks,
+    Blobs,
+    Columns(Vec<ColumnIndex>),
 }
 
 /// The primary object for handling and driving all the current syncing logic. It maintains the
@@ -1218,7 +1228,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
-        if let Some(resp) = self
+        if let Some((resp, responsible_peers)) = self
             .network
             .range_block_component_response(range_request_id, range_block_component)
         {
@@ -1228,7 +1238,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         RangeRequestId::RangeSync { chain_id, batch_id } => {
                             self.range_sync.blocks_by_range_response(
                                 &mut self.network,
-                                peer_id,
+                                responsible_peers,
                                 chain_id,
                                 batch_id,
                                 range_request_id.id,
@@ -1240,9 +1250,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             match self.backfill_sync.on_block_response(
                                 &mut self.network,
                                 batch_id,
-                                &peer_id,
                                 range_request_id.id,
                                 blocks,
+                                responsible_peers,
                             ) {
                                 Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                                 Ok(ProcessResult::Successful) => {}
@@ -1259,7 +1269,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     RangeRequestId::RangeSync { chain_id, batch_id } => {
                         self.range_sync.inject_error(
                             &mut self.network,
-                            peer_id,
+                            responsible_peers,
                             batch_id,
                             chain_id,
                             range_request_id.id,

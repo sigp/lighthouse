@@ -10,12 +10,13 @@
 
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::block_sidecar_coupling::CouplingError;
-use crate::sync::manager::BatchProcessResult;
+use crate::sync::manager::{BatchProcessResult, FaultyComponent};
 use crate::sync::network_context::{
     RangeRequestId, RpcRequestSendError, RpcResponseError, SyncNetworkContext,
 };
 use crate::sync::range_sync::{
     BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+    ResponsiblePeers,
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -380,9 +381,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
-        peer_id: &PeerId,
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
+        responsible_peers: ResponsiblePeers,
     ) -> Result<ProcessResult, BackFillError> {
         // check if we have this batch
         let Some(batch) = self.batches.get_mut(&batch_id) else {
@@ -401,7 +402,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return Ok(ProcessResult::Successful);
         }
 
-        match batch.download_completed(blocks, *peer_id) {
+        match batch.download_completed(blocks, responsible_peers) {
             Ok(received) => {
                 let awaiting_batches =
                     self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
@@ -557,7 +558,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         };
 
-        let Some(peer) = batch.processing_peer() else {
+        let Some(responsible_peers) = batch.processing_peers() else {
             self.fail_sync(BackFillError::BatchInvalidState(
                 batch_id,
                 String::from("Peer does not exist"),
@@ -569,8 +570,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             ?result,
             %batch,
             batch_epoch = %batch_id,
-            %peer,
-            client = %network.client_type(peer),
+            ?responsible_peers,
+            // client = %network.client_type(peer),
             "Backfill batch processed"
         );
 
@@ -613,7 +614,31 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             BatchProcessResult::FaultyFailure {
                 imported_blocks,
                 penalty,
+                faulty_component,
             } => {
+                let Some(responsible_peers) = batch.responsible_peers() else {
+                    crit!("Shouldn't happen");
+                    return self
+                        .fail_sync(BackFillError::BatchProcessingFailed(batch_id))
+                        .map(|_| ProcessResult::Successful);
+                };
+                // Penalize the peer appropriately.
+                match faulty_component {
+                    Some(FaultyComponent::Blocks) | Some(FaultyComponent::Blobs) => {
+                        network.report_peer(responsible_peers.block_blob, *penalty, "faulty_batch");
+                    }
+                    // todo(pawan): clean this up
+                    Some(FaultyComponent::Columns(faulty_columns)) => {
+                        for (peer, columns) in responsible_peers.data_columns.iter() {
+                            for faulty_column in faulty_columns {
+                                if columns.contains(faulty_column) {
+                                    network.report_peer(*peer, *penalty, "faulty_batch");
+                                }
+                            }
+                        }
+                    }
+                    None => {}
+                }
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure) {
                     Err(e) => {
                         // Batch was in the wrong state
@@ -687,7 +712,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // Batch is not ready, nothing to process
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
+                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(..) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -698,7 +723,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     )))?;
                     return Ok(ProcessResult::Successful);
                 }
-                BatchState::AwaitingValidation(_) => {
+                BatchState::AwaitingValidation(_, _) => {
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
                     crit!(
@@ -748,7 +773,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::AwaitingValidation(processed_attempt) => {
+                BatchState::AwaitingValidation(processed_attempt, _) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
@@ -794,7 +819,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     crit!("batch indicates inconsistent chain state while advancing chain")
                 }
                 BatchState::AwaitingProcessing(..) => {}
-                BatchState::Processing(_) => {
+                BatchState::Processing(..) => {
                     debug!(batch = %id, %batch, "Advancing chain while processing a batch");
                     if let Some(processing_id) = self.current_processing_batch
                         && id >= processing_id

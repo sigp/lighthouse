@@ -18,6 +18,7 @@ use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::requests::{
     BlobsByRootSingleBlockRequest, DataColumnsByRootRangeRequestItems,
 };
+use crate::sync::range_sync::ResponsiblePeers;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
@@ -848,7 +849,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         id: ComponentsByRangeRequestId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
-    ) -> Option<Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>> {
+    ) -> Option<(
+        Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>,
+        ResponsiblePeers,
+    )> {
         let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);
             return None;
@@ -895,12 +899,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             }
         } {
+            let responsible_peers = entry.get().responsible_peers();
             entry.remove();
-            return Some(Err(e));
+            return Some((Err(e), responsible_peers));
         }
 
         let range_req = entry.get_mut();
         if let Some(blocks_result) = range_req.responses(&self.chain.spec) {
+            let responsible_peers = range_req.responsible_peers();
             if let Err(CouplingError::DataColumnPeerFailure {
                 action: _,
                 error,
@@ -923,7 +929,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 entry.remove();
             }
             // If the request is finished, dequeue everything
-            Some(blocks_result.map_err(RpcResponseError::BlockComponentCouplingError))
+            Some((
+                blocks_result.map_err(RpcResponseError::BlockComponentCouplingError),
+                responsible_peers,
+            ))
         } else {
             None
         }
@@ -1256,6 +1265,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let id = BlocksByRangeRequestId {
             id: self.next_id(),
             parent_request_id,
+            peer_id,
         };
         self.network_send
             .send(NetworkMessage::SendRequest {

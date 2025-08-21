@@ -1,15 +1,14 @@
 use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
+use crate::sync::manager::FaultyComponent;
 use crate::sync::{
     ChainId,
     manager::{BlockProcessType, SyncMessage},
 };
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
-use beacon_chain::data_availability_checker::{
-    AvailabilityCheckError, AvailabilityCheckErrorCategory,
-};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     ExecutionPayloadError, HistoricalBlockError, NotifyExecutionLayer,
@@ -44,6 +43,8 @@ struct ChainSegmentFailed {
     message: String,
     /// Used to penalize peers.
     peer_action: Option<PeerAction>,
+    /// Used to identify the faulty component
+    faulty_component: Option<FaultyComponent>,
 }
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
@@ -471,6 +472,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             Some(penalty) => BatchProcessResult::FaultyFailure {
                                 imported_blocks,
                                 penalty,
+                                faulty_component: e.faulty_component,
                             },
                             None => BatchProcessResult::NonFaultyFailure,
                         }
@@ -523,6 +525,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             Some(penalty) => BatchProcessResult::FaultyFailure {
                                 imported_blocks: 0,
                                 penalty,
+                                faulty_component: e.faulty_component,
                             },
                             None => BatchProcessResult::NonFaultyFailure,
                         }
@@ -595,15 +598,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         Err(ChainSegmentFailed {
                             peer_action: None,
                             message: "Failed to check block availability".into(),
+                            faulty_component: None,
                         }),
                     );
                 }
+
                 e => {
                     return (
                         0,
                         Err(ChainSegmentFailed {
                             peer_action: Some(PeerAction::LowToleranceError),
                             message: format!("Failed to check block availability : {:?}", e),
+                            faulty_component: None, // Todo(pawan): replicate behaviour in forward sync once its proven
                         }),
                     );
                 }
@@ -620,6 +626,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         (total_blocks - available_blocks.len()),
                         total_blocks
                     ),
+                    faulty_component: Some(FaultyComponent::Blocks),
                 }),
             );
         }
@@ -635,7 +642,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL,
                 );
-                let peer_action = match &e {
+                let (peer_action, faulty_component) = match &e {
                     HistoricalBlockError::MismatchedBlockRoot {
                         block_root,
                         expected_block_root,
@@ -647,7 +654,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Backfill batch processing error"
                         );
                         // The peer is faulty if they send blocks with bad roots.
-                        Some(PeerAction::LowToleranceError)
+                        (
+                            Some(PeerAction::LowToleranceError),
+                            Some(FaultyComponent::Blocks),
+                        )
                     }
                     HistoricalBlockError::InvalidSignature
                     | HistoricalBlockError::SignatureSet(_) => {
@@ -656,7 +666,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Backfill batch processing error"
                         );
                         // The peer is faulty if they bad signatures.
-                        Some(PeerAction::LowToleranceError)
+                        (
+                            Some(PeerAction::LowToleranceError),
+                            Some(FaultyComponent::Blocks),
+                        )
                     }
                     HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
                         warn!(
@@ -664,7 +677,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Backfill batch processing error"
                         );
                         // This is an internal error, do not penalize the peer.
-                        None
+                        (None, None)
                     }
                     HistoricalBlockError::IndexOutOfBounds => {
                         error!(
@@ -672,12 +685,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Backfill batch OOB error"
                         );
                         // This should never occur, don't penalize the peer.
-                        None
+                        (None, None)
                     }
                     HistoricalBlockError::StoreError(e) => {
                         warn!(error = ?e, "Backfill batch processing error");
                         // This is an internal error, don't penalize the peer.
-                        None
+                        (None, None)
                     } //
                       // Do not use a fallback match, handle all errors explicitly
                 };
@@ -688,6 +701,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         message: format!("{:?}", err_str),
                         // This is an internal error, don't penalize the peer.
                         peer_action,
+                        faulty_component,
                     }),
                 )
             }
@@ -702,7 +716,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(ChainSegmentFailed {
                     message: format!("Block has an unknown parent: {}", parent_root),
                     // Peers are faulty if they send non-sequential blocks.
-                    peer_action: Some(PeerAction::LowToleranceError),
+                    peer_action: Some(PeerAction::LowToleranceError), // todo(pawan): revise this
+                    faulty_component: Some(FaultyComponent::Blocks),
                 })
             }
             BlockError::DuplicateFullyImported(_)
@@ -741,6 +756,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     ),
                     // Peers are faulty if they send blocks from the future.
                     peer_action: Some(PeerAction::LowToleranceError),
+                    faulty_component: Some(FaultyComponent::Blocks),
                 })
             }
             BlockError::WouldRevertFinalizedSlot { .. } => {
@@ -757,6 +773,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         block_parent_root
                     ),
                     peer_action: Some(PeerAction::Fatal),
+                    faulty_component: Some(FaultyComponent::Blocks),
                 })
             }
             BlockError::GenesisBlock => {
@@ -774,6 +791,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     message: format!("Internal error whilst processing block: {:?}", e),
                     // Do not penalize peers for internal errors.
                     peer_action: None,
+                    faulty_component: None,
                 })
             }
             ref err @ BlockError::ExecutionPayloadError(ref epe) => {
@@ -788,6 +806,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             err
                         ),
                         peer_action: Some(PeerAction::LowToleranceError),
+                        faulty_component: Some(FaultyComponent::Blocks), // todo(pawan): recheck this
                     })
                 } else if !epe.penalize_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
@@ -801,6 +820,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         message: format!("Execution layer offline. Reason: {:?}", err),
                         // Do not penalize peers for internal errors.
                         peer_action: None,
+                        faulty_component: None,
                     })
                 } else {
                     debug!(
@@ -813,6 +833,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             err
                         ),
                         peer_action: Some(PeerAction::LowToleranceError),
+                        faulty_component: Some(FaultyComponent::Blocks),
                     })
                 }
             }
@@ -828,6 +849,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // of a faulty EL it will usually require manual intervention to fix anyway, so
                     // it's not too bad if we drop most of our peers.
                     peer_action: Some(PeerAction::LowToleranceError),
+                    faulty_component: Some(FaultyComponent::Blocks),
                 })
             }
             // Penalise peers for sending us banned blocks.
@@ -836,27 +858,40 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(ChainSegmentFailed {
                     message: format!("Banned block: {block_root:?}"),
                     peer_action: Some(PeerAction::Fatal),
+                    faulty_component: Some(FaultyComponent::Blocks),
                 })
             }
-            BlockError::AvailabilityCheck(err) => {
-                if matches!(err.category(), AvailabilityCheckErrorCategory::Malicious) {
-                    debug!(
-                        msg = "peer sent invalid block",
-                        outcome = ?err,
-                        "Invalid block received"
-                    );
-
-                    Err(ChainSegmentFailed {
+            ref err @ BlockError::AvailabilityCheck(ref e) => {
+                match &e {
+                    AvailabilityCheckError::InvalidBlobs(_)
+                    | AvailabilityCheckError::BlobIndexInvalid(_) => Err(ChainSegmentFailed {
+                        message: format!("Peer sent invalid block. Reason: {:?}", err),
+                        // Do not penalize peers for internal errors.
+                        peer_action: Some(PeerAction::LowToleranceError),
+                        faulty_component: Some(FaultyComponent::Blobs),
+                    }),
+                    AvailabilityCheckError::InvalidColumn(columns) => Err(ChainSegmentFailed {
                         message: format!("Peer sent invalid block. Reason: {:?}", err),
                         // Do not penalize peers for internal errors.
                         peer_action: Some(PeerAction::MidToleranceError),
-                    })
-                } else {
-                    Err(ChainSegmentFailed {
+                        faulty_component: Some(FaultyComponent::Columns(
+                            columns.iter().map(|v| v.0).collect(),
+                        )),
+                    }),
+                    AvailabilityCheckError::DataColumnIndexInvalid(column) => {
+                        Err(ChainSegmentFailed {
+                            message: format!("Peer sent invalid block. Reason: {:?}", err),
+                            // Do not penalize peers for internal errors.
+                            peer_action: Some(PeerAction::MidToleranceError),
+                            faulty_component: Some(FaultyComponent::Columns(vec![*column])),
+                        })
+                    }
+                    _ => Err(ChainSegmentFailed {
                         message: format!("Peer sent invalid block. Reason: {:?}", err),
                         // Do not penalize peers for internal errors.
-                        peer_action: None,
-                    })
+                        peer_action: Some(PeerAction::MidToleranceError),
+                        faulty_component: None,
+                    }),
                 }
             }
             other => {
@@ -870,6 +905,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     message: format!("Peer sent invalid block. Reason: {:?}", other),
                     // Do not penalize peers for internal errors.
                     peer_action: None,
+                    faulty_component: None,
                 })
             }
         }

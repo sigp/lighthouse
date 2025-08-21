@@ -47,6 +47,8 @@ pub struct BlocksByRangeRequestId {
     pub id: Id,
     /// The Id of the overall By Range request for block components.
     pub parent_request_id: ComponentsByRangeRequestId,
+    /// The peer that we made this request to
+    pub peer_id: PeerId,
 }
 
 impl BlocksByRangeRequestId {
