@@ -263,13 +263,13 @@ impl<E: EthSpec> PeerInfo<E> {
             return true;
         }
 
-        // Check if the peer has custody subnets populated and the peer is subscribed to all of
+        // Check if the peer has custody subnets populated and the peer is subscribed to any of
         // its custody subnets
-        let subscribed_to_all_custody_subnets = self
+        let subscribed_to_any_custody_subnets = self
             .custody_subnets
             .iter()
-            .all(|subnet_id| self.subnets.contains(&Subnet::DataColumn(*subnet_id)));
-        if subscribed_to_all_custody_subnets && !self.custody_subnets.is_empty() {
+            .any(|subnet_id| self.subnets.contains(&Subnet::DataColumn(*subnet_id)));
+        if subscribed_to_any_custody_subnets {
             return true;
         }
 
@@ -694,27 +694,7 @@ mod tests {
     }
 
     #[test]
-    fn test_has_long_lived_subnet_all_custody_subnets_subscribed() {
-        let mut peer_info = create_test_peer_info();
-        peer_info.custody_subnets.insert(DataColumnSubnetId::new(1));
-        peer_info.custody_subnets.insert(DataColumnSubnetId::new(2));
-
-        peer_info
-            .subnets
-            .insert(Subnet::DataColumn(DataColumnSubnetId::new(1)));
-        peer_info
-            .subnets
-            .insert(Subnet::DataColumn(DataColumnSubnetId::new(2)));
-        peer_info
-            .subnets
-            .insert(Subnet::DataColumn(DataColumnSubnetId::new(3))); // Extra subnet
-
-        // Peer is subscribed to all custody subnets - return true
-        assert!(peer_info.has_long_lived_subnet());
-    }
-
-    #[test]
-    fn test_has_long_lived_subnet_partial_custody_subnets_subscribed() {
+    fn test_has_long_lived_subnet_subscribed_to_custody_subnets() {
         let mut peer_info = create_test_peer_info();
         peer_info.custody_subnets.insert(DataColumnSubnetId::new(1));
         peer_info.custody_subnets.insert(DataColumnSubnetId::new(2));
@@ -726,8 +706,8 @@ mod tests {
         peer_info
             .subnets
             .insert(Subnet::DataColumn(DataColumnSubnetId::new(2)));
-        // Missing DataColumnSubnetId::new(3) - not all custody subnets subscribed
-        // Peer is not subscribed to all custody subnets - return false
-        assert!(!peer_info.has_long_lived_subnet());
+        // Missing DataColumnSubnetId::new(3) - but peer is subscribed to some custody subnets
+        // Peer is subscribed to any custody subnets - return true
+        assert!(peer_info.has_long_lived_subnet());
     }
 }
