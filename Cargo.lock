@@ -5226,7 +5226,7 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.50.0"
-source = "git+https://github.com/sigp/rust-libp2p.git?branch=sigp-gossipsub#5acdf89a65d64098f9346efa5769e57bcd19dea9"
+source = "git+https://github.com/sigp/rust-libp2p.git?rev=5acdf89a65d64098f9346efa5769e57bcd19dea9#5acdf89a65d64098f9346efa5769e57bcd19dea9"
 dependencies = [
  "async-channel 2.3.1",
  "asynchronous-codec",
