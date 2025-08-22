@@ -17,6 +17,7 @@ pub use c_kzg::{
 };
 
 use crate::trusted_setup::load_trusted_setup;
+use rayon::prelude::*;
 pub use rust_eth_kzg::{
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
@@ -29,6 +30,12 @@ use tracing::instrument;
 /// Details about `precompute` parameter can be found here:
 /// <https://github.com/ethereum/c-kzg-4844/pull/545/files>
 pub const NO_PRECOMPUTE: u64 = 0;
+
+/// The number of cells to process in parallel when verifying proofs with Rayon.
+const VERIFY_CELL_PROOF_CHUNK_SIZE: usize = 128;
+
+/// Threshold for switching from fixed chunking (gossip verify path) to dynamic chunking (to handle large batches during range sync).
+const DYNAMIC_CHUNKING_THRESHOLD: usize = 4096;
 
 // Note: Both `NUMBER_OF_COLUMNS` and `CELLS_PER_EXT_BLOB` are preset values - however this
 // is a constant in the KZG library - be aware that overriding `NUMBER_OF_COLUMNS` will break KZG
@@ -230,32 +237,57 @@ impl Kzg {
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
-    #[instrument(skip_all, level = "debug", fields(cells = cells.len()))]
+    #[instrument(skip_all, level = "debug", fields(cells = cells.len(), chunk_size = tracing::field::Empty))]
     pub fn verify_cell_proof_batch(
         &self,
         cells: &[CellRef<'_>],
         kzg_proofs: &[Bytes48],
-        columns: Vec<CellIndex>,
+        indices: Vec<CellIndex>,
         kzg_commitments: &[Bytes48],
     ) -> Result<(), Error> {
-        let proofs: Vec<_> = kzg_proofs.iter().map(|proof| proof.as_ref()).collect();
-        let commitments: Vec<_> = kzg_commitments
-            .iter()
-            .map(|commitment| commitment.as_ref())
-            .collect();
-        let verification_result = self.context().verify_cell_kzg_proof_batch(
-            commitments.to_vec(),
-            &columns,
-            cells.to_vec(),
-            proofs.to_vec(),
-        );
+        let chunk_size = calculate_chunk_size(cells.len());
+        tracing::Span::current().record("chunk_size", chunk_size);
 
-        // Modify the result so it matches roughly what the previous method was doing.
-        match verification_result {
-            Ok(_) => Ok(()),
-            Err(e) if e.is_proof_invalid() => Err(Error::KzgVerificationFailed),
-            Err(e) => Err(Error::PeerDASKZG(e)),
-        }
+        let chunks: Vec<_> = cells
+            .chunks(chunk_size)
+            .zip(kzg_proofs.chunks(chunk_size))
+            .zip(indices.chunks(chunk_size))
+            .zip(kzg_commitments.chunks(chunk_size))
+            .collect();
+
+        chunks
+            .into_par_iter()
+            .map(
+                |(((cell_chunk, proof_chunk), index_chunk), commitment_chunk)| {
+                    // Create per-chunk tracing span for visualizing parallel processing.
+                    // This is safe from span explosion as we have at most ~32 chunks
+                    // (small batches: 4096/128, large batches: cells/thread_count).
+                    let _span =
+                        tracing::debug_span!("verify_cell_proof_chunk", cells = cell_chunk.len())
+                            .entered();
+
+                    let proofs: Vec<_> = proof_chunk.iter().map(|proof| proof.as_ref()).collect();
+                    let commitments: Vec<_> = commitment_chunk
+                        .iter()
+                        .map(|commitment| commitment.as_ref())
+                        .collect();
+                    let verification_result = self.context().verify_cell_kzg_proof_batch(
+                        commitments,
+                        index_chunk,
+                        cell_chunk.to_vec(),
+                        proofs,
+                    );
+
+                    match verification_result {
+                        Ok(_) => Ok(()),
+                        Err(e) if e.is_proof_invalid() => Err(Error::KzgVerificationFailed),
+                        Err(e) => Err(Error::PeerDASKZG(e)),
+                    }
+                },
+            )
+            .collect::<Result<Vec<()>, Error>>()?;
+
+        Ok(())
     }
 
     pub fn recover_cells_and_compute_kzg_proofs(
@@ -271,5 +303,20 @@ impl Kzg {
         // Convert the proof type to a c-kzg proof type
         let c_kzg_proof = proofs.map(KzgProof);
         Ok((cells, c_kzg_proof))
+    }
+}
+
+/// Calculate the optimal chunk size for KZG verification based on cell count.
+///
+/// Uses dynamic chunking strategy to balance parallelism vs overhead:
+/// - Small datasets (≤4096): Fixed 128-cell chunks for predictable performance. Batches of this
+///   size are likely gossip verification and is time-critical.
+/// - Large datasets (>4096): CPU-based chunks to avoid excessive chunk overhead that would occur
+///   with fixed chunking (e.g. 130k cells = ~1000 chunks)
+fn calculate_chunk_size(num_cells: usize) -> usize {
+    if num_cells <= DYNAMIC_CHUNKING_THRESHOLD {
+        VERIFY_CELL_PROOF_CHUNK_SIZE
+    } else {
+        num_cells / rayon::current_num_threads().max(1)
     }
 }

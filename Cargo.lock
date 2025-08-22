@@ -5012,6 +5012,7 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "hex",
+ "rayon",
  "rust_eth_kzg",
  "serde",
  "serde_json",
