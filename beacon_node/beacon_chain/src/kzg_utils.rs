@@ -1,6 +1,6 @@
 use kzg::{
-    Blob as KzgBlob, Bytes48, CELLS_PER_EXT_BLOB, Cell as KzgCell, CellRef as KzgCellRef,
-    CellsAndKzgProofs, Error as KzgError, Kzg,
+    Blob as KzgBlob, Bytes48, Cell as KzgCell, CellRef as KzgCellRef, CellsAndKzgProofs,
+    Error as KzgError, Kzg,
 };
 use rayon::prelude::*;
 use ssz_types::{FixedVector, VariableList};
@@ -43,33 +43,6 @@ pub fn validate_blob<E: EthSpec>(
     let _timer = crate::metrics::start_timer(&crate::metrics::KZG_VERIFICATION_SINGLE_TIMES);
     let kzg_blob = ssz_blob_to_crypto_blob_boxed::<E>(blob)?;
     kzg.verify_blob_kzg_proof(&kzg_blob, kzg_commitment, kzg_proof)
-}
-
-/// Validates a list of blobs along with their corresponding KZG commitments and
-/// cell proofs for the extended blobs.
-pub fn validate_blobs_and_cell_proofs<E: EthSpec>(
-    kzg: &Kzg,
-    blobs: Vec<&Blob<E>>,
-    cell_proofs: &[KzgProof],
-    kzg_commitments: &KzgCommitments<E>,
-) -> Result<(), KzgError> {
-    let cells = compute_cells::<E>(&blobs, kzg)?;
-    let cell_refs = cells.iter().map(|cell| cell.as_ref()).collect::<Vec<_>>();
-    let cell_indices = (0..blobs.len())
-        .flat_map(|_| 0..CELLS_PER_EXT_BLOB as u64)
-        .collect::<Vec<_>>();
-
-    let proofs = cell_proofs
-        .iter()
-        .map(|&proof| Bytes48::from(proof))
-        .collect::<Vec<_>>();
-
-    let commitments = kzg_commitments
-        .iter()
-        .flat_map(|&commitment| std::iter::repeat_n(Bytes48::from(commitment), CELLS_PER_EXT_BLOB))
-        .collect::<Vec<_>>();
-
-    kzg.verify_cell_proof_batch(&cell_refs, &proofs, cell_indices, &commitments)
 }
 
 /// Validate a batch of `DataColumnSidecar`.
@@ -418,7 +391,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
 mod test {
     use crate::kzg_utils::{
         blobs_to_data_column_sidecars, reconstruct_blobs, reconstruct_data_columns,
-        validate_blobs_and_cell_proofs,
+        validate_data_columns,
     };
     use bls::Signature;
     use eth2::types::BlobsBundle;
@@ -442,21 +415,20 @@ mod test {
         test_build_data_columns(&kzg, &spec);
         test_reconstruct_data_columns(&kzg, &spec);
         test_reconstruct_blobs_from_data_columns(&kzg, &spec);
-        test_verify_blob_and_cell_proofs(&kzg);
+        test_validate_data_columns(&kzg, &spec);
     }
 
     #[track_caller]
-    fn test_verify_blob_and_cell_proofs(kzg: &Kzg) {
-        let (blobs_bundle, _) = generate_blobs::<E>(3, ForkName::Fulu).unwrap();
-        let BlobsBundle {
-            blobs,
-            commitments,
-            proofs,
-        } = blobs_bundle;
+    fn test_validate_data_columns(kzg: &Kzg, spec: &ChainSpec) {
+        let num_of_blobs = 6;
+        let (signed_block, blobs, proofs) =
+            create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
+        let blob_refs = blobs.iter().collect::<Vec<_>>();
+        let column_sidecars =
+            blobs_to_data_column_sidecars(&blob_refs, proofs.to_vec(), &signed_block, kzg, spec)
+                .unwrap();
 
-        let result =
-            validate_blobs_and_cell_proofs::<E>(kzg, blobs.iter().collect(), &proofs, &commitments);
-
+        let result = validate_data_columns::<E, _>(kzg, column_sidecars.iter());
         assert!(result.is_ok());
     }
 

@@ -278,21 +278,10 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         Self { data: data_column }
     }
 
-    pub fn from_batch(
-        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
-        kzg: &Kzg,
-    ) -> Result<Vec<Self>, KzgError> {
-        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
-        Ok(data_columns
-            .into_iter()
-            .map(|column| Self { data: column })
-            .collect())
-    }
-
     pub fn from_batch_with_scoring(
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
-    ) -> Result<Vec<Self>, Vec<(ColumnIndex, KzgError)>> {
+    ) -> Result<Vec<Self>, Option<(ColumnIndex, KzgError)>> {
         verify_kzg_for_data_column_list_with_scoring(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
@@ -448,9 +437,9 @@ where
 /// sent bad data. The re-verification cost should not be significant. If a peer sends invalid data it
 /// will be quickly banned.
 pub fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
-    data_column_iter: I,
+    mut data_column_iter: I,
     kzg: &'a Kzg,
-) -> Result<(), Vec<(ColumnIndex, KzgError)>>
+) -> Result<(), Option<(ColumnIndex, KzgError)>>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
@@ -458,19 +447,20 @@ where
         return Ok(());
     };
 
-    // Find all columns that are invalid and identify by index. If we hit this condition there
-    // should be at least one invalid column
-    let errors = data_column_iter
-        .filter_map(|data_column| {
-            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
-                Some((data_column.index, e))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
+    // Find the first column that is invalid and identify by index. If we hit this condition, there
+    // should be at least one invalid column.
+    // Only finding the first invalid column because of the chance of multiple peers sending invalid
+    // columns for the same batch should be very rare, and re-verifying all columns individually is
+    // costly with likely little benefit.
+    let error = data_column_iter.find_map(|data_column| {
+        if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
+            Some((data_column.index, e))
+        } else {
+            None
+        }
+    });
 
-    Err(errors)
+    Err(error)
 }
 
 #[instrument(skip_all, level = "debug")]
