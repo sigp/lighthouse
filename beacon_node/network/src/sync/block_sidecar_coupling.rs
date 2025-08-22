@@ -210,6 +210,16 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    pub fn no_columns_for_batch(&mut self) -> Result<(), String> {
+        match self.block_data_request {
+            RangeBlockDataRequest::DataColumnsFromRoot { .. } => {
+                self.block_data_request = RangeBlockDataRequest::NoData;
+                Ok(())
+            }
+            _ => Err("Invalid state: expected DataColumnsFromRoot".to_owned()),
+        }
+    }
+
     /// Adds received blocks to the request.
     ///
     /// Returns an error if the request ID doesn't match the expected blocks request.

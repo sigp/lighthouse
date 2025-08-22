@@ -146,7 +146,7 @@ impl<E: EthSpec> ActiveRequestItems for DataColumnsByRootRangeRequestItems<E> {
             .flatten()
             .any(|d| d.index == data_column.index && d.block_root() == block_root)
         {
-            tracing::debug!(
+            tracing::trace!(
                 ?data_column,
                 existing_items=?self.items,
                 "Duplicated data",

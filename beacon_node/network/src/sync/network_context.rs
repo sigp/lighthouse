@@ -103,6 +103,7 @@ pub enum RpcResponseError {
     VerifyError(LookupVerifyError),
     CustodyRequestError(#[allow(dead_code)] CustodyRequestError),
     BlockComponentCouplingError(CouplingError),
+    InternalError(String),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1715,7 +1716,141 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let resp = self
             .data_columns_by_root_range_requests
             .on_response(id, rpc_event);
+        // This error implies we asked the peer for a specific root and it did not give it to us
+        // if let Some(Err(RpcResponseError::VerifyError(
+        //     LookupVerifyError::NotEnoughResponsesReturned { .. },
+        // ))) = resp
+        // {
+
+        // }
         self.on_rpc_response_result(id, "DataColumnsByRootRange", resp, peer_id, |b| b.len())
+    }
+
+    fn request_columns_on_successful_blocks(
+        &mut self,
+        id: BlocksByRangeRequestId,
+        blocks: &Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) -> Result<(), RpcResponseError> {
+        let batch_epoch = id.batch_id();
+        // Return early if no columns are required for this epoch
+        if !matches!(
+            self.batch_type(batch_epoch),
+            ByRangeRequestType::BlocksAndColumns
+        ) {
+            return Ok(());
+        }
+        // Return early if this is a backfill batch, backfill batches are handled by range requests instead of root
+        if matches!(
+            id.parent_request_id.requester,
+            RangeRequestId::BackfillSync { .. }
+        ) {
+            return Ok(());
+        }
+        // todo(pawan): send the data column request as soon as you get each chunk to spread out requests
+        debug!(count = blocks.len(), "Received blocks from byrange query");
+        // We have blocks here, check if they need data columns and request them
+        let mut block_roots = Vec::new();
+
+        for block in blocks.iter() {
+            // Request columns only if the blob_kzg_commitments is non-empty
+            if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
+                if !commitments.is_empty() {
+                    block_roots.push(block.canonical_root());
+                }
+            }
+        }
+        if block_roots.is_empty() {
+            // No blobs for the entire epoch, let the coupling logic know not to expect anything
+            // and return early
+            if let Some(req) = self
+                .components_by_range_requests
+                .get_mut(&id.parent_request_id)
+            {
+                if let Err(e) = req.no_columns_for_batch() {
+                    debug!(?e, "Created range request in inconsistent state");
+                    return Err(RpcResponseError::InternalError(e));
+                }
+                return Ok(());
+            } else {
+                return Err(RpcResponseError::InternalError(
+                    "Request sent without creating an entry".to_string(),
+                ));
+            }
+        }
+        // Generate the data column by root requests
+        let mut peer_to_columns: HashMap<PeerId, Vec<ColumnIndex>> = HashMap::new();
+        let mut no_peers_for_column: Vec<ColumnIndex> = Vec::new();
+        for column in self.chain.sampling_columns_for_epoch(batch_epoch).iter() {
+            let data_column = DataColumnSubnetId::new(*column);
+            if let Some(custody_peer) = self
+                .network_globals()
+                .peers
+                .read()
+                .good_custody_subnet_peer_range_sync(data_column, batch_epoch)
+                .next()
+            {
+                peer_to_columns
+                    .entry(*custody_peer)
+                    .or_default()
+                    .push(*column);
+            } else {
+                debug!(
+                    ?data_column,
+                    block_request_id=?id,
+                    "Not enough column peers for batch, need to retry"
+                );
+                no_peers_for_column.push(*column);
+            }
+        }
+
+        let mut data_column_requests = Vec::new();
+        for (peer, indices) in peer_to_columns.into_iter() {
+            let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
+                block_roots: block_roots.clone(),
+                indices: indices.clone(),
+            };
+
+            let requester = DataColumnsByRootRequester::RangeSync {
+                parent: id.parent_request_id,
+            };
+
+            data_column_requests.push((
+                self.send_data_columns_by_root_range_requests(
+                    peer,
+                    data_columns_by_root_request,
+                    requester,
+                    Span::none(),
+                )
+                .expect("should be able to send request"),
+                indices,
+            ));
+        }
+
+        if !no_peers_for_column.is_empty() {
+            let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
+                block_roots: block_roots.clone(),
+                indices: no_peers_for_column,
+            };
+
+            self.requests_to_retry
+                .insert(id.parent_request_id, data_columns_by_root_request);
+        }
+
+        if let Some(req) = self
+            .components_by_range_requests
+            .get_mut(&id.parent_request_id)
+        {
+            req.insert_column_request_after_block_request(
+                data_column_requests,
+                self.chain.sampling_columns_for_epoch(batch_epoch),
+            )
+            .expect("should be in the right state");
+        } else {
+            return Err(RpcResponseError::InternalError(
+                "Request sent without creating an entry".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     #[allow(clippy::type_complexity)]
@@ -1727,104 +1862,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ) -> Option<RpcResponseResult<Vec<Arc<SignedBeaconBlock<T::EthSpec>>>>> {
         let resp = self.blocks_by_range_requests.on_response(id, rpc_event);
         match &resp {
-            // todo(pawan): send the data column request as soon as you get each chunk to spread out requests
             Some(Ok((blocks, _))) => {
-                // Return early if this is a backfill batch, backfill batches are handled by range requests instead of root
-                if matches!(
-                    id.parent_request_id.requester,
-                    RangeRequestId::BackfillSync { .. }
-                ) {
-                    return self
-                        .on_rpc_response_result(id, "BlocksByRange", resp, peer_id, |b| b.len());
-                }
-                // We have blocks here, check if they need data columns and request them
-                let mut block_roots = Vec::new();
-                let batch_epoch = id.batch_id();
-                if !matches!(
-                    self.batch_type(batch_epoch),
-                    ByRangeRequestType::BlocksAndColumns
-                ) {
-                    return self
-                        .on_rpc_response_result(id, "BlocksByRange", resp, peer_id, |b| b.len());
-                }
-                for block in blocks.iter() {
-                    // Request columns only if the blob_kzg_commitments is non-empty
-                    if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
-                        if !commitments.is_empty() {
-                            block_roots.push(block.canonical_root());
-                        }
-                    }
-                }
-                // Generate the data column by root requests
-                let mut peer_to_columns: HashMap<PeerId, Vec<ColumnIndex>> = HashMap::new();
-                let mut no_peers_for_column: Vec<ColumnIndex> = Vec::new();
-                for column in self.chain.sampling_columns_for_epoch(batch_epoch).iter() {
-                    let data_column = DataColumnSubnetId::new(*column);
-                    if let Some(custody_peer) = self
-                        .network_globals()
-                        .peers
-                        .read()
-                        .good_custody_subnet_peer_range_sync(data_column, batch_epoch)
-                        .next()
-                    {
-                        peer_to_columns
-                            .entry(*custody_peer)
-                            .or_default()
-                            .push(*column);
-                    } else {
-                        debug!(
-                            ?data_column,
-                            block_request_id=?id,
-                            "Not enough column peers for batch, need to retry"
-                        );
-                        no_peers_for_column.push(*column);
-                    }
-                }
-
-                // todo(pawan): no_peers_for_column nned to be requested once peers
-                // become available
-                let mut data_column_requests = Vec::new();
-                for (peer, indices) in peer_to_columns.into_iter() {
-                    let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
-                        block_roots: block_roots.clone(),
-                        indices: indices.clone(),
-                    };
-
-                    let requester = DataColumnsByRootRequester::RangeSync {
-                        parent: id.parent_request_id,
-                    };
-
-                    data_column_requests.push((
-                        self.send_data_columns_by_root_range_requests(
-                            peer,
-                            data_columns_by_root_request,
-                            requester,
-                            Span::none(),
-                        )
-                        .expect("should be able to send request"),
-                        indices,
-                    ));
-                }
-
-                if !no_peers_for_column.is_empty() {
-                    let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
-                        block_roots: block_roots.clone(),
-                        indices: no_peers_for_column,
-                    };
-
-                    self.requests_to_retry
-                        .insert(id.parent_request_id, data_columns_by_root_request);
-                }
-
-                if let Some(req) = self
-                    .components_by_range_requests
-                    .get_mut(&id.parent_request_id)
-                {
-                    req.insert_column_request_after_block_request(
-                        data_column_requests,
-                        self.chain.sampling_columns_for_epoch(batch_epoch),
-                    )
-                    .expect("should be in the right state");
+                if let Err(e) = self.request_columns_on_successful_blocks(id, blocks) {
+                    return Some(Err(e));
                 }
             }
             None => {}
