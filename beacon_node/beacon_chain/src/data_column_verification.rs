@@ -429,7 +429,6 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
-#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
     data_column_iter: I,
     kzg: &'a Kzg,

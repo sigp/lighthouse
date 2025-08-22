@@ -21,6 +21,7 @@ pub use rust_eth_kzg::{
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
+use tracing::instrument;
 
 /// Disables the fixed-base multi-scalar multiplication optimization for computing
 /// cell KZG proofs, because `rust-eth-kzg` already handles the precomputation.
@@ -229,6 +230,7 @@ impl Kzg {
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
+    #[instrument(skip_all, level = "debug", fields(cells = cells.len()))]
     pub fn verify_cell_proof_batch(
         &self,
         cells: &[CellRef<'_>],

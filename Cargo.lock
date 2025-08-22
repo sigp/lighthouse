@@ -5015,6 +5015,7 @@ dependencies = [
  "rust_eth_kzg",
  "serde",
  "serde_json",
+ "tracing",
  "tree_hash",
 ]
 
