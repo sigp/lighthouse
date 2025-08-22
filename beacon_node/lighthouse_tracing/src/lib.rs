@@ -19,6 +19,7 @@ pub const SPAN_PROCESS_RPC_BLOCK: &str = "process_rpc_block";
 pub const SPAN_PROCESS_RPC_BLOBS: &str = "process_rpc_blobs";
 pub const SPAN_PROCESS_RPC_CUSTODY_COLUMNS: &str = "process_rpc_custody_columns";
 pub const SPAN_PROCESS_CHAIN_SEGMENT: &str = "process_chain_segment";
+pub const SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL: &str = "process_chain_segment_backfill";
 
 /// RPC methods root spans
 pub const SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST: &str = "handle_blocks_by_range_request";
@@ -48,6 +49,7 @@ pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
     SPAN_PROCESS_RPC_BLOBS,
     SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
     SPAN_PROCESS_CHAIN_SEGMENT,
+    SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL,
     SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST,
     SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST,
     SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST,

@@ -47,6 +47,7 @@ use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::TimeLatch;
 use logging::crit;
 use parking_lot::Mutex;
+use rayon::{ThreadPool, ThreadPoolBuilder};
 pub use scheduler::work_reprocessing_queue;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -55,7 +56,7 @@ use std::collections::{HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::task::Context;
 use std::time::{Duration, Instant};
 use strum::IntoStaticStr;
@@ -99,6 +100,17 @@ const ACTIVE_VALIDATOR_COUNT_OVERPROVISION_PERCENT: usize = 110;
 /// as the processor won't process that message type. 128 is an arbitrary value value >= 1 that
 /// seems reasonable.
 const MIN_QUEUE_LEN: usize = 128;
+
+/// Smaller rayon thread pool for lower-priority, compute-intensive tasks: ~25% of CPUs, min 2.
+pub static LOW_PRIORITY_RAYON_POOL: LazyLock<Arc<ThreadPool>> = LazyLock::new(|| {
+    let n_threads = (num_cpus::get() / 4).max(2);
+    Arc::new(
+        ThreadPoolBuilder::new()
+            .num_threads(n_threads)
+            .build()
+            .expect("failed to build low-priority rayon pool"),
+    )
+});
 
 /// Maximum number of queued items that will be stored before dropping them
 pub struct BeaconProcessorQueueLengths {
@@ -603,7 +615,7 @@ pub enum Work<E: EthSpec> {
         process_fn: BlockingFn,
     },
     ChainSegment(AsyncFn),
-    ChainSegmentBackfill(AsyncFn),
+    ChainSegmentBackfill(BlockingFn),
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
@@ -833,6 +845,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
     ) -> Result<(), String> {
         // Used by workers to communicate that they are finished a task.
         let (idle_tx, idle_rx) = mpsc::channel::<WorkType>(MAX_IDLE_QUEUE_LEN);
+        // Initialise the rayon threadpool.
+        let _ = LazyLock::force(&LOW_PRIORITY_RAYON_POOL);
 
         // Using LIFO queues for attestations since validator profits rely upon getting fresh
         // attestations into blocks. Additionally, later attestations contain more information than
@@ -1605,7 +1619,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
                 task_spawner.spawn_async(work)
             }
-            Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
+            Work::ChainSegmentBackfill(process_fn) => {
+                task_spawner.spawn_blocking_with_rayon(LOW_PRIORITY_RAYON_POOL.clone(), process_fn)
+            }
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
                 BlockingOrAsync::Blocking(process_fn) => task_spawner.spawn_blocking(process_fn),
                 BlockingOrAsync::Async(process_fn) => task_spawner.spawn_async(process_fn),
@@ -1662,6 +1678,22 @@ impl TaskSpawner {
         self.executor.spawn_blocking(
             || {
                 task();
+                drop(self.send_idle_on_drop)
+            },
+            WORKER_TASK_NAME,
+        )
+    }
+
+    /// Spawns a blocking task on a rayon thread pool, dropping the `SendOnDrop` after task completion.
+    fn spawn_blocking_with_rayon<F>(self, thread_pool: Arc<ThreadPool>, task: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.executor.spawn_blocking(
+            move || {
+                thread_pool.install(|| {
+                    task();
+                });
                 drop(self.send_idle_on_drop)
             },
             WORKER_TASK_NAME,
