@@ -1,6 +1,6 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
 };
 use eth2::{
@@ -113,15 +113,9 @@ impl ApiTester {
         Self::new_from_config(ApiTesterConfig::default()).await
     }
 
-    pub async fn new_with_hard_forks(altair: bool, bellatrix: bool) -> Self {
+    pub async fn new_with_hard_forks() -> Self {
         let mut config = ApiTesterConfig::default();
-        // Set whether the chain has undergone each hard fork.
-        if altair {
-            config.spec.altair_fork_epoch = Some(Epoch::new(0));
-        }
-        if bellatrix {
-            config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        }
+        config.spec = test_spec::<E>();
         Self::new_from_config(config).await
     }
 
@@ -295,7 +289,7 @@ impl ApiTester {
         // Be strict with validator registrations, but don't bother applying operations, that flag
         // is only used by mock-builder tests.
         let strict_registrations = true;
-        let apply_operations = false;
+        let apply_operations = true;
         let broadcast_to_bn = true;
 
         let mock_builder_server = harness.set_mock_builder(
@@ -346,6 +340,7 @@ impl ApiTester {
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
+                .mock_execution_layer()
                 .build(),
         );
 
@@ -431,7 +426,7 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester() -> Self {
-        let tester = Self::new_with_hard_forks(true, true)
+        let tester = Self::new_with_hard_forks()
             .await
             .test_post_validator_register_validator()
             .await;
@@ -1537,7 +1532,7 @@ impl ApiTester {
     pub async fn test_post_beacon_blocks_valid(mut self) -> Self {
         let next_block = self.next_block.clone();
 
-        self.client.post_beacon_blocks(&next_block).await.unwrap();
+        self.client.post_beacon_blocks_v2(&next_block, None).await.unwrap();
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1551,7 +1546,7 @@ impl ApiTester {
         let next_block = &self.next_block;
 
         self.client
-            .post_beacon_blocks_ssz(next_block)
+            .post_beacon_blocks_v2_ssz(next_block, None)
             .await
             .unwrap();
 
@@ -1578,7 +1573,7 @@ impl ApiTester {
 
         assert!(self
             .client
-            .post_beacon_blocks(&PublishBlockRequest::from(block))
+            .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
             .await
             .is_err());
 
@@ -1605,7 +1600,7 @@ impl ApiTester {
 
         assert!(self
             .client
-            .post_beacon_blocks_ssz(&PublishBlockRequest::from(block))
+            .post_beacon_blocks_v2_ssz(&PublishBlockRequest::from(block), None)
             .await
             .is_err());
 
@@ -1630,7 +1625,7 @@ impl ApiTester {
 
         assert!(self
             .client
-            .post_beacon_blocks(&block_contents)
+            .post_beacon_blocks_v2(&block_contents, None)
             .await
             .is_ok());
 
@@ -1639,10 +1634,6 @@ impl ApiTester {
 
         // Test all the POST methods in sequence, they should all behave the same.
         let responses = vec![
-            self.client
-                .post_beacon_blocks(&block_contents)
-                .await
-                .unwrap_err(),
             self.client
                 .post_beacon_blocks_v2(&block_contents, None)
                 .await
@@ -3377,7 +3368,7 @@ impl ApiTester {
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
 
             self.client
-                .post_beacon_blocks(&signed_block_contents)
+                .post_beacon_blocks_v2(&signed_block_contents, None)
                 .await
                 .unwrap();
 
@@ -3442,7 +3433,7 @@ impl ApiTester {
                 block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
             self.client
-                .post_beacon_blocks_ssz(&signed_block_contents)
+                .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
                 .await
                 .unwrap();
 
@@ -3560,7 +3551,7 @@ impl ApiTester {
                         block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
                     self.client
-                        .post_beacon_blocks_ssz(&signed_block_contents)
+                        .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
                         .await
                         .unwrap();
 
@@ -6346,7 +6337,7 @@ impl ApiTester {
         });
 
         self.client
-            .post_beacon_blocks(&self.next_block)
+            .post_beacon_blocks_v2(&self.next_block, None)
             .await
             .unwrap();
 
@@ -6391,7 +6382,7 @@ impl ApiTester {
         self.harness.advance_slot();
 
         self.client
-            .post_beacon_blocks(&self.reorg_block)
+            .post_beacon_blocks_v2(&self.reorg_block, None)
             .await
             .unwrap();
 
@@ -6613,7 +6604,7 @@ impl ApiTester {
         });
 
         self.client
-            .post_beacon_blocks(&self.next_block)
+            .post_beacon_blocks_v2(&self.next_block, None)
             .await
             .unwrap();
 
@@ -7779,7 +7770,7 @@ async fn lighthouse_endpoints() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn optimistic_responses() {
-    ApiTester::new_with_hard_forks(true, true)
+    ApiTester::new_with_hard_forks()
         .await
         .test_check_optimistic_responses()
         .await;
