@@ -331,7 +331,6 @@ where
                 max_rpc_size: self.fork_context.spec.max_payload_size as usize,
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
-                ttfb_timeout: self.network_params.ttfb_timeout,
             },
             (),
         );
@@ -361,7 +360,6 @@ where
                 max_rpc_size: self.fork_context.spec.max_payload_size as usize,
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
-                ttfb_timeout: self.network_params.ttfb_timeout,
             },
             (),
         );

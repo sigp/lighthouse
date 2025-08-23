@@ -424,7 +424,6 @@ pub struct RPCProtocol<E: EthSpec> {
     pub max_rpc_size: usize,
     pub enable_light_client_server: bool,
     pub phantom: PhantomData<E>,
-    pub ttfb_timeout: Duration,
 }
 
 impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
