@@ -369,7 +369,6 @@ impl<E: EthSpec> Network<E> {
 
         let network_params = NetworkParams {
             max_payload_size: ctx.chain_spec.max_payload_size as usize,
-            ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
             resp_timeout: ctx.chain_spec.resp_timeout(),
         };
         let eth2_rpc = RPC::new(

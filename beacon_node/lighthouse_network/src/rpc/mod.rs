@@ -145,7 +145,6 @@ type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
 
 pub struct NetworkParams {
     pub max_payload_size: usize,
-    pub ttfb_timeout: Duration,
     pub resp_timeout: Duration,
 }
 
