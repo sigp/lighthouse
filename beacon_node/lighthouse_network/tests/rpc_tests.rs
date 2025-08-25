@@ -957,8 +957,8 @@ fn test_tcp_columns_by_root_chunked_rpc() {
     let log_level = "debug";
     let enable_logging = true;
     let _subscriber = build_tracing_subscriber(log_level, enable_logging);
-
-    let messages_to_send = 32 * 128;
+    let num_of_columns = E::number_of_columns();
+    let messages_to_send = 32 * num_of_columns;
 
     let spec = Arc::new(spec_with_all_forks_enabled());
     let current_fork_name = ForkName::Fulu;
@@ -976,22 +976,27 @@ fn test_tcp_columns_by_root_chunked_rpc() {
         )
         .await;
 
-        // BlocksByRoot Request
+        // DataColumnsByRootRequest Request
 
+        let max_request_blocks = spec.max_request_blocks(current_fork_name);
         let req = DataColumnsByRootRequest::new(
             vec![
                 DataColumnsByRootIdentifier {
                     block_root: Hash256::zero(),
-                    columns: VariableList::new((0..128).into_iter().collect::<Vec<_>>()).unwrap(),
+                    columns: VariableList::new(
+                        (0..E::number_of_columns() as u64).collect::<Vec<_>>()
+                    )
+                    .unwrap(),
                 };
-                128
+                max_request_blocks
             ],
-            128,
+            max_request_blocks,
         );
         let req_bytes = req.data_column_ids.as_ssz_bytes();
         let req_decoded = DataColumnsByRootRequest {
             data_column_ids: <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
-                &req_bytes, 128,
+                &req_bytes,
+                spec.max_request_blocks(current_fork_name),
             )
             .unwrap(),
         };
@@ -1133,15 +1138,14 @@ fn test_tcp_columns_by_range_chunked_rpc() {
         )
         .await;
 
-        // BlocksByRoot Request
-
+        // DataColumnsByRange Request
         let rpc_request = RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
             start_slot: 320,
             count: 32,
-            columns: (0..128).collect(),
+            columns: (0..E::number_of_columns() as u64).collect(),
         });
 
-        // DataColumnsByRoot Response
+        // DataColumnsByRange Response
         let data_column = Arc::new(DataColumnSidecar {
             index: 1,
             signed_block_header: SignedBeaconBlockHeader {
