@@ -1056,8 +1056,7 @@ mod test {
         let verification_result = da_checker.verify_kzg_for_rpc_blocks(blocks_with_columns);
 
         // THEN batch block verification should fail due to 128 invalid columns in the second block
-        verification_result
-            .err().expect("should have failed to verify blocks");
+        verification_result.expect_err("should have failed to verify blocks");
     }
 
     fn init_custody_context_with_ordered_columns(
