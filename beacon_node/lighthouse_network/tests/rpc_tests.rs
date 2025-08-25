@@ -992,7 +992,8 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                 max_request_blocks
             ],
             max_request_blocks,
-        );
+        )
+        .unwrap();
         let req_bytes = req.data_column_ids.as_ssz_bytes();
         let req_decoded = DataColumnsByRootRequest {
             data_column_ids: <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
