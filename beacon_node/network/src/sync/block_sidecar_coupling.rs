@@ -160,7 +160,6 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
         expected_custody_columns: &[ColumnIndex],
         _attempt: usize,
     ) -> Result<DataColumnSidecarList<E>, CouplingError> {
-        
         // let mut custody_columns = vec![];
         // let mut naughty_peers = vec![];
         // let expected_custody_columns_set = expected_custody_columns.iter().collect::<HashSet<_>>();

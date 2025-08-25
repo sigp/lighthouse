@@ -475,6 +475,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // that they advertised as available.
                         Some(PeerAction::LowToleranceError)
                     }
+                    HistoricalDataColumnError::InvalidKzg => {
+                        warn!(
+                            error = ?e,
+                            "Custody backfill batch processing error",
+                        );
+                        // The peer is faulty if they don't return data columns
+                        // with valid kzg commitments.
+                        Some(PeerAction::LowToleranceError)
+                    }
                     HistoricalDataColumnError::IndexOutOfBounds => {
                         error!(
                             error = ?e,

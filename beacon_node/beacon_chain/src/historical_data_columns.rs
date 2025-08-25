@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::{
+    BeaconChain, BeaconChainTypes,
+    data_column_verification::verify_kzg_for_data_column_list_with_scoring,
+};
 use store::{Error as StoreError, KeyValueStore};
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
@@ -20,10 +23,13 @@ pub enum HistoricalDataColumnError {
     /// Logic error: should never occur.
     IndexOutOfBounds,
 
-    /// The provided data column sidecar lists doesn't contain columns for the full range of slots for the given epoch.
+    /// The provided data column sidecar list doesn't contain columns for the full range of slots for the given epoch.
     MissingDataColumns {
         missing_slots_and_data_columns: HashMap<Slot, HashSet<ColumnIndex>>,
     },
+
+    /// The provided data column sidecar list contains at least one column with an invalid kzg commitment.
+    InvalidKzg,
 
     /// Internal store error
     StoreError(StoreError),
@@ -72,7 +78,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(total_imported);
         }
 
-        for data_column_sidecar in historical_data_column_sidecar_list {
+        for data_column_sidecar in historical_data_column_sidecar_list.iter() {
             let block_root = data_column_sidecar.block_root();
             let slot = data_column_sidecar.slot();
 
@@ -121,10 +127,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 continue;
             }
-            self.store
-                .data_column_as_kv_store_ops(&block_root, data_column_sidecar, &mut ops);
+            self.store.data_column_as_kv_store_ops(
+                &block_root,
+                data_column_sidecar.clone(),
+                &mut ops,
+            );
             total_imported += 1;
         }
+
+        verify_kzg_for_data_column_list_with_scoring(
+            historical_data_column_sidecar_list.iter(),
+            &self.kzg,
+        )
+        .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
 
         self.store.blobs_db.do_atomically(ops)?;
 
@@ -133,6 +148,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 epoch.start_slot(T::EthSpec::slots_per_epoch()),
             ))?;
         } else {
+            // TODO(custody-sync)
+            // we should double check if these are missed/orphaned slots
             tracing::warn!(
                 ?epoch,
                 missing_slots = ?columns_to_update_per_slot.keys(),

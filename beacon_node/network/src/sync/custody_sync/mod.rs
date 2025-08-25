@@ -720,7 +720,9 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         validating_epoch: Epoch,
     ) {
         // make sure this epoch produces an advancement, unless its at the column DA boundary
-        if validating_epoch >= self.current_start && validating_epoch > self.get_column_da_boundary() {
+        if validating_epoch >= self.current_start
+            && validating_epoch > self.get_column_da_boundary()
+        {
             return;
         }
 
@@ -865,11 +867,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     /// TODO(custody-sync) clean up this implementation
     fn check_completed(&mut self) -> bool {
         if !self.batches.is_empty() {
-            return false
+            return false;
         }
-        
+
         if self.would_complete(self.current_start) {
-            
             // Check that the data column custody info `earliest_available_slot`
             // is less than or equal to the current DA boundary
             let earliest_data_column_slot = self
