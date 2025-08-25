@@ -180,6 +180,7 @@ pub enum WhenSlotSkipped {
 pub enum AvailabilityProcessingStatus {
     MissingComponents(Slot, Hash256),
     Imported(Hash256),
+    AlreadyAvailable(Hash256),
 }
 
 impl TryInto<SignedBeaconBlockHash> for AvailabilityProcessingStatus {
@@ -2949,6 +2950,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     ),
                                 };
                             }
+                            AvailabilityProcessingStatus::AlreadyAvailable(block_root) => {
+                                // Block was already available, treat as successful import.
+                                imported_blocks.push((block_root, block_slot));
+                            }
                         }
                     }
                     Err(BlockError::DuplicateFullyImported(block_root)) => {
@@ -3482,6 +3487,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 Ok(status)
             }
+            Ok(status @ AvailabilityProcessingStatus::AlreadyAvailable(block_root)) => {
+                debug!(?block_root, "Beacon block was already available");
+
+                Ok(status)
+            }
             Err(BlockError::BeaconChainError(e)) => {
                 match e.as_ref() {
                     BeaconChainError::TokioJoin(e) => {
@@ -3760,6 +3770,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Availability::MissingComponents(block_root) => Ok(
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root),
             ),
+            Availability::AlreadyAvailable(block_root) => {
+                Ok(AvailabilityProcessingStatus::AlreadyAvailable(block_root))
+            }
         }
     }
 

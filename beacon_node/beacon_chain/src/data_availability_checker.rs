@@ -102,6 +102,7 @@ pub enum DataColumnReconstructionResult<E: EthSpec> {
 pub enum Availability<E: EthSpec> {
     MissingComponents(Hash256),
     Available(Box<AvailableExecutedBlock<E>>),
+    AlreadyAvailable(Hash256),
 }
 
 impl<E: EthSpec> Debug for Availability<E> {
@@ -111,6 +112,9 @@ impl<E: EthSpec> Debug for Availability<E> {
                 write!(f, "MissingComponents({})", block_root)
             }
             Self::Available(block) => write!(f, "Available({:?})", block.import_data.block_root),
+            Self::AlreadyAvailable(block_root) => {
+                write!(f, "AlreadyAvailable({})", block_root)
+            }
         }
     }
 }

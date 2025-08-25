@@ -648,6 +648,9 @@ pub(crate) fn register_process_result_metrics(
                     &[source.as_ref(), block_component],
                 );
             }
+            AvailabilityProcessingStatus::AlreadyAvailable(_) => {
+                // no metric for this case
+            }
         },
         Err(error) => {
             inc_counter_vec(

@@ -560,6 +560,7 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
         // after processing of a gossip blob. In the latter case we MUST run fork choice to
         // re-compute the head.
         Ok(AvailabilityProcessingStatus::Imported(root))
+        | Ok(AvailabilityProcessingStatus::AlreadyAvailable(root))
         | Err(BlockError::DuplicateFullyImported(root)) => {
             let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
             info!(

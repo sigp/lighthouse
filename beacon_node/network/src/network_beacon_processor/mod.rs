@@ -794,6 +794,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                     self.chain.recompute_head_at_current_slot().await;
                 }
+                AvailabilityProcessingStatus::AlreadyAvailable(block_root) => {
+                    debug!(
+                        result = "engine blobs not imported",
+                        %block_root,
+                        "Block has already been made available"
+                    );
+                }
                 AvailabilityProcessingStatus::MissingComponents(_, _) => {
                     debug!(
                         %block_root,
@@ -863,6 +870,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             "Block components available via reconstruction"
                         );
                         self.chain.recompute_head_at_current_slot().await;
+                    }
+                    AvailabilityProcessingStatus::AlreadyAvailable(hash) => {
+                        debug!(
+                            result = "reconstructed data columns not imported",
+                            block_hash = %hash,
+                            "Block has already been made available"
+                        );
                     }
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(

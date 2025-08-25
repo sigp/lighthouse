@@ -973,6 +973,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     processing_start_time.elapsed().as_millis() as i64,
                 );
             }
+            Ok(AvailabilityProcessingStatus::AlreadyAvailable(block_root)) => {
+                debug!(
+                    %block_root,
+                    "Gossip blob not imported - block has already been made available"
+                );
+            }
             Ok(AvailabilityProcessingStatus::MissingComponents(slot, block_root)) => {
                 debug!(
                     %slot,
@@ -1044,6 +1050,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     metrics::set_gauge(
                         &metrics::BEACON_BLOB_DELAY_FULL_VERIFICATION,
                         processing_start_time.elapsed().as_millis() as i64,
+                    );
+                }
+                AvailabilityProcessingStatus::AlreadyAvailable(block_root) => {
+                    debug!(
+                        %block_root,
+                        "Gossip data column not imported - block has already been made available"
                     );
                 }
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {

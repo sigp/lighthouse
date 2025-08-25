@@ -17,10 +17,15 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
 use types::blob_sidecar::BlobIdentifier;
+use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
     Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
 };
+
+/// Number of available block roots to keep in the cache to prevent re-imports due to race conditions.
+/// This should be larger than the number of concurrent forks we expect to see.
+const AVAILABLE_BLOCKS_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(32);
 
 /// This represents the components of a partially available block
 ///
@@ -364,6 +369,9 @@ impl<E: EthSpec> PendingComponents<E> {
 pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     /// Contains all the data we keep in memory, protected by an RwLock
     critical: RwLock<LruCache<Hash256, PendingComponents<T::EthSpec>>>,
+    /// Cache of recently available block roots, used to prevent re-importing
+    /// block components that have already become available recently
+    available_blocks: RwLock<LruCache<Hash256, ()>>,
     /// This cache holds a limited number of states in memory and reconstructs them
     /// from disk when necessary. This is necessary until we merge tree-states
     state_cache: StateLRUCache<T>,
@@ -389,6 +397,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
+            available_blocks: RwLock::new(LruCache::new(AVAILABLE_BLOCKS_CACHE_SIZE)),
             state_cache: StateLRUCache::new(beacon_store, spec.clone()),
             custody_context,
             spec,
@@ -478,7 +487,15 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             }
         }
 
-        let mut write_lock = self.critical.write();
+        let mut write_lock = {
+            let upgradable_lock = self.critical.upgradable_read();
+            // Check if the block is already available while holding the upgradable lock.
+            // This prevents re-importing the same block while it's being imported into fork choice.
+            if self.available_blocks_cache_contains(&block_root) {
+                return Ok(Availability::AlreadyAvailable(block_root));
+            }
+            parking_lot::RwLockUpgradableReadGuard::upgrade(upgradable_lock)
+        };
 
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
@@ -506,6 +523,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         )? {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
+
+            // Mark the block as available so we don't attempt re-importing the same block.
+            self.mark_block_as_available(block_root);
+
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
         } else {
@@ -534,7 +555,15 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             return Ok(Availability::MissingComponents(block_root));
         };
 
-        let mut write_lock = self.critical.write();
+        let mut write_lock = {
+            let upgradable_lock = self.critical.upgradable_read();
+            // Check if the block is already available while holding the upgradable lock.
+            // This prevents re-importing the same block while it's being imported into fork choice.
+            if self.available_blocks_cache_contains(&block_root) {
+                return Ok(Availability::AlreadyAvailable(block_root));
+            }
+            parking_lot::RwLockUpgradableReadGuard::upgrade(upgradable_lock)
+        };
 
         // Grab existing entry or create a new entry.
         let mut pending_components = write_lock
@@ -564,6 +593,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
+
+            // Mark the block as available so we don't attempt re-importing the same block.
+            self.mark_block_as_available(block_root);
+
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
         } else {
@@ -625,9 +658,18 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut write_lock = self.critical.write();
         let epoch = executed_block.as_block().epoch();
         let block_root = executed_block.import_data.block_root;
+
+        let mut write_lock = {
+            let upgradable_lock = self.critical.upgradable_read();
+            // Check if the block is already available while holding the upgradable lock.
+            // This prevents re-importing the same block while it's being imported into fork choice.
+            if self.available_blocks_cache_contains(&block_root) {
+                return Ok(Availability::AlreadyAvailable(block_root));
+            }
+            parking_lot::RwLockUpgradableReadGuard::upgrade(upgradable_lock)
+        };
 
         // register the block to get the diet block
         let diet_executed_block = self
@@ -663,6 +705,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         {
             // We keep the pending components in the availability cache during block import (#5845).
             write_lock.put(block_root, pending_components);
+
+            // Mark the block as available so we don't attempt re-importing the same block.
+            self.mark_block_as_available(block_root);
+
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
         } else {
@@ -673,6 +719,16 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     pub fn remove_pending_components(&self, block_root: Hash256) {
         self.critical.write().pop_entry(&block_root);
+    }
+
+    /// Check if a block root is in the available blocks cache
+    fn available_blocks_cache_contains(&self, block_root: &Hash256) -> bool {
+        self.available_blocks.read().peek(block_root).is_some()
+    }
+
+    /// Add a block root to the available blocks cache
+    fn mark_block_as_available(&self, block_root: Hash256) {
+        self.available_blocks.write().put(block_root, ());
     }
 
     /// maintain the cache
@@ -1175,17 +1231,24 @@ mod test {
 #[cfg(test)]
 mod pending_components_tests {
     use super::*;
+    use crate::CustodyContext;
     use crate::PayloadVerificationOutcome;
     use crate::block_verification_types::BlockImportData;
-    use crate::test_utils::{NumBlobs, generate_rand_block_and_blobs, test_spec};
+    use crate::data_column_verification::KzgVerifiedDataColumn;
+    use crate::test_utils::{
+        NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
+    };
     use fork_choice::PayloadVerificationStatus;
     use kzg::KzgCommitment;
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use state_processing::ConsensusContext;
+    use std::sync::Arc;
+    use store::HotColdDB;
     use types::test_utils::TestRandom;
     use types::{
-        BeaconState, FixedBytesExtended, ForkName, MainnetEthSpec, SignedBeaconBlock, Slot,
+        BeaconState, BeaconStateFulu, FixedBytesExtended, ForkName, FullPayload, Hash256,
+        MainnetEthSpec, SignedBeaconBlock, Slot,
     };
 
     type E = MainnetEthSpec;
@@ -1379,5 +1442,123 @@ mod pending_components_tests {
         cache.merge_block(block_commitments);
 
         assert_cache_consistent(cache, max_len);
+    }
+
+    #[test]
+    fn test_available_blocks_cache_prevents_reimport_data_columns() {
+        // Setup
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
+        let custody_context = Arc::new(CustodyContext::new(true));
+        let cache =
+            DataAvailabilityCheckerInner::<crate::test_utils::EphemeralHarnessType<E>>::new(
+                new_non_zero_usize(4),
+                store,
+                custody_context,
+                spec.clone(),
+            )
+            .unwrap();
+
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+
+        // GIVEN a block has already been made available
+        let (block, columns) = generate_rand_block_and_data_columns(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut rng,
+            &spec,
+        );
+        let block = Arc::new(block);
+        let kzg_verified_columns = columns
+            .into_iter()
+            .map(|c| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::__new_for_testing(c),
+                )
+            })
+            .collect::<Vec<_>>();
+        let executed_block = create_executed_block(block, &mut rng, &spec);
+        let block_root = executed_block.import_data.block_root;
+        cache
+            .put_pending_executed_block(executed_block)
+            .expect("should insert block");
+        let availability = cache
+            .put_kzg_verified_data_columns(block_root, kzg_verified_columns.clone())
+            .expect("should insert columns");
+        assert!(matches!(availability, Availability::Available(_)));
+
+        // WHEN attempting to add data columns for the same block root
+        let result = cache.put_kzg_verified_data_columns(block_root, kzg_verified_columns);
+
+        // THEN the operation should return AlreadyAvailable
+        assert!(matches!(result, Ok(Availability::AlreadyAvailable(_))));
+    }
+
+    #[test]
+    fn test_available_blocks_cache_prevents_reimport_blobs() {
+        // Setup
+        let spec = Arc::new(ForkName::Electra.make_genesis_spec(E::default_spec()));
+        let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
+        let custody_context = Arc::new(CustodyContext::new(true));
+        let cache =
+            DataAvailabilityCheckerInner::<crate::test_utils::EphemeralHarnessType<E>>::new(
+                new_non_zero_usize(4),
+                store,
+                custody_context,
+                spec.clone(),
+            )
+            .unwrap();
+
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+
+        // GIVEN a block has already been made available
+        let (block, blobs) =
+            generate_rand_block_and_blobs(ForkName::Electra, NumBlobs::Number(1), &mut rng, &spec);
+        let block = Arc::new(block);
+        let kzg_verified_blobs = blobs
+            .into_iter()
+            .map(|b| KzgVerifiedBlob::__assumed_valid(Arc::new(b)))
+            .collect::<Vec<_>>();
+        let executed_block = create_executed_block(block, &mut rng, &spec);
+        let block_root = executed_block.import_data.block_root;
+        cache
+            .put_pending_executed_block(executed_block)
+            .expect("should insert block");
+        let availability = cache
+            .put_kzg_verified_blobs(block_root, kzg_verified_blobs.clone())
+            .expect("should insert blobs");
+        assert!(matches!(availability, Availability::Available(_)));
+
+        // WHEN attempting to add blobs for the same block root
+        let result = cache.put_kzg_verified_blobs(block_root, kzg_verified_blobs);
+
+        // THEN the operation should return AlreadyAvailable
+        assert!(matches!(result, Ok(Availability::AlreadyAvailable(_))));
+    }
+
+    fn create_executed_block(
+        block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
+        mut rng: &mut StdRng,
+        spec: &Arc<ChainSpec>,
+    ) -> AvailabilityPendingExecutedBlock<E> {
+        let state = BeaconState::Fulu(BeaconStateFulu::random_for_test(&mut rng));
+        let parent_block = generate_rand_block_and_data_columns(
+            ForkName::Fulu,
+            NumBlobs::Number(0),
+            &mut rng,
+            spec,
+        )
+        .0;
+        let import_data = BlockImportData::<E>::__new_for_test(
+            block.canonical_root(),
+            state,
+            parent_block.into(),
+        );
+        let payload_verification_outcome = PayloadVerificationOutcome {
+            payload_verification_status: PayloadVerificationStatus::Verified,
+            is_valid_merge_transition_block: false,
+        };
+
+        AvailabilityPendingExecutedBlock::new(block, import_data, payload_verification_outcome)
     }
 }

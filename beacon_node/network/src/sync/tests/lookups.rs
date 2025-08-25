@@ -1088,6 +1088,7 @@ impl TestRig {
             .unwrap()
         {
             Availability::Available(_) => panic!("block removed from da_checker, available"),
+            Availability::AlreadyAvailable(_) => panic!("block is already available"),
             Availability::MissingComponents(block_root) => {
                 self.log(&format!("inserted block to da_checker {block_root:?}"))
             }
@@ -1108,6 +1109,7 @@ impl TestRig {
             .unwrap()
         {
             Availability::Available(_) => panic!("blob removed from da_checker, available"),
+            Availability::AlreadyAvailable(_) => panic!("block is already available"),
             Availability::MissingComponents(block_root) => {
                 self.log(&format!("inserted blob to da_checker {block_root:?}"))
             }

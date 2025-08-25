@@ -563,6 +563,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         let action = match result {
             BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(_))
+            | BlockProcessingResult::Ok(AvailabilityProcessingStatus::AlreadyAvailable(_))
             | BlockProcessingResult::Err(BlockError::DuplicateFullyImported(..)) => {
                 // Successfully imported
                 request_state.on_processing_success()?;
