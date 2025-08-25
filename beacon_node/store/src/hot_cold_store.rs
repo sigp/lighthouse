@@ -2478,7 +2478,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .first()
                     .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
                 {
-                    let blobs = BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize);
+                    let blobs = BlobSidecarList::new(blobs, max_blobs_per_block as usize)?;
                     self.block_cache
                         .lock()
                         .put_blobs(*block_root, blobs.clone());

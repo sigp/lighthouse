@@ -11,6 +11,7 @@ pub struct BlocksByRootSingleRequest(pub Hash256);
 impl BlocksByRootSingleRequest {
     pub fn into_request(self, fork_context: &ForkContext) -> BlocksByRootRequest {
         BlocksByRootRequest::new(vec![self.0], fork_context)
+            .expect("single root should always satisfy limit for BlocksByRootRequest")
     }
 }
 

@@ -8978,6 +8978,7 @@ dependencies = [
  "safe_arith",
  "serde",
  "smallvec",
+ "ssz_types",
  "state_processing",
  "strum",
  "superstruct",

@@ -22,6 +22,7 @@ impl BlobsByRootSingleBlockRequest {
                 .collect(),
             spec,
         )
+        .expect("single block lookup should always satisfy limit for BlobsByRootRequest")
     }
 }
 

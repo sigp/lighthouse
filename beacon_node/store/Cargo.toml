@@ -28,6 +28,7 @@ smallvec = { workspace = true }
 state_processing = { workspace = true }
 strum = { workspace = true }
 superstruct = { workspace = true }
+ssz_types = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 types = { workspace = true }

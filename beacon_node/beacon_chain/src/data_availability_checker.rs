@@ -20,7 +20,7 @@ use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock, Slot,
+    SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -445,8 +445,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .flatten()
             .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>();
-        let all_data_columns =
-            RuntimeVariableList::from_vec(all_data_columns, T::EthSpec::number_of_columns());
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
