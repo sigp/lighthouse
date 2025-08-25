@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
-    BeaconChain, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes,
     data_column_verification::verify_kzg_for_data_column_list_with_scoring,
 };
 use store::{Error as StoreError, KeyValueStore};
@@ -25,7 +25,7 @@ pub enum HistoricalDataColumnError {
 
     /// The provided data column sidecar list doesn't contain columns for the full range of slots for the given epoch.
     MissingDataColumns {
-        missing_slots_and_data_columns: HashMap<Slot, HashSet<ColumnIndex>>,
+        missing_slots_and_data_columns: Vec<(Slot, ColumnIndex)>,
     },
 
     /// The provided data column sidecar list contains at least one column with an invalid kzg commitment.
@@ -33,6 +33,9 @@ pub enum HistoricalDataColumnError {
 
     /// Internal store error
     StoreError(StoreError),
+
+    /// Internal beacon chain error
+    BeaconChainError(BeaconChainError),
 }
 
 impl From<StoreError> for HistoricalDataColumnError {
@@ -57,7 +60,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<usize, HistoricalDataColumnError> {
         tracing::info!(?epoch, "historical data column imported");
         let mut total_imported = 0;
-        let expected_imported = historical_data_column_sidecar_list.len();
         let mut ops = vec![];
 
         let unique_column_indices = historical_data_column_sidecar_list
@@ -65,74 +67,50 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|item| item.index)
             .collect::<HashSet<_>>();
 
-        let slots_to_update = epoch
-            .slot_iter(T::EthSpec::slots_per_epoch())
-            .collect::<HashSet<_>>();
-
-        let mut columns_to_update_per_slot: HashMap<Slot, HashSet<u64>> = slots_to_update
+        let mut slot_and_column_index_to_data_columns = historical_data_column_sidecar_list
             .iter()
-            .map(|&slot| (slot, unique_column_indices.clone()))
-            .collect();
+            .map(|data_column| ((data_column.slot(), data_column.index), data_column))
+            .collect::<HashMap<_, _>>();
 
         if historical_data_column_sidecar_list.is_empty() {
             return Ok(total_imported);
         }
 
-        for data_column_sidecar in historical_data_column_sidecar_list.iter() {
-            let block_root = data_column_sidecar.block_root();
-            let slot = data_column_sidecar.slot();
+        let forward_blocks_iter = self
+            .forwards_iter_block_roots_until(
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                epoch.end_slot(T::EthSpec::slots_per_epoch()),
+            )
+            .map_err(HistoricalDataColumnError::BeaconChainError)?;
 
-            if let Some(indices) = columns_to_update_per_slot.get_mut(&slot) {
-                indices.remove(&data_column_sidecar.index);
-                if indices.is_empty() {
-                    columns_to_update_per_slot.remove(&slot);
+        for block_iter_result in forward_blocks_iter {
+            let (block_root, slot) =
+                block_iter_result.map_err(HistoricalDataColumnError::BeaconChainError)?;
+
+            for column_index in unique_column_indices.clone() {
+                if let Some(data_column) =
+                    slot_and_column_index_to_data_columns.remove(&(slot, column_index))
+                {
+                    if self
+                        .store
+                        .get_data_column(&block_root, &data_column.index)?
+                        .is_none()
+                    {
+                        tracing::debug!(
+                            block_root = ?block_root,
+                            column_index = data_column.index,
+                            "Skipping data column import as identical data column exists"
+                        );
+                        continue;
+                    }
+                    self.store.data_column_as_kv_store_ops(
+                        &block_root,
+                        data_column.clone(),
+                        &mut ops,
+                    );
+                    total_imported += 1;
                 }
             }
-
-            let Some(block) = self.store.get_blinded_block(&block_root)? else {
-                let error = HistoricalDataColumnError::NoBlockFound {
-                    data_column_block_root: block_root,
-                };
-                tracing::warn!(
-                    %block_root,
-                    num_blob_sidecars = expected_imported,
-                    ?error,
-                    "Aborting data column sidecar import"
-                );
-                return Err(error);
-            };
-
-            if &data_column_sidecar.signed_block_header.signature != block.signature() {
-                let error = HistoricalDataColumnError::InvalidSignature {
-                    data_column_block_root: block_root,
-                };
-                tracing::warn!(
-                    block_root = ?block_root,
-                    column_index = data_column_sidecar.index,
-                    ?error,
-                    "Aborting data column sidecar import"
-                );
-                return Err(error);
-            }
-
-            if self
-                .store
-                .get_data_column(&block_root, &data_column_sidecar.index)?
-                .is_none()
-            {
-                tracing::debug!(
-                    block_root = ?block_root,
-                    column_index = data_column_sidecar.index,
-                    "Skipping data column import as identical data column exists"
-                );
-                continue;
-            }
-            self.store.data_column_as_kv_store_ops(
-                &block_root,
-                data_column_sidecar.clone(),
-                &mut ops,
-            );
-            total_imported += 1;
         }
 
         verify_kzg_for_data_column_list_with_scoring(
@@ -143,22 +121,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.store.blobs_db.do_atomically(ops)?;
 
-        if columns_to_update_per_slot.is_empty() {
+        if slot_and_column_index_to_data_columns.is_empty() {
             self.store.put_data_column_custody_info(Some(
                 epoch.start_slot(T::EthSpec::slots_per_epoch()),
             ))?;
         } else {
-            // TODO(custody-sync)
-            // we should double check if these are missed/orphaned slots
             tracing::warn!(
                 ?epoch,
-                missing_slots = ?columns_to_update_per_slot.keys(),
+                missing_slots = ?slot_and_column_index_to_data_columns.keys().map(|(slot, _)| slot),
                 "Some data columns are missing from the batch"
             );
             return Err(HistoricalDataColumnError::MissingDataColumns {
-                missing_slots_and_data_columns: columns_to_update_per_slot,
+                missing_slots_and_data_columns: slot_and_column_index_to_data_columns
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>(),
             });
         }
+
+        self.data_availability_checker
+            .custody_context()
+            .backfill_custody_count_at_epoch(epoch);
 
         tracing::debug!(total_imported, "Imported historical data columns");
 

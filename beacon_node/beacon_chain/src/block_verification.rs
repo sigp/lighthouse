@@ -826,7 +826,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     /// on the p2p network.
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
-    #[instrument(name = "verify_gossip_block", skip_all)]
+    #[instrument(name = "verify_gossip_block", skip_all, fields(block_root = tracing::field::Empty))]
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
@@ -1227,27 +1227,20 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         signature_verifier
             .include_all_signatures_except_proposal(block.as_ref(), &mut consensus_context)?;
 
-        let sig_verify_span = info_span!("signature_verify", result = "started").entered();
-        let result = signature_verifier.verify();
+        let result = info_span!("signature_verify").in_scope(|| signature_verifier.verify());
         match result {
-            Ok(_) => {
-                sig_verify_span.record("result", "ok");
-                Ok(Self {
-                    block: MaybeAvailableBlock::AvailabilityPending {
-                        block_root: from.block_root,
-                        block,
-                    },
+            Ok(_) => Ok(Self {
+                block: MaybeAvailableBlock::AvailabilityPending {
                     block_root: from.block_root,
-                    parent: Some(parent),
-                    consensus_context,
-                })
-            }
-            Err(_) => {
-                sig_verify_span.record("result", "fail");
-                Err(BlockError::InvalidSignature(
-                    InvalidSignature::BlockBodySignatures,
-                ))
-            }
+                    block,
+                },
+                block_root: from.block_root,
+                parent: Some(parent),
+                consensus_context,
+            }),
+            Err(_) => Err(BlockError::InvalidSignature(
+                InvalidSignature::BlockBodySignatures,
+            )),
         }
     }
 

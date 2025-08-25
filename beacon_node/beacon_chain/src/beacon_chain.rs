@@ -6835,7 +6835,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Update data column custody info with the slot at which cgc was changed.
     pub fn update_data_column_custody_info(&self, slot: Option<Slot>) {
-        // TODO(custody-sync) add safeguards here to ensure we dont update this with a bad value?
         self.store
             .put_data_column_custody_info(slot)
             .unwrap_or_else(

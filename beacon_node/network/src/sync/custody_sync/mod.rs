@@ -9,7 +9,7 @@ use lighthouse_network::{
     types::CustodyBackFillState,
 };
 use logging::crit;
-use tracing::{debug, error, info, warn};
+use tracing::{Span, debug, error, info, info_span, warn};
 
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
@@ -935,6 +935,9 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<(), CustodyBackfillError> {
+        let span = info_span!("custody_sync_batch_request");
+        let _enter = span.enter();
+
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let synced_peers = self
                 .network_globals
@@ -952,6 +955,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 batch_id,
                 &synced_peers,
                 &failed_peers,
+                span.clone(),
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request

@@ -30,8 +30,10 @@ struct ValidatorRegistrations {
     ///
     /// Note: Only stores the epoch value when there's a change in custody requirement.
     /// So if epoch 10 and 11 has the same custody requirement, only 10 is stored.
-    /// This map is never pruned, because currently we never decrease custody requirement, so this
-    /// map size is contained at 128.
+    /// This map is only pruned during custody backfill. If epoch 11 has custody requirements
+    /// that are then backfilled to epoch 10, the value at epoch 11 will be removed and epoch 10
+    /// will be added to the map instead. This should keep map size constrained to a maximum
+    /// value of 128.
     epoch_validator_custody_requirements: BTreeMap<Epoch, u64>,
 }
 
@@ -97,6 +99,23 @@ impl ValidatorRegistrations {
             Some((effective_epoch, validator_custody_requirement))
         } else {
             None
+        }
+    }
+
+    // TODO(custody-sync) potential race condition if latest valid custody requirement is updated twice?
+    /// Updates the `epoch_validator_custody_requirements` map by pruning all values on/after `effective_epoch`
+    /// and updating the map to store the latest validator custody requirements for the `effective_epoch`.
+    pub fn backfill_validator_custody_requirements(&mut self, effective_epoch: Epoch) {
+        if let Some(latest_validator_custody) = self.latest_validator_custody_requirement() {
+            self.epoch_validator_custody_requirements
+                .retain(|&epoch, custody_requirement| {
+                    !(epoch >= effective_epoch && *custody_requirement == latest_validator_custody)
+                });
+
+            self.epoch_validator_custody_requirements
+                .entry(effective_epoch)
+                .and_modify(|old_custody| *old_custody = latest_validator_custody)
+                .or_insert(latest_validator_custody);
         }
     }
 }
@@ -362,6 +381,13 @@ impl<E: EthSpec> CustodyContext<E> {
             .expect("all_custody_columns_ordered should be initialized");
 
         &all_columns_ordered[..custody_group_count]
+    }
+
+    // TODO(custody-sync) update comments
+    pub fn backfill_custody_count_at_epoch(&self, effective_epoch: Epoch) {
+        self.validator_registrations
+            .write()
+            .backfill_validator_custody_requirements(effective_epoch);
     }
 }
 
