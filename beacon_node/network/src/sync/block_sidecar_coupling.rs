@@ -8,6 +8,7 @@ use lighthouse_network::{
     },
 };
 use std::{collections::HashMap, sync::Arc};
+use tracing::Span;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock,
@@ -31,6 +32,8 @@ pub struct RangeBlockComponentsRequest<E: EthSpec> {
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
+    /// Span to track the range request and all children range requests.
+    pub(crate) request_span: Span,
 }
 
 enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
@@ -81,6 +84,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
             Vec<ColumnIndex>,
         )>,
+        request_span: Span,
     ) -> Self {
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
@@ -102,6 +106,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         Self {
             blocks_request: ByRangeRequest::Active(blocks_req_id),
             block_data_request,
+            request_span,
         }
     }
 
@@ -471,6 +476,7 @@ mod tests {
     };
     use rand::SeedableRng;
     use std::sync::Arc;
+    use tracing::Span;
     use types::{Epoch, ForkName, MinimalEthSpec as E, SignedBeaconBlock, test_utils::XorShiftRng};
 
     fn components_id() -> ComponentsByRangeRequestId {
@@ -526,7 +532,8 @@ mod tests {
             .collect::<Vec<Arc<SignedBeaconBlock<E>>>>();
 
         let blocks_req_id = blocks_id(components_id());
-        let mut info = RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, None);
+        let mut info =
+            RangeBlockComponentsRequest::<E>::new(blocks_req_id, None, None, Span::none());
 
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks).unwrap();
@@ -556,8 +563,12 @@ mod tests {
         let components_id = components_id();
         let blocks_req_id = blocks_id(components_id);
         let blobs_req_id = blobs_id(components_id);
-        let mut info =
-            RangeBlockComponentsRequest::<E>::new(blocks_req_id, Some(blobs_req_id), None);
+        let mut info = RangeBlockComponentsRequest::<E>::new(
+            blocks_req_id,
+            Some(blobs_req_id),
+            None,
+            Span::none(),
+        );
 
         // Send blocks and complete terminate response
         info.add_blocks(blocks_req_id, blocks).unwrap();
@@ -597,6 +608,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expects_custody_columns.clone())),
+            Span::none(),
         );
         // Send blocks and complete terminate response
         info.add_blocks(
@@ -656,6 +668,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expects_custody_columns.clone())),
+            Span::none(),
         );
 
         let mut rng = XorShiftRng::from_seed([42; 16]);
@@ -735,6 +748,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Span::none(),
         );
 
         // AND: All blocks are received successfully
@@ -814,6 +828,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Span::none(),
         );
 
         // AND: All blocks are received
@@ -895,6 +910,7 @@ mod tests {
             blocks_req_id,
             None,
             Some((columns_req_id.clone(), expected_custody_columns.clone())),
+            Span::none(),
         );
 
         // AND: All blocks are received

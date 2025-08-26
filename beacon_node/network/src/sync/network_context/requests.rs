@@ -4,6 +4,7 @@ use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use strum::IntoStaticStr;
+use tracing::Span;
 use types::{Hash256, Slot};
 
 pub use blobs_by_range::BlobsByRangeRequestItems;
@@ -50,6 +51,7 @@ struct ActiveRequest<T: ActiveRequestItems> {
     peer_id: PeerId,
     // Error if the request terminates before receiving max expected responses
     expect_max_responses: bool,
+    span: Span,
 }
 
 enum State<T> {
@@ -66,13 +68,22 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
         }
     }
 
-    pub fn insert(&mut self, id: K, peer_id: PeerId, expect_max_responses: bool, items: T) {
+    pub fn insert(
+        &mut self,
+        id: K,
+        peer_id: PeerId,
+        expect_max_responses: bool,
+        items: T,
+        span: Span,
+    ) {
+        let _guard = span.clone().entered();
         self.requests.insert(
             id,
             ActiveRequest {
                 state: State::Active(items),
                 peer_id,
                 expect_max_responses,
+                span,
             },
         );
     }
@@ -106,6 +117,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             // `ActiveRequestItems` validates the item before appending to its internal state.
             RpcEvent::Response(item, seen_timestamp) => {
                 let request = &mut entry.get_mut();
+                let _guard = request.span.clone().entered();
                 match &mut request.state {
                     State::Active(items) => {
                         match items.add(item) {
@@ -141,6 +153,7 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
                 // After stream termination we must forget about this request, there will be no more
                 // messages coming from the network
                 let request = entry.remove();
+                let _guard = request.span.clone().entered();
                 match request.state {
                     // Received a stream termination in a valid sequence, consume items
                     State::Active(mut items) => {
@@ -162,7 +175,9 @@ impl<K: Eq + Hash, T: ActiveRequestItems> ActiveRequests<K, T> {
             RpcEvent::RPCError(e) => {
                 // After an Error event from the network we must forget about this request as this
                 // may be the last message for this request.
-                match entry.remove().state {
+                let request = entry.remove();
+                let _guard = request.span.clone().entered();
+                match request.state {
                     // Received error while request is still active, propagate error.
                     State::Active(_) => Some(Err(e.into())),
                     // Received error after completing the request, ignore the error. This is okay

@@ -9,6 +9,7 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::RwLock;
 use std::cmp::Ordering;
@@ -288,7 +289,7 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Returns an empty `PendingComponents` object with the given block root.
     pub fn empty(block_root: Hash256, max_len: usize) -> Self {
-        let span = debug_span!(parent: None, "pending_components", %block_root);
+        let span = debug_span!(parent: None, SPAN_PENDING_COMPONENTS, %block_root);
         let _guard = span.clone().entered();
         Self {
             block_root,

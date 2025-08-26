@@ -28,6 +28,7 @@ pub fn spec_with_all_forks_enabled() -> ChainSpec {
     chain_spec.deneb_fork_epoch = Some(Epoch::new(4));
     chain_spec.electra_fork_epoch = Some(Epoch::new(5));
     chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
+    chain_spec.gloas_fork_epoch = Some(Epoch::new(7));
 
     // check that we have all forks covered
     assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
@@ -44,6 +45,7 @@ pub fn fork_context(fork_name: ForkName, spec: &ChainSpec) -> ForkContext {
         ForkName::Deneb => spec.deneb_fork_epoch,
         ForkName::Electra => spec.electra_fork_epoch,
         ForkName::Fulu => spec.fulu_fork_epoch,
+        ForkName::Gloas => spec.gloas_fork_epoch,
     };
     let current_slot = current_epoch
         .unwrap_or_else(|| panic!("expect fork {fork_name} to be scheduled"))
