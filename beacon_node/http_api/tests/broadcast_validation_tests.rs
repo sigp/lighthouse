@@ -3,7 +3,7 @@ use beacon_chain::{
     test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock, IntoGossipVerifiedBlock, WhenSlotSkipped,
 };
-use eth2::reqwest::StatusCode;
+use eth2::reqwest::{StatusCode, Response};
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
 use http_api::{publish_blinded_block, publish_block, reconstruct_block, Config, ProvenancedBlock};
@@ -76,7 +76,7 @@ pub async fn gossip_invalid() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
@@ -131,7 +131,7 @@ pub async fn gossip_partial_pass() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
@@ -168,7 +168,7 @@ pub async fn gossip_full_pass() {
     let state_a = tester.harness.get_current_state();
     let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
@@ -217,7 +217,7 @@ pub async fn gossip_full_pass_ssz() {
     let (block_contents_tuple, _) = tester.harness.make_block(state_a, slot_b).await;
     let block_contents = block_contents_tuple.into();
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&block_contents, validation_level)
         .await;
@@ -264,7 +264,7 @@ pub async fn consensus_invalid() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
@@ -320,7 +320,7 @@ pub async fn consensus_gossip() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
@@ -446,7 +446,7 @@ pub async fn consensus_full_pass() {
     let state_a = tester.harness.get_current_state();
     let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
@@ -498,7 +498,7 @@ pub async fn equivocation_invalid() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
@@ -576,7 +576,7 @@ pub async fn equivocation_consensus_early_equivocation() {
         .block_is_known_to_fork_choice(&block_a.canonical_root()));
 
     /* submit `block_b` which should induce equivocation */
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_b.clone(), blobs_b),
@@ -630,7 +630,7 @@ pub async fn equivocation_gossip() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
@@ -751,7 +751,7 @@ pub async fn equivocation_full_pass() {
     let state_a = tester.harness.get_current_state();
     let ((block, blobs), _) = tester.harness.make_block(state_a, slot_b).await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), blobs),
@@ -802,7 +802,7 @@ pub async fn blinded_gossip_invalid() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
@@ -857,7 +857,7 @@ pub async fn blinded_gossip_partial_pass() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
@@ -893,7 +893,7 @@ pub async fn blinded_gossip_full_pass() {
 
     let state_a = tester.harness.get_current_state();
     let (blinded_block, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
@@ -935,7 +935,7 @@ pub async fn blinded_gossip_full_pass_ssz() {
     let state_a = tester.harness.get_current_state();
     let (blinded_block, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2_ssz(&blinded_block, validation_level)
         .await;
@@ -995,7 +995,7 @@ pub async fn blinded_consensus_invalid() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
@@ -1052,10 +1052,11 @@ pub async fn blinded_consensus_gossip() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
+
     assert!(response.is_err());
 
     let error_response: eth2::Error = response.err().unwrap();
@@ -1102,7 +1103,7 @@ pub async fn blinded_consensus_full_pass() {
     let state_a = tester.harness.get_current_state();
     let (blinded_block, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
@@ -1163,7 +1164,7 @@ pub async fn blinded_equivocation_invalid() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
@@ -1239,7 +1240,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
         .block_is_known_to_fork_choice(&block_a.canonical_root()));
 
     /* submit `block_b` which should induce equivocation */
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&block_b, validation_level)
         .await;
@@ -1287,7 +1288,7 @@ pub async fn blinded_equivocation_gossip() {
         })
         .await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
@@ -1440,7 +1441,7 @@ pub async fn blinded_equivocation_full_pass() {
     let state_a = tester.harness.get_current_state();
     let (block, _) = tester.harness.make_blinded_block(state_a, slot_b).await;
 
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blinded_blocks_v2(&block, validation_level)
         .await;
@@ -1502,7 +1503,7 @@ pub async fn block_seen_on_gossip_without_blobs_or_columns() {
         .block_is_known_to_fork_choice(&block.canonical_root()));
 
     // Post the block *and* blobs to the HTTP API.
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some(blobs)),
@@ -1586,7 +1587,7 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
         .block_is_known_to_fork_choice(&block.canonical_root()));
 
     // Post the block *and* all blobs to the HTTP API.
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some(blobs)),
@@ -1657,7 +1658,7 @@ pub async fn blobs_or_columns_seen_on_gossip_without_block() {
         .block_is_known_to_fork_choice(&block.canonical_root()));
 
     // Post the block *and* all blobs to the HTTP API.
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs))),
@@ -1728,7 +1729,7 @@ async fn blobs_or_columns_seen_on_gossip_without_block_and_no_http_blobs_or_colu
         .block_is_known_to_fork_choice(&block.canonical_root()));
 
     // Post just the block to the HTTP API (blob lists are empty).
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(
@@ -1802,7 +1803,7 @@ async fn slashable_blobs_or_columns_seen_on_gossip_cause_failure() {
         .block_is_known_to_fork_choice(&block_b.canonical_root()));
 
     // Post block A *and* all its blobs to the HTTP API.
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(
             &PublishBlockRequest::new(block_a.clone(), Some((kzg_proofs_a, blobs_a))),
@@ -1862,7 +1863,7 @@ pub async fn duplicate_block_status_code() {
 
     // Post the block blobs to the HTTP API once.
     let block_request = PublishBlockRequest::new(block.clone(), Some((kzg_proofs, blobs)));
-    let response: Result<(), eth2::Error> = tester
+    let response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&block_request, validation_level)
         .await;
@@ -1875,7 +1876,7 @@ pub async fn duplicate_block_status_code() {
         .block_is_known_to_fork_choice(&block.canonical_root()));
 
     // Post again.
-    let duplicate_response: Result<(), eth2::Error> = tester
+    let duplicate_response: Result<Response, eth2::Error> = tester
         .client
         .post_beacon_blocks_v2_ssz(&block_request, validation_level)
         .await;

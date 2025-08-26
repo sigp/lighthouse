@@ -5,7 +5,7 @@ use beacon_chain::{
 };
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
-    reqwest::{RequestBuilder, Response},
+    reqwest::RequestBuilder,
     types::{
         BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
     },
@@ -1571,14 +1571,14 @@ impl ApiTester {
             .await
             .0;
 
-        let response : Result<Response, Error> = self
+        let response : Result<Response, eth2::types::Error> = self
             .client
             .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
             .await;
 
         assert!(response.is_ok());
 
-        assert_eq!(response.expect("infailable").status(), StatusCode::ACCEPTED);
+        assert_eq!(response.expect().status, StatusCode::ACCEPTED);
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1601,13 +1601,13 @@ impl ApiTester {
             .await
             .0;
 
-        let response : Result<Response, Error> = self
+        let response : Result<Response, eth2::types::Error> = self
             .client
             .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
             .await;
 
         assert!(response.is_ok());
-        assert_eq!(response.expect("infailable").status(), StatusCode::ACCEPTED);
+        assert_eq!(response.expect().status, StatusCode::ACCEPTED);
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
             "gossip valid blocks should be sent to network"

@@ -1223,8 +1223,8 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version(
+    ) -> Result<Response, Error> {
+        let response = self.post_generic_with_consensus_version(
             self.post_beacon_blocks_v2_path(validation_level)?,
             block_contents,
             Some(self.timeouts.proposal),
@@ -1232,7 +1232,7 @@ impl BeaconNodeHttpClient {
         )
         .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blocks`
@@ -1240,8 +1240,8 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version_and_ssz_body(
+    ) -> Result<Response, Error> {
+        let response = self.post_generic_with_consensus_version_and_ssz_body(
             self.post_beacon_blocks_v2_path(validation_level)?,
             block_contents.as_ssz_bytes(),
             Some(self.timeouts.proposal),
@@ -1249,7 +1249,7 @@ impl BeaconNodeHttpClient {
         )
         .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blinded_blocks`
@@ -1257,8 +1257,8 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version(
+    ) -> Result<Response, Error> {
+        let response = self.post_generic_with_consensus_version(
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
             signed_block,
             Some(self.timeouts.proposal),
@@ -1266,7 +1266,7 @@ impl BeaconNodeHttpClient {
         )
         .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blinded_blocks`
@@ -1274,8 +1274,8 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version_and_ssz_body(
+    ) -> Result<Response, Error> {
+        let response = self.post_generic_with_consensus_version_and_ssz_body(
             self.post_beacon_blinded_blocks_v2_path(validation_level)?,
             signed_block.as_ssz_bytes(),
             Some(self.timeouts.proposal),
@@ -1283,7 +1283,7 @@ impl BeaconNodeHttpClient {
         )
         .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// Path for `v2/beacon/blocks`
