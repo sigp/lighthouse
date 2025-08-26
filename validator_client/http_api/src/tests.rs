@@ -208,7 +208,12 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let result = if self.spec.is_fulu_scheduled() {
+        let result = if self.spec.is_gloas_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetGloas>()
+                .await
+                .map(|res| ConfigAndPreset::Gloas(res.data))
+        } else if self.spec.is_fulu_scheduled() {
             self.client
                 .get_lighthouse_spec::<ConfigAndPresetFulu>()
                 .await

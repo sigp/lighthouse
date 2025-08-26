@@ -86,6 +86,7 @@ pub struct MockExecutionConfig {
     pub cancun_time: Option<u64>,
     pub prague_time: Option<u64>,
     pub osaka_time: Option<u64>,
+    pub amsterdam_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -100,6 +101,7 @@ impl Default for MockExecutionConfig {
             cancun_time: None,
             prague_time: None,
             osaka_time: None,
+            amsterdam_time: None,
         }
     }
 }
@@ -123,6 +125,7 @@ impl<E: EthSpec> MockServer<E> {
             None, // FIXME(deneb): should this be the default?
             None, // FIXME(electra): should this be the default?
             None, // FIXME(fulu): should this be the default?
+            None, // FIXME(gloas): should this be the default?
             chain_spec,
             None,
         )
@@ -145,6 +148,7 @@ impl<E: EthSpec> MockServer<E> {
             cancun_time,
             prague_time,
             osaka_time,
+            amsterdam_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -156,6 +160,7 @@ impl<E: EthSpec> MockServer<E> {
             cancun_time,
             prague_time,
             osaka_time,
+            amsterdam_time,
             spec,
             kzg,
         );
@@ -220,6 +225,7 @@ impl<E: EthSpec> MockServer<E> {
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
+        amsterdam_time: Option<u64>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
@@ -235,6 +241,7 @@ impl<E: EthSpec> MockServer<E> {
                 cancun_time,
                 prague_time,
                 osaka_time,
+                amsterdam_time,
             },
             spec,
             kzg,
