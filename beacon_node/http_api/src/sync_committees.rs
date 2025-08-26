@@ -235,6 +235,7 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                             seen_timestamp,
                             verified.sync_message(),
                             &chain.slot_clock,
+                            &chain.spec,
                         );
 
                     verified_for_pool = Some(verified);

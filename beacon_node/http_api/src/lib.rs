@@ -3588,6 +3588,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         verified_aggregate.aggregate(),
                                         verified_aggregate.indexed_attestation(),
                                         &chain.slot_clock,
+                                        &chain.spec,
                                     );
 
                                 verified_aggregates.push((index, verified_aggregate));

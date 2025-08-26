@@ -20,7 +20,6 @@ use types::{
     AbstractExecPayload, AttestationShufflingId, AttesterSlashingRef, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
     FixedBytesExtended, Hash256, IndexedAttestationRef, RelativeEpoch, SignedBeaconBlock, Slot,
-    consts::bellatrix::INTERVALS_PER_SLOT,
 };
 
 #[derive(Debug)]
@@ -725,9 +724,11 @@ where
             }));
         }
 
+        let attestation_threshold_ms = spec.get_slot_component_duration(spec.attestation_due_bps);
+
         // Add proposer score boost if the block is timely.
         let is_before_attesting_interval =
-            block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
+            block_delay < attestation_threshold_ms;
 
         let is_first_block = self.fc_store.proposer_boost_root().is_zero();
         if current_slot == block.slot() && is_before_attesting_interval && is_first_block {

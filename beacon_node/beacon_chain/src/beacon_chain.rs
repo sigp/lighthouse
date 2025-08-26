@@ -5068,7 +5068,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
         block_delays
             .observed
-            .is_some_and(|delay| delay >= self.slot_clock.unagg_attestation_production_delay())
+            .is_some_and(|delay| delay >= self.spec.get_slot_component_duration(self.spec.attestation_due_bps))
     }
 
     /// Produce a block for some `slot` upon the given `state`.

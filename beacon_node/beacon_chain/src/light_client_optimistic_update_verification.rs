@@ -70,7 +70,9 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             .slot_clock
             .start_of(rcv_optimistic_update.signature_slot())
             .ok_or(Error::SigSlotStartIsNone)?;
-        let one_third_slot_duration = Duration::new(chain.spec.seconds_per_slot / 3, 0);
+
+        let one_third_slot_duration = chain.spec.get_slot_component_duration(chain.spec.sync_message_due_bps);
+        
         if seen_timestamp + chain.spec.maximum_gossip_clock_disparity()
             < start_time + one_third_slot_duration
         {

@@ -179,8 +179,12 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let genesis_delay = GENESIS_DELAY;
 
+    // TODO: deprecate
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
+
+    spec.slot_duration_ms /= speed_up_factor;
+    spec.slot_duration_ms = max(1000, spec.slot_duration_ms);
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
@@ -193,7 +197,9 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
+    // TODO: deprecate
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    // let slot_duration = Duration::from_millis(spec.slot_duration_ms);
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
 
     let disconnection_epoch = 1;

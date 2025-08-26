@@ -1,5 +1,6 @@
 use crate::application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 use crate::blob_sidecar::BlobIdentifier;
+use crate::consts::bellatrix::BASIS_POINTS;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
 use derivative::Derivative;
@@ -86,13 +87,20 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub genesis_delay: u64,
+    // TODO: deprecate
     pub seconds_per_slot: u64,
+    pub slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
     pub min_epochs_to_inactivity_penalty: u64,
     pub min_validator_withdrawability_delay: Epoch,
     pub shard_committee_period: u64,
+    pub proposer_reorg_cutoff_bps: u64,
+    pub attestation_due_bps: u64,
+    pub aggregate_due_bps: u64,
+    pub sync_message_due_bps: u64,
+    pub contribution_due_bps: u64,
 
     /*
      * Reward and penalty quotients
@@ -865,6 +873,10 @@ impl ChainSpec {
         )
     }
 
+    pub fn get_slot_component_duration(&self, component_basis_points: u64) -> Duration {
+        Duration::from_millis(component_basis_points.safe_mul(self.slot_duration_ms).expect("should not overflow").safe_div(BASIS_POINTS).expect("should not divide by zero"))
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -927,13 +939,18 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 604800, // 7 days
-            seconds_per_slot: 12,
+            seconds_per_slot: 12, // TODO: deprecate
+            slot_duration_ms: 12000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
             min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
             shard_committee_period: 256,
+            proposer_reorg_cutoff_bps: 1667,
+            attestation_due_bps: 3333,
+            aggregate_due_bps: 6667,
+
 
             /*
              * Reward and penalty quotients
@@ -998,6 +1015,8 @@ impl ChainSpec {
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
             altair_fork_epoch: Some(Epoch::new(74240)),
+            sync_message_due_bps: 3333,
+            contribution_due_bps: 6667,
 
             /*
              * Bellatrix hard fork params
@@ -1158,7 +1177,8 @@ impl ChainSpec {
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
             shard_committee_period: 64,
             genesis_delay: 300,
-            seconds_per_slot: 6,
+            seconds_per_slot: 6, // TODO: deprecate
+            slot_duration_ms: 6000,
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
             proportional_slashing_multiplier: 2,
@@ -1273,13 +1293,17 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 6000, // 100 minutes
-            seconds_per_slot: 5,
+            seconds_per_slot: 5, // TODO: deprecate
+            slot_duration_ms: 5000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
             min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
             shard_committee_period: 256,
+            proposer_reorg_cutoff_bps: 1667,
+            attestation_due_bps: 3333,
+            aggregate_due_bps: 6667,
 
             /*
              * Reward and penalty quotients
@@ -1344,6 +1368,8 @@ impl ChainSpec {
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x64],
             altair_fork_epoch: Some(Epoch::new(512)),
+            sync_message_due_bps: 3333,
+            contribution_due_bps: 6667,
 
             /*
              * Bellatrix hard fork params
@@ -1692,7 +1718,9 @@ pub struct Config {
     pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
-    seconds_per_slot: u64,
+    seconds_per_slot: u64, // TODO: deprecate
+    #[serde(with = "serde_utils::quoted_u64")]
+    slot_duration_ms: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_eth1_block: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2154,7 +2182,8 @@ impl Config {
                 .gloas_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
-            seconds_per_slot: spec.seconds_per_slot,
+            seconds_per_slot: spec.seconds_per_slot, // TODO: deprecate
+            slot_duration_ms: spec.slot_duration_ms,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
             shard_committee_period: spec.shard_committee_period,
@@ -2245,7 +2274,8 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch,
-            seconds_per_slot,
+            seconds_per_slot, // TODO: deprecate
+            slot_duration_ms,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -2318,7 +2348,8 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
-            seconds_per_slot,
+            seconds_per_slot, // TODO: deprecate
+            slot_duration_ms,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
             shard_committee_period,
@@ -2568,6 +2599,7 @@ mod yaml_tests {
 
     #[test]
     fn blob_schedule_max_blobs_per_block() {
+        // TODO: deprecate SECONDS_PER_SLOT
         let spec_contents = r#"
         PRESET_BASE: 'mainnet'
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
@@ -2575,6 +2607,7 @@ mod yaml_tests {
         GENESIS_FORK_VERSION: 0x10355025
         GENESIS_DELAY: 60
         SECONDS_PER_SLOT: 12
+        SLOT_DURATION_MS: 12000
         SECONDS_PER_ETH1_BLOCK: 12
         MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
         SHARD_COMMITTEE_PERIOD: 256
@@ -2717,6 +2750,7 @@ mod yaml_tests {
 
     #[test]
     fn blob_schedule_fork_digest() {
+        // TODO: deprecate SECONDS_PER_SLOT
         let spec_contents = r#"
         PRESET_BASE: 'mainnet'
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
@@ -2724,6 +2758,7 @@ mod yaml_tests {
         GENESIS_FORK_VERSION: 0x10355025
         GENESIS_DELAY: 60
         SECONDS_PER_SLOT: 12
+        SLOT_DURATION_MS: 12000
         SECONDS_PER_ETH1_BLOCK: 12
         MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
         SHARD_COMMITTEE_PERIOD: 256
@@ -2819,6 +2854,7 @@ mod yaml_tests {
 
     #[test]
     fn test_defaults() {
+        // TODO: deprecate SECONDS_PER_SLOT
         // Spec yaml string. Fields that serialize/deserialize with a default value are commented out.
         let spec = r#"
         PRESET_BASE: 'mainnet'
@@ -2836,6 +2872,7 @@ mod yaml_tests {
         SHARDING_FORK_VERSION: 0x03000000
         SHARDING_FORK_EPOCH: 18446744073709551615
         SECONDS_PER_SLOT: 12
+        SLOT_DURATION_MS: 12000
         SECONDS_PER_ETH1_BLOCK: 14
         MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
         SHARD_COMMITTEE_PERIOD: 256

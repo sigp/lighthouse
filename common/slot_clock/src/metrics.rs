@@ -11,12 +11,21 @@ pub static PRESENT_EPOCH: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
 pub static SLOTS_PER_EPOCH: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge("slotclock_slots_per_epoch", "Slots per epoch (constant)")
 });
+// TODO: deprecate
 pub static SECONDS_PER_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "slotclock_slot_time_seconds",
         "The duration in seconds between each slot",
     )
 });
+/*
+pub static SLOT_DURATION_MS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "slotclock_slot_duration_ms",
+        "The duration in ms between each slot",
+    )
+});
+*/
 
 /// Update the global metrics `DEFAULT_REGISTRY` with info from the slot clock.
 pub fn scrape_for_metrics<E: EthSpec, U: SlotClock>(clock: &U) {

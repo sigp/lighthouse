@@ -333,6 +333,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         seen_timestamp,
                         indexed_attestation,
                         &self.chain.slot_clock,
+                        &self.chain.spec,
                     );
 
                 // If the attestation is still timely, propagate it.
@@ -542,6 +543,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         aggregate,
                         indexed_attestation,
                         &self.chain.slot_clock,
+                        &self.chain.spec,
                     );
 
                 metrics::inc_counter(
@@ -802,7 +804,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(gossip_verified_blob) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOB_VERIFIED_TOTAL);
 
-                if delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                if delay >= self.chain.spec.get_slot_component_duration(self.chain.spec.attestation_due_bps) {
                     metrics::inc_counter(&metrics::BEACON_BLOB_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         block_root = ?gossip_verified_blob.block_root(),
@@ -1211,7 +1213,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let verified_block = match verification_result {
             Ok(verified_block) => {
-                if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
+                if block_delay >= self.chain.spec.get_slot_component_duration(self.chain.spec.attestation_due_bps) {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_DELAY_GOSSIP_ARRIVED_LATE_TOTAL);
                     debug!(
                         block_root = ?verified_block.block_root,
@@ -1887,6 +1889,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 seen_timestamp,
                 sync_signature.sync_message(),
                 &self.chain.slot_clock,
+                &self.chain.spec
             );
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_SYNC_MESSAGE_VERIFIED_TOTAL);

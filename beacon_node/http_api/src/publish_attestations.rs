@@ -96,6 +96,7 @@ fn verify_and_publish_attestation<T: BeaconChainTypes>(
             seen_timestamp,
             verified_attestation.indexed_attestation(),
             &chain.slot_clock,
+            &chain.spec,
         );
 
     let fc_result = chain.apply_attestation_to_fork_choice(&verified_attestation);

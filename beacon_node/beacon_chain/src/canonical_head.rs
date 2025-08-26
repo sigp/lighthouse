@@ -838,6 +838,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .as_utf8_lossy(),
             &self.slot_clock,
             self.event_handler.as_ref(),
+            &self.spec,
         );
 
         if is_epoch_transition || reorg_distance.is_some() {
@@ -1291,6 +1292,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
     head_block_graffiti: String,
     slot_clock: &S,
     event_handler: Option<&ServerSentEventHandler<E>>,
+    spec: &ChainSpec,
 ) {
     let Some(block_time_set_as_head) = slot_clock.now_duration() else {
         // Practically unreachable: the slot clock's time should not be before the UNIX epoch.
@@ -1420,7 +1422,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
 
         // Determine whether the block has been set as head too late for proper attestation
         // production.
-        let late_head = attestable_delay >= slot_clock.unagg_attestation_production_delay();
+        let late_head = attestable_delay >= spec.get_slot_component_duration(spec.attestation_due_bps);
 
         // If the block was enshrined as head too late for attestations to be created for it,
         // log a debug warning and increment a metric.

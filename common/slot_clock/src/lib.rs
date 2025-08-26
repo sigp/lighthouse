@@ -77,24 +77,6 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
             .or_else(|| Some(self.genesis_slot()))
     }
 
-    /// Returns the delay between the start of the slot and when unaggregated attestations should be
-    /// produced.
-    fn unagg_attestation_production_delay(&self) -> Duration {
-        self.slot_duration() / INTERVALS_PER_SLOT as u32
-    }
-
-    /// Returns the delay between the start of the slot and when sync committee messages should be
-    /// produced.
-    fn sync_committee_message_production_delay(&self) -> Duration {
-        self.slot_duration() / INTERVALS_PER_SLOT as u32
-    }
-
-    /// Returns the delay between the start of the slot and when aggregated attestations should be
-    /// produced.
-    fn agg_attestation_production_delay(&self) -> Duration {
-        self.slot_duration() * 2 / INTERVALS_PER_SLOT as u32
-    }
-
     /// Returns the delay between the start of the slot and when partially aggregated `SyncCommitteeContribution` should be
     /// produced.
     fn sync_committee_contribution_production_delay(&self) -> Duration {
@@ -133,14 +115,5 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
         );
         slot_clock.set_current_time(freeze_at);
         slot_clock
-    }
-
-    /// Returns the delay between the start of the slot and when a request for block components
-    /// missed over gossip in the current slot should be made via RPC.
-    ///
-    /// Currently set equal to 1/2 of the `unagg_attestation_production_delay`, but this may be
-    /// changed in the future.
-    fn single_lookup_delay(&self) -> Duration {
-        self.unagg_attestation_production_delay() / 2
     }
 }
