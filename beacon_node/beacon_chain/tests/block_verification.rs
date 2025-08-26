@@ -788,6 +788,11 @@ async fn invalid_signature_attester_slashing() {
                     .push(attester_slashing.as_electra().unwrap().clone())
                     .expect("should update attester slashing");
             }
+            BeaconBlockBodyRefMut::Gloas(blk) => {
+                blk.attester_slashings
+                    .push(attester_slashing.as_electra().unwrap().clone())
+                    .expect("should update attester slashing");
+            }
         }
         snapshots[block_index].beacon_block =
             Arc::new(SignedBeaconBlock::from_block(block, signature));
@@ -844,6 +849,10 @@ async fn invalid_signature_attestation() {
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),
             BeaconBlockBodyRefMut::Fulu(blk) => blk
+                .attestations
+                .get_mut(0)
+                .map(|att| att.signature = junk_aggregate_signature()),
+            BeaconBlockBodyRefMut::Gloas(blk) => blk
                 .attestations
                 .get_mut(0)
                 .map(|att| att.signature = junk_aggregate_signature()),

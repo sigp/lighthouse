@@ -869,6 +869,30 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
+    pub async fn new_payload_v4_gloas<E: EthSpec>(
+        &self,
+        new_payload_request_gloas: NewPayloadRequestGloas<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::Gloas(new_payload_request_gloas.execution_payload.clone().into()),
+            new_payload_request_gloas.versioned_hashes,
+            new_payload_request_gloas.parent_beacon_block_root,
+            new_payload_request_gloas
+                .execution_requests
+                .get_execution_requests_list(),
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V4,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     pub async fn get_payload_v1<E: EthSpec>(
         &self,
         payload_id: PayloadId,
@@ -1002,6 +1026,18 @@ impl HttpJsonRpc {
                     )
                     .await?;
                 JsonGetPayloadResponse::Fulu(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            ForkName::Gloas => {
+                let response: JsonGetPayloadResponseGloas<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V5,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                JsonGetPayloadResponse::Gloas(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -1289,6 +1325,13 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
+            NewPayloadRequest::Gloas(new_payload_request_gloas) => {
+                if engine_capabilities.new_payload_v4 {
+                    self.new_payload_v4_gloas(new_payload_request_gloas).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
+                }
+            }
         }
     }
 
@@ -1325,6 +1368,13 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Fulu => {
+                if engine_capabilities.get_payload_v5 {
+                    self.get_payload_v5(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
+                }
+            }
+            ForkName::Gloas => {
                 if engine_capabilities.get_payload_v5 {
                     self.get_payload_v5(fork_name, payload_id).await
                 } else {
