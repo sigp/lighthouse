@@ -57,7 +57,7 @@ pub enum CustodyBackFillState {
     Failed,
     /// A custody sync should is set to Pending if the node is undergoing range/backfill syncing.
     /// It should resume syncing after the node is fully synced.
-    Pending { columns: HashSet<ColumnIndex> },
+    Pending,
 }
 
 impl PartialEq for SyncState {

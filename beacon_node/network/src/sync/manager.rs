@@ -612,17 +612,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    /// Updates the global sync state, optionally instigating or pausing a backfill sync as well as
+    /// Updates the global sync state, optionally instigating or pausing a backfill or custody sync as well as
     /// logging any changes.
     ///
     /// The logic for which sync should be running is as follows:
-    /// - If there is a range-sync running (or required) pause any backfill and let range-sync
+    /// - If there is a range-sync running (or required) pause any backfill/custody sync and let range-sync
     ///   complete.
     /// - If there is no current range sync, check for any requirement to backfill and either
     ///   start/resume a backfill sync if required. The global state will be BackFillSync if a
     ///   backfill sync is running.
     /// - If there is no range sync and no required backfill and we have synced up to the currently
     ///   known peers, we consider ourselves synced.
+    /// - If there is no range sync and no required backfill we check if we need to execute a custody sync.
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
@@ -678,8 +679,29 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 error!(error = ?e, "Backfill sync failed to start");
                             }
                         }
+
+                        // If backfill is complete, check if we have a pending custody backfill to complete
+                        let anchor_info = self.chain.store.get_anchor_info();
+                        if anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
+                            match self.custody_sync.resume_pending_sync(&mut self.network) {
+                                Ok(SyncStart::Syncing {
+                                    completed,
+                                    remaining,
+                                }) => {
+                                    sync_state = SyncState::CustodyBackFillSyncing {
+                                        completed,
+                                        remaining,
+                                    };
+                                }
+                                Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if custody sync state didn't start.
+                                Err(e) => {
+                                    error!(error = ?e, "Custody backfill sync failed to resume");
+                                }
+                            }
+                        }
                     }
 
+                    // TODO(custody-sync) this comment seems wrong
                     // Return the sync state if backfilling is not required.
                     sync_state
                 }
@@ -968,12 +990,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         };
 
-        // Custody sync can only start if the node is synced to head and fully backfilled synced.
-        // TODO(custody-sync) check anchor info to decide wether to start or not.
-        match sync_state {
-            SyncState::Synced => {
-                match sync_service_message {
-                    SyncServiceMessage::CustodyCountChanged { columns } => {
+        match sync_service_message {
+            SyncServiceMessage::CustodyCountChanged { columns } => {
+                match sync_state {
+                    SyncState::Synced => {
+                        let anchor_info = self.chain.store.get_anchor_info();
+                        if !anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
+                            if let Err(e) = self.custody_sync.set_status_to_pending(columns) {
+                                tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
+                            }
+                            return;
+                        }
+
                         match self.custody_sync.start(columns, &mut self.network) {
                             Ok(SyncStart::Syncing {
                                 completed,
@@ -988,10 +1016,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }
                         }
                     }
+                    _ => {
+                        if let Err(e) = self.custody_sync.set_status_to_pending(columns) {
+                            tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
+                        }
+                    }
                 }
-            }
-            _ => {
-                debug!("Cannot trigger a custody backfill sync while the node is not synced")
             }
         }
     }

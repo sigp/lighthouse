@@ -124,6 +124,51 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         }
     }
 
+    pub fn resume_pending_sync(
+        &mut self,
+        network: &mut SyncNetworkContext<T>,
+    ) -> Result<SyncStart, CustodyBackfillError> {
+        match self.state() {
+            CustodyBackFillState::Pending => {
+                if self
+                    .network_globals
+                    .peers
+                    .read()
+                    .synced_peers()
+                    .next()
+                    .is_some()
+                {
+                    // If there are peers to resume with, begin the resume.
+                    self.set_state(CustodyBackFillState::Syncing);
+                    // Resume any previously failed batches.
+                    self.resume_batches(network)?;
+                    // begin requesting blocks from the peer pool, until all peers are exhausted.
+                    self.request_batches(network)?;
+
+                    // start processing batches if needed
+                    self.process_completed_batches(network)?;
+                } else {
+                    return Ok(SyncStart::NotSyncing);
+                }
+            }
+            _ => return Ok(SyncStart::NotSyncing),
+        }
+
+        Ok(SyncStart::Syncing {
+            completed: (self.validated_batches
+                * CUSTODY_BACKFILL_EPOCHS_PER_BATCH
+                * T::EthSpec::slots_per_epoch()) as usize,
+            remaining: self
+                .current_start
+                .end_slot(T::EthSpec::slots_per_epoch())
+                .saturating_sub(
+                    self.get_column_da_boundary()
+                        .start_slot(T::EthSpec::slots_per_epoch()),
+                )
+                .as_usize(),
+        })
+    }
+
     /// Starts syncing.
     #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
     pub fn start(
@@ -1066,6 +1111,17 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         if matches!(self.state(), CustodyBackFillState::Failed) {
             self.restart_failed_sync = true;
         }
+    }
+
+    pub fn set_status_to_pending(
+        &mut self,
+        columns: HashSet<ColumnIndex>,
+    ) -> Result<(), CustodyBackfillError> {
+        self.columns = columns;
+        self.set_start_epoch()?;
+        self.set_state(CustodyBackFillState::Pending);
+
+        Ok(())
     }
 
     /// An RPC error has occurred.
