@@ -6,27 +6,27 @@ use crate::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
     },
     service::NetworkMessage,
-    sync::{manager::BlockProcessType, SyncMessage},
+    sync::{SyncMessage, manager::BlockProcessType},
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
 use beacon_chain::test_utils::{
-    get_kzg, test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy,
-    EphemeralHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, get_kzg,
+    test_spec,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use gossipsub::MessageAcceptance;
 use itertools::Itertools;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
 use lighthouse_network::rpc::InboundRequestId;
+use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
 use lighthouse_network::{
+    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
     discv5::enr::{self, CombinedKey},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
-    Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
 };
 use matches::assert_matches;
 use slot_clock::SlotClock;
@@ -654,10 +654,10 @@ impl TestRig {
 
         loop {
             // Break if we've received the requested count of messages
-            if let Some(target_count) = count {
-                if events.len() >= target_count {
-                    break;
-                }
+            if let Some(target_count) = count
+                && events.len() >= target_count
+            {
+                break;
             }
 
             tokio::select! {

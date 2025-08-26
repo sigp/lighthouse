@@ -16,8 +16,8 @@ use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
-use logging::crit;
 use logging::TimeLatch;
+use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -480,15 +480,14 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     // This logic is slightly awkward since `SlotClock::duration_to_slot`
                     // doesn't distinguish between a slot that has already arrived and an
                     // error reading the slot clock.
-                    if let Some(now) = self.slot_clock.now() {
-                        if block_slot <= now
-                            && self
-                                .ready_work_tx
-                                .try_send(ReadyWork::Block(early_block))
-                                .is_err()
-                        {
-                            error!("Failed to send block");
-                        }
+                    if let Some(now) = self.slot_clock.now()
+                        && block_slot <= now
+                        && self
+                            .ready_work_tx
+                            .try_send(ReadyWork::Block(early_block))
+                            .is_err()
+                    {
+                        error!("Failed to send block");
                     }
                 }
             }
@@ -816,10 +815,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
 
-                    if let Some(queued_atts) = self.awaiting_attestations_per_root.get_mut(&root) {
-                        if let Some(index) = queued_atts.iter().position(|&id| id == queued_id) {
-                            queued_atts.swap_remove(index);
-                        }
+                    if let Some(queued_atts) = self.awaiting_attestations_per_root.get_mut(&root)
+                        && let Some(index) = queued_atts.iter().position(|&id| id == queued_id)
+                    {
+                        queued_atts.swap_remove(index);
                     }
                 }
             }
@@ -843,12 +842,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     if let Some(queued_lc_updates) = self
                         .awaiting_lc_updates_per_parent_root
                         .get_mut(&parent_root)
-                    {
-                        if let Some(index) =
+                        && let Some(index) =
                             queued_lc_updates.iter().position(|&id| id == queued_id)
-                        {
-                            queued_lc_updates.swap_remove(index);
-                        }
+                    {
+                        queued_lc_updates.swap_remove(index);
                     }
                 }
             }

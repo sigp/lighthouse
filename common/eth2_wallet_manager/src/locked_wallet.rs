@@ -1,6 +1,6 @@
 use crate::{
-    filesystem::{read, update},
     Error,
+    filesystem::{read, update},
 };
 use eth2_wallet::{Uuid, ValidatorKeystores, Wallet};
 use lockfile::Lockfile;

@@ -1,10 +1,10 @@
 use crate::beacon_state::balance::Balance;
 use crate::{
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags,
 };
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;

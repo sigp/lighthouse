@@ -2,7 +2,7 @@
 
 use crate::engine_api::auth::JwtKey;
 use crate::engine_api::{
-    auth::Auth, http::JSONRPC_VERSION, ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status,
+    ExecutionBlock, PayloadStatusV1, PayloadStatusV1Status, auth::Auth, http::JSONRPC_VERSION,
 };
 use crate::json_structures::JsonClientVersionV1;
 use bytes::Bytes;
@@ -23,16 +23,16 @@ use std::sync::{Arc, LazyLock};
 use tokio::{runtime, sync::oneshot};
 use tracing::info;
 use types::{ChainSpec, EthSpec, ExecutionBlockHash, Uint256};
-use warp::{http::StatusCode, Filter, Rejection};
+use warp::{Filter, Rejection, http::StatusCode};
 
 use crate::EngineCapabilities;
 pub use execution_block_generator::DEFAULT_GAS_LIMIT;
 pub use execution_block_generator::{
-    generate_blobs, generate_genesis_block, generate_genesis_header, generate_pow_block,
-    mock_el_extra_data, static_valid_tx, Block, ExecutionBlockGenerator,
+    Block, ExecutionBlockGenerator, generate_blobs, generate_genesis_block,
+    generate_genesis_header, generate_pow_block, mock_el_extra_data, static_valid_tx,
 };
 pub use hook::Hook;
-pub use mock_builder::{mock_builder_extra_data, MockBuilder, Operation};
+pub use mock_builder::{MockBuilder, Operation, mock_builder_extra_data};
 pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
@@ -45,7 +45,6 @@ pub const DEFAULT_ENGINE_CAPABILITIES: EngineCapabilities = EngineCapabilities {
     new_payload_v2: true,
     new_payload_v3: true,
     new_payload_v4: true,
-    new_payload_v5: true,
     forkchoice_updated_v1: true,
     forkchoice_updated_v2: true,
     forkchoice_updated_v3: true,
@@ -87,6 +86,7 @@ pub struct MockExecutionConfig {
     pub cancun_time: Option<u64>,
     pub prague_time: Option<u64>,
     pub osaka_time: Option<u64>,
+    pub amsterdam_time: Option<u64>,
 }
 
 impl Default for MockExecutionConfig {
@@ -101,6 +101,7 @@ impl Default for MockExecutionConfig {
             cancun_time: None,
             prague_time: None,
             osaka_time: None,
+            amsterdam_time: None,
         }
     }
 }
@@ -124,6 +125,7 @@ impl<E: EthSpec> MockServer<E> {
             None, // FIXME(deneb): should this be the default?
             None, // FIXME(electra): should this be the default?
             None, // FIXME(fulu): should this be the default?
+            None, // FIXME(gloas): should this be the default?
             chain_spec,
             None,
         )
@@ -146,6 +148,7 @@ impl<E: EthSpec> MockServer<E> {
             cancun_time,
             prague_time,
             osaka_time,
+            amsterdam_time,
         } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -157,6 +160,7 @@ impl<E: EthSpec> MockServer<E> {
             cancun_time,
             prague_time,
             osaka_time,
+            amsterdam_time,
             spec,
             kzg,
         );
@@ -221,6 +225,7 @@ impl<E: EthSpec> MockServer<E> {
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
+        amsterdam_time: Option<u64>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
     ) -> Self {
@@ -236,6 +241,7 @@ impl<E: EthSpec> MockServer<E> {
                 cancun_time,
                 prague_time,
                 osaka_time,
+                amsterdam_time,
             },
             spec,
             kzg,

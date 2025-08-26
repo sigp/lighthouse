@@ -1,7 +1,7 @@
 use super::{AggregateSignature, EthSpec, ForkName, SignedRoot};
 use crate::context_deserialize;
 use crate::slot_data::SlotData;
-use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
+use crate::{BitVector, Hash256, Slot, SyncCommitteeMessage, test_utils::TestRandom};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;

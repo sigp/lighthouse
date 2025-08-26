@@ -50,7 +50,7 @@ pub use bls_eth_fast_aggregate_verify::*;
 pub use bls_fast_aggregate_verify::*;
 pub use bls_sign_msg::*;
 pub use bls_verify_msg::*;
-pub use common::{DataColumnsByRootIdentifierWrapper, SszStaticType};
+pub use common::SszStaticType;
 pub use compute_columns_for_custody_groups::*;
 pub use epoch_processing::*;
 pub use fork::ForkTest;
@@ -167,17 +167,13 @@ impl<T: Case> Cases<T> {
             self.test_cases
                 .into_par_iter()
                 .enumerate()
-                .map(|(i, (ref path, ref tc))| {
-                    CaseResult::new(i, path, tc, tc.result(i, fork_name))
-                })
+                .map(|(i, (path, tc))| CaseResult::new(i, path, tc, tc.result(i, fork_name)))
                 .collect()
         } else {
             self.test_cases
                 .iter()
                 .enumerate()
-                .map(|(i, (ref path, ref tc))| {
-                    CaseResult::new(i, path, tc, tc.result(i, fork_name))
-                })
+                .map(|(i, (path, tc))| CaseResult::new(i, path, tc, tc.result(i, fork_name)))
                 .collect()
         }
     }

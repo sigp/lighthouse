@@ -1,4 +1,5 @@
 use crate::listen_addr::{ListenAddr, ListenAddress};
+use crate::peer_manager::config::DEFAULT_TARGET_PEERS;
 use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
@@ -341,7 +342,7 @@ impl Default for Config {
             enr_udp6_port: None,
             enr_quic6_port: None,
             enr_tcp6_port: None,
-            target_peers: 100,
+            target_peers: DEFAULT_TARGET_PEERS,
             discv5_config,
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
@@ -352,7 +353,7 @@ impl Default for Config {
             disable_discovery: false,
             disable_quic_support: false,
             upnp_enabled: true,
-            network_load: 4,
+            network_load: 3,
             private: false,
             subscribe_all_data_column_subnets: false,
             subscribe_all_subnets: false,
@@ -421,8 +422,8 @@ impl From<u8> for NetworkLoad {
                 mesh_n_low: 4,
                 outbound_min: 3,
                 mesh_n: 8,
-                mesh_n_high: 12,
-                gossip_lazy: 3,
+                mesh_n_high: 10,
+                gossip_lazy: 2,
                 history_gossip: 3,
                 heartbeat_interval: Duration::from_millis(1000),
             },

@@ -1,7 +1,7 @@
 use beacon_chain::block_verification_types::RpcBlock;
+use lighthouse_network::PeerId;
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_network::PeerId;
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -459,17 +459,15 @@ impl Attempt {
 impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BatchState::Processing(Attempt {
-                ref peer_id,
-                hash: _,
-            }) => write!(f, "Processing({})", peer_id),
-            BatchState::AwaitingValidation(Attempt {
-                ref peer_id,
-                hash: _,
-            }) => write!(f, "AwaitingValidation({})", peer_id),
+            BatchState::Processing(Attempt { peer_id, hash: _ }) => {
+                write!(f, "Processing({})", peer_id)
+            }
+            BatchState::AwaitingValidation(Attempt { peer_id, hash: _ }) => {
+                write!(f, "AwaitingValidation({})", peer_id)
+            }
             BatchState::AwaitingDownload => f.write_str("AwaitingDownload"),
             BatchState::Failed => f.write_str("Failed"),
-            BatchState::AwaitingProcessing(ref peer, ref blocks, _) => {
+            BatchState::AwaitingProcessing(peer, blocks, _) => {
                 write!(f, "AwaitingProcessing({}, {} blocks)", peer, blocks.len())
             }
             BatchState::Downloading(request_id) => {

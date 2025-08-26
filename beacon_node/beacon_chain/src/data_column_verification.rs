@@ -1,25 +1,26 @@
 use crate::beacon_proposer_cache::EpochBlockProposers;
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
-    BlockSlashInfo,
+    BlockSlashInfo, cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache,
+    process_block_slash_info,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{ObservationStrategy, Observe};
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, instrument};
 use types::data_column_sidecar::ColumnIndex;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -315,7 +316,8 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 }
 
-pub type CustodyDataColumnList<E> = RuntimeVariableList<CustodyDataColumn<E>>;
+pub type CustodyDataColumnList<E> =
+    VariableList<CustodyDataColumn<E>, <E as EthSpec>::NumberOfColumns>;
 
 /// Data column that we must custody
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
@@ -412,6 +414,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 /// Complete kzg verification for a `DataColumnSidecar`.
 ///
 /// Returns an error if the kzg verification check fails.
+#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
     kzg: &Kzg,
@@ -426,6 +429,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
+#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
     data_column_iter: I,
     kzg: &'a Kzg,
@@ -470,13 +474,14 @@ where
     Err(errors)
 }
 
+#[instrument(skip_all, level = "debug")]
 pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: DataColumnSubnetId,
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
     let column_slot = data_column.slot();
-    verify_data_column_sidecar(&data_column, &chain.spec)?;
+    verify_data_column_sidecar(&data_column)?;
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
@@ -530,9 +535,8 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
 /// Verify if the data column sidecar is valid.
 fn verify_data_column_sidecar<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
-    spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
-    if data_column.index >= spec.number_of_columns {
+    if data_column.index >= E::number_of_columns() as u64 {
         return Err(GossipDataColumnError::InvalidColumnIndex(data_column.index));
     }
     if data_column.kzg_commitments.is_empty() {
@@ -816,7 +820,7 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 #[cfg(test)]
 mod test {
     use crate::data_column_verification::{
-        validate_data_column_sidecar_for_gossip, GossipDataColumnError,
+        GossipDataColumnError, validate_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
     use crate::test_utils::BeaconChainHarness;

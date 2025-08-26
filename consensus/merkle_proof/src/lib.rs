@@ -1,4 +1,4 @@
-use ethereum_hashing::{hash, hash32_concat, ZERO_HASHES};
+use ethereum_hashing::{ZERO_HASHES, hash, hash32_concat};
 use safe_arith::ArithError;
 use std::sync::LazyLock;
 
@@ -113,13 +113,13 @@ impl MerkleTree {
             Zero(_) => {
                 *self = MerkleTree::create(&[elem], depth);
             }
-            Node(ref mut hash, ref mut left, ref mut right) => {
+            Node(hash, left, right) => {
                 let left: &mut MerkleTree = &mut *left;
                 let right: &mut MerkleTree = &mut *right;
                 match (&*left, &*right) {
                     // Tree is full
                     (Leaf(_), Leaf(_)) | (Finalized(_), Leaf(_)) => {
-                        return Err(MerkleTreeError::MerkleTreeFull)
+                        return Err(MerkleTreeError::MerkleTreeFull);
                     }
                     // There is a right node so insert in right node
                     (Node(_, _, _), Node(_, _, _)) | (Finalized(_), Node(_, _, _)) => {

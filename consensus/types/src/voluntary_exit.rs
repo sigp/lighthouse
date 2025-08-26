@@ -1,7 +1,7 @@
 use crate::context_deserialize;
 use crate::{
-    test_utils::TestRandom, ChainSpec, Domain, Epoch, ForkName, Hash256, SecretKey, SignedRoot,
-    SignedVoluntaryExit,
+    ChainSpec, Domain, Epoch, ForkName, Hash256, SecretKey, SignedRoot, SignedVoluntaryExit,
+    test_utils::TestRandom,
 };
 
 use serde::{Deserialize, Serialize};

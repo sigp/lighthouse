@@ -297,6 +297,10 @@ pub struct FuluPreset {
     pub field_elements_per_ext_blob: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     pub kzg_commitments_inclusion_proof_depth: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub cells_per_ext_blob: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub number_of_columns: u64,
 }
 
 impl FuluPreset {
@@ -306,7 +310,19 @@ impl FuluPreset {
             field_elements_per_ext_blob: E::field_elements_per_ext_blob() as u64,
             kzg_commitments_inclusion_proof_depth: E::kzg_commitments_inclusion_proof_depth()
                 as u64,
+            cells_per_ext_blob: E::cells_per_ext_blob() as u64,
+            number_of_columns: E::number_of_columns() as u64,
         }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct GloasPreset {}
+
+impl GloasPreset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {}
     }
 }
 
@@ -357,6 +373,9 @@ mod test {
 
         let fulu: FuluPreset = preset_from_file(&preset_name, "fulu.yaml");
         assert_eq!(fulu, FuluPreset::from_chain_spec::<E>(&spec));
+
+        let gloas: GloasPreset = preset_from_file(&preset_name, "gloas.yaml");
+        assert_eq!(gloas, GloasPreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

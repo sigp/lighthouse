@@ -4,43 +4,43 @@ use crate::data_column_verification::CustodyDataColumn;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
+use crate::{BeaconBlockResponseWrapper, get_block_root};
+use crate::{
+    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
+    StateSkipConfig,
+    builder::{BeaconChainBuilder, Witness},
+};
 pub use crate::{
+    BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
     beacon_chain::{BEACON_CHAIN_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
     single_attestation::single_attestation_to_attestation,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig},
-    BeaconChainError, NotifyExecutionLayer, ProduceBlockVerification,
 };
-use crate::{
-    builder::{BeaconChainBuilder, Witness},
-    BeaconChain, BeaconChainTypes, BlockError, ChainConfig, ServerSentEventHandler,
-    StateSkipConfig,
-};
-use crate::{get_block_root, BeaconBlockResponseWrapper};
 use bls::get_withdrawal_credentials;
 use eth2::types::SignedBlockContentsTuple;
 use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
+    ExecutionLayer,
     auth::JwtKey,
     test_utils::{
-        ExecutionBlockGenerator, MockBuilder, MockExecutionLayer, DEFAULT_JWT_SECRET,
-        DEFAULT_TERMINAL_BLOCK,
+        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, ExecutionBlockGenerator, MockBuilder,
+        MockExecutionLayer,
     },
-    ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
-pub use genesis::{InteropGenesisBuilder, DEFAULT_ETH1_BLOCK_HASH};
+pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
 use int_to_bytes::int_to_bytes32;
+use kzg::Kzg;
 use kzg::trusted_setup::get_trusted_setup;
-use kzg::{Kzg, TrustedSetup};
 use logging::create_test_tracing_subscriber;
 use merkle_proof::MerkleTree;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::{Mutex, RwLockWriteGuard};
-use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slot_clock::{SlotClock, TestingSlotClock};
@@ -54,14 +54,14 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
-use store::{config::StoreConfig, HotColdDB, ItemStore, MemoryStore};
+use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
-use task_executor::{test_utils::TestRuntime, ShutdownReason};
+use task_executor::{ShutdownReason, test_utils::TestRuntime};
 use tree_hash::TreeHash;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
-pub use types::test_utils::generate_deterministic_keypairs;
 use types::test_utils::TestRandom;
+pub use types::test_utils::generate_deterministic_keypairs;
 use types::{typenum::U4294967296, *};
 
 // 4th September 2019
@@ -81,33 +81,18 @@ pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        .expect("should have trusted setup");
-    let kzg = Kzg::new_from_trusted_setup(trusted_setup).expect("should create kzg");
-    Arc::new(kzg)
-});
-
-static KZG_PEERDAS: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        .expect("should have trusted setup");
-    let kzg = Kzg::new_from_trusted_setup_das_enabled(trusted_setup).expect("should create kzg");
+    let kzg = Kzg::new_from_trusted_setup(&get_trusted_setup()).expect("should create kzg");
     Arc::new(kzg)
 });
 
 static KZG_NO_PRECOMP: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
-    let trusted_setup: TrustedSetup = serde_json::from_reader(get_trusted_setup().as_slice())
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))
-        .expect("should have trusted setup");
-    let kzg = Kzg::new_from_trusted_setup_no_precomp(trusted_setup).expect("should create kzg");
+    let kzg =
+        Kzg::new_from_trusted_setup_no_precomp(&get_trusted_setup()).expect("should create kzg");
     Arc::new(kzg)
 });
 
 pub fn get_kzg(spec: &ChainSpec) -> Arc<Kzg> {
     if spec.fulu_fork_epoch.is_some() {
-        KZG_PEERDAS.clone()
-    } else if spec.deneb_fork_epoch.is_some() {
         KZG.clone()
     } else {
         KZG_NO_PRECOMP.clone()
@@ -511,6 +496,10 @@ where
         mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
             genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
         });
+        mock.server.execution_block_generator().amsterdam_time =
+            spec.gloas_fork_epoch.map(|epoch| {
+                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            });
 
         self
     }
@@ -645,6 +634,9 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
     let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
         HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
     });
+    let amsterdam_time = spec.gloas_fork_epoch.map(|epoch| {
+        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+    });
 
     let kzg = get_kzg(&spec);
 
@@ -655,6 +647,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
         cancun_time,
         prague_time,
         osaka_time,
+        amsterdam_time,
         Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
         spec,
         Some(kzg),
@@ -725,7 +718,7 @@ where
         strict_registrations: bool,
         apply_operations: bool,
         broadcast_to_bn: bool,
-    ) -> impl futures::Future<Output = ()> {
+    ) -> impl futures::Future<Output = ()> + use<E, Hot, Cold> {
         let mock_el = self
             .mock_execution_layer
             .as_ref()
@@ -900,7 +893,9 @@ where
             let fork_choice = self.chain.canonical_head.fork_choice_read_lock();
             if heads.is_empty() {
                 let nodes = &fork_choice.proto_array().core_proto_array().nodes;
-                panic!("Expected to know head block root {head_block_root:?}, but heads is empty. Nodes: {nodes:#?}");
+                panic!(
+                    "Expected to know head block root {head_block_root:?}, but heads is empty. Nodes: {nodes:#?}"
+                );
             } else {
                 panic!(
                     "Expected to know head block root {head_block_root:?}, known heads {heads:#?}"
@@ -937,7 +932,7 @@ where
         // If we produce two blocks for the same slot, they hash up to the same value and
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
-        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+        let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -994,7 +989,7 @@ where
         // If we produce two blocks for the same slot, they hash up to the same value and
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
-        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+        let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -1053,7 +1048,7 @@ where
         // If we produce two blocks for the same slot, they hash up to the same value and
         // BeaconChain errors out with `DuplicateFullyImported`.  Vary the graffiti so that we produce
         // different blocks each time.
-        let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
+        let graffiti = Graffiti::from(self.rng.lock().random::<[u8; 32]>());
 
         let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
@@ -2434,8 +2429,7 @@ where
                 .into_iter()
                 .map(CustodyDataColumn::from_asserted_custody)
                 .collect::<Vec<_>>();
-            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns, &self.spec)
-                .unwrap()
+            RpcBlock::new_with_custody_columns(Some(block_root), block, custody_columns).unwrap()
         } else {
             let blobs = self.chain.get_blobs(&block_root).unwrap().blobs();
             RpcBlock::new(Some(block_root), block, blobs).unwrap()
@@ -2462,7 +2456,7 @@ where
                     .filter(|d| sampling_columns.contains(&d.index))
                     .map(CustodyDataColumn::from_asserted_custody)
                     .collect::<Vec<_>>();
-                RpcBlock::new_with_custody_columns(Some(block_root), block, columns, &self.spec)?
+                RpcBlock::new_with_custody_columns(Some(block_root), block, columns)?
             } else {
                 RpcBlock::new_without_blobs(Some(block_root), block)
             }
@@ -3269,7 +3263,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadDeneb<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=max_blobs),
+                NumBlobs::Random => rng.random_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -3289,7 +3283,7 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadElectra<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=max_blobs),
+                NumBlobs::Random => rng.random_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -3308,7 +3302,26 @@ pub fn generate_rand_block_and_blobs<E: EthSpec>(
             // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
             let payload: &mut FullPayloadFulu<E> = &mut message.body.execution_payload;
             let num_blobs = match num_blobs {
-                NumBlobs::Random => rng.gen_range(1..=max_blobs),
+                NumBlobs::Random => rng.random_range(1..=max_blobs),
+                NumBlobs::Number(n) => n,
+                NumBlobs::None => 0,
+            };
+            let (bundle, transactions) =
+                execution_layer::test_utils::generate_blobs::<E>(num_blobs, fork_name).unwrap();
+            payload.execution_payload.transactions = <_>::default();
+            for tx in Vec::from(transactions) {
+                payload.execution_payload.transactions.push(tx).unwrap();
+            }
+            message.body.blob_kzg_commitments = bundle.commitments.clone();
+            bundle
+        }
+        SignedBeaconBlock::Gloas(SignedBeaconBlockGloas {
+            ref mut message, ..
+        }) => {
+            // Get either zero blobs or a random number of blobs between 1 and Max Blobs.
+            let payload: &mut FullPayloadGloas<E> = &mut message.body.execution_payload;
+            let num_blobs = match num_blobs {
+                NumBlobs::Random => rng.random_range(1..=max_blobs),
                 NumBlobs::Number(n) => n,
                 NumBlobs::None => 0,
             };
@@ -3386,7 +3399,7 @@ fn generate_data_column_sidecars_from_block<E: EthSpec>(
     // load the precomputed column sidecar to avoid computing them for every block in the tests.
     let template_data_columns = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
         TEST_DATA_COLUMN_SIDECARS_SSZ,
-        spec.number_of_columns as usize,
+        E::number_of_columns(),
     )
     .unwrap();
 

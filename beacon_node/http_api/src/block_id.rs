@@ -1,5 +1,5 @@
 use crate::version::inconsistent_fork_rejection;
-use crate::{state_id::checkpoint_slot_and_execution_optimistic, ExecutionOptimistic};
+use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
 use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlobIndicesQuery;
@@ -396,8 +396,8 @@ impl BlockId {
         })?;
 
         let num_found_column_keys = column_indices.len();
-        let num_required_columns = chain.spec.number_of_columns / 2;
-        let is_blob_available = num_found_column_keys >= num_required_columns as usize;
+        let num_required_columns = T::EthSpec::number_of_columns() / 2;
+        let is_blob_available = num_found_column_keys >= num_required_columns;
 
         if is_blob_available {
             let data_columns = column_indices
@@ -419,9 +419,9 @@ impl BlockId {
                 },
             )
         } else {
-            Err(warp_utils::reject::custom_server_error(
-                format!("Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found.")
-            ))
+            Err(warp_utils::reject::custom_server_error(format!(
+                "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found."
+            )))
         }
     }
 }
