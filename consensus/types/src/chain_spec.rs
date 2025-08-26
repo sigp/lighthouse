@@ -1,6 +1,5 @@
 use crate::application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 use crate::blob_sidecar::BlobIdentifier;
-use crate::consts::bellatrix::BASIS_POINTS;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
 use derivative::Derivative;
@@ -878,8 +877,6 @@ impl ChainSpec {
             component_basis_points
                 .safe_mul(self.slot_duration_ms)
                 .expect("should not overflow")
-                .safe_div(BASIS_POINTS)
-                .expect("should not divide by zero"),
         )
     }
 
