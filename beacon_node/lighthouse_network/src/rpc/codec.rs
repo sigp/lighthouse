@@ -21,7 +21,7 @@ use types::{
     LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock,
     SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
     SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -830,6 +830,9 @@ fn handle_rpc_response<E: EthSpec>(
             Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
                 SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
             )))),
+            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByRange(Arc::new(
+                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
+            )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
                 format!(
@@ -865,6 +868,9 @@ fn handle_rpc_response<E: EthSpec>(
             )))),
             Some(ForkName::Fulu) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
                 SignedBeaconBlock::Fulu(SignedBeaconBlockFulu::from_ssz_bytes(decoded_buffer)?),
+            )))),
+            Some(ForkName::Gloas) => Ok(Some(RpcSuccessResponse::BlocksByRoot(Arc::new(
+                SignedBeaconBlock::Gloas(SignedBeaconBlockGloas::from_ssz_bytes(decoded_buffer)?),
             )))),
             None => Err(RPCError::ErrorResponse(
                 RpcErrorResponse::InvalidRequest,
@@ -919,6 +925,7 @@ mod tests {
         chain_spec.deneb_fork_epoch = Some(Epoch::new(4));
         chain_spec.electra_fork_epoch = Some(Epoch::new(5));
         chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
+        chain_spec.gloas_fork_epoch = Some(Epoch::new(7));
 
         // check that we have all forks covered
         assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
@@ -934,6 +941,7 @@ mod tests {
             ForkName::Deneb => spec.deneb_fork_epoch,
             ForkName::Electra => spec.electra_fork_epoch,
             ForkName::Fulu => spec.fulu_fork_epoch,
+            ForkName::Gloas => spec.gloas_fork_epoch,
         };
         let current_slot = current_epoch.unwrap().start_slot(Spec::slots_per_epoch());
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), spec)
@@ -1294,7 +1302,7 @@ mod tests {
             encode_then_decode_response(
                 SupportedProtocol::StatusV1,
                 RpcResponse::Success(RpcSuccessResponse::Status(status_message_v2())),
-                ForkName::Fulu,
+                ForkName::Gloas,
                 &chain_spec,
             ),
             Ok(Some(RpcSuccessResponse::Status(status_message_v1())))

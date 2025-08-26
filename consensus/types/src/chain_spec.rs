@@ -209,6 +209,13 @@ pub struct ChainSpec {
     pub balance_per_additional_custody_group: u64,
 
     /*
+     * Gloas hard fork params
+     */
+    pub gloas_fork_version: [u8; 4],
+    /// The Gloas fork epoch is optional, with `None` representing "Gloas never happens".
+    pub gloas_fork_epoch: Option<Epoch>,
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -249,6 +256,10 @@ pub struct ChainSpec {
      */
     pub(crate) blob_schedule: BlobSchedule,
     min_epochs_for_data_column_sidecars_requests: u64,
+
+    /*
+     * Networking Gloas
+     */
 
     /*
      * Networking Derived
@@ -321,25 +332,26 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.fulu_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Fulu,
-            _ => match self.electra_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-                _ => match self.deneb_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                    _ => match self.capella_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                        _ => match self.bellatrix_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
-                            _ => match self.altair_fork_epoch {
-                                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                                _ => ForkName::Base,
-                            },
-                        },
-                    },
-                },
-            },
+        let forks = [
+            (self.gloas_fork_epoch, ForkName::Gloas),
+            (self.fulu_fork_epoch, ForkName::Fulu),
+            (self.electra_fork_epoch, ForkName::Electra),
+            (self.deneb_fork_epoch, ForkName::Deneb),
+            (self.capella_fork_epoch, ForkName::Capella),
+            (self.bellatrix_fork_epoch, ForkName::Bellatrix),
+            (self.altair_fork_epoch, ForkName::Altair),
+        ];
+
+        // Find the first fork where `epoch` is >= `fork_epoch`.
+        for (fork_epoch_opt, fork_name) in forks.iter() {
+            if let Some(fork_epoch) = fork_epoch_opt
+                && epoch >= *fork_epoch
+            {
+                return *fork_name;
+            }
         }
+
+        ForkName::Base
     }
 
     /// Returns the fork version for a named fork.
@@ -352,6 +364,7 @@ impl ChainSpec {
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
             ForkName::Fulu => self.fulu_fork_version,
+            ForkName::Gloas => self.gloas_fork_version,
         }
     }
 
@@ -370,6 +383,7 @@ impl ChainSpec {
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
             ForkName::Fulu => self.fulu_fork_epoch,
+            ForkName::Gloas => self.gloas_fork_epoch,
         }
     }
 
@@ -451,6 +465,12 @@ impl ChainSpec {
     pub fn is_fulu_scheduled(&self) -> bool {
         self.fulu_fork_epoch
             .is_some_and(|fulu_fork_epoch| fulu_fork_epoch != self.far_future_epoch)
+    }
+
+    /// Returns true if `GLOAS_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_gloas_scheduled(&self) -> bool {
+        self.gloas_fork_epoch
+            .is_some_and(|gloas_fork_epoch| gloas_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
@@ -1051,6 +1071,12 @@ impl ChainSpec {
             balance_per_additional_custody_group: 32000000000,
 
             /*
+             * Gloas hard fork params
+             */
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
+            gloas_fork_epoch: None,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -1173,6 +1199,9 @@ impl ChainSpec {
             // Fulu
             fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
             fulu_fork_epoch: None,
+            // Gloas
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
+            gloas_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1386,6 +1415,12 @@ impl ChainSpec {
             samples_per_slot: 8,
             validator_custody_requirement: 8,
             balance_per_additional_custody_group: 32000000000,
+
+            /*
+             * Gloas hard fork params
+             */
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x64],
+            gloas_fork_epoch: None,
 
             /*
              * Network specific
@@ -1648,6 +1683,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub fulu_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_gloas_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    gloas_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1801,6 +1844,11 @@ fn default_electra_fork_version() -> [u8; 4] {
 }
 
 fn default_fulu_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_gloas_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -2101,6 +2149,11 @@ impl Config {
                 .fulu_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            gloas_fork_version: spec.gloas_fork_version,
+            gloas_fork_epoch: spec
+                .gloas_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -2190,6 +2243,8 @@ impl Config {
             electra_fork_version,
             fulu_fork_epoch,
             fulu_fork_version,
+            gloas_fork_version,
+            gloas_fork_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2261,6 +2316,8 @@ impl Config {
             electra_fork_version,
             fulu_fork_epoch: fulu_fork_epoch.map(|q| q.value),
             fulu_fork_version,
+            gloas_fork_version,
+            gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2548,6 +2605,8 @@ mod yaml_tests {
         ELECTRA_FORK_EPOCH: 128
         FULU_FORK_VERSION: 0x70355025
         FULU_FORK_EPOCH: 256
+        GLOAS_FORK_VERSION: 0x80355025
+        GLOAS_FORK_EPOCH: 512
         BLOB_SCHEDULE:
           - EPOCH: 512
             MAX_BLOBS_PER_BLOCK: 12

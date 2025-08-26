@@ -32,6 +32,8 @@ const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
 const DENEB_FORK_EPOCH: u64 = 0;
 const ELECTRA_FORK_EPOCH: u64 = 2;
+// const FULU_FORK_EPOCH: u64 = 3;
+// const GLOAS_FORK_EPOCH: u64 = 4;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];

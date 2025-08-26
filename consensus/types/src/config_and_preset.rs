@@ -1,6 +1,6 @@
 use crate::{
     AltairPreset, BasePreset, BellatrixPreset, CapellaPreset, ChainSpec, Config, DenebPreset,
-    ElectraPreset, EthSpec, FuluPreset, consts::altair, consts::deneb,
+    ElectraPreset, EthSpec, FuluPreset, GloasPreset, consts::altair, consts::deneb,
 };
 use maplit::hashmap;
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use superstruct::superstruct;
 ///
 /// Mostly useful for the API.
 #[superstruct(
-    variants(Deneb, Electra, Fulu),
+    variants(Deneb, Electra, Fulu, Gloas),
     variant_attributes(derive(Serialize, Deserialize, Debug, PartialEq, Clone))
 )]
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -31,12 +31,15 @@ pub struct ConfigAndPreset {
     pub capella_preset: CapellaPreset,
     #[serde(flatten)]
     pub deneb_preset: DenebPreset,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     #[serde(flatten)]
     pub electra_preset: ElectraPreset,
-    #[superstruct(only(Fulu))]
+    #[superstruct(only(Fulu, Gloas))]
     #[serde(flatten)]
     pub fulu_preset: FuluPreset,
+    #[superstruct(only(Gloas))]
+    #[serde(flatten)]
+    pub gloas_preset: GloasPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, Value>,
@@ -52,7 +55,24 @@ impl ConfigAndPreset {
         let deneb_preset = DenebPreset::from_chain_spec::<E>(spec);
         let extra_fields = get_extra_fields(spec);
 
-        if spec.is_fulu_scheduled() {
+        if spec.is_gloas_scheduled() {
+            let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
+            let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
+            let gloas_preset = GloasPreset::from_chain_spec::<E>(spec);
+
+            ConfigAndPreset::Gloas(ConfigAndPresetGloas {
+                config,
+                base_preset,
+                altair_preset,
+                bellatrix_preset,
+                capella_preset,
+                deneb_preset,
+                electra_preset,
+                fulu_preset,
+                gloas_preset,
+                extra_fields,
+            })
+        } else if spec.is_fulu_scheduled() {
             let electra_preset = ElectraPreset::from_chain_spec::<E>(spec);
             let fulu_preset = FuluPreset::from_chain_spec::<E>(spec);
 
@@ -139,8 +159,8 @@ mod test {
             .open(tmp_file.as_ref())
             .expect("error opening file");
         let mut mainnet_spec = ChainSpec::mainnet();
-        // setting fulu_fork_epoch because we are roundtripping a fulu config
-        mainnet_spec.fulu_fork_epoch = Some(Epoch::new(42));
+        // setting gloas_fork_epoch because we are roundtripping a gloas config
+        mainnet_spec.gloas_fork_epoch = Some(Epoch::new(42));
         let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
@@ -158,8 +178,8 @@ mod test {
             .write(false)
             .open(tmp_file.as_ref())
             .expect("error while opening the file");
-        let from: ConfigAndPresetFulu =
+        let from: ConfigAndPresetGloas =
             serde_yaml::from_reader(reader).expect("error while deserializing");
-        assert_eq!(ConfigAndPreset::Fulu(from), yamlconfig);
+        assert_eq!(ConfigAndPreset::Gloas(from), yamlconfig);
     }
 }

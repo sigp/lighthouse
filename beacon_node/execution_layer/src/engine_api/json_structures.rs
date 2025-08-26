@@ -65,7 +65,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "E: EthSpec", rename_all = "camelCase"),
@@ -100,12 +100,12 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
 }
@@ -243,6 +243,35 @@ impl<E: EthSpec> From<ExecutionPayloadFulu<E>> for JsonExecutionPayloadFulu<E> {
     }
 }
 
+impl<E: EthSpec> From<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas<E> {
+    fn from(payload: ExecutionPayloadGloas<E>) -> Self {
+        JsonExecutionPayloadGloas {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+        }
+    }
+}
+
 impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
     fn from(execution_payload: ExecutionPayload<E>) -> Self {
         match execution_payload {
@@ -251,6 +280,7 @@ impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
             ExecutionPayload::Deneb(payload) => JsonExecutionPayload::Deneb(payload.into()),
             ExecutionPayload::Electra(payload) => JsonExecutionPayload::Electra(payload.into()),
             ExecutionPayload::Fulu(payload) => JsonExecutionPayload::Fulu(payload.into()),
+            ExecutionPayload::Gloas(payload) => JsonExecutionPayload::Gloas(payload.into()),
         }
     }
 }
@@ -389,6 +419,35 @@ impl<E: EthSpec> From<JsonExecutionPayloadFulu<E>> for ExecutionPayloadFulu<E> {
     }
 }
 
+impl<E: EthSpec> From<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas<E> {
+    fn from(payload: JsonExecutionPayloadGloas<E>) -> Self {
+        ExecutionPayloadGloas {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+        }
+    }
+}
+
 impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
     fn from(json_execution_payload: JsonExecutionPayload<E>) -> Self {
         match json_execution_payload {
@@ -397,6 +456,7 @@ impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
             JsonExecutionPayload::Deneb(payload) => ExecutionPayload::Deneb(payload.into()),
             JsonExecutionPayload::Electra(payload) => ExecutionPayload::Electra(payload.into()),
             JsonExecutionPayload::Fulu(payload) => ExecutionPayload::Fulu(payload.into()),
+            JsonExecutionPayload::Gloas(payload) => ExecutionPayload::Gloas(payload.into()),
         }
     }
 }
@@ -482,7 +542,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
         serde(bound = "E: EthSpec", rename_all = "camelCase")
@@ -506,13 +566,15 @@ pub struct JsonGetPayloadResponse<E: EthSpec> {
     pub execution_payload: JsonExecutionPayloadElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: JsonExecutionPayloadFulu<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
+    pub execution_payload: JsonExecutionPayloadGloas<E>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub blobs_bundle: JsonBlobsBundleV1<E>,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub execution_requests: JsonExecutionRequests,
 }
 
@@ -553,6 +615,17 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
             }
             JsonGetPayloadResponse::Fulu(response) => {
                 Ok(GetPayloadResponse::Fulu(GetPayloadResponseFulu {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle.into(),
+                    should_override_builder: response.should_override_builder,
+                    requests: response.execution_requests.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution requests  {:?}", e)
+                    })?,
+                }))
+            }
+            JsonGetPayloadResponse::Gloas(response) => {
+                Ok(GetPayloadResponse::Gloas(GetPayloadResponseGloas {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),
