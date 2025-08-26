@@ -11,7 +11,7 @@ pub struct BlobsByRootSingleBlockRequest {
 }
 
 impl BlobsByRootSingleBlockRequest {
-    pub fn into_request(self, spec: &ForkContext) -> BlobsByRootRequest {
+    pub fn into_request(self, spec: &ForkContext) -> Result<BlobsByRootRequest, String> {
         BlobsByRootRequest::new(
             self.indices
                 .into_iter()
@@ -22,7 +22,6 @@ impl BlobsByRootSingleBlockRequest {
                 .collect(),
             spec,
         )
-        .expect("single block lookup should always satisfy limit for BlobsByRootRequest")
     }
 }
 

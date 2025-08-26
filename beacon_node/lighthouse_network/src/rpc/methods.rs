@@ -513,7 +513,7 @@ impl BlobsByRootRequest {
             .spec
             .max_request_blob_sidecars(fork_context.current_fork_name());
         let blob_ids = RuntimeVariableList::new(blob_ids, max_request_blob_sidecars)
-            .map_err(|e| format!("BlocksByRootRequestV1 too many roots: {e:?}"))?;
+            .map_err(|e| format!("BlobsByRootRequestV1 too many blob IDs: {e:?}"))?;
         Ok(Self { blob_ids })
     }
 }
@@ -531,7 +531,7 @@ impl<E: EthSpec> DataColumnsByRootRequest<E> {
         max_request_blocks: usize,
     ) -> Result<Self, &'static str> {
         let data_column_ids = RuntimeVariableList::new(data_column_ids, max_request_blocks)
-            .map_err(|_| "DataColumnsByRootRequest too many roots")?;
+            .map_err(|_| "DataColumnsByRootRequest too many column IDs")?;
         Ok(Self { data_column_ids })
     }
 
