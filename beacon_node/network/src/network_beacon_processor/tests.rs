@@ -1419,6 +1419,9 @@ async fn test_data_column_import_notifies_sync() {
     rig.enqueue_gossip_block();
     rig.assert_event_journal_completes(&[WorkType::GossipBlock])
         .await;
+    rig.receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
+        .await
+        .expect("should receive sync message");
 
     // Enqueue data columns which should trigger block import when complete
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
@@ -1440,7 +1443,7 @@ async fn test_data_column_import_notifies_sync() {
         let sync_messages = rig
             .receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
             .await
-            .expect("should receive sync messages");
+            .expect("should receive sync message");
 
         // Verify we received the expected GossipBlockProcessResult message
         assert_eq!(
