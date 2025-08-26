@@ -451,11 +451,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .import_historical_data_column_batch(process_id, downloaded_columns)
         {
             Ok(imported_columns) => {
-                // TODO(custody-sync) metrics
-                // metrics::inc_counter(
-                //     &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_SUCCESS_TOTAL,
-                // );
-                // (imported_blocks, Ok(()))
+                metrics::inc_counter_by(
+                     &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_COLUMN_IMPORT_SUCCESS_TOTAL,
+                     imported_columns as u64
+                );
                 CustodyBatchProcessResult::Success {
                     batch_id: process_id,
                     sent_columns,
@@ -464,7 +463,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(e) => {
                 metrics::inc_counter(
-                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_FAILED_TOTAL,
+                    &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_BATCH_FAILED_TOTAL,
                 );
                 let peer_action: Option<PeerAction> = match &e {
                     HistoricalDataColumnError::NoBlockFound {

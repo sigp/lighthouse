@@ -130,6 +130,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     ) -> Result<SyncStart, CustodyBackfillError> {
         match self.state() {
             CustodyBackFillState::Pending => {
+                if self.check_completed() {
+                    self.set_state(CustodyBackFillState::Completed);
+                    return Ok(SyncStart::NotSyncing);
+                }
                 if self
                     .network_globals
                     .peers
@@ -154,6 +158,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             _ => return Ok(SyncStart::NotSyncing),
         }
 
+        let Some(column_da_boundary) = self.get_column_da_boundary() else {
+            return Ok(SyncStart::NotSyncing);
+        };
+
         Ok(SyncStart::Syncing {
             completed: (self.validated_batches
                 * CUSTODY_BACKFILL_EPOCHS_PER_BATCH
@@ -161,10 +169,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             remaining: self
                 .current_start
                 .end_slot(T::EthSpec::slots_per_epoch())
-                .saturating_sub(
-                    self.get_column_da_boundary()
-                        .start_slot(T::EthSpec::slots_per_epoch()),
-                )
+                .saturating_sub(column_da_boundary.start_slot(T::EthSpec::slots_per_epoch()))
                 .as_usize(),
         })
     }
@@ -227,7 +232,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 // begin requesting data columns from the peer pool, until all peers are exhausted.
                 self.request_batches(network)?;
             }
-            // TODO(custody-sync) Completed looks alot like Paused
             CustodyBackFillState::Completed => {
                 if !self.check_completed() {
                     self.columns = column_indices;
@@ -258,6 +262,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             CustodyBackFillState::Pending { .. } => return Ok(SyncStart::NotSyncing),
         }
 
+        let Some(column_da_boundary) = self.get_column_da_boundary() else {
+            return Ok(SyncStart::NotSyncing);
+        };
+
         Ok(SyncStart::Syncing {
             completed: (self.validated_batches
                 * CUSTODY_BACKFILL_EPOCHS_PER_BATCH
@@ -265,10 +273,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             remaining: self
                 .current_start
                 .end_slot(T::EthSpec::slots_per_epoch())
-                .saturating_sub(
-                    self.get_column_da_boundary()
-                        .start_slot(T::EthSpec::slots_per_epoch()),
-                )
+                .saturating_sub(column_da_boundary.start_slot(T::EthSpec::slots_per_epoch()))
                 .as_usize(),
         })
     }
@@ -595,8 +600,11 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     self.advance_custody_sync(network, batch_id);
                 }
 
-                // TODO(custody-sync)
-                let fulu_fork_epoch = self.beacon_chain.spec.fulu_fork_epoch.unwrap();
+                let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch else {
+                    return Err(CustodyBackfillError::InvalidSyncState(
+                        "Fulu epoch isn't schedlued".to_string()
+                    ))
+                };
 
                 if batch_id == self.processing_target {
                     // Advance processing target if we're above the Fulu fork epoch
@@ -727,7 +735,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     return Ok(ProcessResult::Successful);
                 }
                 CustodyBatchState::AwaitingValidation(_) => {
-                    // TODO(custody-sync) this is possible when running custody sync a second time
+                    // TODO(custody-sync) this is possible at the end of custody sync
+
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
                     crit!(
@@ -764,10 +773,11 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
         validating_epoch: Epoch,
     ) {
+        let Some(column_da_boundary) = self.get_column_da_boundary() else {
+            return;
+        };
         // make sure this epoch produces an advancement, unless its at the column DA boundary
-        if validating_epoch >= self.current_start
-            && validating_epoch > self.get_column_da_boundary()
-        {
+        if validating_epoch >= self.current_start && validating_epoch > column_da_boundary {
             return;
         }
 
@@ -779,7 +789,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             .split_off(&(validating_epoch + CUSTODY_BACKFILL_EPOCHS_PER_BATCH));
 
         for (id, batch) in removed_batches.into_iter() {
-            info!(?id, "validated batch");
             self.validated_batches = self.validated_batches.saturating_add(1);
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
@@ -843,7 +852,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             }
         }
 
-        info!(?validating_epoch, "check validating epoch");
         self.processing_target = self.processing_target.min(validating_epoch);
         self.current_start = self.current_start.min(validating_epoch);
         self.to_be_downloaded = self.to_be_downloaded.min(validating_epoch);
@@ -853,8 +861,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             // won't have this batch, so we need to request it.
             self.to_be_downloaded -= CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
         }
-        // TODO(custody-sync) change to debug
-        info!(?validating_epoch, processing_target = ?self.processing_target, "Custody backfill advanced");
+        debug!(?validating_epoch, processing_target = ?self.processing_target, "Custody backfill advanced");
     }
 
     /// An invalid batch has been received that could not be processed, but that can be retried.
@@ -909,7 +916,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     }
 
     /// Checks with the beacon chain if custody sync has completed.
-    /// TODO(custody-sync) clean up this implementation
     fn check_completed(&mut self) -> bool {
         if !self.batches.is_empty() {
             return false;
@@ -917,44 +923,45 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
         if self.would_complete(self.current_start) {
             // Check that the data column custody info `earliest_available_slot`
-            // is less than or equal to the current DA boundary
-            let earliest_data_column_slot = self
+            // is in an epoch that is less than or equal to the current DA boundary
+            let Some(earliest_data_column_slot) = self
                 .beacon_chain
                 .store
                 .get_data_column_custody_info()
                 .unwrap_or(None)
-                .and_then(|info| info.earliest_data_column_slot);
+                .and_then(|info| info.earliest_data_column_slot) else {
+                    return false
+                };
 
-            if let Some(earliest_data_column_slot) = earliest_data_column_slot {
-                let column_da_boundary = self.get_column_da_boundary();
+            let Some(column_da_boundary) = self.get_column_da_boundary() else {
+                return false;
+            };
 
-                return earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch())
-                    <= column_da_boundary;
-            }
-
-            return false;
+            return earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch())
+                <= column_da_boundary;
         }
         false
     }
 
-    // TODO(custody-sync) clean this up
     /// Calculates the minimum amount of epochs a node should custody data columns. In
     /// most cases this is simply the DA boundary, unless we are near the fulu fork epoch.
-    fn get_column_da_boundary(&self) -> Epoch {
-        let mut column_da_boundary = self
-            .beacon_chain
-            .data_availability_boundary()
-            .unwrap_or(Epoch::new(u64::MAX));
-
-        let fulu_fork_epoch = self
-            .beacon_chain
-            .spec
-            .fulu_fork_epoch
-            .unwrap_or(Epoch::new(u64::MAX));
-
-        if fulu_fork_epoch > column_da_boundary {
-            column_da_boundary = fulu_fork_epoch;
-        }
+    fn get_column_da_boundary(&self) -> Option<Epoch> {
+        let column_da_boundary = match self.beacon_chain.data_availability_boundary() {
+            Some(da_boundary_epoch) => {
+                // If fulu isnt scheduled, custody backfill sync should not run.
+                if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch {
+                    // If the da boundary is before fulu, only custody sync up to the fulu fork epoch
+                    if da_boundary_epoch < fulu_fork_epoch {
+                        Some(fulu_fork_epoch)
+                    } else {
+                        Some(da_boundary_epoch)
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None, // If no DA boundary set, dont try to custody backfill
+        };
 
         info!(?column_da_boundary, "get_column_da_boundary");
 
@@ -962,16 +969,11 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     }
 
     /// Checks if custody backfill would complete by syncing to `start_epoch`.
-    /// TODO(custody-sync) clean up this implementation
     fn would_complete(&self, start_epoch: Epoch) -> bool {
-        if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch {
-            return start_epoch <= fulu_fork_epoch;
-        }
-        start_epoch
-            <= self
-                .beacon_chain
-                .data_availability_boundary()
-                .unwrap_or(Epoch::new(u64::MAX))
+        let Some(column_da_boundary) = self.get_column_da_boundary() else {
+            return false;
+        };
+        start_epoch <= column_da_boundary
     }
 
     /// Requests the batch assigned to the given id from a given peer.
@@ -1142,8 +1144,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             if !batch.is_expecting_data_column(&request.id) {
                 return Ok(());
             }
-            // TODO(custody-sync) this should be a
-            info!(batch_epoch = %request.epoch, error = ?err, "Batch download failed");
+            debug!(batch_epoch = %request.epoch, error = ?err, "Batch download failed");
             match batch.download_failed(Some(*peer_id)) {
                 Err(e) => {
                     self.fail_sync(CustodyBackfillError::BatchInvalidState(request.epoch, e.0))
