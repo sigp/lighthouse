@@ -67,16 +67,12 @@ pub struct RangeDataColumnBatchRequest<E: EthSpec> {
     >,
     /// The column indices corresponding to the request
     column_peers: HashMap<CustodySyncByRangeRequestId, Vec<ColumnIndex>>,
-    expected_custody_columns: Vec<ColumnIndex>,
-    request_span: Span,
+    expected_custody_columns: HashSet<ColumnIndex>,
+    attempt: usize,
 }
 
 impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
-    // TODO(custody-sync) investigate cleaning this up
-    pub fn new(
-        by_range_requests: Vec<(CustodySyncByRangeRequestId, Vec<ColumnIndex>)>,
-        request_span: Span,
-    ) -> Self {
+    pub fn new(by_range_requests: Vec<(CustodySyncByRangeRequestId, Vec<ColumnIndex>)>) -> Self {
         let requests = by_range_requests
             .clone()
             .into_iter()
@@ -94,7 +90,7 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
             requests,
             column_peers,
             expected_custody_columns,
-            request_span,
+            attempt: 0,
         }
     }
 
@@ -113,7 +109,6 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
     pub fn responses(
         &mut self,
         _spec: &ChainSpec,
-        mut attempt: usize,
     ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
         let mut data_columns = vec![];
         let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
@@ -134,13 +129,13 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
 
         // An "attempt" is complete here after we have received a response for all the
         // requests we made. i.e. `req.to_finished()` returns Some for all requests.
-        attempt += 1;
+        self.attempt += 1;
 
         let resp = Self::responses_with_custody_columns(
             data_columns,
             column_to_peer_id,
             &self.expected_custody_columns,
-            attempt,
+            self.attempt,
         );
 
         if let Err(CouplingError::DataColumnPeerFailure {
@@ -165,58 +160,57 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
     fn responses_with_custody_columns(
         data_columns: DataColumnSidecarList<E>,
         column_to_peer: HashMap<u64, PeerId>,
-        expected_custody_columns: &[ColumnIndex],
-        _attempt: usize,
+        expected_custody_columns: &HashSet<ColumnIndex>,
+        attempt: usize,
     ) -> Result<DataColumnSidecarList<E>, CouplingError> {
-        // let mut custody_columns = vec![];
-        // let mut naughty_peers = vec![];
-        // let expected_custody_columns_set = expected_custody_columns.iter().collect::<HashSet<_>>();
-        // let mut block_root_to_custody_column = data_columns
-        //    .iter()
-        //    .map(|col| (col.block_root(), expected_custody_columns_set.clone()))
-        //    .collect::<HashMap<_, _>>();
-        // for data_column in data_columns.clone() {
-        // if let Some(expected_custody_columns) =
-        // block_root_to_custody_column.get_mut(&data_column.block_root())
-        // {
-        // if !expected_custody_columns.remove(&data_column.index) {
-        // let Some(responsible_peer) = column_to_peer.get(&data_column.index) else {
-        // return Err(CouplingError::InternalError(format!(
-        // "Internal error, no request made for column {}",
-        // data_column.index
-        // )));
-        // };
-        // naughty_peers.push((data_column.index, *responsible_peer));
-        // } else {
-        // // Safe to convert to `CustodyDataColumn`: we have asserted that the index of
-        // // this column is in the set of `expects_custody_columns`. We have not checked that it matches
-        // // the expected block root. We make that check before inserting the column into the store.
-        // custody_columns.push(CustodyDataColumn::from_asserted_custody(
-        // data_column.clone(),
-        // ));
-        // // If the custody columns set is empty for this block root, remove the block root from the map.
-        // if custody_columns.is_empty() {
-        // block_root_to_custody_column.remove(&data_column.block_root());
-        // }
-        // }
-        // } else {
-        // let Some(responsible_peer) = column_to_peer.get(&data_column.index) else {
-        // return Err(CouplingError::InternalError(format!(
-        // "Internal error, no request made for column {}",
-        // data_column.index
-        // )));
-        // };
-        // naughty_peers.push((data_column.index, *responsible_peer));
-        // }
-        // }
+        let mut naughty_peers = vec![];
 
-        // // Assert that there are no columns left for other blocks
-        // if !block_root_to_custody_column.is_empty() {
-        // let remaining_roots = block_root_to_custody_column.keys().collect::<Vec<_>>();
-        // // log the error but don't return an error, we can still progress with responses.
-        // // this is most likely an internal error with over-requesting or a client bug.
-        // tracing::debug!(?remaining_roots, "Not all columns consumed for block");
-        // }
+        let mut slots_to_column_indices = data_columns
+            .iter()
+            .map(|col| (col.slot(), expected_custody_columns.clone()))
+            .collect::<HashMap<_, _>>();
+
+        for data_column in data_columns.iter() {
+            if slots_to_column_indices
+                .remove(&data_column.slot())
+                .is_none()
+            {
+                let Some(naughty_peer) = column_to_peer.get(&data_column.index) else {
+                    return Err(CouplingError::InternalError(format!(
+                        "Internal error, no request made for column {}",
+                        data_column.index
+                    )));
+                };
+
+                naughty_peers.push((data_column.index, naughty_peer));
+            }
+        }
+
+        if !slots_to_column_indices.is_empty() {
+            let faulty_peers = slots_to_column_indices
+                .iter()
+                .flat_map(|(_, column_indices)| {
+                    column_indices.iter().filter_map(|column_index| {
+                        column_to_peer
+                            .get(column_index)
+                            .map(|faulty_peer| (*column_index, *faulty_peer))
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            tracing::debug!(
+                missing_slots_and_columns = ?slots_to_column_indices,
+                "Missing columns for some slots"
+            );
+
+            return Err(CouplingError::DataColumnPeerFailure {
+                error: "Missing columns for some slots".to_string(),
+                faulty_peers,
+                action: PeerAction::LowToleranceError,
+                exceeded_retries: attempt >= MAX_COLUMN_RETRIES,
+            });
+        }
+
         Ok(data_columns)
     }
 }

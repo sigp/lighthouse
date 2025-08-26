@@ -452,8 +452,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         {
             Ok(imported_columns) => {
                 metrics::inc_counter_by(
-                     &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_COLUMN_IMPORT_SUCCESS_TOTAL,
-                     imported_columns as u64
+                    &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_COLUMN_IMPORT_SUCCESS_TOTAL,
+                    imported_columns as u64,
                 );
                 CustodyBatchProcessResult::Success {
                     batch_id: process_id,

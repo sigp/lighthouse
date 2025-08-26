@@ -1451,13 +1451,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         data_columns: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
     ) {
-        // TODO(custody-sync) attempt
-        let attempt = 0;
-        if let Some(resp) = self.network.custody_data_columns_batch_response(
-            custody_sync_request_id,
-            data_columns,
-            attempt,
-        ) {
+        if let Some(resp) = self
+            .network
+            .custody_data_columns_batch_response(custody_sync_request_id, data_columns)
+        {
             match resp {
                 Ok(data_columns) => {
                     match self.custody_sync.on_data_column_response(

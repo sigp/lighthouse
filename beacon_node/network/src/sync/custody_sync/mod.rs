@@ -602,8 +602,8 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
                 let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch else {
                     return Err(CustodyBackfillError::InvalidSyncState(
-                        "Fulu epoch isn't schedlued".to_string()
-                    ))
+                        "Fulu epoch isn't schedlued".to_string(),
+                    ));
                 };
 
                 if batch_id == self.processing_target {
@@ -929,9 +929,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 .store
                 .get_data_column_custody_info()
                 .unwrap_or(None)
-                .and_then(|info| info.earliest_data_column_slot) else {
-                    return false
-                };
+                .and_then(|info| info.earliest_data_column_slot)
+            else {
+                return false;
+            };
 
             let Some(column_da_boundary) = self.get_column_da_boundary() else {
                 return false;
@@ -1002,7 +1003,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 batch_id,
                 &synced_peers,
                 &failed_peers,
-                span.clone(),
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request

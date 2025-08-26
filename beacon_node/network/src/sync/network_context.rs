@@ -1680,7 +1680,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         epoch: Epoch,
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
-        request_span: Span,
     ) -> Result<Id, RpcRequestSendError> {
         let active_request_count_by_peer = self.active_request_count_by_peer();
         // Attempt to find all required custody peers before sending any request or creating an ID
@@ -1709,33 +1708,19 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map(|columns_by_range_peers_to_request| {
                 columns_by_range_peers_to_request
                     .iter()
-                    .map(|(peer_id, column_indices)| {
-                        match self.send_custody_sync_data_columns_by_range_request(
+                    .map(|(peer_id, _)| {
+                        self.send_custody_sync_data_columns_by_range_request(
                             *peer_id,
                             request.clone(),
                             id,
-                            request_span.clone(),
-                        ) {
-                            Ok((custody_sync_data_column_request, _)) => {
-                                /*self.custody_sync_data_columns_by_range_requests.insert(
-                                    custody_sync_data_column_request,
-                                    *peer_id,
-                                    false,
-                                    DataColumnsByRangeRequestItems::new(request.clone()),
-                                );
-                                */
-
-                                Ok((custody_sync_data_column_request, column_indices.clone()))
-                            }
-                            Err(e) => Err(e),
-                        }
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()
             })
             .transpose()?;
 
         let range_data_column_batch_request = if let Some(result) = result {
-            RangeDataColumnBatchRequest::new(result, request_span)
+            RangeDataColumnBatchRequest::new(result)
         } else {
             return Err(RpcRequestSendError::InternalError(
                 "Unable to send a custody sync data column by range rpc request".to_string(),
@@ -1753,7 +1738,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         custody_sync_request_id: CustodySyncByRangeRequestId,
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
-        attempt: usize,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
         let Entry::Occupied(mut entry) = self
             .custody_sync_data_column_batch_requests
@@ -1782,7 +1766,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Some(Err(e));
         }
 
-        if let Some(data_column_result) = entry.get_mut().responses(&self.chain.spec, attempt) {
+        if let Some(data_column_result) = entry.get_mut().responses(&self.chain.spec) {
             if data_column_result.is_ok() {
                 // remove the entry only if it coupled successfully with
                 // no errors
@@ -1800,8 +1784,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: DataColumnsByRangeRequest,
         parent_request_id: CustodySyncBatchRequestId,
-        request_span: Span,
-    ) -> Result<(CustodySyncByRangeRequestId, Vec<u64>), RpcRequestSendError> {
+    ) -> Result<(CustodySyncByRangeRequestId, Vec<ColumnIndex>), RpcRequestSendError> {
         let requested_columns = request.columns.clone();
         let id = CustodySyncByRangeRequestId {
             id: self.next_id(),
@@ -1833,7 +1816,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // know if there are missed blocks.
             false,
             DataColumnsByRangeRequestItems::new(request),
-            request_span,
+            Span::none(),
         );
         Ok((id, requested_columns))
     }

@@ -102,7 +102,8 @@ pub struct CustodySyncByRangeRequestId {
     pub peer: PeerId,
 }
 
-// TODO(custody-sync) add comments
+// A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
+// handle retries and tie all the range requests for the given epoch together.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodySyncBatchRequestId {
     /// For each `epoch` we may request the same data in a later retry. This Id identifies the
