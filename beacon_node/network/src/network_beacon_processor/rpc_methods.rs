@@ -228,7 +228,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     send_block_count += 1;
                 }
                 Ok(None) => {
-                    tracing::trace!(
+                    debug!(
                         %peer_id,
                         request_root = ?root,
                         "Peer requested unknown block"
@@ -449,7 +449,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
         }
 
-        tracing::trace!(
+        debug!(
             %peer_id,
             request = ?request.data_column_ids,
             returned = send_data_column_count,
@@ -495,7 +495,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         req: LightClientUpdatesByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        tracing::trace!(
+        debug!(
             %peer_id,
             count = req.count,
             start_period = req.start_period,
@@ -538,7 +538,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let lc_updates_sent = lc_updates.len();
 
         if lc_updates_sent < req.count as usize {
-            tracing::trace!(
+            debug!(
                 peer = %peer_id,
                 info = "Failed to return all requested light client updates. The peer may have requested data ahead of whats currently available",
                 start_period = req.start_period,
@@ -547,7 +547,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 "LightClientUpdatesByRange outgoing response processed"
             );
         } else {
-            tracing::trace!(
+            debug!(
                 peer = %peer_id,
                 start_period = req.start_period,
                 requested = req.count,
@@ -704,7 +704,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let req_start_slot = *req.start_slot();
         let req_count = *req.count();
 
-        tracing::trace!(
+        debug!(
             %peer_id,
             count = req_count,
             start_slot = %req_start_slot,
@@ -737,7 +737,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let log_results = |peer_id, blocks_sent| {
             if blocks_sent < (req_count as usize) {
-                tracing::trace!(
+                debug!(
                     %peer_id,
                     msg = "Failed to return all requested blocks",
                     start_slot = %req_start_slot,
@@ -747,7 +747,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "BlocksByRange outgoing response processed"
                 );
             } else {
-                tracing::trace!(
+                debug!(
                     %peer_id,
                     start_slot = %req_start_slot,
                     %current_slot,
@@ -891,7 +891,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             elapsed,
         );
 
-        tracing::trace!(
+        debug!(
             req_type,
             start_slot = %req_start_slot,
             req_count,
@@ -995,7 +995,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         req: BlobsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        tracing::trace!(
+        debug!(
             ?peer_id,
             count = req.count,
             start_slot = req.start_slot,
@@ -1048,7 +1048,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
         let log_results = |peer_id, req: BlobsByRangeRequest, blobs_sent| {
-            tracing::trace!(
+            debug!(
                 %peer_id,
                 start_slot = req.start_slot,
                 %current_slot,
@@ -1137,7 +1137,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        tracing::trace!(
+        debug!(
             %peer_id,
             count = req.count,
             start_slot = req.start_slot,
@@ -1242,7 +1242,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .slot()
             .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
-        tracing::trace!(
+        debug!(
             %peer_id,
             start_slot = req.start_slot,
             %current_slot,

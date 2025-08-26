@@ -90,7 +90,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         let protocol = req.versioned_protocol().protocol();
         // First check that there are not already other requests waiting to be sent.
         if let Some(queued_requests) = self.delayed_requests.get_mut(&(peer_id, protocol)) {
-            tracing::trace!(%peer_id, protocol = %req.protocol(), "Self rate limiting since there are already other requests waiting to be sent");
+            debug!(%peer_id, protocol = %req.protocol(), "Self rate limiting since there are already other requests waiting to be sent");
             queued_requests.push_back(QueuedRequest {
                 req,
                 request_id,
@@ -134,7 +134,7 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             && let Some(count) = active_request.get(&req.protocol())
             && *count >= MAX_CONCURRENT_REQUESTS
         {
-            tracing::trace!(
+            debug!(
                 %peer_id,
                 protocol = %req.protocol(),
                 "Self rate limiting due to the number of concurrent requests"

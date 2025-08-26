@@ -729,7 +729,7 @@ impl<E: EthSpec> PeerManager<E> {
                 }
             } else {
                 // we have no meta-data for this peer, update
-                debug!(%peer_id, new_seq_no = meta_data.seq_number(), cgc=?meta_data.custody_group_count().ok(), "Obtained peer's metadata");
+                debug!(%peer_id, new_seq_no = meta_data.seq_number(), "Obtained peer's metadata");
             }
 
             let known_custody_group_count = peer_info
@@ -745,7 +745,7 @@ impl<E: EthSpec> PeerManager<E> {
                 if let Some(custody_group_count) = custody_group_count_opt {
                     match self.compute_peer_custody_groups(peer_id, custody_group_count) {
                         Ok(custody_groups) => {
-                            let custody_subnets: HashSet<DataColumnSubnetId> = custody_groups
+                            let custody_subnets = custody_groups
                                 .into_iter()
                                 .flat_map(|custody_index| {
                                     self.subnets_by_custody_group
@@ -761,13 +761,6 @@ impl<E: EthSpec> PeerManager<E> {
                                         })
                                 })
                                 .collect();
-                            let cgc = if custody_subnets.len() == 128 {
-                                "supernode".to_string()
-                            } else {
-                                format!("{:?}", custody_subnets)
-                            };
-
-                            debug!(cgc, ?peer_id, "Peer custodied subnets");
                             peer_info.set_custody_subnets(custody_subnets);
 
                             updated_cgc = Some(custody_group_count) != known_custody_group_count;
@@ -950,42 +943,6 @@ impl<E: EthSpec> PeerManager<E> {
             debug!(
                 subnets = ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>(),
                 "Making subnet queries for maintaining sync committee peers"
-            );
-            self.events
-                .push(PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover));
-        }
-    }
-
-    /// Run discovery query for additional custody peers if we fall below `TARGET_PEERS`.
-    fn maintain_custody_peers(&mut self) {
-        let subnets_to_discover: Vec<SubnetDiscovery> = self
-            .network_globals
-            .sampling_subnets()
-            .iter()
-            .filter_map(|custody_subnet| {
-                if self
-                    .network_globals
-                    .peers
-                    .read()
-                    .good_range_sync_custody_subnet_peers(*custody_subnet)
-                    .count()
-                    < 2
-                {
-                    Some(SubnetDiscovery {
-                        subnet: Subnet::DataColumn(*custody_subnet),
-                        min_ttl: None,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        // request the subnet query from discovery
-        if !subnets_to_discover.is_empty() {
-            debug!(
-                subnets = ?subnets_to_discover.iter().map(|s| s.subnet).collect::<Vec<_>>(),
-                "Making subnet queries for maintaining custody peers"
             );
             self.events
                 .push(PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover));
@@ -1313,9 +1270,6 @@ impl<E: EthSpec> PeerManager<E> {
 
         // Update peer score metrics;
         self.update_peer_score_metrics();
-
-        // Maintain minimum count for custody peers.
-        self.maintain_custody_peers();
 
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
