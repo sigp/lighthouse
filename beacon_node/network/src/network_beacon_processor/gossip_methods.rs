@@ -1109,8 +1109,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
-        // imported. A block can become imported both after processing a block or blob. If a
-        // importing a block results in `Imported`, notify. Do not notify of blob errors.
+        // imported. A block can become imported both after processing a block or data column. If a
+        // importing a block results in `Imported`, notify. Do not notify of data column errors.
         if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
             self.send_sync_message(SyncMessage::GossipBlockProcessResult {
                 block_root,
