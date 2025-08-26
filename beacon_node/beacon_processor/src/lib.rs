@@ -1520,6 +1520,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
             &[work.str_id()],
         );
 
+        metrics::inc_gauge_vec(
+            &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE,
+            &[work_id],
+        );
+
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
         //
         // This helps ensure that the worker is always freed in the case of an early exit or panic.
@@ -1688,6 +1693,11 @@ pub struct SendOnDrop {
 
 impl Drop for SendOnDrop {
     fn drop(&mut self) {
+        metrics::dec_gauge_vec(
+            &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE,
+            &[self.work_type.clone().into()],
+        );
+
         if let Err(e) = self.tx.try_send(self.work_type.clone()) {
             warn!(
                 msg = "did not free worker, shutdown may be underway",
