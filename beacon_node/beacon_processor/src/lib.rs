@@ -1403,11 +1403,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     }
                 };
 
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL,
-                    self.current_workers as i64,
-                );
-
                 if let Some(modified_queue_id) = modified_queue_id {
                     let queue_len = match modified_queue_id {
                         WorkType::GossipAttestation => attestation_queue.len(),
