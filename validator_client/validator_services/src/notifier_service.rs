@@ -14,7 +14,7 @@ pub fn spawn_notifier<S: ValidatorStore + 'static, T: SlotClock + 'static>(
     executor: TaskExecutor,
     spec: &ChainSpec,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = Duration::from_millis(spec.slot_duration_ms);
 
     let interval_fut = async move {
         loop {

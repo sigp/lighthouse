@@ -5,6 +5,7 @@ use eth2::{BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::Duration;
+use types::consts::bellatrix::BASIS_POINTS;
 use types::{ChainSpec, EthSpec, PublicKeyBytes};
 
 use crate::exit_validators::get_current_epoch;
@@ -185,7 +186,8 @@ async fn run<E: EthSpec>(config: ListConfig) -> Result<Vec<SingleKeystoreRespons
                     eprintln!("Please keep your validator running till exit epoch");
                     eprintln!(
                         "Exit epoch in approximately {} secs",
-                        (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
+                        (exit_epoch - current_epoch) * spec.slot_duration_ms / BASIS_POINTS
+                            * E::slots_per_epoch()
                     );
                 }
                 ValidatorStatus::ExitedSlashed | ValidatorStatus::ExitedUnslashed => {

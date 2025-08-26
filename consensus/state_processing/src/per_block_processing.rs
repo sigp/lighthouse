@@ -5,6 +5,7 @@ use safe_arith::{ArithError, SafeArith, SafeArithIter};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
+use types::consts::bellatrix::BASIS_POINTS;
 use types::*;
 
 pub use self::verify_attester_slashing::{
@@ -511,7 +512,7 @@ pub fn compute_timestamp_at_slot<E: EthSpec>(
 ) -> Result<u64, ArithError> {
     let slots_since_genesis = block_slot.as_u64().safe_sub(spec.genesis_slot.as_u64())?;
     slots_since_genesis
-        .safe_mul(spec.seconds_per_slot)
+        .safe_mul(spec.slot_duration_ms / BASIS_POINTS)
         .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
 }
 

@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use types::ForkContext;
+use types::consts::bellatrix::BASIS_POINTS;
 
 pub const DEFAULT_IPV4_ADDRESS: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 pub const DEFAULT_TCP_PORT: u16 = 9000u16;
@@ -447,7 +448,7 @@ pub fn gossipsub_config(
     network_load: u8,
     fork_context: Arc<ForkContext>,
     gossipsub_config_params: GossipsubConfigParams,
-    seconds_per_slot: u64,
+    slot_duration_ms: u64,
     slots_per_epoch: u64,
     idontwant_message_size_threshold: usize,
 ) -> gossipsub::Config {
@@ -491,7 +492,8 @@ pub fn gossipsub_config(
     // To accommodate the increase, we should increase the duplicate cache time to filter older seen messages.
     // 2 epochs is quite sane for pre-deneb network parameters as well.
     // Hence we keep the same parameters for pre-deneb networks as well to avoid switching at the fork.
-    let duplicate_cache_time = Duration::from_secs(slots_per_epoch * seconds_per_slot * 2);
+    let duplicate_cache_time =
+        Duration::from_secs(slots_per_epoch * slot_duration_ms / BASIS_POINTS * 2);
 
     gossipsub::ConfigBuilder::default()
         .max_transmit_size(gossipsub_config_params.gossipsub_max_transmit_size)

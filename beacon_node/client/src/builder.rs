@@ -42,6 +42,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tracing::{debug, info, warn};
+use types::consts::bellatrix::BASIS_POINTS;
 use types::data_column_custody_group::get_custody_groups_ordered;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
@@ -306,7 +307,8 @@ where
                     let deneb_time = genesis_time
                         + (deneb_fork_epoch.as_u64()
                             * E::slots_per_epoch()
-                            * spec.seconds_per_slot);
+                            * spec.slot_duration_ms
+                            / BASIS_POINTS);
 
                     // Shrink the blob availability window so users don't start
                     // a sync right before blobs start to disappear from the P2P
@@ -316,7 +318,8 @@ where
                         .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                     let blob_availability_window = reduced_p2p_availability_epochs
                         * E::slots_per_epoch()
-                        * spec.seconds_per_slot;
+                        * spec.slot_duration_ms
+                        / BASIS_POINTS;
 
                     if now > deneb_time + blob_availability_window {
                         return Err(
@@ -575,17 +578,17 @@ where
             .network_globals
             .clone()
             .ok_or("slot_notifier requires a libp2p network")?;
-        let seconds_per_slot = self
+        let slot_duration_ms = self
             .chain_spec
             .as_ref()
             .ok_or("slot_notifier requires a chain spec")?
-            .seconds_per_slot;
+            .slot_duration_ms;
 
         spawn_notifier(
             context.executor,
             beacon_chain,
             network_globals,
-            seconds_per_slot,
+            slot_duration_ms,
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
@@ -903,7 +906,7 @@ where
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_secs(spec.seconds_per_slot),
+            Duration::from_millis(spec.slot_duration_ms),
         );
 
         self.slot_clock = Some(slot_clock);

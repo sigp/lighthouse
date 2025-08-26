@@ -781,7 +781,7 @@ pub fn get_config<E: EthSpec>(
         clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?
             .map(Duration::from_millis)
             .unwrap_or_else(|| {
-                Duration::from_secs(spec.seconds_per_slot)
+                Duration::from_millis(spec.slot_duration_ms)
                     / DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR
             });
 

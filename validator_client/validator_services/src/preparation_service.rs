@@ -174,7 +174,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
 
     /// Starts the service which periodically produces proposer preparations.
     pub fn start_proposer_prepare_service(self, spec: &ChainSpec) -> Result<(), String> {
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = Duration::from_millis(spec.slot_duration_ms);
         info!("Proposer preparation service started");
 
         let executor = self.executor.clone();
@@ -214,7 +214,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> PreparationService<S, 
         info!("Validator registration service started");
 
         let spec = spec.clone();
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = Duration::from_millis(spec.slot_duration_ms);
 
         let executor = self.executor.clone();
 

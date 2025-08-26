@@ -874,7 +874,13 @@ impl ChainSpec {
     }
 
     pub fn get_slot_component_duration(&self, component_basis_points: u64) -> Duration {
-        Duration::from_millis(component_basis_points.safe_mul(self.slot_duration_ms).expect("should not overflow").safe_div(BASIS_POINTS).expect("should not divide by zero"))
+        Duration::from_millis(
+            component_basis_points
+                .safe_mul(self.slot_duration_ms)
+                .expect("should not overflow")
+                .safe_div(BASIS_POINTS)
+                .expect("should not divide by zero"),
+        )
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -939,7 +945,7 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 604800, // 7 days
-            seconds_per_slot: 12, // TODO: deprecate
+            seconds_per_slot: 12,  // TODO: deprecate
             slot_duration_ms: 12000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -950,7 +956,6 @@ impl ChainSpec {
             proposer_reorg_cutoff_bps: 1667,
             attestation_due_bps: 3333,
             aggregate_due_bps: 6667,
-
 
             /*
              * Reward and penalty quotients

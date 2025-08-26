@@ -92,7 +92,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
             return Ok(());
         }
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = Duration::from_millis(spec.slot_duration_ms);
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -105,11 +105,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         let executor = self.executor.clone();
 
+        let sync_message_slot_component =
+            spec.get_slot_component_duration(spec.sync_message_due_bps);
+
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     // Wait for contribution broadcast interval 1/3 of the way through the slot.
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    sleep(duration_to_next_slot + sync_message_slot_component).await;
 
                     // Do nothing if the Altair fork has not yet occurred.
                     if !self.altair_fork_activated() {
@@ -148,6 +151,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> SyncCommitteeService<S
 
         // If a validator needs to publish a sync aggregate, they must do so at 2/3
         // through the slot. This delay triggers at this time
+
+        // TODO(slot-duration) this should pull from CONTRIBUTION_DUE_BPS
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
                 .checked_sub(slot_duration / 3)

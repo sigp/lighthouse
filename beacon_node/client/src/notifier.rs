@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
+use types::consts::bellatrix::BASIS_POINTS;
 use types::*;
 
 /// Create a warning log whenever the peer count is at or below this value.
@@ -44,9 +45,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
-    seconds_per_slot: u64,
+    slot_duration_ms: u64,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_secs(seconds_per_slot);
+    let slot_duration = Duration::from_millis(slot_duration_ms);
 
     let speedo = Mutex::new(Speedo::default());
 
@@ -469,8 +470,9 @@ fn find_next_fork_to_prepare<T: BeaconChainTypes>(
         // Find the first fork that is scheduled and close to happen
         if let Some(fork_epoch) = fork_epoch {
             let fork_slot = fork_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            let preparation_slots =
-                FORK_READINESS_PREPARATION_SECONDS / beacon_chain.spec.seconds_per_slot;
+            let preparation_slots = FORK_READINESS_PREPARATION_SECONDS
+                / beacon_chain.spec.slot_duration_ms
+                / BASIS_POINTS;
             let in_fork_preparation_period = current_slot + preparation_slots > fork_slot;
             if in_fork_preparation_period {
                 return Some(*fork);

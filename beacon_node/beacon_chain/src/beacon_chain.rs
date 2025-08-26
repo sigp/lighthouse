@@ -4660,7 +4660,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 1. It seems we have time to propagate and still receive the proposer boost.
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
-        let proposing_on_time = slot_delay < self.config.re_org_cutoff(self.spec.seconds_per_slot);
+        let proposing_on_time = slot_delay < self.config.re_org_cutoff(self.spec.slot_duration_ms);
         if !proposing_on_time {
             debug!(reason = "not proposing on time", "Not attempting re-org");
             return None;
@@ -4956,7 +4956,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .and_then(|slot_start| {
                     let now = self.slot_clock.now_duration()?;
                     let slot_delay = now.saturating_sub(slot_start);
-                    Some(slot_delay <= self.config.re_org_cutoff(self.spec.seconds_per_slot))
+                    Some(slot_delay <= self.config.re_org_cutoff(self.spec.slot_duration_ms))
                 })
                 .unwrap_or(false)
         } else {
@@ -5066,9 +5066,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_of(slot)
                 .unwrap_or_else(|| Duration::from_secs(0)),
         );
-        block_delays
-            .observed
-            .is_some_and(|delay| delay >= self.spec.get_slot_component_duration(self.spec.attestation_due_bps))
+        block_delays.observed.is_some_and(|delay| {
+            delay
+                >= self
+                    .spec
+                    .get_slot_component_duration(self.spec.attestation_due_bps)
+        })
     }
 
     /// Produce a block for some `slot` upon the given `state`.

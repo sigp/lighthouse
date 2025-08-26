@@ -188,7 +188,7 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = Arc::new(spec);
     env.eth2_config.spec = spec.clone();
 
-    let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let slot_duration = Duration::from_millis(spec.slot_duration_ms);
     let slots_per_epoch = MinimalEthSpec::slots_per_epoch();
     let initial_validator_count = spec.min_genesis_active_validator_count as usize;
 

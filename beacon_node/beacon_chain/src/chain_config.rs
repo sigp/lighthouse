@@ -161,11 +161,11 @@ impl Default for ChainConfig {
 
 impl ChainConfig {
     /// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
-    pub fn re_org_cutoff(&self, seconds_per_slot: u64) -> Duration {
+    pub fn re_org_cutoff(&self, slot_duration_ms: u64) -> Duration {
         self.re_org_cutoff_millis
             .map(Duration::from_millis)
             .unwrap_or_else(|| {
-                Duration::from_secs(seconds_per_slot) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
+                Duration::from_millis(slot_duration_ms) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
             })
     }
 }

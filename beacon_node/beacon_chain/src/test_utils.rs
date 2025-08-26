@@ -58,6 +58,7 @@ use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
 use tree_hash::TreeHash;
+use types::consts::bellatrix::BASIS_POINTS;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
 use types::test_utils::TestRandom;
@@ -484,21 +485,26 @@ where
             .expect("cannot recalculate fork times without spec");
         mock.server.execution_block_generator().shanghai_time =
             spec.capella_fork_epoch.map(|epoch| {
-                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+                genesis_time
+                    + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
             });
         mock.server.execution_block_generator().cancun_time = spec.deneb_fork_epoch.map(|epoch| {
-            genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            genesis_time
+                + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
         });
         mock.server.execution_block_generator().prague_time =
             spec.electra_fork_epoch.map(|epoch| {
-                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+                genesis_time
+                    + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
             });
         mock.server.execution_block_generator().osaka_time = spec.fulu_fork_epoch.map(|epoch| {
-            genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+            genesis_time
+                + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
         });
         mock.server.execution_block_generator().amsterdam_time =
             spec.gloas_fork_epoch.map(|epoch| {
-                genesis_time + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+                genesis_time
+                    + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
             });
 
         self
@@ -543,7 +549,7 @@ where
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
         let spec = self.spec.expect("cannot build without spec");
-        let seconds_per_slot = spec.seconds_per_slot;
+        let slot_duration_ms = spec.slot_duration_ms;
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
@@ -587,7 +593,7 @@ where
             builder.slot_clock(testing_slot_clock)
         } else if builder.get_slot_clock().is_none() {
             builder
-                .testing_slot_clock(Duration::from_secs(seconds_per_slot))
+                .testing_slot_clock(Duration::from_millis(slot_duration_ms))
                 .expect("should configure testing slot clock")
         } else {
             builder
@@ -623,19 +629,24 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
     task_executor: TaskExecutor,
 ) -> MockExecutionLayer<E> {
     let shanghai_time = spec.capella_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        HARNESS_GENESIS_TIME
+            + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
     });
     let cancun_time = spec.deneb_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        HARNESS_GENESIS_TIME
+            + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
     });
     let prague_time = spec.electra_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        HARNESS_GENESIS_TIME
+            + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
     });
     let osaka_time = spec.fulu_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        HARNESS_GENESIS_TIME
+            + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
     });
     let amsterdam_time = spec.gloas_fork_epoch.map(|epoch| {
-        HARNESS_GENESIS_TIME + spec.seconds_per_slot * E::slots_per_epoch() * epoch.as_u64()
+        HARNESS_GENESIS_TIME
+            + (spec.slot_duration_ms / BASIS_POINTS) * E::slots_per_epoch() * epoch.as_u64()
     });
 
     let kzg = get_kzg(&spec);

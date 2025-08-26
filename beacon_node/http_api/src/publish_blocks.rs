@@ -18,7 +18,6 @@ use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
-use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -777,7 +776,9 @@ fn late_block_logging<T: BeaconChainTypes, P: AbstractExecPayload<T::EthSpec>>(
     //
     // Check to see the thresholds are non-zero to avoid logging errors with small
     // slot times (e.g., during testing)
-    let too_late_threshold = chain.spec.get_slot_component_duration(self.attestation_due_bps);
+    let too_late_threshold = chain
+        .spec
+        .get_slot_component_duration(chain.spec.attestation_due_bps);
     let delayed_threshold = too_late_threshold / 2;
     if delay >= too_late_threshold {
         error!(

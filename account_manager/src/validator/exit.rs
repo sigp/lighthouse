@@ -30,6 +30,7 @@ pub const PRESIGN: &str = "presign";
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/validator_voluntary_exit.html";
+pub const BASIS_POINTS: u64 = 1000;
 
 pub fn cli_app() -> Command {
     Command::new("exit")
@@ -102,7 +103,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
     let client = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,
-        Timeouts::set_all(Duration::from_secs(env.eth2_config.spec.seconds_per_slot)),
+        Timeouts::set_all(Duration::from_millis(env.eth2_config.spec.slot_duration_ms)),
     );
 
     let eth2_network_config = env
@@ -230,7 +231,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     loop {
         // Sleep for a slot duration and then check if voluntary exit was processed
         // by checking the validator status.
-        sleep(Duration::from_secs(spec.seconds_per_slot)).await;
+        sleep(Duration::from_millis(spec.slot_duration_ms)).await;
 
         let validator_data = get_validator_data(client, &keypair.pk).await?;
         match validator_data.status {
@@ -251,7 +252,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 eprintln!("Please keep your validator running till exit epoch");
                 eprintln!(
                     "Exit epoch in approximately {} secs",
-                    (exit_epoch - current_epoch) * spec.seconds_per_slot * E::slots_per_epoch()
+                    (exit_epoch - current_epoch) * spec.slot_duration_ms / BASIS_POINTS
+                        * E::slots_per_epoch()
                 );
                 break;
             }
@@ -350,7 +352,7 @@ fn get_current_epoch<E: EthSpec>(genesis_time: u64, spec: &ChainSpec) -> Option<
     let slot_clock = SystemTimeSlotClock::new(
         spec.genesis_slot,
         Duration::from_secs(genesis_time),
-        Duration::from_secs(spec.seconds_per_slot),
+        Duration::from_millis(spec.slot_duration_ms),
     );
     slot_clock.now().map(|s| s.epoch(E::slots_per_epoch()))
 }

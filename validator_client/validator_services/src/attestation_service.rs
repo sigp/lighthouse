@@ -144,7 +144,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             return Ok(());
         }
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+        let slot_duration = Duration::from_millis(spec.slot_duration_ms);
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
@@ -160,7 +160,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    sleep(
+                        duration_to_next_slot
+                            + self
+                                .chain_spec
+                                .get_slot_component_duration(self.chain_spec.attestation_due_bps),
+                    )
+                    .await;
 
                     if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
                         crit!(error = e, "Failed to spawn attestation tasks")
@@ -191,6 +197,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         // If a validator needs to publish an aggregate attestation, they must do so at 2/3
         // through the slot. This delay triggers at this time
+
+        // TODO(slot-duration) this should pull from AGGREGATE_DUE_BPS
         let aggregate_production_instant = Instant::now()
             + duration_to_next_slot
                 .checked_sub(slot_duration / 3)

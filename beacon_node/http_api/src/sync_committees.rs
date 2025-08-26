@@ -377,6 +377,7 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
                         verified_contribution.aggregate(),
                         verified_contribution.participant_pubkeys(),
                         &chain.slot_clock,
+                        &chain.spec,
                     );
 
                 verified_contributions.push((index, verified_contribution));
