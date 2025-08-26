@@ -504,7 +504,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     .processing_target
                     .saturating_sub(custody_sync_request_id.epoch)
                     / CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
-                debug!(
+                info!(
                     epoch = %custody_sync_request_id.epoch,
                     blocks = received,
                     %awaiting_batches,
@@ -578,7 +578,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             return Ok(ProcessResult::Successful);
         };
 
-        debug!(
+        info!(
             ?result,
             %batch,
             batch_epoch = %batch_id,
@@ -917,6 +917,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
     /// Checks with the beacon chain if custody sync has completed.
     fn check_completed(&mut self) -> bool {
+        info!(empty = self.batches.is_empty(), "check_completed");
         if !self.batches.is_empty() {
             return false;
         }

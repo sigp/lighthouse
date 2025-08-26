@@ -1690,6 +1690,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .iter()
                 .cloned()
                 .collect();
+
             Some(self.select_columns_by_range_peers_to_request(
                 &column_indexes,
                 peers,
