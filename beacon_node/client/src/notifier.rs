@@ -488,7 +488,10 @@ fn methods_required_for_fork(
     let mut missing_methods = vec![];
     match fork {
         ForkName::Base | ForkName::Altair | ForkName::Bellatrix => {
-            unreachable!()
+            warn!(
+                fork = %fork,
+                "Invalid methods_required_for_fork call"
+            );
         }
         ForkName::Capella => {
             if !capabilities.get_payload_v2 {
