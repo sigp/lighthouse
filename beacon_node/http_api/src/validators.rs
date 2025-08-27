@@ -18,8 +18,18 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
             |state, execution_optimistic, finalized| {
                 let epoch = state.current_epoch();
                 let far_future_epoch = chain.spec.far_future_epoch;
-                let ids_filter_set: Option<HashSet<&ValidatorId>> =
-                    query_ids.as_ref().map(HashSet::from_iter);
+
+                // Map [] to None, indicating that no filtering should be applied (return all
+                // validators).
+                let ids_filter_set: Option<HashSet<&ValidatorId>> = query_ids
+                    .as_ref()
+                    .filter(|list| !list.is_empty())
+                    .map(HashSet::from_iter);
+
+                let statuses_filter_set: Option<HashSet<&ValidatorStatus>> = query_statuses
+                    .as_ref()
+                    .filter(|list| !list.is_empty())
+                    .map(HashSet::from_iter);
 
                 Ok((
                     state
@@ -42,10 +52,11 @@ pub fn get_beacon_state_validators<T: BeaconChainTypes>(
                                 far_future_epoch,
                             );
 
-                            let status_matches = query_statuses.as_ref().is_none_or(|statuses| {
-                                statuses.contains(&status)
-                                    || statuses.contains(&status.superstatus())
-                            });
+                            let status_matches =
+                                statuses_filter_set.as_ref().is_none_or(|statuses| {
+                                    statuses.contains(&status)
+                                        || statuses.contains(&status.superstatus())
+                                });
 
                             if status_matches {
                                 Some(ValidatorData {

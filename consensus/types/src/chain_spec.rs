@@ -201,13 +201,19 @@ pub struct ChainSpec {
     pub fulu_fork_version: [u8; 4],
     /// The Fulu fork epoch is optional, with `None` representing "Fulu never happens".
     pub fulu_fork_epoch: Option<Epoch>,
-    pub number_of_columns: u64,
     pub number_of_custody_groups: u64,
     pub data_column_sidecar_subnet_count: u64,
     pub samples_per_slot: u64,
     pub custody_requirement: u64,
     pub validator_custody_requirement: u64,
     pub balance_per_additional_custody_group: u64,
+
+    /*
+     * Gloas hard fork params
+     */
+    pub gloas_fork_version: [u8; 4],
+    /// The Gloas fork epoch is optional, with `None` representing "Gloas never happens".
+    pub gloas_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -250,6 +256,10 @@ pub struct ChainSpec {
      */
     pub(crate) blob_schedule: BlobSchedule,
     min_epochs_for_data_column_sidecars_requests: u64,
+
+    /*
+     * Networking Gloas
+     */
 
     /*
      * Networking Derived
@@ -322,25 +332,26 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.fulu_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Fulu,
-            _ => match self.electra_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-                _ => match self.deneb_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                    _ => match self.capella_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                        _ => match self.bellatrix_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
-                            _ => match self.altair_fork_epoch {
-                                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                                _ => ForkName::Base,
-                            },
-                        },
-                    },
-                },
-            },
+        let forks = [
+            (self.gloas_fork_epoch, ForkName::Gloas),
+            (self.fulu_fork_epoch, ForkName::Fulu),
+            (self.electra_fork_epoch, ForkName::Electra),
+            (self.deneb_fork_epoch, ForkName::Deneb),
+            (self.capella_fork_epoch, ForkName::Capella),
+            (self.bellatrix_fork_epoch, ForkName::Bellatrix),
+            (self.altair_fork_epoch, ForkName::Altair),
+        ];
+
+        // Find the first fork where `epoch` is >= `fork_epoch`.
+        for (fork_epoch_opt, fork_name) in forks.iter() {
+            if let Some(fork_epoch) = fork_epoch_opt
+                && epoch >= *fork_epoch
+            {
+                return *fork_name;
+            }
         }
+
+        ForkName::Base
     }
 
     /// Returns the fork version for a named fork.
@@ -353,6 +364,7 @@ impl ChainSpec {
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
             ForkName::Fulu => self.fulu_fork_version,
+            ForkName::Gloas => self.gloas_fork_version,
         }
     }
 
@@ -371,6 +383,7 @@ impl ChainSpec {
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
             ForkName::Fulu => self.fulu_fork_epoch,
+            ForkName::Gloas => self.gloas_fork_epoch,
         }
     }
 
@@ -452,6 +465,12 @@ impl ChainSpec {
     pub fn is_fulu_scheduled(&self) -> bool {
         self.fulu_fork_epoch
             .is_some_and(|fulu_fork_epoch| fulu_fork_epoch != self.far_future_epoch)
+    }
+
+    /// Returns true if `GLOAS_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_gloas_scheduled(&self) -> bool {
+        self.gloas_fork_epoch
+            .is_some_and(|gloas_fork_epoch| gloas_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
@@ -773,20 +792,19 @@ impl ChainSpec {
     }
 
     /// Returns the number of data columns per custody group.
-    pub fn data_columns_per_group(&self) -> u64 {
-        self.number_of_columns
+    pub fn data_columns_per_group<E: EthSpec>(&self) -> u64 {
+        (E::number_of_columns() as u64)
             .safe_div(self.number_of_custody_groups)
             .expect("Custody group count must be greater than 0")
     }
 
     /// Returns the number of column sidecars to sample per slot.
-    pub fn sampling_size_columns(&self, custody_group_count: u64) -> Result<usize, String> {
+    pub fn sampling_size_columns<E: EthSpec>(
+        &self,
+        custody_group_count: u64,
+    ) -> Result<usize, String> {
         let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
-
-        let columns_per_custody_group = self
-            .number_of_columns
-            .safe_div(self.number_of_custody_groups)
-            .map_err(|_| "number_of_custody_groups must be greater than 0")?;
+        let columns_per_custody_group = self.data_columns_per_group::<E>();
 
         let sampling_size_columns = columns_per_custody_group
             .safe_mul(sampling_size_groups)
@@ -1048,10 +1066,15 @@ impl ChainSpec {
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
-            number_of_columns: 128,
             samples_per_slot: 8,
             validator_custody_requirement: 8,
             balance_per_additional_custody_group: 32000000000,
+
+            /*
+             * Gloas hard fork params
+             */
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
+            gloas_fork_epoch: None,
 
             /*
              * Network specific
@@ -1088,7 +1111,6 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
-            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Networking Electra specific
@@ -1103,6 +1125,7 @@ impl ChainSpec {
             blob_schedule: BlobSchedule::default(),
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -1176,6 +1199,9 @@ impl ChainSpec {
             // Fulu
             fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
             fulu_fork_epoch: None,
+            // Gloas
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
+            gloas_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1386,10 +1412,15 @@ impl ChainSpec {
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
-            number_of_columns: 128,
             samples_per_slot: 8,
             validator_custody_requirement: 8,
             balance_per_additional_custody_group: 32000000000,
+
+            /*
+             * Gloas hard fork params
+             */
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x64],
+            gloas_fork_epoch: None,
 
             /*
              * Network specific
@@ -1426,7 +1457,6 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
-            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Networking Electra specific
@@ -1441,6 +1471,7 @@ impl ChainSpec {
             blob_schedule: BlobSchedule::default(),
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -1652,6 +1683,14 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub fulu_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    #[serde(default = "default_gloas_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    gloas_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -1759,9 +1798,6 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blob_sidecars_electra: u64,
 
-    #[serde(default = "default_number_of_columns")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    number_of_columns: u64,
     #[serde(default = "default_number_of_custody_groups")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_custody_groups: u64,
@@ -1808,6 +1844,11 @@ fn default_electra_fork_version() -> [u8; 4] {
 }
 
 fn default_fulu_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_gloas_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1938,10 +1979,6 @@ const fn default_data_column_sidecar_subnet_count() -> u64 {
     128
 }
 
-const fn default_number_of_columns() -> u64 {
-    128
-}
-
 const fn default_number_of_custody_groups() -> u64 {
     128
 }
@@ -1987,19 +2024,15 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
     .len()
 }
 
-fn max_data_columns_by_root_request_common(
-    max_request_blocks: u64,
-    number_of_columns: u64,
-) -> usize {
+fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
-    let number_of_columns = number_of_columns as usize;
 
     let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        columns: RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns),
+        columns: VariableList::from(vec![0; E::number_of_columns()]),
     };
 
-    RuntimeVariableList::<DataColumnsByRootIdentifier>::from_vec(
+    RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::from_vec(
         vec![empty_data_columns_by_root_id; max_request_blocks],
         max_request_blocks,
     )
@@ -2020,10 +2053,7 @@ fn default_max_blobs_by_root_request() -> usize {
 }
 
 fn default_data_columns_by_root_request() -> usize {
-    max_data_columns_by_root_request_common(
-        default_max_request_blocks_deneb(),
-        default_number_of_columns(),
-    )
+    max_data_columns_by_root_request_common::<MainnetEthSpec>(default_max_request_blocks_deneb())
 }
 
 impl Default for Config {
@@ -2119,6 +2149,11 @@ impl Config {
                 .fulu_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            gloas_fork_version: spec.gloas_fork_version,
+            gloas_fork_epoch: spec
+                .gloas_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -2165,7 +2200,6 @@ impl Config {
             blob_sidecar_subnet_count_electra: spec.blob_sidecar_subnet_count_electra,
             max_request_blob_sidecars_electra: spec.max_request_blob_sidecars_electra,
 
-            number_of_columns: spec.number_of_columns,
             number_of_custody_groups: spec.number_of_custody_groups,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             samples_per_slot: spec.samples_per_slot,
@@ -2209,6 +2243,8 @@ impl Config {
             electra_fork_version,
             fulu_fork_epoch,
             fulu_fork_version,
+            gloas_fork_version,
+            gloas_fork_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2248,7 +2284,6 @@ impl Config {
             max_blobs_per_block_electra,
             blob_sidecar_subnet_count_electra,
             max_request_blob_sidecars_electra,
-            number_of_columns,
             number_of_custody_groups,
             data_column_sidecar_subnet_count,
             samples_per_slot,
@@ -2281,6 +2316,8 @@ impl Config {
             electra_fork_version,
             fulu_fork_epoch: fulu_fork_epoch.map(|q| q.value),
             fulu_fork_version,
+            gloas_fork_version,
+            gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2330,12 +2367,10 @@ impl Config {
                 max_request_blocks_deneb,
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
-            max_data_columns_by_root_request: max_data_columns_by_root_request_common(
+            max_data_columns_by_root_request: max_data_columns_by_root_request_common::<E>(
                 max_request_blocks_deneb,
-                number_of_columns,
             ),
 
-            number_of_columns,
             number_of_custody_groups,
             data_column_sidecar_subnet_count,
             samples_per_slot,
@@ -2570,6 +2605,8 @@ mod yaml_tests {
         ELECTRA_FORK_EPOCH: 128
         FULU_FORK_VERSION: 0x70355025
         FULU_FORK_EPOCH: 256
+        GLOAS_FORK_VERSION: 0x80355025
+        GLOAS_FORK_EPOCH: 512
         BLOB_SCHEDULE:
           - EPOCH: 512
             MAX_BLOBS_PER_BLOCK: 12
@@ -2815,7 +2852,6 @@ mod yaml_tests {
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
         CUSTODY_REQUIREMENT: 1
         DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
-        NUMBER_OF_COLUMNS: 128
         SAMPLES_PER_SLOT: 8
         "#;
 

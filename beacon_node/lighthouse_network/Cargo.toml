@@ -32,7 +32,7 @@ lru = { workspace = true }
 lru_cache = { workspace = true }
 metrics = { workspace = true }
 parking_lot = { workspace = true }
-prometheus-client = "0.22.0"
+prometheus-client = "0.23.0"
 rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
@@ -54,7 +54,7 @@ unsigned-varint = { version = "0.8", features = ["codec"] }
 unused_port = { workspace = true }
 
 [dependencies.libp2p]
-version = "0.55"
+version = "0.56"
 default-features = false
 features = [
     "identify",

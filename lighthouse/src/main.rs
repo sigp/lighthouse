@@ -76,15 +76,7 @@ fn bls_hardware_acceleration() -> bool {
 }
 
 fn allocator_name() -> String {
-    #[cfg(any(feature = "heaptrack", target_os = "windows"))]
-    {
-        "system".to_string()
-    }
-    #[cfg(not(any(feature = "heaptrack", target_os = "windows")))]
-    match malloc_utils::jemalloc::page_size() {
-        Ok(page_size) => format!("jemalloc ({}K)", page_size / 1024),
-        Err(e) => format!("jemalloc (error: {e:?})"),
-    }
+    malloc_utils::allocator_name()
 }
 
 fn build_profile_name() -> String {
@@ -293,6 +285,20 @@ fn main() {
                     "URL of the OpenTelemetry collector to export tracing spans \
                     (e.g., http://localhost:4317). If not set, tracing export is disabled.",
                 )
+                .action(ArgAction::Set)
+                .global(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("telemetry-service-name")
+                .long("telemetry-service-name")
+                .value_name("NAME")
+                .help(
+                    "Override the OpenTelemetry service name. \
+                    Defaults to 'lighthouse-bn' for beacon node, 'lighthouse-vc' for validator \
+                    client, or 'lighthouse' for other subcommands."
+                )
+                .requires("telemetry-collector-url")
                 .action(ArgAction::Set)
                 .global(true)
                 .display_order(0)
@@ -710,11 +716,20 @@ fn run<E: EthSpec>(
                 .build()
                 .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;
 
+            let service_name = matches
+                .get_one::<String>("telemetry-service-name")
+                .cloned()
+                .unwrap_or_else(|| match matches.subcommand() {
+                    Some(("beacon_node", _)) => "lighthouse-bn".to_string(),
+                    Some(("validator_client", _)) => "lighthouse-vc".to_string(),
+                    _ => "lighthouse".to_string(),
+                });
+
             let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
                 .with_batch_exporter(exporter)
                 .with_resource(
                     opentelemetry_sdk::Resource::builder()
-                        .with_service_name("lighthouse")
+                        .with_service_name(service_name)
                         .build(),
                 )
                 .build();
