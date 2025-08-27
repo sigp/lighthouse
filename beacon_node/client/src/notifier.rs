@@ -147,6 +147,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         );
                 }
                 SyncState::CustodyBackFillSyncing { .. } => {
+                    // TODO(custody-sync) this is a mess, need to fix
                     match beacon_chain.store.get_data_column_custody_info() {
                         Ok(data_column_custody_info) => {
                             if let Some(earliest_data_column_slot) = data_column_custody_info
