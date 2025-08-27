@@ -1395,7 +1395,7 @@ async fn test_data_columns_by_range_request_only_returns_requested_columns() {
     let all_custody_columns = rig
         .chain
         .sampling_columns_for_epoch(rig.chain.epoch().unwrap());
-    let available_columns: Vec<u64> = all_custody_columns.into_iter().copied().collect();
+    let available_columns: Vec<u64> = all_custody_columns.iter().copied().collect();
 
     let requested_columns = vec![available_columns[0], available_columns[2]];
 
