@@ -1032,7 +1032,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
 
-        match result {
+        match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
                     info!(
@@ -1058,6 +1058,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // another column arrives it either completes availability or pushes
                     // reconstruction back a bit.
                     let cloned_self = Arc::clone(self);
+                    let block_root = *block_root;
                     let send_result = self.beacon_processor_send.try_send(WorkEvent {
                         drop_during_sync: false,
                         work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
@@ -1105,6 +1106,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "bad_gossip_data_column_ssz",
                 );
             }
+        }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or data column. If a
+        // importing a block results in `Imported`, notify. Do not notify of data column errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
         }
     }
 
