@@ -25,20 +25,13 @@ impl From<ArithError> for Error {
     }
 }
 
-#[derive(
-    Debug,
-    PartialEq,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 pub struct SyncCommittee<E: EthSpec> {
     pub pubkeys: FixedVector<PublicKeyBytes, E::SyncCommitteeSize>,

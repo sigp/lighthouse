@@ -1,19 +1,19 @@
 use super::*;
 use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::status::ToStatusMessage;
+use crate::sync::SyncMessage;
 use crate::sync::manager::SLOT_IMPORT_TOLERANCE;
 use crate::sync::network_context::RangeRequestId;
 use crate::sync::range_sync::RangeSyncType;
-use crate::sync::SyncMessage;
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
-use beacon_chain::{block_verification_types::RpcBlock, EngineState, NotifyExecutionLayer};
+use beacon_chain::{EngineState, NotifyExecutionLayer, block_verification_types::RpcBlock};
 use beacon_processor::WorkType;
+use lighthouse_network::rpc::RequestType;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, DataColumnsByRangeRequest, OldBlocksByRangeRequest,
     OldBlocksByRangeRequestV2, StatusMessageV2,
 };
-use lighthouse_network::rpc::RequestType;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     SyncRequestId,
@@ -207,11 +207,12 @@ impl TestRig {
                     return false;
                 }
             }
-            if let Some(expected_peer) = request_filter.peer {
-                if peer != expected_peer {
-                    return false;
-                }
+            if let Some(expected_peer) = request_filter.peer
+                && peer != expected_peer
+            {
+                return false;
             }
+
             true
         };
 
@@ -426,7 +427,7 @@ impl TestRig {
             .chain
             .process_block(
                 block_root,
-                build_rpc_block(block.into(), &data_sidecars, &self.spec),
+                build_rpc_block(block.into(), &data_sidecars),
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
@@ -442,14 +443,13 @@ impl TestRig {
 fn build_rpc_block(
     block: Arc<SignedBeaconBlock<E>>,
     data_sidecars: &Option<DataSidecars<E>>,
-    spec: &ChainSpec,
 ) -> RpcBlock<E> {
     match data_sidecars {
         Some(DataSidecars::Blobs(blobs)) => {
             RpcBlock::new(None, block, Some(blobs.clone())).unwrap()
         }
         Some(DataSidecars::DataColumns(columns)) => {
-            RpcBlock::new_with_custody_columns(None, block, columns.clone(), spec).unwrap()
+            RpcBlock::new_with_custody_columns(None, block, columns.clone()).unwrap()
         }
         // Block has no data, expects zero columns
         None => RpcBlock::new_without_blobs(None, block),

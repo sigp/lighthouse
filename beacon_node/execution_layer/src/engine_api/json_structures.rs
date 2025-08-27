@@ -65,7 +65,7 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[superstruct(
-    variants(V1, V2, V3, V4, V5),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(Debug, PartialEq, Default, Serialize, Deserialize,),
         serde(bound = "E: EthSpec", rename_all = "camelCase"),
@@ -100,19 +100,19 @@ pub struct JsonExecutionPayload<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(V2, V3, V4, V5))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
     pub withdrawals: VariableList<JsonWithdrawal, E::MaxWithdrawalsPerPayload>,
-    #[superstruct(only(V3, V4, V5))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub blob_gas_used: u64,
-    #[superstruct(only(V3, V4, V5))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     #[serde(with = "serde_utils::u64_hex_be")]
     pub excess_blob_gas: u64,
 }
 
-impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadV1<E> {
+impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadBellatrix<E> {
     fn from(payload: ExecutionPayloadBellatrix<E>) -> Self {
-        JsonExecutionPayloadV1 {
+        JsonExecutionPayloadBellatrix {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -130,9 +130,9 @@ impl<E: EthSpec> From<ExecutionPayloadBellatrix<E>> for JsonExecutionPayloadV1<E
         }
     }
 }
-impl<E: EthSpec> From<ExecutionPayloadCapella<E>> for JsonExecutionPayloadV2<E> {
+impl<E: EthSpec> From<ExecutionPayloadCapella<E>> for JsonExecutionPayloadCapella<E> {
     fn from(payload: ExecutionPayloadCapella<E>) -> Self {
-        JsonExecutionPayloadV2 {
+        JsonExecutionPayloadCapella {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -156,9 +156,9 @@ impl<E: EthSpec> From<ExecutionPayloadCapella<E>> for JsonExecutionPayloadV2<E> 
         }
     }
 }
-impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadV3<E> {
+impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadDeneb<E> {
     fn from(payload: ExecutionPayloadDeneb<E>) -> Self {
-        JsonExecutionPayloadV3 {
+        JsonExecutionPayloadDeneb {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -185,9 +185,9 @@ impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadV3<E> {
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> {
+impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadElectra<E> {
     fn from(payload: ExecutionPayloadElectra<E>) -> Self {
-        JsonExecutionPayloadV4 {
+        JsonExecutionPayloadElectra {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -214,9 +214,38 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadV4<E> 
     }
 }
 
-impl<E: EthSpec> From<ExecutionPayloadFulu<E>> for JsonExecutionPayloadV5<E> {
+impl<E: EthSpec> From<ExecutionPayloadFulu<E>> for JsonExecutionPayloadFulu<E> {
     fn from(payload: ExecutionPayloadFulu<E>) -> Self {
-        JsonExecutionPayloadV5 {
+        JsonExecutionPayloadFulu {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+        }
+    }
+}
+
+impl<E: EthSpec> From<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas<E> {
+    fn from(payload: ExecutionPayloadGloas<E>) -> Self {
+        JsonExecutionPayloadGloas {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -246,17 +275,18 @@ impl<E: EthSpec> From<ExecutionPayloadFulu<E>> for JsonExecutionPayloadV5<E> {
 impl<E: EthSpec> From<ExecutionPayload<E>> for JsonExecutionPayload<E> {
     fn from(execution_payload: ExecutionPayload<E>) -> Self {
         match execution_payload {
-            ExecutionPayload::Bellatrix(payload) => JsonExecutionPayload::V1(payload.into()),
-            ExecutionPayload::Capella(payload) => JsonExecutionPayload::V2(payload.into()),
-            ExecutionPayload::Deneb(payload) => JsonExecutionPayload::V3(payload.into()),
-            ExecutionPayload::Electra(payload) => JsonExecutionPayload::V4(payload.into()),
-            ExecutionPayload::Fulu(payload) => JsonExecutionPayload::V5(payload.into()),
+            ExecutionPayload::Bellatrix(payload) => JsonExecutionPayload::Bellatrix(payload.into()),
+            ExecutionPayload::Capella(payload) => JsonExecutionPayload::Capella(payload.into()),
+            ExecutionPayload::Deneb(payload) => JsonExecutionPayload::Deneb(payload.into()),
+            ExecutionPayload::Electra(payload) => JsonExecutionPayload::Electra(payload.into()),
+            ExecutionPayload::Fulu(payload) => JsonExecutionPayload::Fulu(payload.into()),
+            ExecutionPayload::Gloas(payload) => JsonExecutionPayload::Gloas(payload.into()),
         }
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadV1<E>> for ExecutionPayloadBellatrix<E> {
-    fn from(payload: JsonExecutionPayloadV1<E>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadBellatrix<E>> for ExecutionPayloadBellatrix<E> {
+    fn from(payload: JsonExecutionPayloadBellatrix<E>) -> Self {
         ExecutionPayloadBellatrix {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -275,8 +305,8 @@ impl<E: EthSpec> From<JsonExecutionPayloadV1<E>> for ExecutionPayloadBellatrix<E
         }
     }
 }
-impl<E: EthSpec> From<JsonExecutionPayloadV2<E>> for ExecutionPayloadCapella<E> {
-    fn from(payload: JsonExecutionPayloadV2<E>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadCapella<E>> for ExecutionPayloadCapella<E> {
+    fn from(payload: JsonExecutionPayloadCapella<E>) -> Self {
         ExecutionPayloadCapella {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -302,8 +332,8 @@ impl<E: EthSpec> From<JsonExecutionPayloadV2<E>> for ExecutionPayloadCapella<E> 
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadV3<E>> for ExecutionPayloadDeneb<E> {
-    fn from(payload: JsonExecutionPayloadV3<E>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadDeneb<E>> for ExecutionPayloadDeneb<E> {
+    fn from(payload: JsonExecutionPayloadDeneb<E>) -> Self {
         ExecutionPayloadDeneb {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -331,8 +361,8 @@ impl<E: EthSpec> From<JsonExecutionPayloadV3<E>> for ExecutionPayloadDeneb<E> {
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> {
-    fn from(payload: JsonExecutionPayloadV4<E>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadElectra<E>> for ExecutionPayloadElectra<E> {
+    fn from(payload: JsonExecutionPayloadElectra<E>) -> Self {
         ExecutionPayloadElectra {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
@@ -360,9 +390,38 @@ impl<E: EthSpec> From<JsonExecutionPayloadV4<E>> for ExecutionPayloadElectra<E> 
     }
 }
 
-impl<E: EthSpec> From<JsonExecutionPayloadV5<E>> for ExecutionPayloadFulu<E> {
-    fn from(payload: JsonExecutionPayloadV5<E>) -> Self {
+impl<E: EthSpec> From<JsonExecutionPayloadFulu<E>> for ExecutionPayloadFulu<E> {
+    fn from(payload: JsonExecutionPayloadFulu<E>) -> Self {
         ExecutionPayloadFulu {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom,
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data,
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions: payload.transactions,
+            withdrawals: payload
+                .withdrawals
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<_>>()
+                .into(),
+            blob_gas_used: payload.blob_gas_used,
+            excess_blob_gas: payload.excess_blob_gas,
+        }
+    }
+}
+
+impl<E: EthSpec> From<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas<E> {
+    fn from(payload: JsonExecutionPayloadGloas<E>) -> Self {
+        ExecutionPayloadGloas {
             parent_hash: payload.parent_hash,
             fee_recipient: payload.fee_recipient,
             state_root: payload.state_root,
@@ -392,11 +451,12 @@ impl<E: EthSpec> From<JsonExecutionPayloadV5<E>> for ExecutionPayloadFulu<E> {
 impl<E: EthSpec> From<JsonExecutionPayload<E>> for ExecutionPayload<E> {
     fn from(json_execution_payload: JsonExecutionPayload<E>) -> Self {
         match json_execution_payload {
-            JsonExecutionPayload::V1(payload) => ExecutionPayload::Bellatrix(payload.into()),
-            JsonExecutionPayload::V2(payload) => ExecutionPayload::Capella(payload.into()),
-            JsonExecutionPayload::V3(payload) => ExecutionPayload::Deneb(payload.into()),
-            JsonExecutionPayload::V4(payload) => ExecutionPayload::Electra(payload.into()),
-            JsonExecutionPayload::V5(payload) => ExecutionPayload::Fulu(payload.into()),
+            JsonExecutionPayload::Bellatrix(payload) => ExecutionPayload::Bellatrix(payload.into()),
+            JsonExecutionPayload::Capella(payload) => ExecutionPayload::Capella(payload.into()),
+            JsonExecutionPayload::Deneb(payload) => ExecutionPayload::Deneb(payload.into()),
+            JsonExecutionPayload::Electra(payload) => ExecutionPayload::Electra(payload.into()),
+            JsonExecutionPayload::Fulu(payload) => ExecutionPayload::Fulu(payload.into()),
+            JsonExecutionPayload::Gloas(payload) => ExecutionPayload::Gloas(payload.into()),
         }
     }
 }
@@ -440,10 +500,10 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
             // Elements of the list **MUST** be ordered by `request_type` in ascending order
             let current_prefix = RequestType::from_u8(*prefix_byte)
                 .ok_or(RequestsError::InvalidPrefix(*prefix_byte))?;
-            if let Some(prev) = prev_prefix {
-                if prev.to_u8() >= current_prefix.to_u8() {
-                    return Err(RequestsError::InvalidOrdering);
-                }
+            if let Some(prev) = prev_prefix
+                && prev.to_u8() >= current_prefix.to_u8()
+            {
+                return Err(RequestsError::InvalidOrdering);
             }
             prev_prefix = Some(current_prefix);
 
@@ -482,7 +542,7 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
 }
 
 #[superstruct(
-    variants(V1, V2, V3, V4, V5),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(Debug, PartialEq, Serialize, Deserialize),
         serde(bound = "E: EthSpec", rename_all = "camelCase")
@@ -493,23 +553,28 @@ impl<E: EthSpec> TryFrom<JsonExecutionRequests> for ExecutionRequests<E> {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub struct JsonGetPayloadResponse<E: EthSpec> {
-    #[superstruct(only(V1), partial_getter(rename = "execution_payload_v1"))]
-    pub execution_payload: JsonExecutionPayloadV1<E>,
-    #[superstruct(only(V2), partial_getter(rename = "execution_payload_v2"))]
-    pub execution_payload: JsonExecutionPayloadV2<E>,
-    #[superstruct(only(V3), partial_getter(rename = "execution_payload_v3"))]
-    pub execution_payload: JsonExecutionPayloadV3<E>,
-    #[superstruct(only(V4), partial_getter(rename = "execution_payload_v4"))]
-    pub execution_payload: JsonExecutionPayloadV4<E>,
-    #[superstruct(only(V5), partial_getter(rename = "execution_payload_v5"))]
-    pub execution_payload: JsonExecutionPayloadV5<E>,
+    #[superstruct(
+        only(Bellatrix),
+        partial_getter(rename = "execution_payload_bellatrix")
+    )]
+    pub execution_payload: JsonExecutionPayloadBellatrix<E>,
+    #[superstruct(only(Capella), partial_getter(rename = "execution_payload_capella"))]
+    pub execution_payload: JsonExecutionPayloadCapella<E>,
+    #[superstruct(only(Deneb), partial_getter(rename = "execution_payload_deneb"))]
+    pub execution_payload: JsonExecutionPayloadDeneb<E>,
+    #[superstruct(only(Electra), partial_getter(rename = "execution_payload_electra"))]
+    pub execution_payload: JsonExecutionPayloadElectra<E>,
+    #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
+    pub execution_payload: JsonExecutionPayloadFulu<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
+    pub execution_payload: JsonExecutionPayloadGloas<E>,
     #[serde(with = "serde_utils::u256_hex_be")]
     pub block_value: Uint256,
-    #[superstruct(only(V3, V4, V5))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub blobs_bundle: JsonBlobsBundleV1<E>,
-    #[superstruct(only(V3, V4, V5))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub should_override_builder: bool,
-    #[superstruct(only(V4, V5))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub execution_requests: JsonExecutionRequests,
 }
 
@@ -517,19 +582,19 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
     type Error = String;
     fn try_from(json_get_payload_response: JsonGetPayloadResponse<E>) -> Result<Self, Self::Error> {
         match json_get_payload_response {
-            JsonGetPayloadResponse::V1(response) => {
+            JsonGetPayloadResponse::Bellatrix(response) => {
                 Ok(GetPayloadResponse::Bellatrix(GetPayloadResponseBellatrix {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                 }))
             }
-            JsonGetPayloadResponse::V2(response) => {
+            JsonGetPayloadResponse::Capella(response) => {
                 Ok(GetPayloadResponse::Capella(GetPayloadResponseCapella {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                 }))
             }
-            JsonGetPayloadResponse::V3(response) => {
+            JsonGetPayloadResponse::Deneb(response) => {
                 Ok(GetPayloadResponse::Deneb(GetPayloadResponseDeneb {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
@@ -537,7 +602,7 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
                     should_override_builder: response.should_override_builder,
                 }))
             }
-            JsonGetPayloadResponse::V4(response) => {
+            JsonGetPayloadResponse::Electra(response) => {
                 Ok(GetPayloadResponse::Electra(GetPayloadResponseElectra {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
@@ -548,8 +613,19 @@ impl<E: EthSpec> TryFrom<JsonGetPayloadResponse<E>> for GetPayloadResponse<E> {
                     })?,
                 }))
             }
-            JsonGetPayloadResponse::V5(response) => {
+            JsonGetPayloadResponse::Fulu(response) => {
                 Ok(GetPayloadResponse::Fulu(GetPayloadResponseFulu {
+                    execution_payload: response.execution_payload.into(),
+                    block_value: response.block_value,
+                    blobs_bundle: response.blobs_bundle.into(),
+                    should_override_builder: response.should_override_builder,
+                    requests: response.execution_requests.try_into().map_err(|e| {
+                        format!("Failed to convert json to execution requests  {:?}", e)
+                    })?,
+                }))
+            }
+            JsonGetPayloadResponse::Gloas(response) => {
+                Ok(GetPayloadResponse::Gloas(GetPayloadResponseGloas {
                     execution_payload: response.execution_payload.into(),
                     block_value: response.block_value,
                     blobs_bundle: response.blobs_bundle.into(),

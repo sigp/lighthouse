@@ -2,8 +2,8 @@ use crate::context_deserialize;
 use crate::indexed_attestation::{
     IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
 };
-use crate::{test_utils::TestRandom, EthSpec};
 use crate::{ContextDeserialize, ForkName};
+use crate::{EthSpec, test_utils::TestRandom};
 use derivative::Derivative;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -25,21 +25,26 @@ use tree_hash_derive::TreeHash;
             Decode,
             TreeHash,
             TestRandom,
-            arbitrary::Arbitrary
         ),
         context_deserialize(ForkName),
         derivative(PartialEq, Eq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec"),
-        arbitrary(bound = "E: EthSpec")
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec")
+        ),
     ),
     ref_attributes(derive(Debug))
 )]
-#[derive(
-    Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative, arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Derivative)]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 #[serde(bound = "E: EthSpec", untagged)]
-#[arbitrary(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct AttesterSlashing<E: EthSpec> {
@@ -166,7 +171,7 @@ impl<E: EthSpec> AttesterSlashing<E> {
 
 impl<E: EthSpec> TestRandom for AttesterSlashing<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        if rng.gen_bool(0.5) {
+        if rng.random_bool(0.5) {
             AttesterSlashing::Base(AttesterSlashingBase::random_for_test(rng))
         } else {
             AttesterSlashing::Electra(AttesterSlashingElectra::random_for_test(rng))

@@ -1,12 +1,12 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hot_cold_store::{HotColdDBError, StateSummaryIteratorError};
-use crate::{hdiff, DBColumn};
+use crate::{DBColumn, hdiff};
 #[cfg(feature = "leveldb")]
 use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
+use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot, milhouse};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

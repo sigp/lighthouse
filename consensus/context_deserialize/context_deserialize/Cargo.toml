@@ -1,0 +1,17 @@
+[package]
+name = "context_deserialize"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["derive"]
+derive = ["dep:context_deserialize_derive"]
+milhouse = ["dep:milhouse"]
+ssz = ["dep:ssz_types"]
+all = ["derive", "milhouse", "ssz"]
+
+[dependencies]
+context_deserialize_derive = { version = "0.1.0", path = "../context_deserialize_derive", optional = true }
+milhouse = { workspace = true, optional = true }
+serde = { workspace = true }
+ssz_types = { workspace = true, optional = true }

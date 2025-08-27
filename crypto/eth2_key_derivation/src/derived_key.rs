@@ -1,6 +1,6 @@
-use crate::{lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes, ZeroizeHash};
+use crate::{ZeroizeHash, lamport_secret_key::LamportSecretKey, secret_bytes::SecretBytes};
 use num_bigint_dig::BigUint;
-use ring::hkdf::{KeyType, Prk, Salt, HKDF_SHA256};
+use ring::hkdf::{HKDF_SHA256, KeyType, Prk, Salt};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
@@ -333,8 +333,7 @@ mod test {
     fn get_raw_vector() -> RawTestVector {
         RawTestVector {
             seed: "0xc55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04",
-            master_sk:
-            "6083874454709270928345386274498605044986640685124978867557563392430687146096",
+            master_sk: "6083874454709270928345386274498605044986640685124978867557563392430687146096",
             child_index: 0,
             lamport_0: vec![
                 "0xe345d0ad7be270737de05cf036f688f385d5f99c7fddb054837658bdd2ebd519",
@@ -850,10 +849,8 @@ mod test {
                 "0x8b28838382e6892f59c42a7709d6d38396495d3af5a8d5b0a60f172a6a8940bd",
                 "0x261a605fa5f2a9bdc7cffac530edcf976e7ea7af4e443b625fe01ed39dad44b6",
             ],
-            compressed_lamport_pk:
-            "0xdd635d27d1d52b9a49df9e5c0c622360a4dd17cba7db4e89bce3cb048fb721a5",
-            child_sk:
-            "20397789859736650942317412262472558107875392172444076792671091975210932703118",
+            compressed_lamport_pk: "0xdd635d27d1d52b9a49df9e5c0c622360a4dd17cba7db4e89bce3cb048fb721a5",
+            child_sk: "20397789859736650942317412262472558107875392172444076792671091975210932703118",
         }
     }
 }

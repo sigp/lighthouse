@@ -3,7 +3,7 @@ use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, Hash256, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
@@ -87,9 +87,10 @@ pub enum RangeRequestId {
     BackfillSync { batch_id: Epoch },
 }
 
+// TODO(das) refactor in a separate PR. We might be able to remove this and replace
+// [`DataColumnsByRootRequestId`] with a [`SingleLookupReqId`].
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DataColumnsByRootRequester {
-    Sampling(SamplingId),
     Custody(CustodyId),
 }
 
@@ -98,21 +99,6 @@ pub enum RangeRequester {
     RangeSync { chain_id: u64, batch_id: Epoch },
     BackfillSync { batch_id: Epoch },
 }
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct SamplingId {
-    pub id: SamplingRequester,
-    pub sampling_request_id: SamplingRequestId,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum SamplingRequester {
-    ImportedBlock(Hash256),
-}
-
-/// Identifier of sampling requests.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct SamplingRequestId(pub usize);
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyId {
@@ -231,13 +217,11 @@ impl_display!(ComponentsByRangeRequestId, "{}/{}", id, requester);
 impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
 impl_display!(CustodyId, "{}", requester);
-impl_display!(SamplingId, "{}/{}", sampling_request_id, id);
 
 impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Custody(id) => write!(f, "Custody/{id}"),
-            Self::Sampling(id) => write!(f, "Sampling/{id}"),
         }
     }
 }
@@ -253,20 +237,6 @@ impl Display for RangeRequestId {
         match self {
             Self::RangeSync { chain_id, batch_id } => write!(f, "RangeSync/{batch_id}/{chain_id}"),
             Self::BackfillSync { batch_id } => write!(f, "BackfillSync/{batch_id}"),
-        }
-    }
-}
-
-impl Display for SamplingRequestId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Display for SamplingRequester {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::ImportedBlock(block) => write!(f, "ImportedBlock/{block}"),
         }
     }
 }
@@ -287,18 +257,6 @@ mod tests {
             }),
         };
         assert_eq!(format!("{id}"), "123/Custody/121/Lookup/101");
-    }
-
-    #[test]
-    fn display_id_data_columns_by_root_sampling() {
-        let id = DataColumnsByRootRequestId {
-            id: 123,
-            requester: DataColumnsByRootRequester::Sampling(SamplingId {
-                id: SamplingRequester::ImportedBlock(Hash256::ZERO),
-                sampling_request_id: SamplingRequestId(101),
-            }),
-        };
-        assert_eq!(format!("{id}"), "123/Sampling/101/ImportedBlock/0x0000000000000000000000000000000000000000000000000000000000000000");
     }
 
     #[test]

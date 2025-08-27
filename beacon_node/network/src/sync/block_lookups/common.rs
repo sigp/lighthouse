@@ -14,8 +14,8 @@ use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, SignedBeaconBlock};
 
-use super::single_block_lookup::{ComponentRequests, DownloadResult};
 use super::SingleLookupId;
+use super::single_block_lookup::{ComponentRequests, DownloadResult};
 
 #[derive(Debug, Copy, Clone)]
 pub enum ResponseType {

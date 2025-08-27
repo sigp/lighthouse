@@ -36,8 +36,8 @@
 //! attestations and there's no immediate cause for concern.
 use crate::task_spawner::{Priority, TaskSpawner};
 use beacon_chain::{
-    validator_monitor::timestamp_now, AttestationError, BeaconChain, BeaconChainError,
-    BeaconChainTypes,
+    AttestationError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    validator_monitor::timestamp_now,
 };
 use beacon_processor::work_reprocessing_queue::{QueuedUnaggregate, ReprocessQueueMessage};
 use beacon_processor::{Work, WorkEvent};

@@ -8,11 +8,11 @@ pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 use crate::service::TARGET_SUBNET_PEERS;
-use crate::{metrics, ClearDialError};
+use crate::{ClearDialError, metrics};
 use crate::{Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
-use discv5::{enr::NodeId, Discv5};
-pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2Enr};
-pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
+use discv5::{Discv5, enr::NodeId};
+pub use enr::{CombinedKey, Eth2Enr, build_enr, load_enr_from_disk, use_or_load_enr};
+pub use enr_ext::{CombinedKeyExt, EnrExt, peer_id_to_node_id};
 pub use libp2p::identity::{Keypair, PublicKey};
 
 use alloy_rlp::bytes::Bytes;
@@ -21,14 +21,14 @@ use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::transport::PortUse;
 use libp2p::multiaddr::Protocol;
-use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::THandlerInEvent;
+use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 pub use libp2p::{
-    core::{transport::ListenerId, ConnectedPoint, Multiaddr},
+    core::{ConnectedPoint, Multiaddr, transport::ListenerId},
     identity::PeerId,
     swarm::{
-        dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
-        SubstreamProtocol, ToSwarm,
+        ConnectionId, DialError, NetworkBehaviour, NotifyHandler, SubstreamProtocol, ToSwarm,
+        dummy::ConnectionHandler,
     },
 };
 use logging::crit;
@@ -1132,7 +1132,10 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             self.update_enr_quic_port(port, false)
                         }
                         _ => {
-                            debug!(?addr, "Encountered unacceptable multiaddr for listening (unsupported transport)");
+                            debug!(
+                                ?addr,
+                                "Encountered unacceptable multiaddr for listening (unsupported transport)"
+                            );
                             return;
                         }
                     },
@@ -1154,7 +1157,10 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             self.update_enr_quic_port(port, true)
                         }
                         _ => {
-                            debug!(?addr, "Encountered unacceptable multiaddr for listening (unsupported transport)");
+                            debug!(
+                                ?addr,
+                                "Encountered unacceptable multiaddr for listening (unsupported transport)"
+                            );
                             return;
                         }
                     },

@@ -392,6 +392,13 @@ Options:
           database.
       --target-peers <target-peers>
           The target number of peers.
+      --telemetry-collector-url <URL>
+          URL of the OpenTelemetry collector to export tracing spans (e.g.,
+          http://localhost:4317). If not set, tracing export is disabled.
+      --telemetry-service-name <NAME>
+          Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
+          for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
+          for other subcommands.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.
@@ -450,6 +457,8 @@ Flags:
           IP address and port as seen by other peers on the network. This
           disables this feature, fixing the ENR's IP/PORT to those specified on
           boot.
+      --disable-get-blobs
+          Disables the getBlobs optimisation to fetch blobs from the EL mempool
       --disable-inbound-rate-limiter
           Disables the inbound rate limiter (requests received by this node).
       --disable-light-client-server
