@@ -966,7 +966,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         src: &str,
     ) -> ProcessingResult {
-        debug!(?src, "In attempt_send_awaiting download batches");
         // Collect all batches in AwaitingDownload state and see if they can be sent
         let awaiting_downloads: Vec<_> = self
             .batches
@@ -976,7 +975,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .copied()
             .collect();
         for batch_id in awaiting_downloads {
-            debug!(?src, ?batch_id, "Sending batch");
             if self.good_peers_on_sampling_subnets(batch_id, network) {
                 self.send_batch(network, batch_id)?;
             }
@@ -991,7 +989,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
     ) -> ProcessingResult {
         let _guard = self.span.clone().entered();
-        debug!(batch_epoch = %batch_id, "Requesting batch");
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             let (request, batch_type) = batch.to_blocks_by_range_request();
@@ -1121,7 +1118,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
     ) -> Result<KeepChain, RemoveChain> {
         let _guard = self.span.clone().entered();
-        debug!("Resuming chain");
         // Request more batches if needed.
         self.request_batches(network)?;
         // If there is any batch ready for processing, send it.
@@ -1134,14 +1130,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if !matches!(self.state, ChainSyncingState::Syncing) {
             return Ok(KeepChain);
         }
-        debug!("In request batches");
-
         // find the next pending batch and request it from the peer
 
         // check if we have the batch for our optimistic start. If not, request it first.
         // We wait for this batch before requesting any other batches.
         if let Some(epoch) = self.optimistic_start {
-            debug!("In request batches optimistic start");
             if !self.good_peers_on_sampling_subnets(epoch, network) {
                 debug!("Waiting for peers to be available on sampling column subnets");
                 return Ok(KeepChain);
@@ -1153,13 +1146,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 entry.insert(optimistic_batch);
                 self.send_batch(network, epoch)?;
             } else {
-                debug!(batch=?self.batches.get(&epoch), "Optimistic batch info");
-                self.attempt_send_awaiting_download_batches(network, "optimisitc");
+                self.attempt_send_awaiting_download_batches(network, "optimistic");
             }
             return Ok(KeepChain);
         }
-
-        debug!("In request batches checking if can send batch");
 
         // find the next pending batch and request it from the peer
         // Note: for this function to not infinite loop we must:
@@ -1207,8 +1197,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `false` is returned.
     fn include_next_batch(&mut self, network: &mut SyncNetworkContext<T>) -> Option<BatchId> {
-        debug!("In include_next_batch");
-
         // don't request batches beyond the target head slot
         if self
             .to_be_downloaded
@@ -1235,12 +1223,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .collect();
 
         if in_buffer_batches.len() > BATCH_BUFFER_SIZE as usize {
-            debug!(
-                ?in_buffer_batches,
-                ?self.processing_target,
-                ?self.to_be_downloaded, "Too many batches already"
-            );
-
             return None;
         }
 
@@ -1253,7 +1235,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return None;
         }
 
-        debug!(?self.to_be_downloaded, "Trying to check next batch id");
         // If no batch needs a retry, attempt to send the batch of the next epoch to download
         let next_batch_id = self.to_be_downloaded;
         // this batch could have been included already being an optimistic batch
