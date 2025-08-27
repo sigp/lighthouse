@@ -102,6 +102,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         );
                         continue;
                     }
+                    if block_root != data_column.block_root() {
+                        return Err(HistoricalDataColumnError::NoBlockFound {
+                            data_column_block_root: data_column.block_root(),
+                        });
+                    }
                     self.store.data_column_as_kv_store_ops(
                         &block_root,
                         data_column.clone(),

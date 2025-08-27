@@ -2914,14 +2914,12 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
         assert!(data_columns.is_some());
-        let mut data_column_sidecar = vec![];
 
         for data_column in data_columns.unwrap() {
             let mut data_column = (*data_column).clone();
             data_column.signed_block_header.message.body_root = Hash256::ZERO;
-            data_column_sidecar.push(Arc::new(data_column));
+            data_columns_list.push(Arc::new(data_column));
         }
-        data_columns_list.push(data_column_sidecar);
     }
 
     harness
@@ -2951,17 +2949,17 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
         assert!(data_columns.is_none())
     }
 
-    for data_column_sidecars in data_columns_list {
-        let error = harness
-            .chain
-            .import_historical_data_column_batch(Epoch::new(0), data_column_sidecars)
-            .unwrap_err();
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list)
+        .unwrap_err();
 
-        assert!(matches!(
-            error,
-            HistoricalDataColumnError::NoBlockFound { .. }
-        ));
-    }
+    println!("error! {:?}", error);
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::NoBlockFound { .. }
+    ));
 }
 
 // This should verify that a data column sidecar with an invalid signature cannot be imported into the store.
