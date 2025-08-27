@@ -161,8 +161,6 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
     enable_light_client_server: bool,
-    /// Networking constant values
-    network_params: NetworkParams,
     /// A sequential counter indicating when data gets modified.
     seq_number: u64,
 }
@@ -173,7 +171,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         enable_light_client_server: bool,
         inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
-        network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
         let response_limiter = inbound_rate_limiter_config.map(|config| {
@@ -193,7 +190,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
-            network_params,
             seq_number,
         }
     }
