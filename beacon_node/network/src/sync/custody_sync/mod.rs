@@ -738,8 +738,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     return Ok(ProcessResult::Successful);
                 }
                 CustodyBatchState::AwaitingValidation(_) => {
-                    // TODO(custody-sync) this is possible at the end of custody sync
-
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
                     crit!(

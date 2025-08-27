@@ -102,7 +102,6 @@ impl ValidatorRegistrations {
         }
     }
 
-    // TODO(custody-sync) potential race condition if latest valid custody requirement is updated twice?
     /// Updates the `epoch_validator_custody_requirements` map by pruning all values on/after `effective_epoch`
     /// and updating the map to store the latest validator custody requirements for the `effective_epoch`.
     pub fn backfill_validator_custody_requirements(&mut self, effective_epoch: Epoch) {
@@ -383,7 +382,6 @@ impl<E: EthSpec> CustodyContext<E> {
         &all_columns_ordered[..custody_group_count]
     }
 
-    // TODO(custody-sync) update comments
     pub fn backfill_custody_count_at_epoch(&self, effective_epoch: Epoch) {
         self.validator_registrations
             .write()

@@ -1007,7 +1007,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }) => {
                                 info!(?completed, ?remaining, "Starting Custody Sync");
                             }
-                            // TODO(custody-sync) review ignore comment, maybe update sync state here?
                             Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the custody backfill sync state didn't start.
                             Err(e) => {
                                 error!(error = ?e, "Custody backfill sync failed to start");

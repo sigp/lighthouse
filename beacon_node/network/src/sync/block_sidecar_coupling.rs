@@ -156,7 +156,6 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
         Some(resp)
     }
 
-    // TODO(custody-sync) review this
     fn responses_with_custody_columns(
         data_columns: DataColumnSidecarList<E>,
         column_to_peer: HashMap<u64, PeerId>,
