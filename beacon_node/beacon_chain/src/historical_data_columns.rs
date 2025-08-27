@@ -9,12 +9,6 @@ use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
 pub enum HistoricalDataColumnError {
-    /// The provided data column sidecar contains a block signature that doesn't match
-    /// the block stored in the database.
-    InvalidSignature {
-        data_column_block_root: Hash256,
-    },
-
     // The provided data column sidecar pertains to a block that doesn't exist in the database.
     NoBlockFound {
         data_column_block_root: Hash256,
@@ -61,6 +55,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut total_imported = 0;
         let mut ops = vec![];
 
+        println!("length {:?}", historical_data_column_sidecar_list.len());
+
         let unique_column_indices = historical_data_column_sidecar_list
             .iter()
             .map(|item| item.index)
@@ -70,6 +66,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .iter()
             .map(|data_column| ((data_column.slot(), data_column.index), data_column))
             .collect::<HashMap<_, _>>();
+
+        println!("length {:?}", slot_and_column_index_to_data_columns.keys().len());
 
         if historical_data_column_sidecar_list.is_empty() {
             return Ok(total_imported);
@@ -85,7 +83,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for block_iter_result in forward_blocks_iter {
             let (block_root, slot) = block_iter_result
                 .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
-
+            
             for column_index in unique_column_indices.clone() {
                 if let Some(data_column) =
                     slot_and_column_index_to_data_columns.remove(&(slot, column_index))

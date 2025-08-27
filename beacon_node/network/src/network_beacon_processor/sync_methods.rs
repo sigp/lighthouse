@@ -477,14 +477,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // The peer is faulty if they send blocks with bad roots.
                         Some(PeerAction::LowToleranceError)
                     }
-                    HistoricalDataColumnError::InvalidSignature { .. } => {
-                        warn!(
-                            error = ?e,
-                            "Custody backfill batch processing error"
-                        );
-                        // The peer is faulty if they bad signatures.
-                        Some(PeerAction::LowToleranceError)
-                    }
                     HistoricalDataColumnError::MissingDataColumns { .. } => {
                         warn!(
                             error = ?e,
