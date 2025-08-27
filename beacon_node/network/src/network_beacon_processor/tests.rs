@@ -21,7 +21,9 @@ use beacon_processor::{work_reprocessing_queue::*, *};
 use gossipsub::MessageAcceptance;
 use itertools::Itertools;
 use lighthouse_network::rpc::InboundRequestId;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, BlobsByRootRequest, MetaDataV3};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, MetaDataV3,
+};
 use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
     discv5::enr::{self, CombinedKey},
@@ -1454,6 +1456,7 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     };
     let mut spec = test_spec::<E>();
     spec.fulu_fork_epoch = Some(Epoch::new(1));
+    spec.gloas_fork_epoch = Some(Epoch::new(2));
 
     let mut rig = TestRig::new_parametric(64, BeaconProcessorConfig::default(), spec).await;
 
