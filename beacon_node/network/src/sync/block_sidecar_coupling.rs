@@ -56,11 +56,18 @@ enum RangeBlockDataRequest<E: EthSpec> {
         expected_custody_columns: Vec<ColumnIndex>,
         attempt: usize,
     },
+    /// These are data columns fetched by root instead of by range like the previous variant.
+    ///
+    /// Note: this variant starts out in an uninitialized state because we typically make
+    /// the column requests by root only **after** we have fetched the corresponding blocks.
+    /// We can initialize this variant only after the columns requests have been made.
     DataColumnsFromRoot {
         requests: HashMap<
             DataColumnsByRootRequestId,
             ByRangeRequest<DataColumnsByRootRequestId, DataColumnSidecarList<E>>,
         >,
+        // Indicates if this variant has been initialized by sending columns by root requests.
+        // We only start expecting columns once this is set to true.
         init: bool,
         /// The column indices corresponding to the request
         column_peers: HashMap<DataColumnsByRootRequestId, Vec<ColumnIndex>>,
@@ -89,6 +96,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// * `blocks_req_id` - Request ID for the blocks
     /// * `blobs_req_id` - Optional request ID for blobs (pre-Fulu fork)
     /// * `data_columns` - Optional tuple of (request_id->column_indices pairs, expected_custody_columns) for Fulu fork
+    /// * `request_columns_by_root` - Creates an uninitialized `RangeBlockDataRequest::DataColumnsFromRoot` variant if this is true.
+    ///    Note: this is only relevant is `data_columns == None`.
     #[allow(clippy::type_complexity)]
     pub fn new(
         blocks_req_id: BlocksByRangeRequestId,
@@ -97,7 +106,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
             Vec<ColumnIndex>,
         )>,
-        data_columns_from_root: bool,
+        request_columns_by_root: bool,
         request_span: Span,
     ) -> Self {
         let block_peer = blocks_req_id.peer_id;
@@ -114,7 +123,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 expected_custody_columns,
                 attempt: 0,
             }
-        } else if data_columns_from_root {
+        } else if request_columns_by_root {
             RangeBlockDataRequest::DataColumnsFromRoot {
                 requests: HashMap::new(),
                 init: false,
@@ -134,6 +143,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    /// Returns the peers that we requested the blocks, blobs and columns for this component.
     pub fn responsible_peers(&self) -> ResponsiblePeers {
         ResponsiblePeers {
             block_blob: self.block_peer,
@@ -174,8 +184,8 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
-    /// `column_requests`: each element represents a request id and the columns requested under that request.
-    pub fn insert_column_request_after_block_request(
+    /// Initialize the entries for this component after the column requests have been sent.
+    pub fn initialize_data_columns_from_root_component(
         &mut self,
         column_requests: Vec<(DataColumnsByRootRequestId, Vec<ColumnIndex>)>,
         custody_columns: &[ColumnIndex],
@@ -210,6 +220,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         }
     }
 
+    /// This modifies the internal variant to `NoData`.
+    ///
+    /// Once we make the block request for a batch and get responses, it is possible
+    /// that the entire batch contained no blobs based on the values of `expected_kzg_commitments`.
+    ///
+    /// At this point, we do not need to make any requests and the blocks correspond to all the
+    /// available data for this batch. Hence, we indicate here that this component requires no data.
     pub fn no_columns_for_batch(&mut self) -> Result<(), String> {
         match self.block_data_request {
             RangeBlockDataRequest::DataColumnsFromRoot { .. } => {
@@ -336,17 +353,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     spec,
                 ))
             }
-            RangeBlockDataRequest::DataColumnsFromRoot {
-                init,
-                attempt,
-                column_peers,
-                expected_custody_columns,
-                requests,
-            } => {
-                if !*init {
-                    return None;
-                }
 
+            RangeBlockDataRequest::DataColumns {
+                requests,
+                expected_custody_columns,
+                column_peers,
+                attempt,
+            } => {
                 let mut data_columns = vec![];
                 let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
                 for req in requests.values() {
@@ -393,12 +406,20 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 Some(resp)
             }
-            RangeBlockDataRequest::DataColumns {
-                requests,
-                expected_custody_columns,
-                column_peers,
+            // Reuse same logic that we use for coupling data columns for now.
+            // todo(pawan): we should never get a coupling error here, so simplify this
+            // variant's handling.
+            RangeBlockDataRequest::DataColumnsFromRoot {
+                init,
                 attempt,
+                column_peers,
+                expected_custody_columns,
+                requests,
             } => {
+                if !*init {
+                    return None;
+                }
+
                 let mut data_columns = vec![];
                 let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
                 for req in requests.values() {

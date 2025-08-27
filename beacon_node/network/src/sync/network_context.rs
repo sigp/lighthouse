@@ -559,9 +559,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Try to make all the requests that we failed to make earlier because of lack of peers
-    /// in the required subnets.
+    /// in the required columns.
     ///
-    /// This function must be manually invoked at regular intervals.
+    /// This function must be manually invoked at regular intervals or when a new peer
+    /// gets added.
     pub fn retry_pending_requests(&mut self) -> Result<(), String> {
         let active_requests = self.active_request_count_by_peer();
 
@@ -603,21 +604,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                                 requester,
                                 Span::none(),
                             )
-                            .expect("should be able to send request"),
+                            .map_err(|e| {
+                                format!("Failed to send data columns by root request {:?}", e)
+                            }),
                             indices,
-                        ));
+                        )?);
                     }
                     // we have sent out requests to peers, register these requests with the coupling service.
                     if let Some(req) = self.components_by_range_requests.get_mut(&parent_request) {
-                        req.insert_column_request_after_block_request(
+                        req.initialize_data_columns_from_root_component(
                             data_column_requests,
                             self.chain
                                 .sampling_columns_for_epoch(parent_request.requester.batch_id()),
                         )
-                        .expect("should be in the right state");
+                        .map_err(|e| {
+                            format!(
+                                "Inconsistent state when inserting columns by root request {:?}",
+                                e
+                            )
+                        })?;
                     }
                     debug!(?requests, "Successfully retried requests");
-                    // Successfully processed, don't keep this entry
                 }
                 Err(err) => {
                     debug!(
@@ -625,7 +632,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         ?parent_request,
                         "Failed to retry request, no peers in subnets",
                     );
-                    // Failed to process, keep this entry for next retry
+                    // Still no peers, keep this entry for next retry
                     entries_to_keep.push((parent_request, requests));
                 }
             }
@@ -769,6 +776,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.chain.sampling_columns_for_epoch(epoch).to_vec(),
                 )
             }),
+            // We are requesting data columns by range here
             false,
             range_request_span,
         );
@@ -778,6 +786,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// A blocks by range request sent by the range sync algorithm
+    ///
+    /// This function is used when we want to request data columns by root instead of range.
+    /// Pre-fulu, it works similar to `Self::block_components_by_range_request`.
     pub fn block_components_by_range_request_without_components(
         &mut self,
         batch_type: ByRangeRequestType,
@@ -854,14 +865,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             None
         };
 
-        let data_columns_by_root = matches!(batch_type, ByRangeRequestType::BlocksAndColumns);
 
-        debug!(?requester, data_columns_by_root, "Batch type");
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
             None,
-            data_columns_by_root,
+            // request data columns by root only if this batch requires requesting columns
+            matches!(batch_type, ByRangeRequestType::BlocksAndColumns),
             range_request_span,
         );
         self.components_by_range_requests.insert(id, info);
@@ -1473,6 +1483,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok((id, requested_columns))
     }
 
+    /// Send `DataColumnsByRoot` requests for progressing range sync.
     fn send_data_columns_by_root_range_requests(
         &mut self,
         peer_id: PeerId,
@@ -1492,7 +1503,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 request
                     .clone()
                     .try_into_request(self.fork_context.current_fork_name(), &self.chain.spec)
-                    .expect("should work"),
+                    .map_err(|e| RpcRequestSendError::InternalError(e.to_string()))?,
             ),
             app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
         })
@@ -1716,16 +1727,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let resp = self
             .data_columns_by_root_range_requests
             .on_response(id, rpc_event);
-        // This error implies we asked the peer for a specific root and it did not give it to us
-        // if let Some(Err(RpcResponseError::VerifyError(
-        //     LookupVerifyError::NotEnoughResponsesReturned { .. },
-        // ))) = resp
-        // {
-
-        // }
         self.on_rpc_response_result(id, "DataColumnsByRootRange", resp, peer_id, |b| b.len())
     }
 
+    /// Requests data columns for the given blocks by root.
+    ///
+    /// We request by root because it is much easier to reason about
+    /// and handle for failure cases when we ask for the same roots that
+    /// we are trying to sync the blocks for.
+    ///
+    /// This is specially relevant in periods of non-finality when there are multiple
+    /// head chains to sync.
+    ///
+    /// This function piggybacks on the existing parent block request and inserts the
+    /// column requests made into `self.components_by_range_requests` such that when
+    /// the column requests complete, we return the coupled batch to range sync to progress.
+    ///
+    /// If there are no peers to serve the column requests, we add them to a queue for retrying
+    /// the requests once more peers become available.
+    ///
+    /// Note: we do not use the by root syncing mechanism for backfill since there is only
+    /// one canonical chain to sync.
     fn request_columns_on_successful_blocks(
         &mut self,
         id: BlocksByRangeRequestId,
@@ -1746,11 +1768,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         ) {
             return Ok(());
         }
-        // todo(pawan): send the data column request as soon as you get each chunk to spread out requests
         debug!(count = blocks.len(), "Received blocks from byrange query");
-        // We have blocks here, check if they need data columns and request them
+
         let mut block_roots = Vec::new();
 
+        // We have blocks here, check if they need data columns and request them
         for block in blocks.iter() {
             // Request columns only if the blob_kzg_commitments is non-empty
             if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
@@ -1759,9 +1781,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 }
             }
         }
+
+        // No blobs for the entire epoch, let the coupling logic know not to expect anything
+        // and return early
         if block_roots.is_empty() {
-            // No blobs for the entire epoch, let the coupling logic know not to expect anything
-            // and return early
             if let Some(req) = self
                 .components_by_range_requests
                 .get_mut(&id.parent_request_id)
@@ -1773,7 +1796,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 return Ok(());
             } else {
                 return Err(RpcResponseError::InternalError(
-                    "Request sent without creating an entry".to_string(),
+                    "Block request sent without creating a components_by_range entry".to_string(),
                 ));
             }
         }
@@ -1803,6 +1826,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }
         }
 
+        // Send the requests for all columns that we have peers for
         let mut data_column_requests = Vec::new();
         for (peer, indices) in peer_to_columns.into_iter() {
             let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
@@ -1821,11 +1845,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     requester,
                     Span::none(),
                 )
-                .expect("should be able to send request"),
+                .map_err(|e| {
+                    RpcResponseError::InternalError(format!(
+                        "Failed to send data columns by root request {:?}",
+                        e
+                    ))
+                }),
                 indices,
-            ));
+            )?);
         }
 
+        // There are columns for which we have no peers, queue them up for retry later
         if !no_peers_for_column.is_empty() {
             let data_columns_by_root_request = DataColumnsByRootBatchBlockRequest {
                 block_roots: block_roots.clone(),
@@ -1836,15 +1866,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .insert(id.parent_request_id, data_columns_by_root_request);
         }
 
+        // Insert the requests into the existing block parent request
         if let Some(req) = self
             .components_by_range_requests
             .get_mut(&id.parent_request_id)
         {
-            req.insert_column_request_after_block_request(
+            req.initialize_data_columns_from_root_component(
                 data_column_requests,
                 self.chain.sampling_columns_for_epoch(batch_epoch),
             )
-            .expect("should be in the right state");
+            .map_err(|e| {
+                format!(
+                    "Inconsistent state when inserting columns by root request {:?}",
+                    e
+                )
+            })?;
         } else {
             return Err(RpcResponseError::InternalError(
                 "Request sent without creating an entry".to_string(),
@@ -1863,6 +1899,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let resp = self.blocks_by_range_requests.on_response(id, rpc_event);
         match &resp {
             Some(Ok((blocks, _))) => {
+                // On receving a successful response for a blocks by range request,
+                // request the corresponding data columns for this batch by root (if required).
+                //
+                // We request the columns by root instead of by range to avoid peers responding
+                // with the columns corresponding to their view of the canonical chain
+                // instead of the chain that we are trying to sync. Requesting by root allows
+                // us to be more specific and reduces the number of failure cases we have to handle.
+                //
+                // This is specially relevant when we are syncing at times when there are a lot of
+                // head chains in a non-finality scenario.
                 if let Err(e) = self.request_columns_on_successful_blocks(id, blocks) {
                     return Some(Err(e));
                 }
