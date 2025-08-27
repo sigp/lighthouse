@@ -1375,7 +1375,7 @@ async fn test_custody_sync_processing() {
         // A new batch should be processed within a slot.
         rig.assert_event_journal_with_timeout(
             &[
-                WorkType::ChainSegmentBackfill.into(),
+                WorkType::DataColumnsByRangeRequest.into(),
                 WORKER_FREED,
                 NOTHING_TO_DO,
             ],
@@ -1435,9 +1435,9 @@ async fn test_custody_sync_processing_rate_limiting_disabled() {
     // ensure all batches are processed
     rig.assert_event_journal_with_timeout(
         &[
-            WorkType::ChainSegmentBackfill.into(),
-            WorkType::ChainSegmentBackfill.into(),
-            WorkType::ChainSegmentBackfill.into(),
+            WorkType::DataColumnsByRangeRequest.into(),
+            WorkType::DataColumnsByRangeRequest.into(),
+            WorkType::DataColumnsByRangeRequest.into(),
         ],
         Duration::from_millis(100),
     )
