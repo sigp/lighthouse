@@ -67,7 +67,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|data_column| ((data_column.slot(), data_column.index), data_column))
             .collect::<HashMap<_, _>>();
 
-        println!("length {:?}", slot_and_column_index_to_data_columns.keys().len());
+        println!(
+            "length {:?}",
+            slot_and_column_index_to_data_columns.keys().len()
+        );
 
         if historical_data_column_sidecar_list.is_empty() {
             return Ok(total_imported);
@@ -83,7 +86,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         for block_iter_result in forward_blocks_iter {
             let (block_root, slot) = block_iter_result
                 .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
-            
+
             for column_index in unique_column_indices.clone() {
                 if let Some(data_column) =
                     slot_and_column_index_to_data_columns.remove(&(slot, column_index))

@@ -2783,10 +2783,7 @@ async fn test_import_historical_data_columns_batch() {
 
     harness
         .chain
-        .import_historical_data_column_batch(
-            Epoch::new(0),
-            data_columns_list,
-        )
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list)
         .unwrap();
     let block_root_iter = harness
         .chain
