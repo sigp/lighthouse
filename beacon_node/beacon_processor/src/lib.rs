@@ -1403,11 +1403,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     }
                 };
 
-                metrics::set_gauge(
-                    &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL,
-                    self.current_workers as i64,
-                );
-
                 if let Some(modified_queue_id) = modified_queue_id {
                     let queue_len = match modified_queue_id {
                         WorkType::GossipAttestation => attestation_queue.len(),
@@ -1518,6 +1513,11 @@ impl<E: EthSpec> BeaconProcessor<E> {
         metrics::inc_counter_vec(
             &metrics::BEACON_PROCESSOR_WORK_EVENTS_STARTED_COUNT,
             &[work.str_id()],
+        );
+
+        metrics::inc_gauge_vec(
+            &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE,
+            &[work_id],
         );
 
         // Wrap the `idle_tx` in a struct that will fire the idle message whenever it is dropped.
@@ -1688,6 +1688,11 @@ pub struct SendOnDrop {
 
 impl Drop for SendOnDrop {
     fn drop(&mut self) {
+        metrics::dec_gauge_vec(
+            &metrics::BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE,
+            &[self.work_type.clone().into()],
+        );
+
         if let Err(e) = self.tx.try_send(self.work_type.clone()) {
             warn!(
                 msg = "did not free worker, shutdown may be underway",

@@ -25,7 +25,8 @@ pub use types::{
 };
 use types::{
     ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
-    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionRequests, KzgProofs,
+    ExecutionPayloadElectra, ExecutionPayloadFulu, ExecutionPayloadGloas, ExecutionRequests,
+    KzgProofs,
 };
 use types::{GRAFFITI_BYTES_LEN, Graffiti};
 
@@ -37,6 +38,7 @@ mod new_payload_request;
 pub use new_payload_request::{
     NewPayloadRequest, NewPayloadRequestBellatrix, NewPayloadRequestCapella,
     NewPayloadRequestDeneb, NewPayloadRequestElectra, NewPayloadRequestFulu,
+    NewPayloadRequestGloas,
 };
 
 pub const LATEST_TAG: &str = "latest";
@@ -269,7 +271,7 @@ pub struct ProposeBlindedBlockResponse {
 }
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(derive(Clone, Debug, PartialEq),),
     map_into(ExecutionPayload),
     map_ref_into(ExecutionPayloadRef),
@@ -291,12 +293,14 @@ pub struct GetPayloadResponse<E: EthSpec> {
     pub execution_payload: ExecutionPayloadElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_fulu"))]
     pub execution_payload: ExecutionPayloadFulu<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_gloas"))]
+    pub execution_payload: ExecutionPayloadGloas<E>,
     pub block_value: Uint256,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub blobs_bundle: BlobsBundle<E>,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     pub should_override_builder: bool,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub requests: ExecutionRequests<E>,
 }
 
@@ -366,6 +370,12 @@ impl<E: EthSpec> From<GetPayloadResponse<E>>
             ),
             GetPayloadResponse::Fulu(inner) => (
                 ExecutionPayload::Fulu(inner.execution_payload),
+                inner.block_value,
+                Some(inner.blobs_bundle),
+                Some(inner.requests),
+            ),
+            GetPayloadResponse::Gloas(inner) => (
+                ExecutionPayload::Gloas(inner.execution_payload),
                 inner.block_value,
                 Some(inner.blobs_bundle),
                 Some(inner.requests),
@@ -506,6 +516,34 @@ impl<E: EthSpec> ExecutionPayloadBodyV1<E> {
             ExecutionPayloadHeader::Fulu(header) => {
                 if let Some(withdrawals) = self.withdrawals {
                     Ok(ExecutionPayload::Fulu(ExecutionPayloadFulu {
+                        parent_hash: header.parent_hash,
+                        fee_recipient: header.fee_recipient,
+                        state_root: header.state_root,
+                        receipts_root: header.receipts_root,
+                        logs_bloom: header.logs_bloom,
+                        prev_randao: header.prev_randao,
+                        block_number: header.block_number,
+                        gas_limit: header.gas_limit,
+                        gas_used: header.gas_used,
+                        timestamp: header.timestamp,
+                        extra_data: header.extra_data,
+                        base_fee_per_gas: header.base_fee_per_gas,
+                        block_hash: header.block_hash,
+                        transactions: self.transactions,
+                        withdrawals,
+                        blob_gas_used: header.blob_gas_used,
+                        excess_blob_gas: header.excess_blob_gas,
+                    }))
+                } else {
+                    Err(format!(
+                        "block {} is post capella but payload body doesn't have withdrawals",
+                        header.block_hash
+                    ))
+                }
+            }
+            ExecutionPayloadHeader::Gloas(header) => {
+                if let Some(withdrawals) = self.withdrawals {
+                    Ok(ExecutionPayload::Gloas(ExecutionPayloadGloas {
                         parent_hash: header.parent_hash,
                         fee_recipient: header.fee_recipient,
                         state_root: header.state_root,
