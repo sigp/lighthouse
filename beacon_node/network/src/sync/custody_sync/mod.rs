@@ -234,6 +234,11 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             }
             CustodyBackFillState::Completed => {
                 if !self.check_completed() {
+                    self.last_batch_downloaded = false;
+                    self.validated_batches = 0;
+                    self.current_processing_batch = None;
+                    self.batches = BTreeMap::new();
+
                     self.columns = column_indices;
                     self.set_start_epoch()?;
                     if self
@@ -256,8 +261,9 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     } else {
                         return Ok(SyncStart::NotSyncing);
                     }
+                } else {
+                    return Ok(SyncStart::NotSyncing);
                 }
-                return Ok(SyncStart::NotSyncing);
             }
             CustodyBackFillState::Pending { .. } => return Ok(SyncStart::NotSyncing),
         }
@@ -279,7 +285,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     }
 
     fn set_start_epoch(&mut self) -> Result<(), CustodyBackfillError> {
-        let earliest_data_column_slot = self
+              let earliest_data_column_slot = self
             .beacon_chain
             .store
             .get_data_column_custody_info()
@@ -504,7 +510,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     .processing_target
                     .saturating_sub(custody_sync_request_id.epoch)
                     / CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
-                info!(
+                debug!(
                     epoch = %custody_sync_request_id.epoch,
                     blocks = received,
                     %awaiting_batches,
@@ -578,7 +584,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             return Ok(ProcessResult::Successful);
         };
 
-        info!(
+        debug!(
             ?result,
             %batch,
             batch_epoch = %batch_id,
@@ -617,8 +623,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
                 // check if custody sync has completed syncing up to the DA window
                 if self.check_completed() {
-                    // chain is completed
-                    info!(
+                    debug!(
                         slots_processed = self.validated_batches * T::EthSpec::slots_per_epoch(),
                         "Custody sync completed"
                     );
@@ -700,8 +705,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         {
             return Ok(ProcessResult::Successful);
         }
-
-        info!(?self.processing_target, "process_completed batches");
 
         // Don't try to process batches before the Fulu fork epoch since data columns don't exist
         if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch
@@ -917,10 +920,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
     /// Checks with the beacon chain if custody sync has completed.
     fn check_completed(&mut self) -> bool {
-        info!(empty = self.batches.is_empty(), "check_completed");
-        if !self.batches.is_empty() {
-            return false;
-        }
 
         if self.would_complete(self.current_start) {
             // Check that the data column custody info `earliest_available_slot`
@@ -932,6 +931,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 .unwrap_or(None)
                 .and_then(|info| info.earliest_data_column_slot)
             else {
+                let test = self
+                    .beacon_chain
+                    .store
+                    .get_data_column_custody_info();
                 return false;
             };
 
@@ -964,15 +967,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             }
             None => None, // If no DA boundary set, dont try to custody backfill
         };
-
-        info!(?column_da_boundary, "get_column_da_boundary");
-
-        column_da_boundary
-    }
-
-    /// Checks if custody backfill would complete by syncing to `start_epoch`.
-    fn would_complete(&self, start_epoch: Epoch) -> bool {
-        let Some(column_da_boundary) = self.get_column_da_boundary() else {
             return false;
         };
         start_epoch <= column_da_boundary
