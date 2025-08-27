@@ -1608,6 +1608,7 @@ async fn test_blobs_by_root_post_fulu_should_return_empty() {
     }
     // Post-Fulu should return 0 blobs
     assert_eq!(0, actual_count);
+}
 
 /// Ensure that data column processing that results in block import sends a sync notification
 #[tokio::test]
