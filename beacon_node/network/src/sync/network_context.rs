@@ -865,10 +865,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // - RPCError(request_id): handled by `Self::on_single_block_response`
         // - Disconnect(peer_id) handled by `Self::peer_disconnected``which converts it to a
         // ` RPCError(request_id)`event handled by the above method
+        let network_request = RequestType::BlocksByRoot(
+            request
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlocksByRoot(request.into_request(&self.fork_context)),
+                request: network_request,
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
@@ -959,10 +964,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         // Lookup sync event safety: Refer to `Self::block_lookup_request` `network_send.send` call
+        let network_request = RequestType::BlobsByRoot(
+            request
+                .clone()
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlobsByRoot(request.clone().into_request(&self.fork_context)),
+                request: network_request,
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
