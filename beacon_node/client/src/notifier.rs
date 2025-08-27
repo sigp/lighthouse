@@ -152,6 +152,12 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             if let Some(earliest_data_column_slot) = data_column_custody_info
                                 .and_then(|info| info.earliest_data_column_slot)
                             {
+                                if let Some(da_boundary) = beacon_chain.data_availability_boundary()
+                                {
+                                    sync_distance = earliest_data_column_slot.saturating_sub(
+                                        da_boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                                    );
+                                }
                                 speedo.observe(earliest_data_column_slot, Instant::now())
                             }
                         }
@@ -246,46 +252,38 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             {
                 last_custody_backfill_log_slot = Some(current_slot);
 
-                if let Some(data_column_custody_info) = beacon_chain
-                    .store
-                    .get_data_column_custody_info()
-                    .ok()
-                    .flatten()
-                    .and_then(|custody_info| custody_info.earliest_data_column_slot)
-                {
-                    let distance = format!(
-                        "{} slots ({})",
-                        sync_distance.as_u64(),
-                        slot_distance_pretty(sync_distance, slot_duration)
+                let distance = format!(
+                    "{} slots ({})",
+                    sync_distance.as_u64(),
+                    slot_distance_pretty(sync_distance, slot_duration)
+                );
+
+                let speed = speedo.slots_per_second();
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
+
+                if display_speed {
+                    info!(
+                        distance,
+                        speed = sync_speed_pretty(speed),
+                        est_time = estimated_time_pretty(
+                            speedo.estimated_time_till_slot(
+                                original_oldest_block_slot
+                                    .saturating_sub(beacon_chain.genesis_backfill_slot)
+                            )
+                        ),
+                        "Downloading historical data columns"
                     );
-
-                    let speed = speedo.slots_per_second();
-                    let display_speed = speed.is_some_and(|speed| speed != 0.0);
-
-                    if display_speed {
-                        info!(
-                            distance,
-                            speed = sync_speed_pretty(speed),
-                            est_time = estimated_time_pretty(
-                                speedo.estimated_time_till_slot(
-                                    original_oldest_block_slot
-                                        .saturating_sub(beacon_chain.genesis_backfill_slot)
-                                )
-                            ),
-                            "Downloading historical blocks"
-                        );
-                    } else {
-                        info!(
-                            distance,
-                            est_time = estimated_time_pretty(
-                                speedo.estimated_time_till_slot(
-                                    original_oldest_block_slot
-                                        .saturating_sub(beacon_chain.genesis_backfill_slot)
-                                )
-                            ),
-                            "Downloading historical blocks"
-                        );
-                    }
+                } else {
+                    info!(
+                        distance,
+                        est_time = estimated_time_pretty(
+                            speedo.estimated_time_till_slot(
+                                original_oldest_block_slot
+                                    .saturating_sub(beacon_chain.genesis_backfill_slot)
+                            )
+                        ),
+                        "Downloading historical data columns"
+                    );
                 }
             }
 

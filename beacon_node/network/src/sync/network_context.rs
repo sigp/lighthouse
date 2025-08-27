@@ -1708,8 +1708,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let result = columns_by_range_peers_to_request
             .map(|columns_by_range_peers_to_request| {
                 columns_by_range_peers_to_request
-                    .iter()
-                    .map(|(peer_id, _)| {
+                    .keys()
+                    .map(|peer_id| {
                         self.send_custody_sync_data_columns_by_range_request(
                             *peer_id,
                             request.clone(),

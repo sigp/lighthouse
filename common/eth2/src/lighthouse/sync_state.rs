@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
-use types::{ColumnIndex, Slot};
+use types::Slot;
 
 /// The current state of the node.
 #[derive(Clone, Debug, Serialize, Deserialize)]

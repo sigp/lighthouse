@@ -9,7 +9,7 @@ use lighthouse_network::{
     types::CustodyBackFillState,
 };
 use logging::crit;
-use tracing::{Span, debug, error, info, info_span, warn};
+use tracing::{debug, error, info, info_span, warn};
 
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
@@ -265,7 +265,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     return Ok(SyncStart::NotSyncing);
                 }
             }
-            CustodyBackFillState::Pending { .. } => return Ok(SyncStart::NotSyncing),
+            CustodyBackFillState::Pending => return Ok(SyncStart::NotSyncing),
         }
 
         let Some(column_da_boundary) = self.get_column_da_boundary() else {
@@ -285,7 +285,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     }
 
     fn set_start_epoch(&mut self) -> Result<(), CustodyBackfillError> {
-              let earliest_data_column_slot = self
+        let earliest_data_column_slot = self
             .beacon_chain
             .store
             .get_data_column_custody_info()
@@ -623,7 +623,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
                 // check if custody sync has completed syncing up to the DA window
                 if self.check_completed() {
-                    debug!(
+                    info!(
                         slots_processed = self.validated_batches * T::EthSpec::slots_per_epoch(),
                         "Custody sync completed"
                     );
@@ -918,7 +918,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
     /// Checks with the beacon chain if custody sync has completed.
     fn check_completed(&mut self) -> bool {
-
         if self.would_complete(self.current_start) {
             // Check that the data column custody info `earliest_available_slot`
             // is in an epoch that is less than or equal to the current DA boundary
@@ -929,10 +928,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 .unwrap_or(None)
                 .and_then(|info| info.earliest_data_column_slot)
             else {
-                let test = self
-                    .beacon_chain
-                    .store
-                    .get_data_column_custody_info();
                 return false;
             };
 
@@ -949,7 +944,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     /// Calculates the minimum amount of epochs a node should custody data columns. In
     /// most cases this is simply the DA boundary, unless we are near the fulu fork epoch.
     fn get_column_da_boundary(&self) -> Option<Epoch> {
-        let column_da_boundary = match self.beacon_chain.data_availability_boundary() {
+        match self.beacon_chain.data_availability_boundary() {
             Some(da_boundary_epoch) => {
                 // If fulu isnt scheduled, custody backfill sync should not run.
                 if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch {
@@ -964,7 +959,12 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 }
             }
             None => None, // If no DA boundary set, dont try to custody backfill
-        };
+        }
+    }
+
+    /// Checks if custody backfill would complete by syncing to `start_epoch`.
+    fn would_complete(&self, start_epoch: Epoch) -> bool {
+        let Some(column_da_boundary) = self.get_column_da_boundary() else {
             return false;
         };
         start_epoch <= column_da_boundary

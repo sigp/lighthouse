@@ -114,7 +114,6 @@ pub enum NetworkMessage<E: EthSpec> {
         new_custody_group_count: u64,
         new_column_indices: HashSet<ColumnIndex>,
         sampling_count: u64,
-        trigger_custody_sync: bool,
     },
 }
 
@@ -743,18 +742,16 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 new_custody_group_count,
                 sampling_count,
                 new_column_indices,
-                trigger_custody_sync,
             } => {
                 // subscribe to `sampling_count` subnets
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
 
-                if trigger_custody_sync
-                    && let Err(e) =
-                        self.sync_service_send
-                            .send(SyncServiceMessage::CustodyCountChanged {
-                                columns: new_column_indices,
-                            })
+                if let Err(e) =
+                    self.sync_service_send
+                        .send(SyncServiceMessage::CustodyCountChanged {
+                            columns: new_column_indices,
+                        })
                 {
                     warn!(
                         error = ?e,

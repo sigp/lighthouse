@@ -3842,7 +3842,6 @@ pub fn serve<T: BeaconChainTypes>(
                                 new_custody_group_count: cgc_change.new_custody_group_count,
                                 sampling_count: cgc_change.sampling_count,
                                 new_column_indices,
-                                trigger_custody_sync: false
                             }).unwrap_or_else(|e| {
                                 debug!(error = %e, "Could not send message to the network service. \
                                 Likely shutdown")
@@ -4194,7 +4193,6 @@ pub fn serve<T: BeaconChainTypes>(
                             new_custody_group_count: cgc,
                             sampling_count,
                             new_column_indices: updated_custody_columns,
-                            trigger_custody_sync: true,
                         },
                     )?;
                     Ok(())

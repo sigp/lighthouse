@@ -35,7 +35,7 @@ pub enum HistoricalDataColumnError {
     StoreError(StoreError),
 
     /// Internal beacon chain error
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
 }
 
 impl From<StoreError> for HistoricalDataColumnError {
@@ -58,7 +58,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         epoch: Epoch,
         historical_data_column_sidecar_list: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<usize, HistoricalDataColumnError> {
-        tracing::info!(?epoch, "historical data column imported");
         let mut total_imported = 0;
         let mut ops = vec![];
 
@@ -81,11 +80,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 epoch.start_slot(T::EthSpec::slots_per_epoch()),
                 epoch.end_slot(T::EthSpec::slots_per_epoch()),
             )
-            .map_err(HistoricalDataColumnError::BeaconChainError)?;
+            .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
 
         for block_iter_result in forward_blocks_iter {
-            let (block_root, slot) =
-                block_iter_result.map_err(HistoricalDataColumnError::BeaconChainError)?;
+            let (block_root, slot) = block_iter_result
+                .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
 
             for column_index in unique_column_indices.clone() {
                 if let Some(data_column) =
