@@ -540,8 +540,7 @@ where
                                 // If this substream has not ended, we reset the timer.
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
                                 if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay
-                                        .reset(delay_key, RESP_TIMEOUT);
+                                    self.inbound_substreams_delay.reset(delay_key, RESP_TIMEOUT);
                                 }
 
                                 // The stream may be currently idle. Attempt to process more

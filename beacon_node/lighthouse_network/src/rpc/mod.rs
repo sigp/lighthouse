@@ -330,12 +330,7 @@ where
             (),
         );
 
-        let handler = RPCHandler::new(
-            protocol,
-            self.fork_context.clone(),
-            peer_id,
-            connection_id,
-        );
+        let handler = RPCHandler::new(protocol, self.fork_context.clone(), peer_id, connection_id);
 
         Ok(handler)
     }
@@ -358,12 +353,7 @@ where
             (),
         );
 
-        let handler = RPCHandler::new(
-            protocol,
-            self.fork_context.clone(),
-            peer_id,
-            connection_id,
-        );
+        let handler = RPCHandler::new(protocol, self.fork_context.clone(), peer_id, connection_id);
 
         Ok(handler)
     }
