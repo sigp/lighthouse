@@ -496,9 +496,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 );
                 match beacon_node
                     .post_beacon_blocks_v2_ssz(signed_block, None)
-                    .await {
+                    .await
+                {
                     Ok(_) => {}
-                    Err(e) => handle_block_post_error(e, signed_block.signed_block().message().slot())?
+                    Err(e) => {
+                        handle_block_post_error(e, signed_block.signed_block().message().slot())?
+                    }
                 }
             }
             SignedBlock::Blinded(signed_block) => {
@@ -508,9 +511,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 );
                 match beacon_node
                     .post_beacon_blinded_blocks_v2_ssz(signed_block, None)
-                    .await {
+                    .await
+                {
                     Ok(_) => {}
-                    Err(e) => handle_block_post_error(e, signed_block.message().slot())?
+                    Err(e) => handle_block_post_error(e, signed_block.message().slot())?,
                 }
             }
         }

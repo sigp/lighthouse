@@ -1250,13 +1250,14 @@ impl BeaconNodeHttpClient {
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<Response, Error> {
-        let response = self.post_generic_with_consensus_version(
-            self.post_beacon_blocks_v2_path(validation_level)?,
-            block_contents,
-            Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
-        )
-        .await?;
+        let response = self
+            .post_generic_with_consensus_version(
+                self.post_beacon_blocks_v2_path(validation_level)?,
+                block_contents,
+                Some(self.timeouts.proposal),
+                block_contents.signed_block().message().body().fork_name(),
+            )
+            .await?;
 
         Ok(response)
     }
@@ -1267,13 +1268,14 @@ impl BeaconNodeHttpClient {
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<Response, Error> {
-        let response = self.post_generic_with_consensus_version_and_ssz_body(
-            self.post_beacon_blocks_v2_path(validation_level)?,
-            block_contents.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
-        )
-        .await?;
+        let response = self
+            .post_generic_with_consensus_version_and_ssz_body(
+                self.post_beacon_blocks_v2_path(validation_level)?,
+                block_contents.as_ssz_bytes(),
+                Some(self.timeouts.proposal),
+                block_contents.signed_block().message().body().fork_name(),
+            )
+            .await?;
 
         Ok(response)
     }
@@ -1284,13 +1286,14 @@ impl BeaconNodeHttpClient {
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<Response, Error> {
-        let response = self.post_generic_with_consensus_version(
-            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            signed_block,
-            Some(self.timeouts.proposal),
-            signed_block.message().body().fork_name(),
-        )
-        .await?;
+        let response = self
+            .post_generic_with_consensus_version(
+                self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+                signed_block,
+                Some(self.timeouts.proposal),
+                signed_block.message().body().fork_name(),
+            )
+            .await?;
 
         Ok(response)
     }
@@ -1301,13 +1304,14 @@ impl BeaconNodeHttpClient {
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
     ) -> Result<Response, Error> {
-        let response = self.post_generic_with_consensus_version_and_ssz_body(
-            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            signed_block.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            signed_block.message().body().fork_name(),
-        )
-        .await?;
+        let response = self
+            .post_generic_with_consensus_version_and_ssz_body(
+                self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+                signed_block.as_ssz_bytes(),
+                Some(self.timeouts.proposal),
+                signed_block.message().body().fork_name(),
+            )
+            .await?;
 
         Ok(response)
     }

@@ -1,9 +1,9 @@
 use beacon_chain::test_utils::test_spec;
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BlockStrategy},
     GossipVerifiedBlock, IntoGossipVerifiedBlock, WhenSlotSkipped,
+    test_utils::{AttestationStrategy, BlockStrategy},
 };
-use eth2::reqwest::{StatusCode, Response};
+use eth2::reqwest::{Response, StatusCode};
 use eth2::types::{BroadcastValidation, PublishBlockRequest};
 use http_api::test_utils::InteractiveTester;
 use http_api::{Config, ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block};
@@ -650,7 +650,13 @@ pub async fn equivocation_gossip() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, format!("BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, local: {correct_state_root} }}", Hash256::zero()));
+    assert_server_message_error(
+        error_response,
+        format!(
+            "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, local: {correct_state_root} }}",
+            Hash256::zero()
+        ),
+    );
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective but
@@ -1252,10 +1258,12 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
         .post_beacon_blinded_blocks_v2(&block_a, validation_level)
         .await
         .unwrap();
-    assert!(tester
-        .harness
-        .chain
-        .block_is_known_to_fork_choice(&block_a.canonical_root()));
+    assert!(
+        tester
+            .harness
+            .chain
+            .block_is_known_to_fork_choice(&block_a.canonical_root())
+    );
 
     /* submit `block_b` which should induce equivocation */
     let response: Result<Response, eth2::Error> = tester

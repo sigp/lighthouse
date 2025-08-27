@@ -7,8 +7,8 @@ use eth2::types::{
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
-    ok_or_error, success_or_error, StatusCode, CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER,
-    JSON_CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER,
+    CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
+    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error, success_or_error,
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};

@@ -1,8 +1,9 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec},
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
+    },
 };
 use eth2::{
     BeaconNodeHttpClient, Error,
@@ -115,8 +116,7 @@ impl ApiTester {
     }
 
     pub async fn new_with_hard_forks() -> Self {
-        let mut config = ApiTesterConfig::default();
-        config.spec = test_spec::<E>();
+        let config = ApiTesterConfig { spec: test_spec::<E>(), ..Default::default() };
         Self::new_from_config(config).await
     }
 
@@ -1547,7 +1547,10 @@ impl ApiTester {
     pub async fn test_post_beacon_blocks_valid(mut self) -> Self {
         let next_block = self.next_block.clone();
 
-        self.client.post_beacon_blocks_v2(&next_block, None).await.unwrap();
+        self.client
+            .post_beacon_blocks_v2(&next_block, None)
+            .await
+            .unwrap();
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1586,7 +1589,7 @@ impl ApiTester {
             .await
             .0;
 
-        let response : Result<Response, Error> = self
+        let response: Result<Response, Error> = self
             .client
             .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
             .await;
@@ -1616,7 +1619,7 @@ impl ApiTester {
             .await
             .0;
 
-        let response : Result<Response, Error> = self
+        let response: Result<Response, Error> = self
             .client
             .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
             .await;
@@ -1642,11 +1645,12 @@ impl ApiTester {
             .0
             .into();
 
-        assert!(self
-            .client
-            .post_beacon_blocks_v2(&block_contents, None)
-            .await
-            .is_ok());
+        assert!(
+            self.client
+                .post_beacon_blocks_v2(&block_contents, None)
+                .await
+                .is_ok()
+        );
 
         // Blinded deneb block contents is just the blinded block
         let blinded_block_contents = block_contents.signed_block().clone_as_blinded();
@@ -1671,11 +1675,7 @@ impl ApiTester {
                 .unwrap(),
         ];
         for (i, response) in responses.into_iter().enumerate() {
-            assert_eq!(
-                response.status(),
-                StatusCode::ACCEPTED,
-                "response {i}"
-            );
+            assert_eq!(response.status(), StatusCode::ACCEPTED, "response {i}");
         }
 
         self
