@@ -4284,6 +4284,7 @@ dependencies = [
  "health_metrics",
  "hex",
  "lighthouse_network",
+ "lighthouse_tracing",
  "lighthouse_version",
  "logging",
  "lru",
