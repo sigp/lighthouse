@@ -21,13 +21,13 @@ impl DataColumnsByRootSingleBlockRequest {
     ) -> Result<DataColumnsByRootRequest<E>, &'static str> {
         let columns = VariableList::new(self.indices)
             .map_err(|_| "Number of indices exceeds total number of columns")?;
-        Ok(DataColumnsByRootRequest::new(
+        DataColumnsByRootRequest::new(
             vec![DataColumnsByRootIdentifier {
                 block_root: self.block_root,
                 columns,
             }],
             spec.max_request_blocks(fork_name),
-        ))
+        )
     }
 }
 
