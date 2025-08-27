@@ -337,7 +337,6 @@ where
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
-            self.network_params.resp_timeout,
             peer_id,
             connection_id,
         );
@@ -366,7 +365,6 @@ where
         let handler = RPCHandler::new(
             protocol,
             self.fork_context.clone(),
-            self.network_params.resp_timeout,
             peer_id,
             connection_id,
         );
