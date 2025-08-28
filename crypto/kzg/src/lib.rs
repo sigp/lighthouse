@@ -232,7 +232,7 @@ impl Kzg {
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
-    #[instrument(skip_all, level = "debug", fields(cells = cells.len(), verification_result = tracing::field::Empty))]
+    #[instrument(skip_all, level = "debug", fields(cells = cells.len()))]
     pub fn verify_cell_proof_batch(
         &self,
         cells: &[CellRef<'_>],
@@ -273,7 +273,8 @@ impl Kzg {
                 let _span = tracing::debug_span!(
                     "verify_cell_proof_chunk",
                     cells = cells.len(),
-                    column_index
+                    column_index,
+                    verification_result = tracing::field::Empty,
                 )
                 .entered();
 
@@ -285,14 +286,8 @@ impl Kzg {
                 );
 
                 match verification_result {
-                    Ok(_) => {
-                        tracing::Span::current().record("verification_result", "success");
-                        Ok(())
-                    }
-                    Err(e) if e.is_proof_invalid() => {
-                        tracing::Span::current().record("verification_result", "failure");
-                        Err((column_index, Error::KzgVerificationFailed))
-                    }
+                    Ok(_) => Ok(()),
+                    Err(e) if e.is_proof_invalid() => Err((column_index, Error::KzgVerificationFailed)),
                     Err(e) => Err((column_index, Error::PeerDASKZG(e))),
                 }
             })
