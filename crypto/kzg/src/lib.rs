@@ -287,7 +287,9 @@ impl Kzg {
 
                 match verification_result {
                     Ok(_) => Ok(()),
-                    Err(e) if e.is_proof_invalid() => Err((column_index, Error::KzgVerificationFailed)),
+                    Err(e) if e.is_proof_invalid() => {
+                        Err((column_index, Error::KzgVerificationFailed))
+                    }
                     Err(e) => Err((column_index, Error::PeerDASKZG(e))),
                 }
             })

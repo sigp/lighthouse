@@ -847,7 +847,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
     use store::HotColdDB;
-    use types::data_column_sidecar::DataColumn;
+    use types::data_column_sidecar::Cell;
     use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
 
     type E = MainnetEthSpec;
@@ -1039,7 +1039,11 @@ mod test {
                         .into_iter()
                         .map(|d| {
                             let invalid_sidecar = DataColumnSidecar {
-                                column: DataColumn::<E>::empty(),
+                                column: vec![
+                                    Cell::<E>::default();
+                                    E::max_blob_commitments_per_block()
+                                ]
+                                .into(),
                                 ..d.as_ref().clone()
                             };
                             CustodyDataColumn::from_asserted_custody(Arc::new(invalid_sidecar))
