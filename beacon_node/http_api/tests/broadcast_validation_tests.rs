@@ -1081,14 +1081,12 @@ pub async fn blinded_consensus_gossip() {
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
 
-
-
     /* mandated by Beacon API spec */
     if tester.harness.spec.is_fulu_scheduled() {
         assert!(response.is_ok());
     } else {
         assert!(response.is_err());
-    let error_response: eth2::Error = response.err().unwrap();
+        let error_response: eth2::Error = response.err().unwrap();
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
         assert_server_message_error(
             error_response,
@@ -1292,10 +1290,7 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        assert_server_message_error(
-            error_response,
-            "BAD_REQUEST: Slashable".to_string()
-        );
+        assert_server_message_error(error_response, "BAD_REQUEST: Slashable".to_string());
     }
 }
 
@@ -1342,7 +1337,6 @@ pub async fn blinded_equivocation_gossip() {
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
 
-
     /* mandated by Beacon API spec */
     if tester.harness.spec.is_fulu_scheduled() {
         assert!(response.is_ok())
@@ -1352,8 +1346,10 @@ pub async fn blinded_equivocation_gossip() {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
         assert_server_message_error(
             error_response,
-            format!("BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, local: {correct_state_root} }}",
-                Hash256::zero()),
+            format!(
+                "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, local: {correct_state_root} }}",
+                Hash256::zero()
+            ),
         );
     }
 }
@@ -1410,54 +1406,59 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    let unblinded_block_a = reconstruct_block(
-        tester.harness.chain.clone(),
-        block_a.canonical_root(),
-        Arc::new(block_a),
-    )
-    .await
-    .expect("failed to reconstruct block")
-    .expect("block expected");
+    // From the Fulu fork, external builder will no longer send back a full
+    // payload and blobs, hence further checks in this test
+    // are not possible
+    if !tester.harness.spec.is_fulu_scheduled() {
+        let unblinded_block_a = reconstruct_block(
+            tester.harness.chain.clone(),
+            block_a.canonical_root(),
+            Arc::new(block_a),
+        )
+        .await
+        .expect("failed to reconstruct block")
+        .expect("block expected");
 
-    let unblinded_block_b = reconstruct_block(
-        tester.harness.chain.clone(),
-        block_b.canonical_root(),
-        block_b.clone(),
-    )
-    .await
-    .expect("failed to reconstruct block")
-    .expect("block expected");
+        let unblinded_block_b = reconstruct_block(
+            tester.harness.chain.clone(),
+            block_b.canonical_root(),
+            block_b.clone(),
+        )
+        .await
+        .expect("failed to reconstruct block")
+        .expect("block expected");
 
-    let inner_block_a = match unblinded_block_a {
-        ProvenancedBlock::Local(a, _, _) => a,
-        ProvenancedBlock::Builder(a, _, _) => a,
-    };
-    let inner_block_b = match unblinded_block_b {
-        ProvenancedBlock::Local(b, _, _) => b,
-        ProvenancedBlock::Builder(b, _, _) => b,
-    };
+        let inner_block_a = match unblinded_block_a {
+            ProvenancedBlock::Local(a, _, _) => a,
+            ProvenancedBlock::Builder(a, _, _) => a,
+        };
+        let inner_block_b = match unblinded_block_b {
+            ProvenancedBlock::Local(b, _, _) => b,
+            ProvenancedBlock::Builder(b, _, _) => b,
+        };
 
-    let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
-    assert!(gossip_block_b.is_ok());
-    let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
-    assert!(gossip_block_a.is_err());
+        let gossip_block_b = GossipVerifiedBlock::new(inner_block_b, &tester.harness.chain);
+        assert!(gossip_block_b.is_ok());
+        let gossip_block_a = GossipVerifiedBlock::new(inner_block_a, &tester.harness.chain);
+        assert!(gossip_block_a.is_err());
 
-    let channel = tokio::sync::mpsc::unbounded_channel();
+        let channel = tokio::sync::mpsc::unbounded_channel();
 
-    let publication_result = publish_blinded_block(
-        block_b,
-        tester.harness.chain,
-        &channel.0,
-        validation_level,
-        StatusCode::ACCEPTED,
-    )
-    .await;
+        let publication_result = publish_blinded_block(
+            block_b,
+            tester.harness.chain,
+            &channel.0,
+            validation_level,
+            StatusCode::ACCEPTED,
+        )
+        .await;
 
-    assert!(publication_result.is_err());
+        assert!(publication_result.is_err());
 
-    let publication_error: Rejection = publication_result.unwrap_err();
+        let publication_error: Rejection = publication_result.unwrap_err();
 
-    assert!(publication_error.find::<CustomBadRequest>().is_some());
+        assert!(publication_error.find::<CustomBadRequest>().is_some());
+    }
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective (and does not equivocate) is accepted when using `broadcast_validation=consensus_and_equivocation`.
@@ -1911,7 +1912,7 @@ pub async fn duplicate_block_status_code() {
             duplicate_block_status_code,
             ..Config::default()
         },
-        true
+        true,
     )
     .await;
 

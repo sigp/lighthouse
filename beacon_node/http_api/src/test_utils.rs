@@ -60,8 +60,15 @@ type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        Self::new_with_initializer_and_mutator(spec, validator_count, None, None, Config::default(), true)
-            .await
+        Self::new_with_initializer_and_mutator(
+            spec,
+            validator_count,
+            None,
+            None,
+            Config::default(),
+            true,
+        )
+        .await
     }
 
     pub async fn new_with_initializer_and_mutator(
@@ -70,7 +77,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         initializer: Option<Initializer<E>>,
         mutator: Option<Mutator<E>>,
         config: Config,
-        use_mock_builder: bool
+        use_mock_builder: bool,
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec.map(Arc::new))
