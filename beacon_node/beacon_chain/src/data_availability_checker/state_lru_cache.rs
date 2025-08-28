@@ -113,8 +113,9 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
         diet_executed_block: DietAvailabilityPendingExecutedBlock<T::EthSpec>,
         _span: &Span,
     ) -> Result<AvailabilityPendingExecutedBlock<T::EthSpec>, AvailabilityCheckError> {
-        let state = if let Some(state) = self.states.write().pop(&diet_executed_block.state_root) {
-            state
+        // Keep the state in the cache to prevent reconstruction in race conditions
+        let state = if let Some(state) = self.states.write().get(&diet_executed_block.state_root) {
+            state.clone()
         } else {
             self.reconstruct_state(&diet_executed_block)?
         };
