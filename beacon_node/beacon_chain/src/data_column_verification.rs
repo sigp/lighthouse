@@ -285,7 +285,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
     ) -> Result<Vec<Self>, (ColumnIndex, KzgError)> {
-        verify_kzg_for_data_column_list_with_scoring(data_columns.iter(), kzg)?;
+        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
             .map(|column| Self { data: column })
@@ -420,7 +420,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 }
 
 /// Complete kzg verification for a list of `DataColumnSidecar`s.
-/// Returns an error if any of the `DataColumnSidecar`s fails kzg verification.
+/// Returns an error for the first `DataColumnSidecar`s that fails kzg verification.
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
@@ -434,28 +434,6 @@ where
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
     validate_data_columns(kzg, data_column_iter)?;
     Ok(())
-}
-
-/// Complete kzg verification for a list of `DataColumnSidecar`s.
-///
-/// If there's at least one invalid column, it will error on the first identified the invalid column.
-/// This is necessary to attribute fault to the specific peer that sent bad data. If a peer sends invalid
-/// data it will be quickly banned.
-pub fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
-    data_column_iter: I,
-    kzg: &'a Kzg,
-) -> Result<(), (ColumnIndex, KzgError)>
-where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
-{
-    match verify_kzg_for_data_column_list(data_column_iter.clone(), kzg) {
-        Ok(_) => Ok(()),
-        // If we hit this condition, there should be at least one invalid column.
-        // We're only finding one invalid column because of the chance of multiple peers sending invalid
-        // columns for the same batch should be very rare, and re-verifying all columns individually is
-        // costly with likely little benefit.
-        Err((column_index, e)) => Err((column_index, e)),
-    }
 }
 
 #[instrument(skip_all, level = "debug")]
