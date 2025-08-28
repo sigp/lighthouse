@@ -652,11 +652,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             // but future errors may follow the same pattern. Generalize this
                             // pattern with https://github.com/sigp/lighthouse/pull/6321
                             BlockError::AvailabilityCheck(
-                                AvailabilityCheckError::InvalidColumn(error_opt),
-                            ) => error_opt
-                                .iter()
-                                .flat_map(|(index, _)| peer_group.of_index((*index) as usize))
-                                .collect(),
+                                AvailabilityCheckError::InvalidColumn((index, _)),
+                            ) => peer_group.of_index(index as usize).collect(),
                             _ => peer_group.all().collect(),
                         };
                         for peer in peers_to_penalize {

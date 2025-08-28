@@ -49,7 +49,7 @@ pub fn validate_blob<E: EthSpec>(
 pub fn validate_data_columns<'a, E: EthSpec, I>(
     kzg: &Kzg,
     data_column_iter: I,
-) -> Result<(), KzgError>
+) -> Result<(), (u64, KzgError)>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
@@ -62,7 +62,7 @@ where
         let col_index = data_column.index;
 
         for cell in &data_column.column {
-            cells.push(ssz_cell_to_crypto_cell::<E>(cell)?);
+            cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (col_index, e))?);
             column_indices.push(col_index);
         }
 
