@@ -73,6 +73,7 @@ async fn state_by_root_pruned_from_fork_choice() {
         })),
         None,
         Default::default(),
+        false,
     )
     .await;
 
@@ -429,6 +430,7 @@ pub async fn proposer_boost_re_org_test(
                 )
         })),
         Default::default(),
+        false,
     )
     .await;
     let harness = &tester.harness;
@@ -666,6 +668,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Check the fork choice updates that were sent.
     let forkchoice_updates = forkchoice_updates.lock();
+
     let block_a_exec_hash = block_a
         .0
         .message()
@@ -685,7 +688,7 @@ pub async fn proposer_boost_re_org_test(
     assert_eq!(
         should_re_org,
         !forkchoice_updates.contains_update_for(block_b_exec_hash),
-        "{block_b_exec_hash:?}"
+        "{forkchoice_updates:?}"
     );
 
     // Check the timing of the first fork choice update with payload attributes for block C.

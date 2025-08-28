@@ -116,7 +116,10 @@ impl ApiTester {
     }
 
     pub async fn new_with_hard_forks() -> Self {
-        let config = ApiTesterConfig { spec: test_spec::<E>(), ..Default::default() };
+        let config = ApiTesterConfig {
+            spec: test_spec::<E>(),
+            ..Default::default()
+        };
         Self::new_from_config(config).await
     }
 

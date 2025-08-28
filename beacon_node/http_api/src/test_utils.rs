@@ -60,7 +60,7 @@ type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
 
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        Self::new_with_initializer_and_mutator(spec, validator_count, None, None, Config::default())
+        Self::new_with_initializer_and_mutator(spec, validator_count, None, None, Config::default(), true)
             .await
     }
 
@@ -70,6 +70,7 @@ impl<E: EthSpec> InteractiveTester<E> {
         initializer: Option<Initializer<E>>,
         mutator: Option<Mutator<E>>,
         config: Config,
+        use_mock_builder: bool
     ) -> Self {
         let mut harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec.map(Arc::new))
@@ -126,14 +127,16 @@ impl<E: EthSpec> InteractiveTester<E> {
         // is invalid.
         let broadcast_to_bn = ctx.chain.as_ref().unwrap().spec.is_fulu_scheduled();
 
-        let mock_builder_server = harness.set_mock_builder(
-            beacon_url.clone(),
-            strict_registrations,
-            apply_operations,
-            broadcast_to_bn,
-        );
+        if use_mock_builder {
+            let mock_builder_server = harness.set_mock_builder(
+                beacon_url.clone(),
+                strict_registrations,
+                apply_operations,
+                broadcast_to_bn,
+            );
 
-        tokio::spawn(mock_builder_server);
+            tokio::spawn(mock_builder_server);
+        }
 
         // Override the default timeout to 2s to timeouts on CI, as CI seems to require longer
         // to process. The 1s timeouts for other tasks have been working for a long time, so we'll

@@ -917,6 +917,7 @@ pub async fn blinded_gossip_full_pass() {
         .await;
 
     assert!(response.is_ok());
+    assert_eq!(response.unwrap().status(), StatusCode::OK);
     assert!(
         tester
             .harness
@@ -961,6 +962,7 @@ pub async fn blinded_gossip_full_pass_ssz() {
         .await;
 
     assert!(response.is_ok());
+    assert_eq!(response.unwrap().status(), StatusCode::OK);
     assert!(
         tester
             .harness
@@ -1306,10 +1308,12 @@ pub async fn blinded_equivocation_gossip() {
     let slot_a = Slot::new(num_initial);
     let slot_b = slot_a + 1;
 
+    let mut correct_state_root = Hash256::zero();
     let state_a = tester.harness.get_current_state();
     let (blinded_block, _) = tester
         .harness
         .make_blinded_block_with_modifier(state_a, slot_b, |b| {
+            *correct_state_root = *b.state_root();
             *b.state_root_mut() = Hash256::zero()
         })
         .await;
@@ -1323,15 +1327,15 @@ pub async fn blinded_equivocation_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
-        assert_eq!(
-            error_response.status(),
-            Some(StatusCode::INTERNAL_SERVER_ERROR)
-        );
-    } else {
-        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0xf80855e46108b1f93f2efcd61b63e29c2f718d54b1437aaa25d84ffb52b06963 }".to_string());
-    }
+    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+
+//    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x253405be9aa159bce7b276b8e1d3849c743e673118dfafe8c7d07c203ae0d80d }".to_string());
+
+    assert_server_message_error(
+        error_response,
+        format!("BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, local: {correct_state_root} }}",
+        Hash256::zero()),
+    );
 }
 
 /// This test checks that a block that is valid from both a gossip and
@@ -1887,6 +1891,7 @@ pub async fn duplicate_block_status_code() {
             duplicate_block_status_code,
             ..Config::default()
         },
+        true
     )
     .await;
 
