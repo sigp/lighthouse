@@ -200,12 +200,12 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
             })?;
 
             kzg.compute_cells(blob).and_then(|cells| {
-                let proofs_ref = proofs.try_into().map_err(|e| {
+                let proofs = proofs.try_into().map_err(|e| {
                     KzgError::InconsistentArrayLength(format!(
                         "proof chunks should have exactly `number_of_columns` proofs: {e:?}"
                     ))
                 })?;
-                Ok((cells, proofs_ref))
+                Ok((cells, proofs))
             })
         })
         .collect::<Result<Vec<_>, KzgError>>()?;
