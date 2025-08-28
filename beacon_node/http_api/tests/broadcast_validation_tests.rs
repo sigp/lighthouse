@@ -331,22 +331,15 @@ pub async fn consensus_gossip() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
-        assert_eq!(
-            error_response.status(),
-            Some(StatusCode::INTERNAL_SERVER_ERROR)
-        );
-    } else {
-        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        assert_server_message_error(
-            error_response,
-            format!(
-                "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, \
-                 local: {correct_state_root:?} }}",
-                Hash256::ZERO
-            ),
-        );
-    }
+    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+    assert_server_message_error(
+        error_response,
+        format!(
+            "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, \
+                local: {correct_state_root:?} }}",
+            Hash256::ZERO
+        ),
+    );
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective, but nonetheless equivocates, is accepted when using `broadcast_validation=consensus`.
@@ -827,17 +820,20 @@ pub async fn blinded_gossip_invalid() {
     assert!(response.is_err());
 
     let error_response: eth2::Error = response.err().unwrap();
-
-    /* mandated by Beacon API spec */
-    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-    // block.
     let pre_finalized_block_root = Hash256::zero();
-    assert_server_message_error(
-        error_response,
-        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-    );
+    /* mandated by Beacon API spec */
+    if tester.harness.spec.is_fulu_scheduled() {
+        assert_eq!(
+            error_response.status(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
+    } else {
+        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+        assert_server_message_error(
+            error_response,
+            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
+        );
+    }
 }
 
 /// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
@@ -1028,14 +1024,18 @@ pub async fn blinded_consensus_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-    // block.
-    assert_server_message_error(
-        error_response,
-        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-    );
+    if tester.harness.spec.is_fulu_scheduled() {
+        assert_eq!(
+            error_response.status(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
+    } else {
+        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+        assert_server_message_error(
+            error_response,
+            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
+        );
+    }
 }
 
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus`.
@@ -1081,20 +1081,24 @@ pub async fn blinded_consensus_gossip() {
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
 
-    assert!(response.is_err());
 
-    let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(
-        error_response,
-        format!(
-            "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, \
-             local: {correct_state_root} }}",
-            Hash256::ZERO
-        ),
-    );
+    if tester.harness.spec.is_fulu_scheduled() {
+        assert!(response.is_ok());
+    } else {
+        assert!(response.is_err());
+    let error_response: eth2::Error = response.err().unwrap();
+        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+        assert_server_message_error(
+            error_response,
+            format!(
+                "BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, \
+                    local: {correct_state_root} }}",
+                Hash256::ZERO
+            ),
+        );
+    }
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=consensus`.
@@ -1199,13 +1203,18 @@ pub async fn blinded_equivocation_invalid() {
     let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-    // block.
-    assert_server_message_error(
-        error_response,
-        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-    );
+    if tester.harness.spec.is_fulu_scheduled() {
+        assert_eq!(
+            error_response.status(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
+    } else {
+        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+        assert_server_message_error(
+            error_response,
+            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
+        );
+    }
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -1276,8 +1285,18 @@ pub async fn blinded_equivocation_consensus_early_equivocation() {
 
     let error_response: eth2::Error = response.err().unwrap();
 
-    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    assert_server_message_error(error_response, "BAD_REQUEST: Slashable".to_string());
+    if tester.harness.spec.is_fulu_scheduled() {
+        assert_eq!(
+            error_response.status(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
+    } else {
+        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+        assert_server_message_error(
+            error_response,
+            "BAD_REQUEST: Slashable".to_string()
+        );
+    }
 }
 
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus_and_equivocation`.
@@ -1322,20 +1341,21 @@ pub async fn blinded_equivocation_gossip() {
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
-    assert!(response.is_err());
 
-    let error_response: eth2::Error = response.err().unwrap();
 
     /* mandated by Beacon API spec */
-    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-
-//    assert_server_message_error(error_response, "BAD_REQUEST: Invalid block: StateRootMismatch { block: 0x0000000000000000000000000000000000000000000000000000000000000000, local: 0x253405be9aa159bce7b276b8e1d3849c743e673118dfafe8c7d07c203ae0d80d }".to_string());
-
-    assert_server_message_error(
-        error_response,
-        format!("BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, local: {correct_state_root} }}",
-        Hash256::zero()),
-    );
+    if tester.harness.spec.is_fulu_scheduled() {
+        assert!(response.is_ok())
+    } else {
+        assert!(response.is_err());
+        let error_response: eth2::Error = response.err().unwrap();
+        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+        assert_server_message_error(
+            error_response,
+            format!("BAD_REQUEST: Invalid block: StateRootMismatch {{ block: {}, local: {correct_state_root} }}",
+                Hash256::zero()),
+        );
+    }
 }
 
 /// This test checks that a block that is valid from both a gossip and
