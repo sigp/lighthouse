@@ -49,7 +49,7 @@ pub fn validate_blob<E: EthSpec>(
 pub fn validate_data_columns<'a, E: EthSpec, I>(
     kzg: &Kzg,
     data_column_iter: I,
-) -> Result<(), (u64, KzgError)>
+) -> Result<(), (Option<u64>, KzgError)>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
@@ -61,8 +61,12 @@ where
     for data_column in data_column_iter {
         let col_index = data_column.index;
 
+        if data_column.column.is_empty() {
+            return Err((Some(col_index), KzgError::KzgVerificationFailed));
+        }
+
         for cell in &data_column.column {
-            cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (col_index, e))?);
+            cells.push(ssz_cell_to_crypto_cell::<E>(cell).map_err(|e| (Some(col_index), e))?);
             column_indices.push(col_index);
         }
 
@@ -72,6 +76,19 @@ where
 
         for &commitment in &data_column.kzg_commitments {
             commitments.push(Bytes48::from(commitment));
+        }
+
+        let expected_len = column_indices.len();
+
+        // We make this check at each iteration so that the error is attributable to a specific column
+        if cells.len() != expected_len
+            || proofs.len() != expected_len
+            || commitments.len() != expected_len
+        {
+            return Err((
+                Some(col_index),
+                KzgError::InconsistentArrayLength("Invalid data column".to_string()),
+            ));
         }
     }
 

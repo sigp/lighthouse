@@ -652,8 +652,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             // but future errors may follow the same pattern. Generalize this
                             // pattern with https://github.com/sigp/lighthouse/pull/6321
                             BlockError::AvailabilityCheck(
-                                AvailabilityCheckError::InvalidColumn((index, _)),
-                            ) => peer_group.of_index(index as usize).collect(),
+                                AvailabilityCheckError::InvalidColumn((index_opt, _)),
+                            ) => {
+                                match index_opt {
+                                    Some(index) => peer_group.of_index(index as usize).collect(),
+                                    // If no index supplied this is an un-attributable fault. In practice
+                                    // this should never happen.
+                                    None => vec![],
+                                }
+                            }
                             _ => peer_group.all().collect(),
                         };
                         for peer in peers_to_penalize {

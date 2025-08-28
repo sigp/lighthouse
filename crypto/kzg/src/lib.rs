@@ -239,8 +239,23 @@ impl Kzg {
         kzg_proofs: &[Bytes48],
         indices: Vec<CellIndex>,
         kzg_commitments: &[Bytes48],
-    ) -> Result<(), (u64, Error)> {
+    ) -> Result<(), (Option<u64>, Error)> {
         let mut column_groups: HashMap<u64, Vec<(CellRef, Bytes48, Bytes48)>> = HashMap::new();
+
+        let expected_len = cells.len();
+
+        // This check is already made in `validate_data_columns`. However we add it here so that ef consensus spec tests pass
+        // and to avoid any potential footguns in the future. Note that by catching the error here and not in `validate_data_columns`
+        // the error becomes non-attributable.
+        if kzg_proofs.len() != expected_len
+            || indices.len() != expected_len
+            || kzg_commitments.len() != expected_len
+        {
+            return Err((
+                None,
+                Error::InconsistentArrayLength("Invalid data column".to_string()),
+            ));
+        }
 
         for (((cell, proof), &index), commitment) in cells
             .iter()
@@ -288,12 +303,12 @@ impl Kzg {
                 match verification_result {
                     Ok(_) => Ok(()),
                     Err(e) if e.is_proof_invalid() => {
-                        Err((column_index, Error::KzgVerificationFailed))
+                        Err((Some(column_index), Error::KzgVerificationFailed))
                     }
-                    Err(e) => Err((column_index, Error::PeerDASKZG(e))),
+                    Err(e) => Err((Some(column_index), Error::PeerDASKZG(e))),
                 }
             })
-            .collect::<Result<Vec<()>, (u64, Error)>>()?;
+            .collect::<Result<Vec<()>, (Option<u64>, Error)>>()?;
 
         Ok(())
     }

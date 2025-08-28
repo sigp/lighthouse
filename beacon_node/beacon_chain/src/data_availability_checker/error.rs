@@ -4,7 +4,7 @@ use types::{BeaconStateError, ColumnIndex, Hash256};
 #[derive(Debug)]
 pub enum Error {
     InvalidBlobs(KzgError),
-    InvalidColumn((ColumnIndex, KzgError)),
+    InvalidColumn((Option<ColumnIndex>, KzgError)),
     ReconstructColumnsError(KzgError),
     KzgCommitmentMismatch {
         blob_commitment: KzgCommitment,

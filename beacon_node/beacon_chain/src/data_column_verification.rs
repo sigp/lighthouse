@@ -266,7 +266,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn new(
         data_column: Arc<DataColumnSidecar<E>>,
         kzg: &Kzg,
-    ) -> Result<Self, (ColumnIndex, KzgError)> {
+    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
@@ -284,7 +284,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     pub fn from_batch_with_scoring(
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
-    ) -> Result<Vec<Self>, (ColumnIndex, KzgError)> {
+    ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
@@ -362,7 +362,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     pub fn new(
         data_column: CustodyDataColumn<E>,
         kzg: &Kzg,
-    ) -> Result<Self, (ColumnIndex, KzgError)> {
+    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column(data_column.clone_arc(), kzg)?;
         Ok(Self {
             data: data_column.data,
@@ -413,7 +413,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
     kzg: &Kzg,
-) -> Result<KzgVerifiedDataColumn<E>, (ColumnIndex, KzgError)> {
+) -> Result<KzgVerifiedDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
     validate_data_columns(kzg, iter::once(&data_column))?;
     Ok(KzgVerifiedDataColumn { data: data_column })
@@ -427,7 +427,7 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
     data_column_iter: I,
     kzg: &'a Kzg,
-) -> Result<(), (ColumnIndex, KzgError)>
+) -> Result<(), (Option<ColumnIndex>, KzgError)>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
