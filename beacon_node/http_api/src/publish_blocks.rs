@@ -16,6 +16,7 @@ use eth2::types::{
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
+use lighthouse_tracing::SPAN_PUBLISH_BLOCK;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use slot_clock::SlotClock;
@@ -24,7 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, error, info, warn};
+use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
@@ -75,6 +76,12 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
 
 /// Handles a request from the HTTP API for full blocks.
 #[allow(clippy::too_many_arguments)]
+#[instrument(
+    name = SPAN_PUBLISH_BLOCK,
+    level = "info",
+    skip_all,
+    fields(?block_root, ?validation_level, provenance = tracing::field::Empty)
+)]
 pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     block_root: Option<Hash256>,
     provenanced_block: ProvenancedBlock<T, B>,
@@ -96,6 +103,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     } else {
         "builder"
     };
+    let current_span = Span::current();
+    current_span.record("provenance", provenance);
+
     let block = unverified_block.inner_block();
 
     debug!(slot = %block.slot(), "Signed block received in HTTP API");
@@ -133,8 +143,12 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     let slot = block.message().slot();
     let sender_clone = network_tx.clone();
 
-    let build_sidecar_task_handle =
-        spawn_build_data_sidecar_task(chain.clone(), block.clone(), unverified_blobs)?;
+    let build_sidecar_task_handle = spawn_build_data_sidecar_task(
+        chain.clone(),
+        block.clone(),
+        unverified_blobs,
+        current_span.clone(),
+    )?;
 
     // Gossip verify the block and blobs/data columns separately.
     let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
@@ -347,6 +361,7 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     proofs_and_blobs: UnverifiedBlobs<T>,
+    current_span: Span,
 ) -> Result<impl Future<Output = BuildDataSidecarTaskResult<T>>, Rejection> {
     chain
         .clone()
@@ -356,6 +371,7 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
                 let Some((kzg_proofs, blobs)) = proofs_and_blobs else {
                     return Ok((vec![], vec![]));
                 };
+                let _guard = debug_span!(parent: current_span, "build_data_sidecars").entered();
 
                 let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
                 if !peer_das_enabled {
@@ -532,7 +548,11 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             .saturating_sub(malicious_withhold_count);
         // Randomize columns before dropping the last malicious_withhold_count items
         data_column_sidecars.shuffle(&mut **chain.rng.lock());
-        data_column_sidecars.truncate(columns_to_keep);
+        let dropped_indices = data_column_sidecars
+            .drain(columns_to_keep..)
+            .map(|d| d.index)
+            .collect::<Vec<_>>();
+        debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
     let pubsub_messages = data_column_sidecars
         .into_iter()
