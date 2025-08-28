@@ -30,9 +30,23 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
 }
 
 pub fn downgrade_from_v29<T: BeaconChainTypes>(
-    _d: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    Err(Error::MigrationError("Cannot downgrade from v29: Redb file format upgrade is irreversible".to_string()))
+    #[cfg(feature = "redb")]
+    {
+        if let Some(backend) = db.backend() {
+            use store::database::interface::BeaconNodeBackend;
+
+            if let BeaconNodeBackend::Redb(_) = backend {
+                return Err(Error::MigrationError(
+                    "Cannot downgrade from v29: Redb file format upgrade is irreversible".to_string()
+                ));
+            }
+        }
+    }
+    
+    // For all other backends, just no-op
+    Ok(vec![])
 }
 
 
