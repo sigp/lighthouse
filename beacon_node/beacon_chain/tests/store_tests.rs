@@ -2949,8 +2949,6 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
         .import_historical_data_column_batch(Epoch::new(0), data_columns_list)
         .unwrap_err();
 
-    println!("error! {:?}", error);
-
     assert!(matches!(
         error,
         HistoricalDataColumnError::NoBlockFound { .. }

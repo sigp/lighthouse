@@ -55,8 +55,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut total_imported = 0;
         let mut ops = vec![];
 
-        println!("length {:?}", historical_data_column_sidecar_list.len());
-
         let unique_column_indices = historical_data_column_sidecar_list
             .iter()
             .map(|item| item.index)
@@ -66,11 +64,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .iter()
             .map(|data_column| ((data_column.slot(), data_column.index), data_column))
             .collect::<HashMap<_, _>>();
-
-        println!(
-            "length {:?}",
-            slot_and_column_index_to_data_columns.keys().len()
-        );
 
         if historical_data_column_sidecar_list.is_empty() {
             return Ok(total_imported);
