@@ -586,6 +586,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             |block, span| self.state_cache.recover_pending_executed_block(block, span),
         )? {
             // We never remove the pending components manually to avoid race conditions.
+            // This ensures components remain available during and right after block import,
+            // preventing a race condition where a component was removed after the block was
+            // imported, but re-inserted immediately, causing partial pending components to be
+            // stored and served to peers.
+            // Components are only removed via LRU eviction as finality advances.
             write_lock.put(block_root, CachedComponents::Available(pending_components));
             drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
@@ -1043,7 +1048,11 @@ mod test {
                 matches!(availability, Availability::MissingComponents(_)),
                 "should be pending block"
             );
-            assert_eq!(cache.critical.read().len(), 1);
+            assert_eq!(
+                cache.critical.read().len(),
+                2,
+                "cache should have two blocks now"
+            );
         }
         let availability = cache
             .put_pending_executed_block(pending_block)
@@ -1054,8 +1063,8 @@ mod test {
             availability
         );
         assert!(
-            cache.critical.read().len() == 1,
-            "cache should still have available block until import"
+            cache.critical.read().len() == 2,
+            "cache should still have available block"
         );
     }
 
@@ -1177,14 +1186,6 @@ mod test {
             Some(&recovered_pending_block.import_data.state),
             states.last(),
             "recovered state should be the same as the original"
-        );
-        // the state should no longer be in the cache
-        assert!(
-            state_cache
-                .read()
-                .peek(&last_block.as_block().state_root())
-                .is_none(),
-            "last block state should no longer be in cache"
         );
     }
 }
