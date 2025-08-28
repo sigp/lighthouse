@@ -887,31 +887,31 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 match &e {
                     AvailabilityCheckError::InvalidBlobs(_)
                     | AvailabilityCheckError::BlobIndexInvalid(_) => Err(ChainSegmentFailed {
-                        message: format!("Peer sent invalid block. Reason: {:?}", err),
+                        message: format!("Peer sent invalid blobs. Reason: {:?}", err),
                         // Do not penalize peers for internal errors.
                         peer_action: Some(PeerAction::LowToleranceError),
                         faulty_component: Some(FaultyComponent::Blobs),
                     }),
                     AvailabilityCheckError::InvalidColumn(columns) => Err(ChainSegmentFailed {
-                        message: format!("Peer sent invalid block. Reason: {:?}", err),
+                        message: format!("Peer sent invalid columns. Reason: {:?}", err),
                         // Do not penalize peers for internal errors.
-                        peer_action: Some(PeerAction::MidToleranceError),
+                        peer_action: Some(PeerAction::LowToleranceError),
                         faulty_component: Some(FaultyComponent::Columns(
                             columns.iter().map(|v| v.0).collect(),
                         )),
                     }),
                     AvailabilityCheckError::DataColumnIndexInvalid(column) => {
                         Err(ChainSegmentFailed {
-                            message: format!("Peer sent invalid block. Reason: {:?}", err),
+                            message: format!("Peer sent invalid columns. Reason: {:?}", err),
                             // Do not penalize peers for internal errors.
-                            peer_action: Some(PeerAction::MidToleranceError),
+                            peer_action: Some(PeerAction::LowToleranceError),
                             faulty_component: Some(FaultyComponent::Columns(vec![*column])),
                         })
                     }
                     _ => Err(ChainSegmentFailed {
                         message: format!("Peer sent invalid block. Reason: {:?}", err),
                         // Do not penalize peers for internal errors.
-                        peer_action: Some(PeerAction::MidToleranceError),
+                        peer_action: None,
                         faulty_component: None,
                     }),
                 }
