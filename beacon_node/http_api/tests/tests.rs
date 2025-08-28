@@ -2651,7 +2651,12 @@ impl ApiTester {
     }
 
     pub async fn test_get_config_spec(self) -> Self {
-        let result = if self.chain.spec.is_fulu_scheduled() {
+        let result = if self.chain.spec.is_gloas_scheduled() {
+            self.client
+                .get_config_spec::<ConfigAndPresetGloas>()
+                .await
+                .map(|res| ConfigAndPreset::Gloas(res.data))
+        } else if self.chain.spec.is_fulu_scheduled() {
             self.client
                 .get_config_spec::<ConfigAndPresetFulu>()
                 .await

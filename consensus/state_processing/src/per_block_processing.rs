@@ -452,6 +452,12 @@ pub fn process_execution_payload<E: EthSpec, Payload: AbstractExecPayload<E>>(
                 _ => return Err(BlockProcessingError::IncorrectStateType),
             }
         }
+        ExecutionPayloadHeaderRefMut::Gloas(header_mut) => {
+            match payload.to_execution_payload_header() {
+                ExecutionPayloadHeader::Gloas(header) => *header_mut = header,
+                _ => return Err(BlockProcessingError::IncorrectStateType),
+            }
+        }
     }
 
     Ok(())
