@@ -132,7 +132,10 @@ impl fmt::Display for Error {
 pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
-    if status == StatusCode::OK || status == StatusCode::ACCEPTED || status == StatusCode::NO_CONTENT {
+    if status == StatusCode::OK
+        || status == StatusCode::ACCEPTED
+        || status == StatusCode::NO_CONTENT
+    {
         Ok(response)
     } else if let Ok(message) = response.json::<ResponseError>().await {
         match message {
