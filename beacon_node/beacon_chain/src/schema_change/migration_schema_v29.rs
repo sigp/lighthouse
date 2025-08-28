@@ -15,7 +15,15 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
 
             if let BeaconNodeBackend::Redb(redb) = backend {
                 match redb.upgrade() {
-                    Ok(did_upgrade) => {}
+                    Ok(did_upgrade) => {
+                        if did_upgrade {
+                            info!("Redb file format successfully upgraded to v29");
+                        } else {
+                            use tracing::info;
+
+                            info!("Redb file-format already at v29, no upgrade needed");
+                        }
+                    }
                     Err(e) => {
                         return Err(Error::MigrationError(format!{
                             "Redb file-format upgrade failed: {e}"
