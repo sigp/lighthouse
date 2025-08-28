@@ -44,9 +44,9 @@ use super::chain_collection::{ChainCollection, SyncChainStatus};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
 use crate::status::ToStatusMessage;
-use crate::sync::range_sync::ResponsiblePeers;
 use crate::sync::BatchProcessResult;
 use crate::sync::network_context::{RpcResponseError, SyncNetworkContext};
+use crate::sync::range_sync::ResponsiblePeers;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
@@ -212,7 +212,7 @@ where
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
-            chain.on_block_response(network, batch_id,  request_id, blocks, responsible_peers)
+            chain.on_block_response(network, batch_id, request_id, blocks, responsible_peers)
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some((removed_chain, remove_reason)) = removed_chain {

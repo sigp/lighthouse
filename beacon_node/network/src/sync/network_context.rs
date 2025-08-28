@@ -103,7 +103,7 @@ pub enum RpcResponseError {
     VerifyError(LookupVerifyError),
     CustodyRequestError(#[allow(dead_code)] CustodyRequestError),
     BlockComponentCouplingError(CouplingError),
-    InternalError(String),
+    InternalError(#[allow(dead_code)] String),
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -723,7 +723,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     )))?;
                     return Ok(ProcessResult::Successful);
                 }
-                BatchState::AwaitingValidation(_, _) => {
+                BatchState::AwaitingValidation(_) => {
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
                     crit!(
@@ -773,7 +773,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::AwaitingValidation(processed_attempt, _) => {
+                BatchState::AwaitingValidation(processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {

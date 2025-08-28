@@ -152,7 +152,7 @@ pub enum BatchState<E: EthSpec> {
     /// It is not sufficient to process a batch successfully to consider it correct. This is
     /// because batches could be erroneously empty, or incomplete. Therefore, a batch is considered
     /// valid, only if the next sequential batch imports at least a block.
-    AwaitingValidation(Attempt, ResponsiblePeers),
+    AwaitingValidation(Attempt),
     /// Intermediate state for inner state handling.
     Poisoned,
     /// The batch has maxed out the allowed attempts for either downloading or processing. It
@@ -225,12 +225,12 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     /// Returns the peers that are currently responsible for progressing the state of the batch.
     pub fn processing_peers(&self) -> Option<&ResponsiblePeers> {
         match &self.state {
-            BatchState::AwaitingDownload | BatchState::Failed | BatchState::Downloading(..) => None,
+            BatchState::AwaitingDownload
+            | BatchState::Failed
+            | BatchState::Downloading(..)
+            | BatchState::AwaitingValidation(..) => None,
             BatchState::AwaitingProcessing(responsible_peers, _, _)
-            | BatchState::Processing(Attempt { .. }, responsible_peers)
-            | BatchState::AwaitingValidation(Attempt { .. }, responsible_peers) => {
-                Some(responsible_peers)
-            }
+            | BatchState::Processing(Attempt { .. }, responsible_peers) => Some(responsible_peers),
             BatchState::Poisoned => unreachable!("Poisoned batch"),
         }
     }
@@ -385,10 +385,9 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
             BatchState::AwaitingDownload
             | BatchState::Failed
             | BatchState::Poisoned
-            | BatchState::Downloading(_) => None,
-            BatchState::AwaitingProcessing(r, _, _)
-            | BatchState::AwaitingValidation(_, r)
-            | BatchState::Processing(_, r) => Some(r),
+            | BatchState::Downloading(_)
+            | BatchState::AwaitingValidation(_) => None,
+            BatchState::AwaitingProcessing(r, _, _) | BatchState::Processing(_, r) => Some(r),
         }
     }
 
@@ -397,11 +396,9 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         processing_result: BatchProcessingResult,
     ) -> Result<BatchOperationOutcome, WrongState> {
         match self.state.poison() {
-            BatchState::Processing(attempt, responsible_peers) => {
+            BatchState::Processing(attempt, _responsible_peers) => {
                 self.state = match processing_result {
-                    BatchProcessingResult::Success => {
-                        BatchState::AwaitingValidation(attempt, responsible_peers)
-                    }
+                    BatchProcessingResult::Success => BatchState::AwaitingValidation(attempt),
                     BatchProcessingResult::FaultyFailure => {
                         // register the failed attempt
                         self.failed_processing_attempts.push(attempt);
@@ -437,7 +434,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     #[must_use = "Batch may have failed"]
     pub fn validation_failed(&mut self) -> Result<BatchOperationOutcome, WrongState> {
         match self.state.poison() {
-            BatchState::AwaitingValidation(attempt, responsible_peers) => {
+            BatchState::AwaitingValidation(attempt) => {
                 self.failed_processing_attempts.push(attempt);
 
                 // check if the batch can be downloaded again
@@ -473,6 +470,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
 #[derive(PartialEq, Debug)]
 pub struct Attempt {
     /// The peer that made the attempt.
+    /// This peer is effectively the peer that we requested the blocks from.
     pub peer_id: PeerId,
     /// The hash of the blocks of the attempt.
     pub hash: u64,
@@ -491,8 +489,8 @@ impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
             BatchState::Processing(Attempt { peer_id, hash: _ }, responsible_peers) => {
                 write!(f, "Processing({}) {:?}", peer_id, responsible_peers)
             }
-            BatchState::AwaitingValidation(Attempt { peer_id, hash: _ }, responsible_peers) => {
-                write!(f, "AwaitingValidation({}) {:?}", peer_id, responsible_peers)
+            BatchState::AwaitingValidation(Attempt { peer_id, hash: _ }) => {
+                write!(f, "AwaitingValidation({})", peer_id)
             }
             BatchState::AwaitingDownload => f.write_str("AwaitingDownload"),
             BatchState::Failed => f.write_str("Failed"),
@@ -519,7 +517,7 @@ impl<E: EthSpec> BatchState<E> {
         match self {
             BatchState::Downloading(..) => 'D',
             BatchState::Processing(_, _) => 'P',
-            BatchState::AwaitingValidation(_, _) => 'v',
+            BatchState::AwaitingValidation(_) => 'v',
             BatchState::AwaitingDownload => 'd',
             BatchState::Failed => 'F',
             BatchState::AwaitingProcessing(..) => 'p',

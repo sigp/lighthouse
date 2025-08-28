@@ -365,7 +365,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         state
                     )));
                 }
-                BatchState::AwaitingValidation(_, _) => {
+                BatchState::AwaitingValidation(_) => {
                     // If an optimistic start is given to the chain after the corresponding
                     // batch has been requested and processed we can land here. We drop the
                     // optimistic candidate since we can't conclude whether the batch included
@@ -399,7 +399,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         state
                     )));
                 }
-                BatchState::AwaitingValidation(_, _) => {
+                BatchState::AwaitingValidation(_) => {
                     // we can land here if an empty optimistic batch succeeds processing and is
                     // inside the download buffer (between `self.processing_target` and
                     // `self.to_be_downloaded`). In this case, eventually the chain advances to the
@@ -667,7 +667,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::AwaitingValidation(processed_attempt, responsible_peers) => {
+                BatchState::AwaitingValidation(processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
@@ -793,7 +793,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // reset
         self.processing_target = self.start_epoch;
 
-        // finally, re-request the failed batch.
+        // finally, re-request the failed batch and all other batches in `AwaitingDownload` state.
         self.attempt_send_awaiting_download_batches(network, "handle_invalid_batch")
     }
 
@@ -961,10 +961,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
+    /// Attempts to send all batches that are in `AwaitingDownload` state.
     pub fn attempt_send_awaiting_download_batches(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        src: &str,
+        _src: &str,
     ) -> ProcessingResult {
         // Collect all batches in AwaitingDownload state and see if they can be sent
         let awaiting_downloads: Vec<_> = self
@@ -1146,7 +1147,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 entry.insert(optimistic_batch);
                 self.send_batch(network, epoch)?;
             } else {
-                self.attempt_send_awaiting_download_batches(network, "optimistic");
+                self.attempt_send_awaiting_download_batches(network, "optimistic")?;
             }
             return Ok(KeepChain);
         }

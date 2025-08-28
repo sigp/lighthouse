@@ -30,10 +30,7 @@ impl DataColumnsByRootBatchBlockRequest {
             })
             .collect();
         assert!(ids.len() <= 32);
-        Ok(DataColumnsByRootRequest::new(
-            ids,
-            spec.max_request_blocks(fork_name),
-        ))
+        DataColumnsByRootRequest::new(ids, spec.max_request_blocks(fork_name))
     }
 }
 
