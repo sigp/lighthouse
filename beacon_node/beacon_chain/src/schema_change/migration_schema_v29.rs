@@ -1,12 +1,12 @@
 use crate::BeaconChainTypes;
 use std::sync::Arc;
-use store::{metadata::SchemaVersion, Error, HotColdDB, KeyValueStoreOp};
+use store::{Error, HotColdDB, KeyValueStoreOp};
 
 #[cfg(feature = "redb")]
 use store::config::BeaconNodeBackend;
 
 pub fn upgrade_to_v29<T: BeaconChainTypes>(
-    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>
+    _db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     #[cfg(feature = "redb")]
     {
@@ -21,7 +21,7 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
                         }
                     }
                     Err(e) => {
-                        return Err(Error::MigrationError(format!{
+                        return Err(Error::MigrationError(format! {
                             "Redb file-format upgrade failed: {e}"
                         }));
                     }
@@ -29,26 +29,25 @@ pub fn upgrade_to_v29<T: BeaconChainTypes>(
             }
         }
     }
-    
+
     Ok(vec![])
 }
 
 pub fn downgrade_from_v29<T: BeaconChainTypes>(
-    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    _db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
     #[cfg(feature = "redb")]
     {
         if let Some(backend) = db.backend() {
             if let BeaconNodeBackend::Redb(_) = backend {
                 return Err(Error::MigrationError(
-                    "Cannot downgrade from v29: Redb file format upgrade is irreversible".to_string()
+                    "Cannot downgrade from v29: Redb file format upgrade is irreversible"
+                        .to_string(),
                 ));
             }
         }
     }
-    
+
     // For all other backends, just no-op
     Ok(vec![])
 }
-
-

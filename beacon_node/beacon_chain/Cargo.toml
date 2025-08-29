@@ -13,6 +13,7 @@ participation_metrics = []  # Exposes validator participation metrics to Prometh
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
 portable = ["bls/supranational-portable"]
 test_backfill = []
+redb = ["store/redb"]
 
 [dependencies]
 alloy-primitives = { workspace = true }
