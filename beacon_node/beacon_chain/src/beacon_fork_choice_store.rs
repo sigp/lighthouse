@@ -377,7 +377,7 @@ where
                 .store
                 .get_hot_state(&self.justified_state_root, update_cache)
                 .map_err(Error::FailedToReadState)?
-                .ok_or_else(|| Error::MissingState(self.justified_state_root))?;
+                .ok_or(Error::MissingState(self.justified_state_root))?;
 
             self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
         }

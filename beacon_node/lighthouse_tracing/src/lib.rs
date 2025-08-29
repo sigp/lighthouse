@@ -3,6 +3,9 @@
 //! TODO: These span identifiers will be used to implement selective tracing export (to be implemented),
 //! where only the listed root spans and their descendants will be exported to the tracing backend.
 
+/// Root span name for publish_block
+pub const SPAN_PUBLISH_BLOCK: &str = "publish_block";
+
 /// Data Availability checker span identifiers
 pub const SPAN_PENDING_COMPONENTS: &str = "pending_components";
 

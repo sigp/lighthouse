@@ -4285,6 +4285,7 @@ dependencies = [
  "health_metrics",
  "hex",
  "lighthouse_network",
+ "lighthouse_tracing",
  "lighthouse_version",
  "logging",
  "lru",
@@ -5013,9 +5014,11 @@ dependencies = [
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "hex",
+ "rayon",
  "rust_eth_kzg",
  "serde",
  "serde_json",
+ "tracing",
  "tree_hash",
 ]
 
