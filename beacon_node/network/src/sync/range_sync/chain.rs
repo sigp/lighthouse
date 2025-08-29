@@ -1220,11 +1220,25 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .batches
             .iter()
             .filter(|&(_epoch, batch)| in_buffer(batch))
-            .map(|(epoch, _)| epoch)
             .collect();
 
         if in_buffer_batches.len() > BATCH_BUFFER_SIZE as usize {
-            return None;
+            // Force the request to avoid stalling the chain if the batch to be downloaded is less
+            // than all batches sitting inside the buffer awaiting downloaded/processing.
+            let should_force_request = in_buffer_batches
+                .iter()
+                .all(|(epoch, _)| **epoch > self.to_be_downloaded);
+            debug!(
+                ?in_buffer_batches,
+                ?self.to_be_downloaded,
+                ?self.processing_target,
+                ?self.optimistic_start,
+                should_force_request,
+                "Batch buffer full, not able to make new requests"
+            );
+            if !should_force_request {
+                return None;
+            }
         }
 
         // don't send batch requests until we have peers on sampling subnets
