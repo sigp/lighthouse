@@ -892,14 +892,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         peer_action: Some(PeerAction::LowToleranceError),
                         faulty_component: Some(FaultyComponent::Blobs),
                     }),
-                    AvailabilityCheckError::InvalidColumn(columns) => Err(ChainSegmentFailed {
-                        message: format!("Peer sent invalid columns. Reason: {:?}", err),
-                        // Do not penalize peers for internal errors.
-                        peer_action: Some(PeerAction::LowToleranceError),
-                        faulty_component: Some(FaultyComponent::Columns(
-                            columns.iter().map(|v| v.0).collect(),
-                        )),
-                    }),
+                    AvailabilityCheckError::InvalidColumn((column_opt, _)) => {
+                        let (peer_action, faulty_component) = if let Some(column) = column_opt {
+                            (
+                                Some(PeerAction::LowToleranceError),
+                                Some(FaultyComponent::Columns(vec![*column])),
+                            )
+                        } else {
+                            (None, None)
+                        };
+                        Err(ChainSegmentFailed {
+                            message: format!("Peer sent invalid columns. Reason: {:?}", err),
+                            peer_action,
+                            faulty_component,
+                        })
+                    }
                     AvailabilityCheckError::DataColumnIndexInvalid(column) => {
                         Err(ChainSegmentFailed {
                             message: format!("Peer sent invalid columns. Reason: {:?}", err),

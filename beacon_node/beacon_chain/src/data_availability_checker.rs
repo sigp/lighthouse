@@ -29,7 +29,7 @@ mod state_lru_cache;
 
 use crate::data_column_verification::{
     CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
-    KzgVerifiedDataColumn, verify_kzg_for_data_column_list_with_scoring,
+    KzgVerifiedDataColumn, verify_kzg_for_data_column_list,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -378,7 +378,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
         if self.data_columns_required_for_block(&block) {
             return if let Some(data_column_list) = data_columns.as_ref() {
-                verify_kzg_for_data_column_list_with_scoring(
+                verify_kzg_for_data_column_list(
                     data_column_list
                         .iter()
                         .map(|custody_column| custody_column.as_data_column()),
@@ -449,7 +449,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
             // Attributes fault to the specific peer that sent an invalid column
-            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)
+            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
