@@ -2,8 +2,9 @@ use crate::beacon_block_body::KzgCommitments;
 use crate::{
     ChainSpec, ContextDeserialize, EthSpec, ExecutionPayloadHeaderBellatrix,
     ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra,
-    ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
-    ExecutionRequests, ForkName, ForkVersionDecode, SignedRoot, Uint256, test_utils::TestRandom,
+    ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderGloas, ExecutionPayloadHeaderRef,
+    ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode, SignedRoot,
+    Uint256, test_utils::TestRandom,
 };
 use bls::PublicKeyBytes;
 use bls::Signature;
@@ -15,7 +16,7 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             PartialEq,
@@ -48,9 +49,11 @@ pub struct BuilderBid<E: EthSpec> {
     pub header: ExecutionPayloadHeaderElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "header_fulu"))]
     pub header: ExecutionPayloadHeaderFulu<E>,
-    #[superstruct(only(Deneb, Electra, Fulu))]
+    #[superstruct(only(Gloas), partial_getter(rename = "header_gloas"))]
+    pub header: ExecutionPayloadHeaderGloas<E>,
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas))]
     pub blob_kzg_commitments: KzgCommitments<E>,
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub execution_requests: ExecutionRequests<E>,
     #[serde(with = "serde_utils::quoted_u256")]
     pub value: Uint256,
@@ -95,6 +98,7 @@ impl<E: EthSpec> ForkVersionDecode for BuilderBid<E> {
             ForkName::Deneb => BuilderBid::Deneb(BuilderBidDeneb::from_ssz_bytes(bytes)?),
             ForkName::Electra => BuilderBid::Electra(BuilderBidElectra::from_ssz_bytes(bytes)?),
             ForkName::Fulu => BuilderBid::Fulu(BuilderBidFulu::from_ssz_bytes(bytes)?),
+            ForkName::Gloas => BuilderBid::Gloas(BuilderBidGloas::from_ssz_bytes(bytes)?),
         };
         Ok(builder_bid)
     }
@@ -149,6 +153,9 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for BuilderBid<E> {
             }
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Gloas => {
+                Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
             ForkName::Base | ForkName::Altair => {
                 return Err(serde::de::Error::custom(format!(

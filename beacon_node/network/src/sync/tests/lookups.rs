@@ -2303,7 +2303,7 @@ mod deneb_only {
                 block,
                 self.unknown_parent_blobs
                     .take()
-                    .map(|vec| RuntimeVariableList::from_vec(vec, max_len)),
+                    .map(|vec| RuntimeVariableList::new(vec, max_len).unwrap()),
             )
             .unwrap();
             self.rig.parent_block_processed(

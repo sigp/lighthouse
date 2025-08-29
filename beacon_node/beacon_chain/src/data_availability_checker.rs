@@ -20,7 +20,7 @@ use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock, Slot,
+    SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -29,7 +29,7 @@ mod state_lru_cache;
 
 use crate::data_column_verification::{
     CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
-    KzgVerifiedDataColumn, verify_kzg_for_data_column_list_with_scoring,
+    KzgVerifiedDataColumn, verify_kzg_for_data_column_list,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -378,7 +378,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
         if self.data_columns_required_for_block(&block) {
             return if let Some(data_column_list) = data_columns.as_ref() {
-                verify_kzg_for_data_column_list_with_scoring(
+                verify_kzg_for_data_column_list(
                     data_column_list
                         .iter()
                         .map(|custody_column| custody_column.as_data_column()),
@@ -445,13 +445,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .flatten()
             .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>();
-        let all_data_columns =
-            RuntimeVariableList::from_vec(all_data_columns, T::EthSpec::number_of_columns());
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
             // Attributes fault to the specific peer that sent an invalid column
-            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)
+            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
@@ -849,6 +847,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
     use store::HotColdDB;
+    use types::data_column_sidecar::DataColumn;
     use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
 
     type E = MainnetEthSpec;
@@ -1009,6 +1008,55 @@ mod test {
             actual_cached.len() < requested_columns.len(),
             "extra columns should be excluded"
         )
+    }
+
+    /// Regression test for KZG verification truncation bug (https://github.com/sigp/lighthouse/pull/7927)
+    #[test]
+    fn verify_kzg_for_rpc_blocks_should_not_truncate_data_columns() {
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let da_checker = new_da_checker(spec.clone());
+
+        // GIVEN multiple RPC blocks with data columns totalling more than 128
+        let blocks_with_columns = (0..2)
+            .map(|index| {
+                let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+                    ForkName::Fulu,
+                    NumBlobs::Number(1),
+                    &mut rng,
+                    &spec,
+                );
+
+                let custody_columns = if index == 0 {
+                    // 128 valid data columns in the first block
+                    data_columns
+                        .into_iter()
+                        .map(CustodyDataColumn::from_asserted_custody)
+                        .collect::<Vec<_>>()
+                } else {
+                    // invalid data columns in the second block
+                    data_columns
+                        .into_iter()
+                        .map(|d| {
+                            let invalid_sidecar = DataColumnSidecar {
+                                column: DataColumn::<E>::empty(),
+                                ..d.as_ref().clone()
+                            };
+                            CustodyDataColumn::from_asserted_custody(Arc::new(invalid_sidecar))
+                        })
+                        .collect::<Vec<_>>()
+                };
+
+                RpcBlock::new_with_custody_columns(None, Arc::new(block), custody_columns)
+                    .expect("should create RPC block with custody columns")
+            })
+            .collect::<Vec<_>>();
+
+        // WHEN verifying all blocks together (totalling 256 data columns)
+        let verification_result = da_checker.verify_kzg_for_rpc_blocks(blocks_with_columns);
+
+        // THEN batch block verification should fail due to 128 invalid columns in the second block
+        verification_result.expect_err("should have failed to verify blocks");
     }
 
     fn init_custody_context_with_ordered_columns(

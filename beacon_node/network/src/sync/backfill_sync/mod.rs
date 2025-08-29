@@ -40,7 +40,7 @@ use types::{ColumnIndex, Epoch, EthSpec};
 pub const BACKFILL_EPOCHS_PER_BATCH: u64 = 1;
 
 /// The maximum number of batches to queue before requesting more.
-const BACKFILL_BATCH_BUFFER_SIZE: u8 = 20;
+const BACKFILL_BATCH_BUFFER_SIZE: u8 = 5;
 
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;

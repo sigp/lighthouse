@@ -3,6 +3,7 @@ mod kzg_proof;
 pub mod trusted_setup;
 
 use rust_eth_kzg::{CellIndex, DASContext};
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 pub use crate::{
@@ -17,10 +18,12 @@ pub use c_kzg::{
 };
 
 use crate::trusted_setup::load_trusted_setup;
+use rayon::prelude::*;
 pub use rust_eth_kzg::{
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
+use tracing::instrument;
 
 /// Disables the fixed-base multi-scalar multiplication optimization for computing
 /// cell KZG proofs, because `rust-eth-kzg` already handles the precomputation.
@@ -229,31 +232,85 @@ impl Kzg {
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
+    #[instrument(skip_all, level = "debug", fields(cells = cells.len()))]
     pub fn verify_cell_proof_batch(
         &self,
         cells: &[CellRef<'_>],
         kzg_proofs: &[Bytes48],
-        columns: Vec<CellIndex>,
+        indices: Vec<CellIndex>,
         kzg_commitments: &[Bytes48],
-    ) -> Result<(), Error> {
-        let proofs: Vec<_> = kzg_proofs.iter().map(|proof| proof.as_ref()).collect();
-        let commitments: Vec<_> = kzg_commitments
-            .iter()
-            .map(|commitment| commitment.as_ref())
-            .collect();
-        let verification_result = self.context().verify_cell_kzg_proof_batch(
-            commitments.to_vec(),
-            &columns,
-            cells.to_vec(),
-            proofs.to_vec(),
-        );
+    ) -> Result<(), (Option<u64>, Error)> {
+        let mut column_groups: HashMap<u64, Vec<(CellRef, Bytes48, Bytes48)>> = HashMap::new();
 
-        // Modify the result so it matches roughly what the previous method was doing.
-        match verification_result {
-            Ok(_) => Ok(()),
-            Err(e) if e.is_proof_invalid() => Err(Error::KzgVerificationFailed),
-            Err(e) => Err(Error::PeerDASKZG(e)),
+        let expected_len = cells.len();
+
+        // This check is already made in `validate_data_columns`. However we add it here so that ef consensus spec tests pass
+        // and to avoid any potential footguns in the future. Note that by catching the error here and not in `validate_data_columns`
+        // the error becomes non-attributable.
+        if kzg_proofs.len() != expected_len
+            || indices.len() != expected_len
+            || kzg_commitments.len() != expected_len
+        {
+            return Err((
+                None,
+                Error::InconsistentArrayLength("Invalid data column".to_string()),
+            ));
         }
+
+        for (((cell, proof), &index), commitment) in cells
+            .iter()
+            .zip(kzg_proofs.iter())
+            .zip(indices.iter())
+            .zip(kzg_commitments.iter())
+        {
+            column_groups
+                .entry(index)
+                .or_default()
+                .push((cell, *proof, *commitment));
+        }
+
+        column_groups
+            .into_par_iter()
+            .map(|(column_index, column_data)| {
+                let mut cells = Vec::new();
+                let mut proofs = Vec::new();
+                let mut commitments = Vec::new();
+
+                for (cell, proof, commitment) in &column_data {
+                    cells.push(*cell);
+                    proofs.push(proof.as_ref());
+                    commitments.push(commitment.as_ref());
+                }
+
+                // Create per-chunk tracing span for visualizing parallel processing.
+                // This is safe from span explosion as we have at most 128 chunks,
+                // i.e. the number of column indices.
+                let _span = tracing::debug_span!(
+                    "verify_cell_proof_chunk",
+                    cells = cells.len(),
+                    column_index,
+                    verification_result = tracing::field::Empty,
+                )
+                .entered();
+
+                let verification_result = self.context().verify_cell_kzg_proof_batch(
+                    commitments,
+                    &vec![column_index; cells.len()], // All column_data here is from the same index
+                    cells,
+                    proofs,
+                );
+
+                match verification_result {
+                    Ok(_) => Ok(()),
+                    Err(e) if e.is_proof_invalid() => {
+                        Err((Some(column_index), Error::KzgVerificationFailed))
+                    }
+                    Err(e) => Err((Some(column_index), Error::PeerDASKZG(e))),
+                }
+            })
+            .collect::<Result<Vec<()>, (Option<u64>, Error)>>()?;
+
+        Ok(())
     }
 
     pub fn recover_cells_and_compute_kzg_proofs(

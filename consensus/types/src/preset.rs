@@ -316,6 +316,16 @@ impl FuluPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct GloasPreset {}
+
+impl GloasPreset {
+    pub fn from_chain_spec<E: EthSpec>(_spec: &ChainSpec) -> Self {
+        Self {}
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -363,6 +373,9 @@ mod test {
 
         let fulu: FuluPreset = preset_from_file(&preset_name, "fulu.yaml");
         assert_eq!(fulu, FuluPreset::from_chain_spec::<E>(&spec));
+
+        let gloas: GloasPreset = preset_from_file(&preset_name, "gloas.yaml");
+        assert_eq!(gloas, GloasPreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]
