@@ -829,8 +829,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let optimistic_epoch = align(optimistic_start_epoch);
 
         // advance the chain to the new validating epoch
-        debug!("Advancing chain");
+        debug!(?self.to_be_downloaded, ?self.processing_target,"Advancing chain");
         self.advance_chain(network, validating_epoch);
+        debug!(?self.to_be_downloaded, ?self.processing_target,"Advanced chain");
         if self.optimistic_start.is_none()
             && optimistic_epoch > self.processing_target
             && !self.attempted_optimistic_starts.contains(&optimistic_epoch)
@@ -967,6 +968,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         _src: &str,
     ) -> ProcessingResult {
+        debug!(?self.processing_target,?self.to_be_downloaded,"In attempt");
         // Collect all batches in AwaitingDownload state and see if they can be sent
         let awaiting_downloads: Vec<_> = self
             .batches
@@ -989,6 +991,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> ProcessingResult {
+        debug!(?self.processing_target,?self.to_be_downloaded,"In send_batch");
         let _guard = self.span.clone().entered();
         let batch_state = self.visualize_batch_state();
         if let Some(batch) = self.batches.get_mut(&batch_id) {
@@ -1054,6 +1057,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     }
                 },
             }
+        } else {
+            debug!(?self.to_be_downloaded, ?self.processing_target,"Did not get batch");
         }
 
         Ok(KeepChain)
@@ -1131,22 +1136,26 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if !matches!(self.state, ChainSyncingState::Syncing) {
             return Ok(KeepChain);
         }
+        debug!(?self.to_be_downloaded, ?self.processing_target,"Requesting batches");
         // find the next pending batch and request it from the peer
 
         // check if we have the batch for our optimistic start. If not, request it first.
         // We wait for this batch before requesting any other batches.
         if let Some(epoch) = self.optimistic_start {
+            debug!(?self.to_be_downloaded, ?self.processing_target,"Optimistic start in request_batches");
             if !self.good_peers_on_sampling_subnets(epoch, network) {
                 debug!("Waiting for peers to be available on sampling column subnets");
                 return Ok(KeepChain);
             }
 
             if let Entry::Vacant(entry) = self.batches.entry(epoch) {
+                debug!(?self.to_be_downloaded, ?self.processing_target,"Vacant entry in request_batches");
                 let batch_type = network.batch_type(epoch);
                 let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH, batch_type);
                 entry.insert(optimistic_batch);
                 self.send_batch(network, epoch)?;
             } else {
+                debug!(?self.to_be_downloaded, ?self.processing_target,"Not vacant in request_batches");
                 self.attempt_send_awaiting_download_batches(network, "optimistic")?;
             }
             return Ok(KeepChain);
@@ -1159,6 +1168,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         //   that function.
         while let Some(batch_id) = self.include_next_batch(network) {
             // send the batch
+            debug!(?self.to_be_downloaded, ?self.processing_target,"Got a batch to send");
             self.send_batch(network, batch_id)?;
         }
 
@@ -1198,6 +1208,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `false` is returned.
     fn include_next_batch(&mut self, network: &mut SyncNetworkContext<T>) -> Option<BatchId> {
+        debug!(?self.to_be_downloaded, ?self.processing_target,"In include next batch");
         // don't request batches beyond the target head slot
         if self
             .to_be_downloaded
