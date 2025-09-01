@@ -1165,9 +1165,9 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47c79a94619fade3c0b887670333513a67ac28a6a7e653eb260bf0d4103db38d"
+checksum = "4fd49896f12ac9b6dcd7a5998466b9b58263a695a3dd1ecc1aaca2e12a90b080"
 dependencies = [
  "cc",
  "glob",
@@ -2554,9 +2554,9 @@ dependencies = [
 
 [[package]]
 name = "eip4844"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0067055675ea62c0287d520099d9a560f5ad4fd0c00956da99bbb2a68ad2bfc9"
+checksum = "aa86cda6af15a9a5e4cf680850addaee8cd427be95be3ec9d022b9d7b98a66c0"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-maybe-rayon",
@@ -2579,9 +2579,9 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "ekzg-bls12-381"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef34382b1387ebc5acb0d509ab88401beade921af5982142778ae0c200f71edf"
+checksum = "08f0e00a7689af7f4f17e85ae07f5a92b568a47297a165f685b828edfd82e02b"
 dependencies = [
  "blst",
  "blstrs",
@@ -2593,9 +2593,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-erasure-codes"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7fa58fcb3f698451a3a1ceb5f4a13ea7a4decab9f0bad63ee1690671b12b901c"
+checksum = "4bfc7ab684a7bb0c5ee37fd6a73da7425858cdd28f4a285c70361f001d6d0efc"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-polynomial",
@@ -2603,15 +2603,15 @@ dependencies = [
 
 [[package]]
 name = "ekzg-maybe-rayon"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ce7a570aaa7eb80ea92637f7153a8cd4c20640a3043146b57590ab4ae8eb0e9"
+checksum = "0e0a4876a612b9317be470768e134b671b8e645e412a82eb12fdd9b1958fa6f9"
 
 [[package]]
 name = "ekzg-multi-open"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51a24896816c59dde1cf08b67480114edb9df1738b7f4f99ec51f7ce0e2dfaa0"
+checksum = "2f7964754aa0921aaa89b1589100e4cae9b31f87f137eeb0af5403fdfca68bfc"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-maybe-rayon",
@@ -2621,9 +2621,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-polynomial"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6520b5210781436d42ec6cb2e3a278573f1af10707b92502f5329ec967d30018"
+checksum = "fed36d2ddf86661c9d18e9d5dfc47dce6c9b6e44db385e2da71952b10ba32df1"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-maybe-rayon",
@@ -2631,9 +2631,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-serialization"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bcf1197575ca1babbd7861424e7c5339233fa8215cf8b1ee9188a2c354f34b6a"
+checksum = "1c83402d591ac3534d1ae654feb8f56ee64cc2bacfe80bece7977c24ca5e72e2"
 dependencies = [
  "ekzg-bls12-381",
  "hex",
@@ -2641,9 +2641,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-single-open"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f6e471860c94135d9075562a991c4456c4148efdac2bfccc64e1bf3fd074beb"
+checksum = "05e1dbb13023ccebbb24593e4753c87f77b7fb78254a20aef1a028e979145092"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-polynomial",
@@ -2652,9 +2652,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-trusted-setup"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1b016cc437c85ece6d54ecfe51b745516e520b388beb2b09a5196748bab21f3"
+checksum = "ff1cb3e907b27fa51f35def95eeabe47e97765e2b6bac7e55967500937f94282"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-serialization",
@@ -7355,7 +7355,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
@@ -8008,9 +8008,9 @@ dependencies = [
 
 [[package]]
 name = "rust_eth_kzg"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c552fbda8be95ddcbebc9ebcb198cb9fe97e538450bcb7476ce5d9e03c499ff"
+checksum = "0dc46814bb8e72bff20fe117db43b7455112e6fafdae7466f8f24d451ad773c0"
 dependencies = [
  "eip4844",
  "ekzg-bls12-381",
