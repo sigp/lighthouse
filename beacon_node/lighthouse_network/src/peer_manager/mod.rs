@@ -1360,9 +1360,10 @@ impl<E: EthSpec> PeerManager<E> {
                     ) {
                         // Update outbound peer count if needed
                         if let Some(candidate_info) = peer_subnet_info.get(&candidate_peer)
-                            && candidate_info.info.is_outbound_only() {
-                                outbound_peers_pruned += 1;
-                            }
+                            && candidate_info.info.is_outbound_only()
+                        {
+                            outbound_peers_pruned += 1;
+                        }
 
                         // Simple cleanup: remove from all reverse lookups
                         for subnet_peers in custody_subnet_to_peers.values_mut() {
@@ -2129,7 +2130,7 @@ mod tests {
         // Subnet 2: 1 peer (least dense) - protected by attestation subnet uniformity
         let subnet_assignments = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2];
 
-        for (_, &subnet) in subnet_assignments.iter().enumerate() {
+        for &subnet in subnet_assignments.iter() {
             let peer = PeerId::random();
             peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
@@ -2772,8 +2773,8 @@ mod tests {
 
         // Verify data column uniformity was prioritized:
         // Should remove from data column 0 (which had 4 peers) to balance with data column 1 (which had 2)
-        let mut data_col_0_count = 0;
-        let mut data_col_1_count = 0;
+        let mut data_col_0_count = 0usize;
+        let mut data_col_1_count = 0usize;
 
         for peer in &peers[..6] {
             // Only check data column peers
@@ -2799,7 +2800,7 @@ mod tests {
         }
 
         // Data columns should be more balanced now (closer to each other than before)
-        let balance_diff = (data_col_0_count as i32 - data_col_1_count as i32).abs();
+        let balance_diff = data_col_0_count.abs_diff(data_col_1_count);
         assert!(
             balance_diff <= 1,
             "Data columns should be balanced, got {} vs {}",
