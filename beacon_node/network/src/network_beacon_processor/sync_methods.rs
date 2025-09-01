@@ -535,7 +535,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
     ) {
         let ChainSegmentProcessId::BackSyncBatchId(epoch) = process_id else {
-            // this a request from the Backfill sync, this should _never_ happen
+            // this a request from RangeSync, this should _never_ happen
             crit!(
                 error =
                     "process_chain_segment_backfill called on a variant other than BackSyncBatchId",
