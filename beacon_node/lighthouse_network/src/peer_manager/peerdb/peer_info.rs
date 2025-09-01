@@ -222,6 +222,13 @@ impl<E: EthSpec> PeerInfo<E> {
                 }
             }
         }
+
+        long_lived_subnets.extend(
+            self.custody_subnets
+                .iter()
+                .map(|&id| Subnet::DataColumn(id)),
+        );
+
         long_lived_subnets
     }
 

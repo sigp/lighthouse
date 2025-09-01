@@ -26,9 +26,7 @@ pub mod peerdb;
 
 use crate::peer_manager::peerdb::client::ClientKind;
 use libp2p::multiaddr;
-pub use peerdb::peer_info::{
-    ConnectionDirection, PeerConnectionStatus, PeerConnectionStatus::*, PeerInfo,
-};
+pub use peerdb::peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use peerdb::score::{PeerAction, ReportSource};
 pub use peerdb::sync_status::{SyncInfo, SyncStatus};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
@@ -166,7 +164,7 @@ impl<E: EthSpec> PeerManager<E> {
         } = cfg;
 
         // Set up the peer manager heartbeat interval
-        let heartbeat = tokio::time::interval(tokio::time::Duration::from_secs(HEARTBEAT_INTERVAL));
+        let heartbeat = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL));
 
         // Compute subnets for all custody groups
         let subnets_by_custody_group = if network_globals.spec.is_peer_das_scheduled() {
@@ -1077,7 +1075,7 @@ impl<E: EthSpec> PeerManager<E> {
         }
 
         // Keep a list of peers we are pruning.
-        let mut peers_to_prune = std::collections::HashSet::new();
+        let mut peers_to_prune = HashSet::new();
         let connected_outbound_peer_count = self.network_globals.connected_outbound_only_peers();
 
         // Keep track of the number of outbound peers we are pruning.
@@ -1897,6 +1895,7 @@ mod tests {
     /// a priority over all else.
     async fn test_peer_manager_remove_non_subnet_peers_when_all_healthy() {
         let mut peer_manager = build_peer_manager(3).await;
+        let spec = peer_manager.network_globals.spec.clone();
 
         // Create 5 peers to connect to.
         let peer0 = PeerId::random();
@@ -1920,10 +1919,11 @@ mod tests {
         // Have some of the peers be on a long-lived subnet
         let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
         attnets.set(1, true).unwrap();
-        let metadata = crate::rpc::MetaDataV2 {
+        let metadata = MetaDataV3 {
             seq_number: 0,
             attnets,
             syncnets: Default::default(),
+            custody_group_count: spec.custody_requirement,
         };
         peer_manager
             .network_globals
@@ -1931,7 +1931,7 @@ mod tests {
             .write()
             .peer_info_mut(&peer0)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(MetaData::V3(metadata));
         peer_manager
             .network_globals
             .peers
@@ -1940,10 +1940,11 @@ mod tests {
 
         let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
         attnets.set(10, true).unwrap();
-        let metadata = crate::rpc::MetaDataV2 {
+        let metadata = MetaDataV3 {
             seq_number: 0,
             attnets,
             syncnets: Default::default(),
+            custody_group_count: spec.custody_requirement,
         };
         peer_manager
             .network_globals
@@ -1951,7 +1952,7 @@ mod tests {
             .write()
             .peer_info_mut(&peer2)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(MetaData::V3(metadata));
         peer_manager
             .network_globals
             .peers
@@ -1960,10 +1961,11 @@ mod tests {
 
         let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
         syncnets.set(3, true).unwrap();
-        let metadata = crate::rpc::MetaDataV2 {
+        let metadata = MetaDataV3 {
             seq_number: 0,
             attnets: Default::default(),
             syncnets,
+            custody_group_count: spec.custody_requirement,
         };
         peer_manager
             .network_globals
@@ -1971,7 +1973,7 @@ mod tests {
             .write()
             .peer_info_mut(&peer4)
             .unwrap()
-            .set_meta_data(MetaData::V2(metadata));
+            .set_meta_data(MetaData::V3(metadata));
         peer_manager
             .network_globals
             .peers
@@ -1985,7 +1987,7 @@ mod tests {
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
 
         // Check that we removed the peers that were not subscribed to any subnet
-        let mut peers_should_have_removed = std::collections::HashSet::new();
+        let mut peers_should_have_removed = HashSet::new();
         peers_should_have_removed.insert(peer1);
         peers_should_have_removed.insert(peer3);
         for (peer, _) in peer_manager
@@ -2050,8 +2052,8 @@ mod tests {
     async fn test_peer_manager_prune_grouped_subnet_peers() {
         let target = 9;
         let mut peer_manager = build_peer_manager(target).await;
+        let spec = peer_manager.network_globals.spec.clone();
 
-        // Create 5 peers to connect to.
         let mut peers = Vec::new();
         for x in 0..20 {
             // Make 20 peers and group peers as:
@@ -2066,10 +2068,11 @@ mod tests {
             // Have some of the peers be on a long-lived subnet
             let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
             attnets.set(subnet as usize, true).unwrap();
-            let metadata = crate::rpc::MetaDataV2 {
+            let metadata = MetaDataV3 {
                 seq_number: 0,
                 attnets,
                 syncnets: Default::default(),
+                custody_group_count: spec.custody_requirement,
             };
             peer_manager
                 .network_globals
@@ -2077,7 +2080,7 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(MetaData::V3(metadata));
             peer_manager
                 .network_globals
                 .peers
@@ -2104,7 +2107,7 @@ mod tests {
         // Therefore the remaining peer set should be each on their own subnet.
         // Lets check this:
 
-        let connected_peers: std::collections::HashSet<_> = peer_manager
+        let connected_peers: HashSet<_> = peer_manager
             .network_globals
             .peers
             .read()
@@ -2157,6 +2160,7 @@ mod tests {
     async fn test_peer_manager_prune_subnet_peers_most_subscribed() {
         let target = 3;
         let mut peer_manager = build_peer_manager(target).await;
+        let spec = peer_manager.network_globals.spec.clone();
 
         // Create 6 peers to connect to.
         let mut peers = Vec::new();
@@ -2190,10 +2194,11 @@ mod tests {
                 _ => unreachable!(),
             }
 
-            let metadata = crate::rpc::MetaDataV2 {
+            let metadata = MetaDataV3 {
                 seq_number: 0,
                 attnets,
                 syncnets: Default::default(),
+                custody_group_count: spec.custody_requirement,
             };
             peer_manager
                 .network_globals
@@ -2201,7 +2206,7 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(MetaData::V3(metadata));
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2232,7 +2237,7 @@ mod tests {
         );
 
         // Check that we removed peers 4 and 5
-        let connected_peers: std::collections::HashSet<_> = peer_manager
+        let connected_peers: HashSet<_> = peer_manager
             .network_globals
             .peers
             .read()
@@ -2306,7 +2311,7 @@ mod tests {
             target
         );
 
-        let connected_peers: std::collections::HashSet<_> = peer_manager
+        let connected_peers: HashSet<_> = peer_manager
             .network_globals
             .peers
             .read()
@@ -2338,6 +2343,7 @@ mod tests {
     async fn test_peer_manager_prune_subnet_peers_sync_committee() {
         let target = 3;
         let mut peer_manager = build_peer_manager(target).await;
+        let spec = peer_manager.network_globals.spec.clone();
 
         // Create 6 peers to connect to.
         let mut peers = Vec::new();
@@ -2376,10 +2382,11 @@ mod tests {
                 _ => unreachable!(),
             }
 
-            let metadata = crate::rpc::MetaDataV2 {
+            let metadata = MetaDataV3 {
                 seq_number: 0,
                 attnets,
                 syncnets,
+                custody_group_count: spec.custody_requirement,
             };
             peer_manager
                 .network_globals
@@ -2387,7 +2394,7 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(MetaData::V3(metadata));
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2418,7 +2425,7 @@ mod tests {
         );
 
         // Check that we removed peers 4 and 5
-        let connected_peers: std::collections::HashSet<_> = peer_manager
+        let connected_peers: HashSet<_> = peer_manager
             .network_globals
             .peers
             .read()
@@ -2444,7 +2451,7 @@ mod tests {
         }
     }
 
-    /// Test the pruning logic to prioritize peers with the most subnets. This test specifies
+    /// Test the pruning logic to prioritize peers with the most data column subnets. This test specifies
     /// the connection direction for the peers.
     /// Either Peer 4 or 5 is expected to be removed in this test case.
     ///
@@ -2460,6 +2467,7 @@ mod tests {
     async fn test_peer_manager_prune_based_on_subnet_count() {
         let target = 7;
         let mut peer_manager = build_peer_manager(target).await;
+        let spec = peer_manager.network_globals.spec.clone();
 
         // Create 8 peers to connect to.
         let mut peers = Vec::new();
@@ -2542,10 +2550,11 @@ mod tests {
                 _ => unreachable!(),
             }
 
-            let metadata = crate::rpc::MetaDataV2 {
+            let metadata = MetaDataV3 {
                 seq_number: 0,
                 attnets,
                 syncnets,
+                custody_group_count: spec.custody_requirement,
             };
             peer_manager
                 .network_globals
@@ -2553,7 +2562,7 @@ mod tests {
                 .write()
                 .peer_info_mut(&peer)
                 .unwrap()
-                .set_meta_data(MetaData::V2(metadata));
+                .set_meta_data(MetaData::V3(metadata));
             let long_lived_subnets = peer_manager
                 .network_globals
                 .peers
@@ -2583,7 +2592,7 @@ mod tests {
             target
         );
 
-        let connected_peers: std::collections::HashSet<_> = peer_manager
+        let connected_peers: HashSet<_> = peer_manager
             .network_globals
             .peers
             .read()
@@ -2602,12 +2611,13 @@ mod tests {
     mod property_based_tests {
         use crate::peer_manager::config::DEFAULT_TARGET_PEERS;
         use crate::peer_manager::tests::build_peer_manager_with_trusted_peers;
-        use crate::rpc::MetaData;
+        use crate::rpc::{MetaData, MetaDataV3};
         use libp2p::PeerId;
         use quickcheck::{Arbitrary, Gen, TestResult};
         use quickcheck_macros::quickcheck;
+        use std::collections::HashSet;
         use tokio::runtime::Runtime;
-        use types::Unsigned;
+        use types::{DataColumnSubnetId, Unsigned};
         use types::{EthSpec, MainnetEthSpec as E};
 
         #[derive(Clone, Debug)]
@@ -2619,6 +2629,7 @@ mod tests {
             score: f64,
             trusted: bool,
             gossipsub_score: f64,
+            custody_subnets: HashSet<DataColumnSubnetId>,
         }
 
         impl Arbitrary for PeerCondition {
@@ -2641,6 +2652,17 @@ mod tests {
                     bitfield
                 };
 
+                let spec = E::default_spec();
+                let custody_subnets = {
+                    let total_subnet_count = spec.data_column_sidecar_subnet_count;
+                    let custody_subnet_count = u64::arbitrary(g) % (total_subnet_count + 1); // 0 to 128
+                    (spec.custody_requirement..total_subnet_count)
+                        .filter(|_| bool::arbitrary(g))
+                        .map(DataColumnSubnetId::new)
+                        .take(custody_subnet_count as usize)
+                        .collect()
+                };
+
                 PeerCondition {
                     peer_id: PeerId::random(),
                     outgoing: bool::arbitrary(g),
@@ -2649,6 +2671,7 @@ mod tests {
                     score: f64::arbitrary(g),
                     trusted: bool::arbitrary(g),
                     gossipsub_score: f64::arbitrary(g),
+                    custody_subnets,
                 }
             }
         }
@@ -2656,6 +2679,7 @@ mod tests {
         #[quickcheck]
         fn prune_excess_peers(peer_conditions: Vec<PeerCondition>) -> TestResult {
             let target_peer_count = DEFAULT_TARGET_PEERS;
+            let spec = E::default_spec();
             if peer_conditions.len() < target_peer_count {
                 return TestResult::discard();
             }
@@ -2702,17 +2726,22 @@ mod tests {
                         syncnets.set(i, *value).unwrap();
                     }
 
-                    let metadata = crate::rpc::MetaDataV2 {
+                    let subnets_per_custody_group =
+                        spec.data_column_sidecar_subnet_count / spec.number_of_custody_groups;
+                    let metadata = MetaDataV3 {
                         seq_number: 0,
                         attnets,
                         syncnets,
+                        custody_group_count: condition.custody_subnets.len() as u64
+                            / subnets_per_custody_group,
                     };
 
                     let mut peer_db = peer_manager.network_globals.peers.write();
                     let peer_info = peer_db.peer_info_mut(&condition.peer_id).unwrap();
-                    peer_info.set_meta_data(MetaData::V2(metadata));
+                    peer_info.set_meta_data(MetaData::V3(metadata));
                     peer_info.set_gossipsub_score(condition.gossipsub_score);
                     peer_info.add_to_score(condition.score);
+                    peer_info.set_custody_subnets(condition.custody_subnets.clone());
 
                     for subnet in peer_info.long_lived_subnets() {
                         peer_db.add_subscription(&condition.peer_id, subnet);
