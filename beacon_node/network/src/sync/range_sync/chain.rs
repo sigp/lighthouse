@@ -1161,6 +1161,28 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             return Ok(KeepChain);
         }
 
+        // Try to force requesting the `processing_batch` to progress sync
+        if !self.batches.contains_key(&self.processing_target) {
+            debug!(?self.to_be_downloaded, ?self.processing_target,"Processing start in request_batches");
+            if !self.good_peers_on_sampling_subnets(self.processing_target, network) {
+                debug!("Waiting for peers to be available on sampling column subnets");
+                return Ok(KeepChain);
+            }
+
+            if let Entry::Vacant(entry) = self.batches.entry(self.processing_target) {
+                debug!(?self.to_be_downloaded, ?self.processing_target,"Vacant entry in request_batches for processing");
+                let batch_type = network.batch_type(self.processing_target);
+                let processing_batch =
+                    BatchInfo::new(&self.processing_target, EPOCHS_PER_BATCH, batch_type);
+                entry.insert(processing_batch);
+                self.send_batch(network, self.processing_target)?;
+            } else {
+                debug!(?self.to_be_downloaded, ?self.processing_target,"Not vacant in request_batches processing");
+                self.attempt_send_awaiting_download_batches(network, "optimistic")?;
+            }
+            return Ok(KeepChain);
+        }
+
         // find the next pending batch and request it from the peer
         // Note: for this function to not infinite loop we must:
         // - If `include_next_batch` returns Some we MUST increase the count of batches that are
