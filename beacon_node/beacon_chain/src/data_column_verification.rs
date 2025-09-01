@@ -263,7 +263,10 @@ pub struct KzgVerifiedDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> KzgVerifiedDataColumn<E> {
-    pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
+    pub fn new(
+        data_column: Arc<DataColumnSidecar<E>>,
+        kzg: &Kzg,
+    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
@@ -278,22 +281,11 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         Self { data: data_column }
     }
 
-    pub fn from_batch(
-        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
-        kzg: &Kzg,
-    ) -> Result<Vec<Self>, KzgError> {
-        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
-        Ok(data_columns
-            .into_iter()
-            .map(|column| Self { data: column })
-            .collect())
-    }
-
     pub fn from_batch_with_scoring(
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
-    ) -> Result<Vec<Self>, Vec<(ColumnIndex, KzgError)>> {
-        verify_kzg_for_data_column_list_with_scoring(data_columns.iter(), kzg)?;
+    ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
+        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
             .map(|column| Self { data: column })
@@ -367,7 +359,10 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     }
 
     /// Verify a column already marked as custody column
-    pub fn new(data_column: CustodyDataColumn<E>, kzg: &Kzg) -> Result<Self, KzgError> {
+    pub fn new(
+        data_column: CustodyDataColumn<E>,
+        kzg: &Kzg,
+    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column(data_column.clone_arc(), kzg)?;
         Ok(Self {
             data: data_column.data,
@@ -418,60 +413,27 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
     kzg: &Kzg,
-) -> Result<KzgVerifiedDataColumn<E>, KzgError> {
+) -> Result<KzgVerifiedDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
     validate_data_columns(kzg, iter::once(&data_column))?;
     Ok(KzgVerifiedDataColumn { data: data_column })
 }
 
 /// Complete kzg verification for a list of `DataColumnSidecar`s.
-/// Returns an error if any of the `DataColumnSidecar`s fails kzg verification.
+/// Returns an error for the first `DataColumnSidecar`s that fails kzg verification.
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
-#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
     data_column_iter: I,
     kzg: &'a Kzg,
-) -> Result<(), KzgError>
+) -> Result<(), (Option<ColumnIndex>, KzgError)>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
     validate_data_columns(kzg, data_column_iter)?;
     Ok(())
-}
-
-/// Complete kzg verification for a list of `DataColumnSidecar`s.
-///
-/// If there's at least one invalid column, it re-verifies all columns individually to identify the
-/// first column that is invalid. This is necessary to attribute fault to the specific peer that
-/// sent bad data. The re-verification cost should not be significant. If a peer sends invalid data it
-/// will be quickly banned.
-pub fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
-    data_column_iter: I,
-    kzg: &'a Kzg,
-) -> Result<(), Vec<(ColumnIndex, KzgError)>>
-where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
-{
-    if verify_kzg_for_data_column_list(data_column_iter.clone(), kzg).is_ok() {
-        return Ok(());
-    };
-
-    // Find all columns that are invalid and identify by index. If we hit this condition there
-    // should be at least one invalid column
-    let errors = data_column_iter
-        .filter_map(|data_column| {
-            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
-                Some((data_column.index, e))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-
-    Err(errors)
 }
 
 #[instrument(skip_all, level = "debug")]
@@ -509,7 +471,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_proposer_and_signature(&data_column, &parent_block, chain)?;
     let kzg = &chain.kzg;
     let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), kzg)
-        .map_err(GossipDataColumnError::InvalidKzgProof)?;
+        .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
 
     chain
         .observed_slashable
