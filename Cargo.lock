@@ -5687,7 +5687,6 @@ version = "0.1.0"
 dependencies = [
  "git-version",
  "regex",
- "target_info",
 ]
 
 [[package]]
@@ -9191,12 +9190,6 @@ version = "0.1.0"
 dependencies = [
  "static_assertions",
 ]
-
-[[package]]
-name = "target_info"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c63f48baada5c52e65a29eef93ab4f8982681b67f9e8d29c7b05abcfec2b9ffe"
 
 [[package]]
 name = "task_executor"
