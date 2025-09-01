@@ -17,6 +17,7 @@ use beacon_chain::test_utils::{
     test_spec,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
+use beacon_processor::rayon_manager::{DEFAULT_LOW_PRIORITY_DIVISOR, RayonManager};
 use beacon_processor::{work_reprocessing_queue::*, *};
 use gossipsub::MessageAcceptance;
 use itertools::Itertools;
@@ -257,6 +258,7 @@ impl TestRig {
             executor,
             current_workers: 0,
             config: beacon_processor_config,
+            rayon_manager: RayonManager::new(DEFAULT_LOW_PRIORITY_DIVISOR),
         }
         .spawn_manager(
             beacon_processor_rx,
