@@ -475,7 +475,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             );
         });
 
-        self.check_availability_and_cache_components(block_root, &pending_components, None)
+        self.check_availability_and_cache_components(block_root, pending_components, None)
     }
 
     #[allow(clippy::type_complexity)]
@@ -517,7 +517,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         self.check_availability_and_cache_components(
             block_root,
-            &pending_components,
+            pending_components,
             Some(num_expected_columns),
         )
     }
@@ -525,14 +525,21 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     fn check_availability_and_cache_components(
         &self,
         block_root: Hash256,
-        pending_components: &PendingComponents<T::EthSpec>,
+        pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
         num_expected_columns_opt: Option<usize>,
-    ) -> Result<Availability<<T as BeaconChainTypes>::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
             num_expected_columns_opt,
             |block, span| self.state_cache.recover_pending_executed_block(block, span),
         )? {
+            // Explicitly drop read lock before acquiring write lock
+            drop(pending_components);
+            if let Some(components) = self.critical.write().get_mut(&block_root) {
+                // Clean up span now that block is available
+                components.span = Span::none();
+            }
+
             // We never remove the pending components manually to avoid race conditions.
             // This ensures components remain available during and right after block import,
             // preventing a race condition where a component was removed after the block was
@@ -660,7 +667,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         self.check_availability_and_cache_components(
             block_root,
-            &pending_components,
+            pending_components,
             num_expected_columns_opt,
         )
     }
