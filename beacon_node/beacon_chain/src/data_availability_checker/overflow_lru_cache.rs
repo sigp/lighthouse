@@ -7,13 +7,11 @@ use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
-use crate::data_availability_checker::error::Error;
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
-use parking_lot::lock_api::RwLockWriteGuard;
-use parking_lot::{RawRwLock, RwLock};
+use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
@@ -161,10 +159,8 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    /// TODO: add doc for `num_expected_columns_opt`
-    /// We probably dont need to hold the write lock for this
     pub fn make_available<R>(
-        &mut self,
+        &self,
         spec: &Arc<ChainSpec>,
         num_expected_columns_opt: Option<usize>,
         recover: R,
@@ -465,12 +461,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 *blob_opt = Some(blob);
             }
         }
-
-        let mut write_lock = self.critical.write();
-        let mut pending_components =
-            self.get_or_create_pending_components(block_root, epoch, &mut write_lock);
-
-        pending_components.merge_blobs(fixed_blobs);
+        let pending_components =
+            self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
+                pending_components.merge_blobs(fixed_blobs);
+                Ok(())
+            })?;
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -480,12 +475,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             );
         });
 
-        self.check_availability_and_cache_components(
-            block_root,
-            write_lock,
-            pending_components,
-            None,
-        )
+        self.check_availability_and_cache_components(block_root, &pending_components, None)
     }
 
     #[allow(clippy::type_complexity)]
@@ -508,11 +498,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             return Ok(Availability::MissingComponents(block_root));
         };
 
-        let mut write_lock = self.critical.write();
-        let mut pending_components =
-            self.get_or_create_pending_components(block_root, epoch, &mut write_lock);
-
-        pending_components.merge_data_columns(kzg_verified_data_columns)?;
+        let pending_components =
+            self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
+                pending_components.merge_data_columns(kzg_verified_data_columns)
+            })?;
 
         let num_expected_columns = self
             .custody_context
@@ -528,8 +517,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         self.check_availability_and_cache_components(
             block_root,
-            write_lock,
-            pending_components,
+            &pending_components,
             Some(num_expected_columns),
         )
     }
@@ -537,13 +525,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     fn check_availability_and_cache_components(
         &self,
         block_root: Hash256,
-        mut write_lock: RwLockWriteGuard<
-            RawRwLock,
-            LruCache<Hash256, PendingComponents<T::EthSpec>>,
-        >,
-        mut pending_components: PendingComponents<T::EthSpec>,
+        pending_components: &PendingComponents<T::EthSpec>,
         num_expected_columns_opt: Option<usize>,
-    ) -> Result<Availability<<T as BeaconChainTypes>::EthSpec>, Error> {
+    ) -> Result<Availability<<T as BeaconChainTypes>::EthSpec>, AvailabilityCheckError> {
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
             num_expected_columns_opt,
@@ -555,26 +539,40 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             // imported, but re-inserted immediately, causing partial pending components to be
             // stored and served to peers.
             // Components are only removed via LRU eviction as finality advances.
-            write_lock.put(block_root, pending_components);
-            drop(write_lock);
             Ok(Availability::Available(Box::new(available_block)))
         } else {
-            write_lock.put(block_root, pending_components);
             Ok(Availability::MissingComponents(block_root))
         }
     }
 
-    fn get_or_create_pending_components(
+    /// Updates or inserts a new `PendingComponents` if it doesn't exist, and then apply the
+    /// `update_fn` while holding the write lock.
+    ///
+    /// Once the update is complete, the write lock is downgraded and a read guard with a
+    /// reference of the updated `PendingComponents` is returned.
+    fn update_or_insert_pending_components<F>(
         &self,
         block_root: Hash256,
         epoch: Epoch,
-        write_lock: &mut RwLockWriteGuard<
-            RawRwLock,
-            LruCache<Hash256, PendingComponents<T::EthSpec>>,
-        >,
-    ) -> PendingComponents<T::EthSpec> {
-        write_lock.pop(&block_root).unwrap_or_else(|| {
-            PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
+        update_fn: F,
+    ) -> Result<MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>, AvailabilityCheckError>
+    where
+        F: FnOnce(&mut PendingComponents<T::EthSpec>) -> Result<(), AvailabilityCheckError>,
+    {
+        let mut write_lock = self.critical.write();
+
+        {
+            let pending_components = write_lock.get_or_insert_mut(block_root, || {
+                PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
+            });
+            update_fn(pending_components)?
+        }
+
+        RwLockReadGuard::try_map(RwLockWriteGuard::downgrade(write_lock), |cache| {
+            cache.peek(&block_root)
+        })
+        .map_err(|_| {
+            AvailabilityCheckError::Unexpected("pending components should exist".to_string())
         })
     }
 
@@ -631,7 +629,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        let mut write_lock = self.critical.write();
         let epoch = executed_block.as_block().epoch();
         let block_root = executed_block.import_data.block_root;
 
@@ -640,10 +637,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .state_cache
             .register_pending_executed_block(executed_block);
 
-        let mut pending_components =
-            self.get_or_create_pending_components(block_root, epoch, &mut write_lock);
-
-        pending_components.merge_block(diet_executed_block);
+        let pending_components =
+            self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
+                pending_components.merge_block(diet_executed_block);
+                Ok(())
+            })?;
 
         let num_expected_columns_opt = if self.spec.is_peer_das_enabled_for_epoch(epoch) {
             let num_of_column_samples = self
@@ -662,8 +660,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
         self.check_availability_and_cache_components(
             block_root,
-            write_lock,
-            pending_components,
+            &pending_components,
             num_expected_columns_opt,
         )
     }
