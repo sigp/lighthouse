@@ -832,6 +832,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         debug!(?self.to_be_downloaded, ?self.processing_target,"Advancing chain");
         self.advance_chain(network, validating_epoch);
         debug!(?self.to_be_downloaded, ?self.processing_target,"Advanced chain");
+        self.attempt_send_awaiting_download_batches(network, "start_syncing")?;
         if self.optimistic_start.is_none()
             && optimistic_epoch > self.processing_target
             && !self.attempted_optimistic_starts.contains(&optimistic_epoch)
@@ -968,7 +969,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
         _src: &str,
     ) -> ProcessingResult {
-        debug!(?self.processing_target,?self.to_be_downloaded,"In attempt");
         // Collect all batches in AwaitingDownload state and see if they can be sent
         let awaiting_downloads: Vec<_> = self
             .batches
@@ -977,6 +977,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .map(|(batch_id, _)| batch_id)
             .copied()
             .collect();
+        debug!(?self.processing_target,?self.to_be_downloaded,_src, ?awaiting_downloads, "In attempt");
+
         for batch_id in awaiting_downloads {
             if self.good_peers_on_sampling_subnets(batch_id, network) {
                 self.send_batch(network, batch_id)?;
