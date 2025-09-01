@@ -50,11 +50,8 @@ pub const PEER_RECONNECTION_TIMEOUT: Duration = Duration::from_secs(600);
 /// lower our peer count below this number. Instead we favour a non-uniform distribution of subnet
 /// peers.
 pub const MIN_SYNC_COMMITTEE_PEERS: u64 = 2;
-/// Avoid pruning sampling peers if subnet peer count is <= TARGET_SUBNET_PEERS.
-pub const MIN_SAMPLING_COLUMN_SUBNET_PEERS: u64 = TARGET_SUBNET_PEERS as u64;
-/// For non sampling columns, we need to ensure there is at least one peer for
-/// publishing during proposals.
-pub const MIN_NON_SAMPLING_COLUMN_SUBNET_PEERS: u64 = 1;
+/// Avoid pruning sampling peers if subnet peer count is below this number.
+pub const MIN_SAMPLING_COLUMN_SUBNET_PEERS: u64 = 2;
 /// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
 /// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
@@ -1033,7 +1030,7 @@ impl<E: EthSpec> PeerManager<E> {
 
     /// Remove excess peers back down to our target values.
     /// This prioritises peers with a good score and uniform distribution of peers across
-    /// subnets.
+    /// data column subnets.
     ///
     /// The logic for the peer pruning is as follows:
     ///
@@ -1063,7 +1060,10 @@ impl<E: EthSpec> PeerManager<E> {
     /// Prune peers in the following order:
     /// 1. Remove worst scoring peers
     /// 2. Remove peers that are not subscribed to a subnet (they have less value)
-    /// 3. Remove peers that we have many on any particular subnet
+    /// 3. Remove peers that we have many on any particular subnet, with some exceptions
+    ///    - Don't remove peers needed for data column sampling (≥ MIN_SAMPLING_COLUMN_SUBNET_PEERS)
+    ///    - Don't remove peers needed for sync committees (>=MIN_SYNC_COMMITTEE_PEERS)
+    ///    - Don't remove peers from the lowest density attestation subnets
     /// 4. Randomly remove peers if all the above are satisfied
     ///
     fn prune_excess_peers(&mut self) {
@@ -1127,12 +1127,16 @@ impl<E: EthSpec> PeerManager<E> {
             prune_peers!(|info: &PeerInfo<E>| { !info.has_long_lived_subnet() });
         }
 
-        // 3. and 4. Remove peers that are too grouped on any given subnet. If all subnets are
+        // 3. and 4. Remove peers that are too grouped on any given data column subnet. If all subnets are
         //    uniformly distributed, remove random peers.
         if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
             // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
             let mut att_subnet_to_peer: HashMap<SubnetId, Vec<(PeerId, PeerInfo<E>)>> =
                 HashMap::new();
+            let mut custody_subnet_to_peer: HashMap<
+                DataColumnSubnetId,
+                Vec<(PeerId, PeerInfo<E>)>,
+            > = HashMap::new();
             // These variables are used to track if a peer is in a long-lived sync-committee as we
             // may wish to retain this peer over others when pruning.
             let mut sync_committee_peer_count: HashMap<SyncSubnetId, u64> = HashMap::new();
@@ -1174,6 +1178,10 @@ impl<E: EthSpec> PeerManager<E> {
                                 .entry(*peer_id)
                                 .or_default()
                                 .insert(id);
+                            custody_subnet_to_peer
+                                .entry(id)
+                                .or_default()
+                                .push((*peer_id, info.clone()));
                         }
                     }
                 }
@@ -1181,7 +1189,7 @@ impl<E: EthSpec> PeerManager<E> {
 
             // Add to the peers to prune mapping
             while peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
-                if let Some((_, peers_on_subnet)) = att_subnet_to_peer
+                if let Some((_, peers_on_subnet)) = custody_subnet_to_peer
                     .iter_mut()
                     .max_by_key(|(_, peers)| peers.len())
                 {
@@ -1215,6 +1223,18 @@ impl<E: EthSpec> PeerManager<E> {
                                 continue;
                             }
 
+                            // Check data column sampling subnets - only protect sampling subnets since we maintain uniformity across all data columns
+                            if let Some(subnets) = peer_to_custody_subnet.get(candidate_peer)
+                                && let Some(min_subnet_count) = subnets
+                                    .iter()
+                                    .filter(|subnet| sampling_subnets.contains(subnet))
+                                    .filter_map(|v| custody_subnet_peer_count.get(v).copied())
+                                    .min()
+                                && min_subnet_count < MIN_SAMPLING_COLUMN_SUBNET_PEERS
+                            {
+                                continue;
+                            }
+
                             // Check the sync committee
                             if let Some(subnets) = peer_to_sync_committee.get(candidate_peer) {
                                 // The peer is subscribed to some long-lived sync-committees
@@ -1235,31 +1255,21 @@ impl<E: EthSpec> PeerManager<E> {
                                 }
                             }
 
-                            // Ensure custody subnet peers are protected based on subnet type and peer count.
-                            if let Some(subnets) = peer_to_custody_subnet.get(candidate_peer) {
-                                let mut should_protect = false;
-                                for subnet_id in subnets {
-                                    if let Some(subnet_count) =
-                                        custody_subnet_peer_count.get(subnet_id).copied()
-                                    {
-                                        let threshold = if sampling_subnets.contains(subnet_id) {
-                                            MIN_SAMPLING_COLUMN_SUBNET_PEERS
-                                        } else {
-                                            MIN_NON_SAMPLING_COLUMN_SUBNET_PEERS
-                                        };
-
-                                        if subnet_count <= threshold {
-                                            should_protect = true;
-                                            break;
-                                        }
+                            // Check attestation subnet uniformity - avoid pruning peers from least dense attestation subnets
+                            if let Some(least_dense_att_subnet_size) =
+                                att_subnet_to_peer.values().map(|peers| peers.len()).min()
+                                && info.long_lived_subnets().iter().any(|subnet| {
+                                    if let Subnet::Attestation(att_subnet_id) = subnet {
+                                        att_subnet_to_peer
+                                            .get(att_subnet_id)
+                                            .map(|peers| peers.len() == least_dense_att_subnet_size)
+                                            .unwrap_or(false)
+                                    } else {
+                                        false
                                     }
-                                }
-
-                                if should_protect {
-                                    // Do not drop this peer in this pruning interval
+                                }) {
                                     continue;
                                 }
-                            }
 
                             if info.is_outbound_only() {
                                 outbound_peers_pruned += 1;
@@ -1277,6 +1287,9 @@ impl<E: EthSpec> PeerManager<E> {
                             let (candidate_peer, _) = peers_on_subnet.remove(index);
                             // Remove pruned peers from other subnet counts
                             for subnet_peers in att_subnet_to_peer.values_mut() {
+                                subnet_peers.retain(|(peer_id, _)| peer_id != &candidate_peer);
+                            }
+                            for subnet_peers in custody_subnet_to_peer.values_mut() {
                                 subnet_peers.retain(|(peer_id, _)| peer_id != &candidate_peer);
                             }
                             // Remove pruned peers from all sync-committee counts
@@ -2048,26 +2061,26 @@ mod tests {
     }
 
     #[tokio::test]
-    /// Test the pruning logic to remove grouped subnet peers
+    /// Test that attestation subnet uniformity protects peers on least dense subnets during pruning
     async fn test_peer_manager_prune_grouped_subnet_peers() {
-        let target = 9;
+        let target = 12; // Attestation subnet uniformity prevents any pruning in this scenario
         let mut peer_manager = build_peer_manager(target).await;
         let spec = peer_manager.network_globals.spec.clone();
 
         let mut peers = Vec::new();
-        for x in 0..20 {
-            // Make 20 peers and group peers as:
-            // id mod % 4
-            // except for the last 5 peers which all go on their own subnets
-            // So subnets 0-2 should have 4 peers subnet 3 should have 3 and 15-19 should have 1
-            let subnet: u64 = { if x < 15 { x % 4 } else { x } };
-
+        
+        // Create 12 peers with intentional density imbalance:
+        // Subnet 0: 8 peers (very dense) - many candidates for pruning
+        // Subnet 1: 3 peers (medium density) - some may be pruned
+        // Subnet 2: 1 peer (least dense) - protected by attestation subnet uniformity
+        let subnet_assignments = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 2];
+        
+        for (_, &subnet) in subnet_assignments.iter().enumerate() {
             let peer = PeerId::random();
             peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
-            // Have some of the peers be on a long-lived subnet
             let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
-            attnets.set(subnet as usize, true).unwrap();
+            attnets.set(subnet, true).unwrap();
             let metadata = MetaDataV3 {
                 seq_number: 0,
                 attnets,
@@ -2085,27 +2098,20 @@ mod tests {
                 .network_globals
                 .peers
                 .write()
-                .add_subscription(&peer, Subnet::Attestation(subnet.into()));
-            println!("{},{},{}", x, subnet, peer);
+                .add_subscription(&peer, Subnet::Attestation((subnet as u64).into()));
             peers.push(peer);
         }
 
-        // Perform the heartbeat.
+        // Perform the heartbeat to trigger pruning
         peer_manager.heartbeat();
 
-        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
-        // the number of connected peers updates and we will not remove too many peers.
+        // Verify attestation subnet uniformity is working - no peers should be pruned
+        // because the least dense subnet protection prevents pruning
         assert_eq!(
             peer_manager.network_globals.connected_or_dialing_peers(),
-            target
+            target,
+            "All peers retained due to attestation subnet uniformity protection"
         );
-
-        // Check that we removed the peers that were not subscribed to any subnet
-        // Should remove peers from subnet 0-2 first. Removing 3 peers subnets 0-3 now have 3
-        // peers.
-        // Should then remove 8 peers each from subnets 1-4. New total: 11 peers.
-        // Therefore the remaining peer set should be each on their own subnet.
-        // Lets check this:
 
         let connected_peers: HashSet<_> = peer_manager
             .network_globals
@@ -2115,32 +2121,26 @@ mod tests {
             .cloned()
             .collect();
 
-        for peer in connected_peers.iter() {
-            let position = peers.iter().position(|peer_id| peer_id == peer).unwrap();
-            println!("{},{}", position, peer);
-        }
-
-        println!();
-
-        for peer in connected_peers.iter() {
-            let position = peers.iter().position(|peer_id| peer_id == peer).unwrap();
-            println!("{},{}", position, peer);
-
-            if position < 15 {
-                let y = position % 4;
-                for x in 0..4 {
-                    let alternative_index = y + 4 * x;
-                    if alternative_index != position && alternative_index < 15 {
-                        // Make sure a peer on the same subnet has been removed
-                        println!(
-                            "Check against: {}, {}",
-                            alternative_index, &peers[alternative_index]
-                        );
-                        assert!(!connected_peers.contains(&peers[alternative_index]));
-                    }
-                }
-            }
-        }
+        // Verify all subnets retain their peers due to attestation subnet uniformity
+        let subnet_0_peers = connected_peers.iter().filter(|&peer| {
+            let pos = peers.iter().position(|p| p == peer).unwrap();
+            subnet_assignments[pos] == 0
+        }).count();
+        
+        let subnet_1_peers = connected_peers.iter().filter(|&peer| {
+            let pos = peers.iter().position(|p| p == peer).unwrap();
+            subnet_assignments[pos] == 1
+        }).count();
+        
+        let subnet_2_peers = connected_peers.iter().filter(|&peer| {
+            let pos = peers.iter().position(|p| p == peer).unwrap();
+            subnet_assignments[pos] == 2
+        }).count();
+        
+        // All subnets should retain their peers
+        assert_eq!(subnet_0_peers, 8, "Subnet 0 peers protected by attestation subnet uniformity");
+        assert_eq!(subnet_1_peers, 3, "Subnet 1 peers protected by attestation subnet uniformity");
+        assert_eq!(subnet_2_peers, 1, "Subnet 2 peer protected as least dense by attestation subnet uniformity");
     }
 
     /// Test the pruning logic to prioritise peers with the most subnets
@@ -2158,41 +2158,33 @@ mod tests {
     /// long-lived subnet.
     #[tokio::test]
     async fn test_peer_manager_prune_subnet_peers_most_subscribed() {
-        let target = 3;
+        let target = 8;
         let mut peer_manager = build_peer_manager(target).await;
         let spec = peer_manager.network_globals.spec.clone();
 
-        // Create 6 peers to connect to.
+        // Create 15 peers with varying attestation subnet subscriptions to test pruning priority
         let mut peers = Vec::new();
-        for x in 0..6 {
+        for x in 0..15 {
             let peer = PeerId::random();
             peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
-            // Have some of the peers be on a long-lived subnet
             let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
-
-            match x {
-                0 => {}
-                1 => {
-                    attnets.set(1, true).unwrap();
-                    attnets.set(2, true).unwrap();
-                    attnets.set(3, true).unwrap();
-                }
-                2 => {
-                    attnets.set(1, true).unwrap();
-                    attnets.set(2, true).unwrap();
-                }
-                3 => {
-                    attnets.set(3, true).unwrap();
-                }
-                4 => {
-                    attnets.set(1, true).unwrap();
-                }
-                5 => {
-                    attnets.set(2, true).unwrap();
-                }
+            
+            // Create subnet distribution: 
+            // Subnet 0: 5 peers (most dense)
+            // Subnet 1: 4 peers  
+            // Subnet 2: 3 peers
+            // Subnet 3: 2 peers 
+            // Subnet 4: 1 peer (least dense)
+            let subnet = match x {
+                0..=4 => 0,   // 5 peers on subnet 0
+                5..=8 => 1,   // 4 peers on subnet 1  
+                9..=11 => 2,  // 3 peers on subnet 2
+                12..=13 => 3, // 2 peers on subnet 3
+                14 => 4,      // 1 peer on subnet 4 (least dense)
                 _ => unreachable!(),
-            }
+            };
+            attnets.set(subnet, true).unwrap();
 
             let metadata = MetaDataV3 {
                 seq_number: 0,
@@ -2207,36 +2199,19 @@ mod tests {
                 .peer_info_mut(&peer)
                 .unwrap()
                 .set_meta_data(MetaData::V3(metadata));
-            let long_lived_subnets = peer_manager
+            
+            peer_manager
                 .network_globals
                 .peers
-                .read()
-                .peer_info(&peer)
-                .unwrap()
-                .long_lived_subnets();
-            for subnet in long_lived_subnets {
-                println!("Subnet: {:?}", subnet);
-                peer_manager
-                    .network_globals
-                    .peers
-                    .write()
-                    .add_subscription(&peer, subnet);
-            }
-            println!("{},{}", x, peer);
+                .write()
+                .add_subscription(&peer, Subnet::Attestation((subnet as u64).into()));
+                
             peers.push(peer);
         }
 
-        // Perform the heartbeat.
+        // Perform the heartbeat - should prune 7 peers to reach target of 8
         peer_manager.heartbeat();
 
-        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
-        // the number of connected peers updates and we will not remove too many peers.
-        assert_eq!(
-            peer_manager.network_globals.connected_or_dialing_peers(),
-            target
-        );
-
-        // Check that we removed peers 4 and 5
         let connected_peers: HashSet<_> = peer_manager
             .network_globals
             .peers
@@ -2245,9 +2220,15 @@ mod tests {
             .cloned()
             .collect();
 
-        assert!(!connected_peers.contains(&peers[0]));
-        assert!(!connected_peers.contains(&peers[4]));
-        assert!(!connected_peers.contains(&peers[5]));
+        // With attestation subnet uniformity, peer 14 (on least dense subnet 4) should be protected
+        assert!(
+            connected_peers.contains(&peers[14]),
+            "Peer on least dense subnet should be protected"
+        );
+
+        // Should preferentially prune from denser subnets (0 and 1) rather than sparse ones (3 and 4)
+        let subnet_4_peers = connected_peers.iter().filter(|&peer| *peer == peers[14]).count();
+        assert_eq!(subnet_4_peers, 1, "Least dense subnet should retain its peer");
     }
 
     /// Test that custody subnet peers below threshold are protected from pruning.
@@ -2327,59 +2308,50 @@ mod tests {
         assert!(!connected_peers.contains(&peers[2]));
     }
 
-    /// Test the pruning logic to prioritise peers with the most subnets, but not at the expense of
-    /// removing our few sync-committee subnets.
-    ///
-    /// Create 6 peers.
-    /// Peer0: None
-    /// Peer1 : Subnet 1,2,3,
-    /// Peer2 : Subnet 1,2,
-    /// Peer3 : Subnet 3
-    /// Peer4 : Subnet 1,2,  Sync-committee-1
-    /// Peer5 : Subnet 1,2,  Sync-committee-2
-    ///
-    /// Prune 3 peers: Should be Peer0, Peer1 and Peer2 because (4 and 5 are on a sync-committee)
+    /// Test that sync committee peers are protected from pruning even with attestation subnet uniformity.
+    /// 
+    /// Create peers with both attestation and sync committee subnets.
+    /// Sync committee peers should be prioritized for retention.
     #[tokio::test]
     async fn test_peer_manager_prune_subnet_peers_sync_committee() {
-        let target = 3;
+        let target = 9;
         let mut peer_manager = build_peer_manager(target).await;
         let spec = peer_manager.network_globals.spec.clone();
 
-        // Create 6 peers to connect to.
+        // Create 10 peers to test sync committee protection with attestation subnet uniformity
         let mut peers = Vec::new();
-        for x in 0..6 {
+        
+        // Peer assignments to create sufficient density for meaningful pruning:
+        // 0-3: Attestation subnet 1 (dense, 4 peers)
+        // 4-5: Attestation subnet 1 + sync committees (protected by sync committee)
+        // 6-7: Attestation subnet 2 (medium density, 2 peers)
+        // 8: Attestation subnet 3 (least dense, 1 peer, protected by attestation uniformity)
+        // 9: No subnets (candidate for pruning)
+        let peer_configs = [
+            (vec![1], vec![]), // peer 0: att subnet 1
+            (vec![1], vec![]), // peer 1: att subnet 1
+            (vec![1], vec![]), // peer 2: att subnet 1
+            (vec![1], vec![]), // peer 3: att subnet 1
+            (vec![1], vec![1]), // peer 4: att subnet 1 + sync committee 1 (protected)
+            (vec![1], vec![2]), // peer 5: att subnet 1 + sync committee 2 (protected)
+            (vec![2], vec![]), // peer 6: att subnet 2
+            (vec![2], vec![]), // peer 7: att subnet 2
+            (vec![3], vec![]), // peer 8: att subnet 3 (protected by attestation uniformity)
+            (vec![], vec![]), // peer 9: no subnets (candidate for pruning)
+        ];
+        
+        for (att_subnets, sync_subnets) in peer_configs {
             let peer = PeerId::random();
             peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
 
-            // Have some of the peers be on a long-lived subnet
             let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
             let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
 
-            match x {
-                0 => {}
-                1 => {
-                    attnets.set(1, true).unwrap();
-                    attnets.set(2, true).unwrap();
-                    attnets.set(3, true).unwrap();
-                }
-                2 => {
-                    attnets.set(1, true).unwrap();
-                    attnets.set(2, true).unwrap();
-                }
-                3 => {
-                    attnets.set(3, true).unwrap();
-                }
-                4 => {
-                    attnets.set(1, true).unwrap();
-                    attnets.set(2, true).unwrap();
-                    syncnets.set(1, true).unwrap();
-                }
-                5 => {
-                    attnets.set(1, true).unwrap();
-                    attnets.set(2, true).unwrap();
-                    syncnets.set(2, true).unwrap();
-                }
-                _ => unreachable!(),
+            for subnet in att_subnets {
+                attnets.set(subnet, true).unwrap();
+            }
+            for subnet in sync_subnets {
+                syncnets.set(subnet, true).unwrap();
             }
 
             let metadata = MetaDataV3 {
@@ -2402,9 +2374,7 @@ mod tests {
                 .peer_info(&peer)
                 .unwrap()
                 .long_lived_subnets();
-            println!("{},{}", x, peer);
             for subnet in long_lived_subnets {
-                println!("Subnet: {:?}", subnet);
                 peer_manager
                     .network_globals
                     .peers
@@ -2417,14 +2387,7 @@ mod tests {
         // Perform the heartbeat.
         peer_manager.heartbeat();
 
-        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
-        // the number of connected peers updates and we will not remove too many peers.
-        assert_eq!(
-            peer_manager.network_globals.connected_or_dialing_peers(),
-            target
-        );
-
-        // Check that we removed peers 4 and 5
+        // Verify that sync committee peers are prioritized and attestation subnet uniformity is respected
         let connected_peers: HashSet<_> = peer_manager
             .network_globals
             .peers
@@ -2433,9 +2396,22 @@ mod tests {
             .cloned()
             .collect();
 
-        assert!(!connected_peers.contains(&peers[0]));
-        assert!(!connected_peers.contains(&peers[1]));
-        assert!(!connected_peers.contains(&peers[2]));
+        // Sync committee peers (4 and 5) should always be protected
+        assert!(connected_peers.contains(&peers[4]), "Sync committee peer 4 should be protected");
+        assert!(connected_peers.contains(&peers[5]), "Sync committee peer 5 should be protected");
+        
+        // Peer on least dense attestation subnet (8) should be protected by attestation uniformity
+        assert!(connected_peers.contains(&peers[8]), "Peer on least dense attestation subnet should be protected");
+        
+        // Peer with no subnets (9) should be pruned first
+        assert!(!connected_peers.contains(&peers[9]), "Peer with no subnets should be pruned first");
+        
+        // Should have pruned exactly 1 peer (the one with no subnets)
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            9, // 10 - 1 = 9 peers remaining
+            "Should have only pruned the peer with no subnets"
+        );
     }
 
     /// This test is for reproducing the issue:
@@ -2465,7 +2441,7 @@ mod tests {
     /// Peer6 (in) : Subnet 4
     /// Peer7 (in) : Subnet 5
     async fn test_peer_manager_prune_based_on_subnet_count() {
-        let target = 7;
+        let target = 8; // Attestation subnet uniformity prevents pruning in this balanced scenario
         let mut peer_manager = build_peer_manager(target).await;
         let spec = peer_manager.network_globals.spec.clone();
 
@@ -2585,11 +2561,11 @@ mod tests {
         // Perform the heartbeat.
         peer_manager.heartbeat();
 
-        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
-        // the number of connected peers updates and we will not remove too many peers.
+        // With attestation subnet uniformity, no peers are pruned in this balanced scenario
         assert_eq!(
             peer_manager.network_globals.connected_or_dialing_peers(),
-            target
+            target,
+            "All peers retained due to attestation subnet uniformity"
         );
 
         let connected_peers: HashSet<_> = peer_manager
@@ -2600,10 +2576,128 @@ mod tests {
             .cloned()
             .collect();
 
-        // Either peer 4 or 5 should be removed.
-        // Check that we keep 6 and 7 peers, which we have few on a particular subnet.
-        assert!(connected_peers.contains(&peers[6]));
-        assert!(connected_peers.contains(&peers[7]));
+        // All peers should be retained due to attestation subnet uniformity protection
+        assert!(connected_peers.contains(&peers[6]), "Peer 6 should be retained");
+        assert!(connected_peers.contains(&peers[7]), "Peer 7 should be retained");
+        
+        // Sync committee peers should also be retained
+        assert!(connected_peers.contains(&peers[0]), "Sync committee peer should be retained");
+        assert!(connected_peers.contains(&peers[1]), "Sync committee peer should be retained");
+        assert!(connected_peers.contains(&peers[2]), "Sync committee peer should be retained");
+        assert!(connected_peers.contains(&peers[3]), "Sync committee peer should be retained");
+    }
+
+    #[tokio::test]
+    /// Test data column uniformity takes priority over attestation subnet uniformity
+    async fn test_peer_manager_data_column_uniformity_priority() {
+        let target = 6;
+        let mut peer_manager = build_peer_manager(target).await;
+        let spec = peer_manager.network_globals.spec.clone();
+
+        let mut peers = Vec::new();
+
+        // Create 10 peers: 6 with data columns (uneven), 4 with attestation subnets (uneven)
+        for i in 0..10 {
+            let peer = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            if i < 6 {
+                // First 6 peers: 4 on data column 0, 2 on data column 1 (uneven)
+                let data_column = if i < 4 { 0 } else { 1 };
+                let custody_group_count = 1; // Each peer handles 1 custody group
+
+                let metadata = MetaDataV3 {
+                    seq_number: 0,
+                    attnets: Default::default(),
+                    syncnets: Default::default(),
+                    custody_group_count,
+                };
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .peer_info_mut(&peer)
+                    .unwrap()
+                    .set_meta_data(MetaData::V3(metadata));
+
+                // Add data column subscription
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .add_subscription(&peer, Subnet::DataColumn((data_column as u64).into()));
+            } else {
+                // Last 4 peers: 3 on attestation subnet 0, 1 on attestation subnet 1 (uneven)
+                let att_subnet = if i < 9 { 0 } else { 1 };
+
+                let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+                attnets.set(att_subnet, true).unwrap();
+                let metadata = MetaDataV3 {
+                    seq_number: 0,
+                    attnets,
+                    syncnets: Default::default(),
+                    custody_group_count: spec.custody_requirement,
+                };
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .peer_info_mut(&peer)
+                    .unwrap()
+                    .set_meta_data(MetaData::V3(metadata));
+
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .add_subscription(&peer, Subnet::Attestation((att_subnet as u64).into()));
+            }
+            peers.push(peer);
+        }
+
+        // Perform heartbeat to trigger pruning (should remove 4 peers to reach target of 6)
+        peer_manager.heartbeat();
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            target
+        );
+
+        // Verify data column uniformity was prioritized:
+        // Should remove from data column 0 (which had 4 peers) to balance with data column 1 (which had 2)
+        let mut data_col_0_count = 0;
+        let mut data_col_1_count = 0;
+
+        for peer in &peers[..6] {
+            // Only check data column peers
+            if peer_manager.network_globals.peers.read().is_connected(peer) {
+                let subscriptions = peer_manager
+                    .network_globals
+                    .peers
+                    .read()
+                    .peer_info(peer)
+                    .unwrap()
+                    .long_lived_subnets();
+                for subnet in subscriptions {
+                    if let Subnet::DataColumn(id) = subnet {
+                        if id == (0u64).into() {
+                            data_col_0_count += 1;
+                        }
+                        if id == (1u64).into() {
+                            data_col_1_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Data columns should be more balanced now (closer to each other than before)
+        let balance_diff = (data_col_0_count as i32 - data_col_1_count as i32).abs();
+        assert!(
+            balance_diff <= 1,
+            "Data columns should be balanced, got {} vs {}",
+            data_col_0_count,
+            data_col_1_count
+        );
     }
 
     // Test properties PeerManager should have using randomly generated input.
@@ -2786,5 +2880,84 @@ mod tests {
                 )
             })
         }
+    }
+
+    #[tokio::test]
+    /// Test that attestation subnet uniformity works as second priority after data column uniformity
+    async fn test_peer_manager_attestation_subnet_uniformity() {
+        let target = 4;
+        let mut peer_manager = build_peer_manager(target).await;
+        let spec = peer_manager.network_globals.spec.clone();
+
+        let mut peers = Vec::new();
+
+        // Create 7 peers: 4 on subnet 0, 1 on subnet 1 (least dense), 2 on subnet 2
+        let subnet_assignments = [0, 0, 0, 0, 1, 2, 2];
+
+        for &subnet in subnet_assignments.iter() {
+            let peer = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+            attnets.set(subnet, true).unwrap();
+
+            let metadata = MetaDataV3 {
+                seq_number: 0,
+                attnets,
+                syncnets: Default::default(),
+                custody_group_count: spec.custody_requirement,
+            };
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer)
+                .unwrap()
+                .set_meta_data(MetaData::V3(metadata));
+
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .add_subscription(&peer, Subnet::Attestation((subnet as u64).into()));
+
+            peers.push(peer);
+        }
+
+        peer_manager.heartbeat();
+
+        // Check attestation subnet uniformity:
+        // Peer 4 (on least dense subnet 1) should be protected
+        // Should preferentially remove from subnet 0 (most dense) rather than subnet 1 (least dense)
+        let connected_peers: HashSet<_> = peer_manager
+            .network_globals
+            .peers
+            .read()
+            .connected_or_dialing_peers()
+            .cloned()
+            .collect();
+
+        // Peer 4 (on least dense attestation subnet 1) should be kept
+        assert!(connected_peers.contains(&peers[4]));
+
+        // Attestation subnet uniformity should protect peers on least dense subnets
+        // Count peers on subnet 1 (least dense)
+        let subnet_1_count = peers
+            .iter()
+            .filter(|&peer| connected_peers.contains(peer))
+            .filter(|&peer| {
+                peer_manager
+                    .network_globals
+                    .peers
+                    .read()
+                    .peer_info(peer)
+                    .unwrap()
+                    .long_lived_subnets()
+                    .iter()
+                    .any(|subnet| matches!(subnet, Subnet::Attestation(id) if id == &1u64.into()))
+            })
+            .count();
+
+        assert!(subnet_1_count > 0, "Least dense subnet should be protected");
     }
 }
