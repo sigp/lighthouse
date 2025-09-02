@@ -217,7 +217,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for block production ONLY.
     /// When publishing a block constructed locally, the EL will have already verified the cell proofs.
-    /// When publishing a block constructed externally, the proposer will only see the columns over gossip.
+    /// When publishing a block constructed externally, there will be no columns here.
     pub fn new_for_block_publishing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
         Self {
             block_root: column_sidecar.block_root(),
@@ -289,7 +289,7 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
 
     /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for block publishing ONLY.
     /// When publishing a block constructed locally, the EL will have already verified the KZG commitment.
-    /// When publishing a block constructed externally, the proposer will only see the columns over gossip.
+    /// When publishing a block constructed externally, there will be no columns here.
     pub(crate) fn new_for_block_publishing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
         Self { data: data_column }
     }

@@ -398,8 +398,8 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
         })
 }
 
-/// Build data columns and as wrapped `GossipVerifiedDataColumn`.
-/// There is no need to actually perform gossip verified on columns that a block producer
+/// Build data columns as wrapped `GossipVerifiedDataColumn`s.
+/// There is no need to actually perform gossip verification on columns that a block producer
 /// is publishing. In the locally constructed case, cell proof verification happens in the EL.
 /// In the externally constructed case, there wont be any columns here.
 fn build_data_columns<T: BeaconChainTypes>(
