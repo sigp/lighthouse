@@ -83,7 +83,7 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
 ];
 
 /// Trigger reconstruction if we are this many seconds into the current slot
-pub const RECONSTRUCTION_DEADLINE: Duration = Duration::from_millis(300);
+pub const RECONSTRUCTION_DEADLINE: Duration = Duration::from_millis(3000);
 
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
