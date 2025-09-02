@@ -452,7 +452,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
         if let Err(e) = network
             .beacon_processor()
-            .send_data_columns(batch_id, data_columns)
+            .send_historic_data_columns(batch_id, data_columns)
         {
             crit!(
                 msg = "process_batch",

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
-    data_column_verification::verify_kzg_for_data_column_list_with_scoring,
+    data_column_verification::verify_kzg_for_data_column_list,
 };
 use store::{Error as StoreError, KeyValueStore};
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
@@ -111,11 +111,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        verify_kzg_for_data_column_list_with_scoring(
-            historical_data_column_sidecar_list.iter(),
-            &self.kzg,
-        )
-        .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+        verify_kzg_for_data_column_list(historical_data_column_sidecar_list.iter(), &self.kzg)
+            .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
 
         self.store.blobs_db.do_atomically(ops)?;
 

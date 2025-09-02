@@ -494,7 +494,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    pub fn send_data_columns(
+    pub fn send_historic_data_columns(
         self: &Arc<Self>,
         process_id: Epoch,
         data_columns: DataColumnSidecarList<T::EthSpec>,
@@ -502,7 +502,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let processor = self.clone();
         let process_fn = async move {
             processor
-                .process_data_columns(process_id, data_columns)
+                .process_historic_data_columns(process_id, data_columns)
                 .await;
         };
         let process_fn = Box::pin(process_fn);
