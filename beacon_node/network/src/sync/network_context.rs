@@ -471,8 +471,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Err("request id not present".to_string());
         };
 
-        let active_request_count_by_peer = self.active_request_count_by_peer();
-
         debug!(
             ?failed_columns,
             ?id,
@@ -482,12 +480,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Attempt to find all required custody peers to request the failed columns from
         let columns_by_range_peers_to_request = self
-            .select_columns_by_range_peers_to_request(
-                failed_columns,
-                peers,
-                active_request_count_by_peer,
-                peers_to_deprioritize,
-            )
+            .select_columns_by_range_peers_to_request(failed_columns, peers, peers_to_deprioritize)
             .map_err(|e| format!("{:?}", e))?;
 
         // Reuse the id for the request that received partially correct responses
@@ -580,7 +573,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 Some(self.select_columns_by_range_peers_to_request(
                     &column_indexes,
                     peers,
-                    active_request_count_by_peer,
                     peers_to_deprioritize,
                 )?)
             } else {
@@ -670,10 +662,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &self,
         custody_indexes: &HashSet<ColumnIndex>,
         peers: &HashSet<PeerId>,
-        active_request_count_by_peer: HashMap<PeerId, usize>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<HashMap<PeerId, Vec<ColumnIndex>>, RpcRequestSendError> {
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
+
+        // Create a map of peer_id to active column by range request count for prioritization
+        let mut active_request_count_by_peer = HashMap::<PeerId, usize>::new();
+        for peer_id in self.data_columns_by_range_requests.iter_request_peers() {
+            *active_request_count_by_peer.entry(peer_id).or_default() += 1;
+        }
 
         for column_index in custody_indexes {
             // Strictly consider peers that are custodials of this column AND are part of this
@@ -689,12 +686,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     (
                         // If contains -> 1 (order after), not contains -> 0 (order first)
                         peers_to_deprioritize.contains(peer),
-                        // Prefer peers with less overall requests
-                        // Also account for requests that are not yet issued tracked in peer_id_to_request_map
-                        // We batch requests to the same peer, so count existance in the
-                        // `columns_to_request_by_peer` as a single 1 request.
-                        active_request_count_by_peer.get(peer).copied().unwrap_or(0)
-                            + columns_to_request_by_peer.get(peer).map(|_| 1).unwrap_or(0),
+                        // Prefer peers with less active DataColumnsByRange requests
+                        active_request_count_by_peer.get(peer).copied().unwrap_or(0),
                         // Random factor to break ties, otherwise the PeerID breaks ties
                         rand::random::<u32>(),
                         peer,
