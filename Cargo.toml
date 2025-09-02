@@ -261,7 +261,7 @@ tracing-appender = "0.2"
 tracing-core = "0.1"
 tracing-log = "0.2"
 tracing-opentelemetry = "0.31.0"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.2", features = ["env-filter", "json"] }
 tree_hash = "0.10.0"
 tree_hash_derive = "0.10.0"
 types = { path = "consensus/types" }
