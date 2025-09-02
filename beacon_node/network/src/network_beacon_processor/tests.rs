@@ -451,10 +451,10 @@ impl TestRig {
             .unwrap();
     }
 
-    pub fn enqueue_backfill_batch(&self) {
+    pub fn enqueue_backfill_batch(&self, epoch: Epoch) {
         self.network_beacon_processor
             .send_chain_segment(
-                ChainSegmentProcessId::BackSyncBatchId(Epoch::default()),
+                ChainSegmentProcessId::BackSyncBatchId(epoch),
                 Vec::default(),
             )
             .unwrap();
@@ -1337,8 +1337,8 @@ async fn test_backfill_sync_processing() {
     // (not straight forward to manipulate `TestingSlotClock` due to cloning of `SlotClock` in code)
     // and makes the test very slow, hence timing calculation is unit tested separately in
     // `work_reprocessing_queue`.
-    for _ in 0..1 {
-        rig.enqueue_backfill_batch();
+    for i in 0..1 {
+        rig.enqueue_backfill_batch(Epoch::new(i));
         // ensure queued batch is not processed until later
         rig.assert_no_events_for(Duration::from_millis(100)).await;
         // A new batch should be processed within a slot.
@@ -1364,8 +1364,8 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     let mut rig =
         TestRig::new_parametric(SMALL_CHAIN, beacon_processor_config, test_spec::<E>()).await;
 
-    for _ in 0..3 {
-        rig.enqueue_backfill_batch();
+    for i in 0..3 {
+        rig.enqueue_backfill_batch(Epoch::new(i));
     }
 
     // ensure all batches are processed
