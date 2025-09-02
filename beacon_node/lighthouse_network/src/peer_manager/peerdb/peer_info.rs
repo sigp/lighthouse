@@ -174,19 +174,6 @@ impl<E: EthSpec> PeerInfo<E> {
         self.subnets.iter()
     }
 
-    /// Returns the number of long lived attestation subnets a peer is subscribed to.
-    // NOTE: This currently excludes sync committee and column subnets
-    pub fn long_lived_attnet_count(&self) -> usize {
-        if let Some(meta_data) = self.meta_data.as_ref() {
-            return meta_data.attnets().num_set_bits();
-        } else if let Some(enr) = self.enr.as_ref()
-            && let Ok(attnets) = enr.attestation_bitfield::<E>()
-        {
-            return attnets.num_set_bits();
-        }
-        0
-    }
-
     /// Returns an iterator over the long-lived subnets if it has any.
     pub fn long_lived_subnets(&self) -> Vec<Subnet> {
         let mut long_lived_subnets = Vec::new();
@@ -245,6 +232,11 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Returns an iterator on this peer's custody subnets
     pub fn custody_subnets_iter(&self) -> impl Iterator<Item = &DataColumnSubnetId> {
         self.custody_subnets.iter()
+    }
+
+    /// Returns the number of custody subnets this peer is assigned to.
+    pub fn custody_subnet_count(&self) -> usize {
+        self.custody_subnets.len()
     }
 
     /// Returns true if the peer is connected to a long-lived subnet.
