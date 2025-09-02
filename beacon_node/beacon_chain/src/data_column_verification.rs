@@ -215,6 +215,17 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         )
     }
 
+    /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for block production ONLY.
+    /// When publishing a block constructed locally, the EL will have already verified the cell proofs.
+    /// When publishing a block constructed externally, the proposer will only see the columns over gossip.
+    pub fn new_for_block_publishing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
+        Self {
+            block_root: column_sidecar.block_root(),
+            data_column: KzgVerifiedDataColumn::new_for_block_publishing(column_sidecar),
+            _phantom: Default::default(),
+        }
+    }
+
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
     pub fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
         Self {
@@ -273,6 +284,13 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     /// Mark a data column as KZG verified. Caller must ONLY use this on columns constructed
     /// from EL blobs.
     pub fn from_execution_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
+        Self { data: data_column }
+    }
+
+    /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for block publishing ONLY.
+    /// When publishing a block constructed locally, the EL will have already verified the KZG commitment.
+    /// When publishing a block constructed externally, the proposer will only see the columns over gossip.
+    pub(crate) fn new_for_block_publishing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
         Self { data: data_column }
     }
 
