@@ -301,30 +301,28 @@ impl<E: EthSpec> PendingComponents<E> {
         }
     }
 
-    /// Returns the epoch of the block if it is cached, otherwise returns the epoch of the first blob.
+    /// Returns the epoch of:
+    /// - The block if it is cached
+    /// - The first available blob
+    /// - The first data column
+    ///   Otherwise, returns None
     pub fn epoch(&self) -> Option<Epoch> {
-        self.executed_block
-            .as_ref()
-            .map(|pending_block| pending_block.as_block().epoch())
-            .or_else(|| {
-                for maybe_blob in self.verified_blobs.iter() {
-                    if maybe_blob.is_some() {
-                        return maybe_blob.as_ref().map(|kzg_verified_blob| {
-                            kzg_verified_blob
-                                .as_blob()
-                                .slot()
-                                .epoch(E::slots_per_epoch())
-                        });
-                    }
-                }
+        // Get epoch from cached executed block
+        if let Some(executed_block) = &self.executed_block {
+            return Some(executed_block.as_block().epoch());
+        }
 
-                if let Some(kzg_verified_data_column) = self.verified_data_columns.first() {
-                    let epoch = kzg_verified_data_column.as_data_column().epoch();
-                    return Some(epoch);
-                }
+        // Or, get epoch from first available blob
+        if let Some(blob) = self.verified_blobs.iter().flatten().next() {
+            return Some(blob.as_blob().slot().epoch(E::slots_per_epoch()));
+        }
 
-                None
-            })
+        // Or, get epoch from first data column
+        if let Some(data_column) = self.verified_data_columns.first() {
+            return Some(data_column.as_data_column().epoch());
+        }
+
+        None
     }
 
     pub fn status_str(
