@@ -1374,9 +1374,8 @@ impl<E: EthSpec> PeerManager<E> {
                         }
 
                         peers_to_prune.insert(candidate_peer);
-                    } else {
-                        if let Some(peers) = custody_subnet_to_peers
-                            .get_mut(&densest_subnet) { peers.clear() }
+                    } else if let Some(peers) = custody_subnet_to_peers.get_mut(&densest_subnet) {
+                        peers.clear()
                     }
                 } else {
                     // If there are no peers left to prune exit.
@@ -1721,13 +1720,17 @@ mod tests {
 
     fn empty_synced_status() -> SyncStatus {
         SyncStatus::Synced {
-            info: SyncInfo {
-                head_slot: Default::default(),
-                head_root: Default::default(),
-                finalized_epoch: Default::default(),
-                finalized_root: Default::default(),
-                earliest_available_slot: None,
-            },
+            info: empty_sync_info(),
+        }
+    }
+
+    fn empty_sync_info() -> SyncInfo {
+        SyncInfo {
+            head_slot: Default::default(),
+            head_root: Default::default(),
+            finalized_epoch: Default::default(),
+            finalized_root: Default::default(),
+            earliest_available_slot: None,
         }
     }
 
@@ -2405,9 +2408,6 @@ mod tests {
         assert!(!connected_peers.contains(&peers[2]));
     }
 
-    // TODO add sync status test
-    // TODO add att subnet dense test
-
     /// Test that custody subnet peer count below the `MIN_SAMPLING_COLUMN_SUBNET_PEERS`(2)
     /// threshold are protected from pruning.
     ///
@@ -2694,7 +2694,6 @@ mod tests {
         let target = 4;
         let mut peer_manager = build_peer_manager(target).await;
         let spec = peer_manager.network_globals.spec.clone();
-
         let mut peers = Vec::new();
 
         let subnet_assignments = [0, 0, 0, 0, 1, 2, 2];
@@ -2764,6 +2763,89 @@ mod tests {
             .count();
 
         assert!(subnet_1_count > 0, "Least dense subnet should be protected");
+    }
+
+    /// Test the pruning logic prioritizes synced and advanced peers over behind/unknown peers.
+    ///
+    /// Create 6 peers with different sync statuses:
+    /// Peer0: Behind
+    /// Peer1: Unknown  
+    /// Peer2: Synced
+    /// Peer3: Advanced
+    /// Peer4: Synced
+    /// Peer5: Unknown
+    ///
+    /// Target: 3 peers. Should prune peers 0, 1, 5 (behind/unknown) and keep 2, 3, 4 (synced/advanced).
+    #[tokio::test]
+    async fn test_peer_manager_prune_should_prioritize_synced_advanced_peers() {
+        let target = 3;
+        let mut peer_manager = build_peer_manager(target).await;
+        // Override sampling subnet to make sure the test is deterministic and avoid the sampling
+        // peer protection logic.
+        *peer_manager.network_globals.sampling_subnets.write() =
+            HashSet::from([DataColumnSubnetId::new(1)]);
+
+        let mut peers = Vec::new();
+        let current_peer_count = 6;
+        for i in 0..current_peer_count {
+            let peer = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            let sync_status = match i {
+                0 => SyncStatus::Behind {
+                    info: empty_sync_info(),
+                },
+                1 | 5 => SyncStatus::Unknown,
+                2 | 4 => SyncStatus::Synced {
+                    info: empty_sync_info(),
+                },
+                3 => SyncStatus::Advanced {
+                    info: empty_sync_info(),
+                },
+                _ => unreachable!(),
+            };
+
+            {
+                let mut peer_db = peer_manager.network_globals.peers.write();
+                let peer_info = peer_db.peer_info_mut(&peer).unwrap();
+                peer_info.update_sync_status(sync_status);
+                // make sure all the peers have some long live subnets that are not protected
+                peer_info.set_custody_subnets(HashSet::from([DataColumnSubnetId::new(2)]))
+            }
+
+            peers.push(peer);
+        }
+
+        // Perform the heartbeat to trigger pruning
+        peer_manager.heartbeat();
+
+        // Should have exactly target number of peers
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            target
+        );
+
+        let connected_peers: std::collections::HashSet<_> = peer_manager
+            .network_globals
+            .peers
+            .read()
+            .connected_or_dialing_peers()
+            .cloned()
+            .collect();
+
+        // Count how many synced/advanced peers are kept vs behind/unknown peers
+        let synced_advanced_kept = [&peers[2], &peers[3], &peers[4]]
+            .iter()
+            .filter(|peer| connected_peers.contains(peer))
+            .count();
+
+        let behind_unknown_kept = [&peers[0], &peers[1], &peers[5]]
+            .iter()
+            .filter(|peer| connected_peers.contains(peer))
+            .count();
+
+        assert_eq!(synced_advanced_kept, target);
+        assert_eq!(behind_unknown_kept, 0);
     }
 
     // Test properties PeerManager should have using randomly generated input.
