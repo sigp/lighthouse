@@ -82,6 +82,9 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
     (4, 5),
 ];
 
+/// Trigger reconstruction if we are this many seconds into the current slot
+pub const RECONSTRUCTION_DEADLINE: Duration = Duration::from_millis(300);
+
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
 pub enum ReprocessQueueMessage {
@@ -751,9 +754,18 @@ impl<S: SlotClock> ReprocessQueue<S> {
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
                 match self.queued_column_reconstructions.entry(request.block_root) {
                     Entry::Occupied(key) => {
-                        // Push back the reattempted reconstruction
+                        let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
+                        if let Some(seconds_from_current_slot) =
+                            self.slot_clock.seconds_from_current_slot_start()
+                            && seconds_from_current_slot >= RECONSTRUCTION_DEADLINE
+                        {
+                            // If we are at least `RECONSTRUCTION_DEADLINE` seconds into the current slot,
+                            // process reconstruction immediatly.
+                            reconstruction_delay = Duration::from_secs(0);
+                        }
+
                         self.column_reconstructions_delay_queue
-                            .reset(key.get(), QUEUED_RECONSTRUCTION_DELAY)
+                            .reset(key.get(), reconstruction_delay);
                     }
                     Entry::Vacant(vacant) => {
                         let delay_key = self
