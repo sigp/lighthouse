@@ -59,6 +59,9 @@ excluded_paths = [
     "tests/.*/.*/epoch_processing/.*/post_epoch.ssz_snappy",
     # Ignore gloas tests for now
     "tests/.*/gloas/.*",
+    # Ignore KZG tests that target internal kzg library functions
+    "tests/.*/compute_verify_cell_kzg_proof_batch_challenge/.*",
+    "tests/.*/compute_challenge/.*",
 ]
 
 
