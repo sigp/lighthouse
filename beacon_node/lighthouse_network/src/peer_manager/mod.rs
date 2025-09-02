@@ -2135,6 +2135,8 @@ mod tests {
     async fn test_peer_manager_prune_grouped_data_column_subnet_peers() {
         let target = 9;
         let mut peer_manager = build_peer_manager(target).await;
+        // Override sampling subnets to prevent sampling peer protection from interfering with this test.
+        *peer_manager.network_globals.sampling_subnets.write() = HashSet::new();
 
         // Create 20 peers to connect to.
         let mut peers = Vec::new();
@@ -2323,6 +2325,8 @@ mod tests {
     async fn test_peer_manager_prune_subnet_peers_sync_committee() {
         let target = 3;
         let mut peer_manager = build_peer_manager(target).await;
+        // Override sampling subnets to prevent sampling peer protection from interfering with this test.
+        *peer_manager.network_globals.sampling_subnets.write() = HashSet::new();
 
         // Create 6 peers to connect to.
         let mut peers = Vec::new();
@@ -2538,10 +2542,8 @@ mod tests {
     async fn test_peer_manager_prune_based_on_subnet_count() {
         let target = 7;
         let mut peer_manager = build_peer_manager(target).await;
-        // Set a sampling subnet to make sure the test is deterministic and the sampling peer
-        // protection logic does not interfere with the pruning logic tested here.
-        *peer_manager.network_globals.sampling_subnets.write() =
-            HashSet::from([DataColumnSubnetId::new(1)]);
+        // Override sampling subnets to prevent sampling peer protection from interfering with this test.
+        *peer_manager.network_globals.sampling_subnets.write() = HashSet::new();
 
         // Create 8 peers to connect to.
         let mut peers = Vec::new();
@@ -2780,10 +2782,8 @@ mod tests {
     async fn test_peer_manager_prune_should_prioritize_synced_advanced_peers() {
         let target = 3;
         let mut peer_manager = build_peer_manager(target).await;
-        // Override sampling subnet to make sure the test is deterministic and avoid the sampling
-        // peer protection logic.
-        *peer_manager.network_globals.sampling_subnets.write() =
-            HashSet::from([DataColumnSubnetId::new(1)]);
+        // Override sampling subnets to prevent sampling peer protection from interfering with this test.
+        *peer_manager.network_globals.sampling_subnets.write() = HashSet::new();
 
         let mut peers = Vec::new();
         let current_peer_count = 6;
@@ -2811,6 +2811,22 @@ mod tests {
                 peer_info.update_sync_status(sync_status);
                 // make sure all the peers have some long live subnets that are not protected
                 peer_info.set_custody_subnets(HashSet::from([DataColumnSubnetId::new(2)]))
+            }
+
+            let long_lived_subnets = peer_manager
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer)
+                .unwrap()
+                .long_lived_subnets();
+            for subnet in long_lived_subnets {
+                println!("Subnet: {:?}", subnet);
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .add_subscription(&peer, subnet);
             }
 
             peers.push(peer);
