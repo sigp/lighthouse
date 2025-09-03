@@ -103,9 +103,6 @@ pub enum Importability<E: EthSpec> {
     ReadyForImport(Box<AvailableExecutedBlock<E>>),
 }
 
-/// TODO: Temp alias for backward compatibility during migration
-pub type Availability<E> = Importability<E>;
-
 impl<E: EthSpec> Debug for Importability<E> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
