@@ -21,6 +21,9 @@ use beacon_chain::{
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use lighthouse_tracing::{
+    SPAN_PROCESS_GOSSIP_BLOB, SPAN_PROCESS_GOSSIP_BLOCK, SPAN_PROCESS_GOSSIP_DATA_COLUMN,
+};
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
 use slot_clock::SlotClock;
@@ -602,7 +605,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    #[instrument(skip_all, level = "trace", fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index), parent = None)]
+    #[instrument(
+        name = SPAN_PROCESS_GOSSIP_DATA_COLUMN,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
+    )]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -760,7 +769,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip_all, level = "trace", fields(slot = ?blob_sidecar.slot(), block_root = ?blob_sidecar.block_root(), index = blob_sidecar.index), parent = None)]
+    #[instrument(
+        name = SPAN_PROCESS_GOSSIP_BLOB,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(
+            slot = ?blob_sidecar.slot(),
+            block_root = ?blob_sidecar.block_root(),
+            index = blob_sidecar.index),
+    )]
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -1014,7 +1032,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
 
-        match result {
+        match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
                     info!(
@@ -1040,6 +1058,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // another column arrives it either completes availability or pushes
                     // reconstruction back a bit.
                     let cloned_self = Arc::clone(self);
+                    let block_root = *block_root;
                     let send_result = self.beacon_processor_send.try_send(WorkEvent {
                         drop_during_sync: false,
                         work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
@@ -1088,6 +1107,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
         }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or data column. If a
+        // importing a block results in `Imported`, notify. Do not notify of data column errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
+        }
     }
 
     /// Process the beacon block received from the gossip network and:
@@ -1098,7 +1127,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(skip_all, fields(block_root = tracing::field::Empty), parent = None)]
+    #[instrument(
+        name = SPAN_PROCESS_GOSSIP_BLOCK,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(block_root = tracing::field::Empty),
+    )]
     pub async fn process_gossip_block(
         self: Arc<Self>,
         message_id: MessageId,

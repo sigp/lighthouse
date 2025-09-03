@@ -121,8 +121,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
-    BlobSidecarListFromRoot, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
-    KeyValueStoreOp, StoreItem, StoreOp,
+    BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
+    KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
@@ -618,12 +618,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
     ) -> Result<Option<BeaconForkChoice<T>>, Error> {
-        let Some(persisted_fork_choice) =
-            store.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
+        let Some(persisted_fork_choice_bytes) = store
+            .hot_db
+            .get_bytes(DBColumn::ForkChoice, FORK_CHOICE_DB_KEY.as_slice())?
         else {
             return Ok(None);
         };
 
+        let persisted_fork_choice =
+            PersistedForkChoice::from_bytes(&persisted_fork_choice_bytes, store.get_config())?;
         let fc_store =
             BeaconForkChoiceStore::from_persisted(persisted_fork_choice.fork_choice_store, store)?;
 
@@ -1244,8 +1247,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if self.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
             if let Some(columns) = self.store.get_data_columns(block_root)? {
-                let num_required_columns = self.spec.number_of_columns / 2;
-                let reconstruction_possible = columns.len() >= num_required_columns as usize;
+                let num_required_columns = T::EthSpec::number_of_columns() / 2;
+                let reconstruction_possible = columns.len() >= num_required_columns;
                 if reconstruction_possible {
                     reconstruct_blobs(&self.kzg, &columns, None, &block, &self.spec)
                         .map(Some)
@@ -3056,6 +3059,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
@@ -3810,19 +3814,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await??
         };
-
-        // Remove block components from da_checker AFTER completing block import. Then we can assert
-        // the following invariant:
-        // > A valid unfinalized block is either in fork-choice or da_checker.
-        //
-        // If we remove the block when it becomes available, there's some time window during
-        // `import_block` where the block is nowhere. Consumers of the da_checker can handle the
-        // extend time a block may exist in the da_checker.
-        //
-        // If `import_block` errors (only errors with internal errors), the pending components will
-        // be pruned on data_availability_checker maintenance as finality advances.
-        self.data_availability_checker
-            .remove_pending_components(block_root);
 
         Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
@@ -5723,6 +5714,48 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     execution_payload_value,
                 )
             }
+            BeaconState::Gloas(_) => {
+                let (
+                    payload,
+                    kzg_commitments,
+                    maybe_blobs_and_proofs,
+                    maybe_requests,
+                    execution_payload_value,
+                ) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
+
+                (
+                    BeaconBlock::Gloas(BeaconBlockGloas {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyGloas {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings_electra.into(),
+                            attestations: attestations_electra.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            execution_requests: maybe_requests
+                                .ok_or(BlockProductionError::MissingExecutionRequests)?,
+                        },
+                    }),
+                    maybe_blobs_and_proofs,
+                    execution_payload_value,
+                )
+            }
         };
 
         let block = SignedBeaconBlock::from_block(
@@ -7149,6 +7182,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.data_availability_checker
             .custody_context()
             .sampling_columns_for_epoch(epoch, &self.spec)
+    }
+
+    /// Returns a list of column indices that the node is expected to custody for a given epoch.
+    /// i.e. the node must have validated and persisted the column samples and should be able to
+    /// serve them to peers.
+    ///
+    /// If epoch is `None`, this function computes the custody columns at head.
+    pub fn custody_columns_for_epoch(&self, epoch_opt: Option<Epoch>) -> &[ColumnIndex] {
+        self.data_availability_checker
+            .custody_context()
+            .custody_columns_for_epoch(epoch_opt, &self.spec)
     }
 }
 

@@ -6,14 +6,12 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
-use std::io::{Read, Write};
 use std::ops::RangeInclusive;
 use std::str::FromStr;
 use std::sync::LazyLock;
 use superstruct::superstruct;
 use types::historical_summary::HistoricalSummary;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, List, Slot, Validator};
-use zstd::{Decoder, Encoder};
 
 static EMPTY_PUBKEY: LazyLock<PublicKeyBytes> = LazyLock::new(PublicKeyBytes::empty);
 
@@ -395,13 +393,17 @@ impl CompressedU64Diff {
             .collect();
 
         Ok(CompressedU64Diff {
-            bytes: compress_bytes(&uncompressed_bytes, config)?,
+            bytes: config
+                .compress_bytes(&uncompressed_bytes)
+                .map_err(Error::Compression)?,
         })
     }
 
     pub fn apply(&self, xs: &mut Vec<u64>, config: &StoreConfig) -> Result<(), Error> {
         // Decompress balances diff.
-        let balances_diff_bytes = uncompress_bytes(&self.bytes, config)?;
+        let balances_diff_bytes = config
+            .decompress_bytes(&self.bytes)
+            .map_err(Error::Compression)?;
 
         for (i, diff_bytes) in balances_diff_bytes
             .chunks(u64::BITS as usize / 8)
@@ -426,22 +428,6 @@ impl CompressedU64Diff {
     pub fn size(&self) -> usize {
         self.bytes.len()
     }
-}
-
-fn compress_bytes(input: &[u8], config: &StoreConfig) -> Result<Vec<u8>, Error> {
-    let compression_level = config.compression_level;
-    let mut out = Vec::with_capacity(config.estimate_compressed_size(input.len()));
-    let mut encoder = Encoder::new(&mut out, compression_level).map_err(Error::Compression)?;
-    encoder.write_all(input).map_err(Error::Compression)?;
-    encoder.finish().map_err(Error::Compression)?;
-    Ok(out)
-}
-
-fn uncompress_bytes(input: &[u8], config: &StoreConfig) -> Result<Vec<u8>, Error> {
-    let mut out = Vec::with_capacity(config.estimate_decompressed_size(input.len()));
-    let mut decoder = Decoder::new(input).map_err(Error::Compression)?;
-    decoder.read_to_end(&mut out).map_err(Error::Compression)?;
-    Ok(out)
 }
 
 impl ValidatorsDiff {
@@ -534,12 +520,16 @@ impl ValidatorsDiff {
             .collect::<Vec<u8>>();
 
         Ok(Self {
-            bytes: compress_bytes(&uncompressed_bytes, config)?,
+            bytes: config
+                .compress_bytes(&uncompressed_bytes)
+                .map_err(Error::Compression)?,
         })
     }
 
     pub fn apply(&self, xs: &mut Vec<Validator>, config: &StoreConfig) -> Result<(), Error> {
-        let validator_diff_bytes = uncompress_bytes(&self.bytes, config)?;
+        let validator_diff_bytes = config
+            .decompress_bytes(&self.bytes)
+            .map_err(Error::Compression)?;
 
         for diff_bytes in
             validator_diff_bytes.chunks(<ValidatorDiffEntry as Decode>::ssz_fixed_len())

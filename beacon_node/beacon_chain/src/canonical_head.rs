@@ -53,7 +53,9 @@ use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{KeyValueStore, KeyValueStoreOp, StoreItem, iter::StateRootsIterator};
+use store::{
+    Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig, iter::StateRootsIterator,
+};
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::{debug, error, info, instrument, warn};
 use types::*;
@@ -998,25 +1000,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Persist fork choice to disk, writing immediately.
     pub fn persist_fork_choice(&self) -> Result<(), Error> {
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
-        let batch = vec![self.persist_fork_choice_in_batch()];
+        let batch = vec![self.persist_fork_choice_in_batch()?];
         self.store.hot_db.do_atomically(batch)?;
         Ok(())
     }
 
     /// Return a database operation for writing fork choice to disk.
-    pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
-        Self::persist_fork_choice_in_batch_standalone(&self.canonical_head.fork_choice_read_lock())
+    pub fn persist_fork_choice_in_batch(&self) -> Result<KeyValueStoreOp, Error> {
+        Self::persist_fork_choice_in_batch_standalone(
+            &self.canonical_head.fork_choice_read_lock(),
+            self.store.get_config(),
+        )
+        .map_err(Into::into)
     }
 
     /// Return a database operation for writing fork choice to disk.
     pub fn persist_fork_choice_in_batch_standalone(
         fork_choice: &BeaconForkChoice<T>,
-    ) -> KeyValueStoreOp {
+        store_config: &StoreConfig,
+    ) -> Result<KeyValueStoreOp, StoreError> {
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),
             fork_choice_store: fork_choice.fc_store().to_persisted(),
         };
-        persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY)
+        persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY, store_config)
     }
 }
 
