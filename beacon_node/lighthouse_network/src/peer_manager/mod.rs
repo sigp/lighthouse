@@ -966,7 +966,7 @@ impl<E: EthSpec> PeerManager<E> {
         }
     }
 
-    /// Run discovery query for additional custody peers if we fall below `TARGET_PEERS`.
+    /// Run discovery query for additional custody peers if we fall below `MIN_SAMPLING_COLUMN_SUBNET_PEERS`.
     fn maintain_custody_peers(&mut self) {
         let subnets_to_discover: Vec<SubnetDiscovery> = self
             .network_globals
@@ -1128,6 +1128,7 @@ impl<E: EthSpec> PeerManager<E> {
         }
 
         // Check data column sampling subnets
+        // If the peer exists in a smapling subnet that is less than or equal to MIN_SAMPLING_COLUMN_SUBNET_PEERS, we keep it
         let should_protect_sampling = candidate_info
             .custody_subnets
             .iter()
