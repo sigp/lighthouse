@@ -38,19 +38,18 @@ use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
-/// The LRU Cache stores `PendingComponents`, which can store up to `MAX_BLOBS_PER_BLOCK` blobs each.
+/// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
 /// * Deneb blobs are 128 kb each and are stored in the form of `BlobSidecar`.
 /// * From Fulu (PeerDAS), blobs are erasure-coded and are 256 kb each, stored in the form of 128 `DataColumnSidecar`s.
 ///
 /// With `MAX_BLOBS_PER_BLOCK` = 48 (expected in the next year), the maximum size of data columns
-/// in `PendingComponents` is ~12.29 MB. Setting this to 64 means the maximum size of the cache is
-/// approximately 0.8 GB.
+/// in `PendingComponents` is ~12.29 MB. Setting this to 32 means the maximum size of the cache is
+/// approximately 0.4 GB.
 ///
-/// Under normal conditions, the cache should only store the current pending block, but could
-///  occasionally spike to 2-4 for various reasons e.g. components arriving late, but would very
-/// rarely go above this, unless there are many concurrent forks.
-pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(64);
+/// `PendingComponents` are now never removed from the cache manually are only removed via LRU
+/// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
+pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
@@ -346,11 +345,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pending_executed_block(executed_block)
     }
 
-    pub fn remove_pending_components(&self, block_root: Hash256) {
-        self.availability_cache
-            .remove_pending_components(block_root)
-    }
-
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
     /// include the fully available block.
     ///
@@ -589,8 +583,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // Check indices from cache again to make sure we don't publish components we've already received.
         let Some(existing_column_indices) = self.cached_data_column_indexes(block_root) else {
-            return Ok(DataColumnReconstructionResult::RecoveredColumnsNotImported(
-                "block already imported",
+            return Err(AvailabilityCheckError::Unexpected(
+                "block no longer exists in the data availability checker".to_string(),
             ));
         };
 
