@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Duration;
 use tracing::{debug, trace};
 use types::{EthSpec, ForkContext};
 
@@ -142,11 +141,6 @@ pub struct RPCMessage<Id, E: EthSpec> {
 }
 
 type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
-
-pub struct NetworkParams {
-    pub max_payload_size: usize,
-    pub resp_timeout: Duration,
-}
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
