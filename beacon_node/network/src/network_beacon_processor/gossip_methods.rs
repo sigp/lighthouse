@@ -15,7 +15,7 @@ use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
     GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
-    data_availability_checker::{Availability, AvailabilityCheckErrorCategory},
+    data_availability_checker::{AvailabilityCheckErrorCategory, Importability},
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -41,10 +41,11 @@ use tokio::sync::mpsc::error::TrySendError;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
+    DataColumnSubnetId, EthSpec, ExecutionProof, ExecutionProofSubnetId, Hash256,
+    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -3315,7 +3316,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Ok(availability) => {
                 // Check if the block is now ready for import
                 match availability {
-                    Availability::ReadyForImport(_) => {
+                    Importability::ReadyForImport(_) => {
                         debug!(
                             %block_root,
                             execution_block_hash = %block_hash,
@@ -3324,7 +3325,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                         // TODO: Trigger block import if this was the final missing component
                     }
-                    Availability::MissingComponents(_) => {
+                    Importability::MissingComponents(_) => {
                         debug!(
                             %block_root,
                             execution_block_hash = %block_hash,

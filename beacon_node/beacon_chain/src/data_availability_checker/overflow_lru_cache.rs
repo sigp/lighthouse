@@ -7,7 +7,9 @@ use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
-use crate::data_availability_checker::{Importability, AvailabilityCheckError, ImportableProofData};
+use crate::data_availability_checker::{
+    AvailabilityCheckError, Importability, ImportableProofData,
+};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
@@ -166,8 +168,6 @@ impl<E: EthSpec> PendingComponents<E> {
                     .insert(proof.subnet_id, proof.clone());
             }
         }
-
-       
     }
 
     /// Returns the number of execution proofs for this block
@@ -272,11 +272,8 @@ impl<E: EthSpec> PendingComponents<E> {
         };
 
         // Check execution proof requirements
-        let proof_data = self.check_proof_availability(
-            spec,
-            block,
-            min_execution_proofs_required
-        )?;
+        let proof_data =
+            self.check_proof_availability(spec, block, min_execution_proofs_required)?;
         let Some(proof_data) = proof_data else {
             return Ok(None); // Missing execution proofs
         };

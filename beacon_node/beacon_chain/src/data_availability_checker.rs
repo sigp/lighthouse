@@ -1133,7 +1133,7 @@ mod test {
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
         let custody_context = Arc::new(CustodyContext::new(false));
-        DataAvailabilityChecker::new(slot_clock, kzg, store, custody_context, spec)
+        DataAvailabilityChecker::new(slot_clock, kzg, store, custody_context, spec, None)
             .expect("should initialise data availability checker")
     }
 }
