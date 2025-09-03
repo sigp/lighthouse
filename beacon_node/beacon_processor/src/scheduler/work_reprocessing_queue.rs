@@ -752,25 +752,24 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
+                let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
+                if let Some(seconds_from_current_slot) =
+                    self.slot_clock.seconds_from_current_slot_start()
+                    && seconds_from_current_slot >= RECONSTRUCTION_DEADLINE
+                {
+                    // If we are at least `RECONSTRUCTION_DEADLINE` seconds into the current slot,
+                    // process reconstruction immediatly.
+                    reconstruction_delay = Duration::from_secs(0);
+                }
                 match self.queued_column_reconstructions.entry(request.block_root) {
                     Entry::Occupied(key) => {
-                        let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
-                        if let Some(seconds_from_current_slot) =
-                            self.slot_clock.seconds_from_current_slot_start()
-                            && seconds_from_current_slot >= RECONSTRUCTION_DEADLINE
-                        {
-                            // If we are at least `RECONSTRUCTION_DEADLINE` seconds into the current slot,
-                            // process reconstruction immediatly.
-                            reconstruction_delay = Duration::from_secs(0);
-                        }
-
                         self.column_reconstructions_delay_queue
                             .reset(key.get(), reconstruction_delay);
                     }
                     Entry::Vacant(vacant) => {
                         let delay_key = self
                             .column_reconstructions_delay_queue
-                            .insert(request, QUEUED_RECONSTRUCTION_DELAY);
+                            .insert(request, reconstruction_delay);
                         vacant.insert(delay_key);
                     }
                 }
