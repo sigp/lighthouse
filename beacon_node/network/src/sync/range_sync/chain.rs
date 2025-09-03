@@ -1198,20 +1198,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> bool {
         if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
             // Require peers on all sampling column subnets before sending batches
+            let peer_db = network.network_globals().peers.read();
             network
                 .network_globals()
                 .sampling_subnets()
                 .iter()
                 .all(|subnet_id| {
-                    let peer_db = network.network_globals().peers.read();
-                    let peer_count = self
-                        .peers
-                        .iter()
-                        .filter(|peer| {
-                            peer_db.is_good_range_sync_custody_subnet_peer(*subnet_id, peer)
-                        })
-                        .count();
-                    peer_count > 0
+                    self.peers.iter().any(|peer| {
+                        peer_db.is_good_range_sync_custody_subnet_peer(*subnet_id, peer)
+                    })
                 })
         } else {
             true
