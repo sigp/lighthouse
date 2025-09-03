@@ -2,7 +2,6 @@ use crate::compute_light_client_updates::{
     compute_light_client_updates, LIGHT_CLIENT_SERVER_CHANNEL_CAPACITY,
 };
 use crate::config::{ClientGenesis, Config as ClientConfig};
-use crate::execution_proof_broadcaster::start_execution_proof_broadcaster_service;
 use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
@@ -88,6 +87,10 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_processor_config: Option<BeaconProcessorConfig>,
     beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
     light_client_server_rv: Option<Receiver<LightClientProducerEvent<T::EthSpec>>>,
+    exec_proof_rx: Option<tokio::sync::mpsc::UnboundedReceiver<(
+        types::ExecutionProofSubnetId,
+        types::ExecutionProof,
+    )>>,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -122,6 +125,7 @@ where
             beacon_processor_config: None,
             beacon_processor_channels: None,
             light_client_server_rv: None,
+            exec_proof_rx: None,
         }
     }
 
@@ -194,6 +198,12 @@ where
             Kzg::new_from_trusted_setup_no_precomp(trusted_setup).map_err(kzg_err_msg)?
         };
 
+        // Channel for locally generated execution proofs
+        let (exec_proof_tx, exec_proof_rx) = tokio::sync::mpsc::unbounded_channel::<(
+            types::ExecutionProofSubnetId,
+            types::ExecutionProof,
+        )>();
+
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .store(store)
             .task_executor(context.executor.clone())
@@ -209,7 +219,11 @@ where
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::from_rng(OsRng).map_err(|e| format!("Failed to create RNG: {:?}", e))?,
-            ));
+            ))
+            .execution_proof_publish_tx(exec_proof_tx);
+
+        // Stash receiver to start a publisher once networking is up
+        self.exec_proof_rx = Some(exec_proof_rx);
 
         let builder = if let Some(slasher) = self.slasher.clone() {
             builder.slasher(slasher)
@@ -778,17 +792,28 @@ where
                 beacon_chain.clone(),
             );
 
-            // Start the execution proof broadcaster service if we have network senders
-            // and we're in stateless validation mode
-            if let Some(network_senders) = &self.network_senders {
-                if beacon_chain.config.stateless_validation
-                    || beacon_chain.config.generate_execution_proofs
+            // Start the execution proof publisher if networking is available and a receiver exists
+            if beacon_chain.config.generate_execution_proofs {
+                if let (Some(network_senders), Some(mut exec_rx)) =
+                    (&self.network_senders, self.exec_proof_rx.take())
                 {
-                    start_execution_proof_broadcaster_service(
-                        runtime_context.executor.clone(),
-                        beacon_chain.clone(),
-                        network_senders.network_send(),
-                    );
+                let network_tx = network_senders.network_send();
+                let publisher_executor = runtime_context.executor.clone();
+                publisher_executor.spawn(
+                    async move {
+                        use lighthouse_network::PubsubMessage;
+                        while let Some((subnet_id, proof)) = exec_rx.recv().await {
+                            let msg = PubsubMessage::ExecutionProofMessage(Box::new((
+                                subnet_id,
+                                Arc::new(proof.clone()),
+                            )));
+                            let _ = network_tx.send(network::NetworkMessage::Publish {
+                                messages: vec![msg],
+                            });
+                        }
+                    },
+                    "execution_proof_publisher",
+                );
                 }
             }
         }

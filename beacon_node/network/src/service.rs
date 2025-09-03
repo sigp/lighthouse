@@ -641,6 +641,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     if !topic_kinds.contains(&message.kind()) {
                         topic_kinds.push(message.kind());
                     }
+                    
+                    // Add detailed debug for execution proof messages
+                    if let PubsubMessage::ExecutionProofMessage(proof_box) = message {
+                        let (subnet_id, proof) = proof_box.as_ref();
+                        info!(
+                            execution_block_hash = ?proof.block_hash,
+                            block_root = ?proof.block_root,
+                            subnet_id = u64::from(subnet_id),
+                            "Publishing execution proof message to libp2p"
+                        );
+                    }
                 }
                 debug!(
                     count = messages.len(),

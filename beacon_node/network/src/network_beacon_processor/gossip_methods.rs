@@ -7,10 +7,11 @@ use crate::{
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::execution_proof_verification::{GossipExecutionProofError, GossipVerifiedExecutionProof};
 use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
-    data_availability_checker::AvailabilityCheckErrorCategory,
+    data_availability_checker::{Availability, AvailabilityCheckErrorCategory},
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
     light_client_optimistic_update_verification::Error as LightClientOptimisticUpdateError,
     observed_operations::ObservationOutcome,
@@ -20,7 +21,7 @@ use beacon_chain::{
     GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use beacon_processor::{Work, WorkEvent};
-use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage, ReportSource};
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
 use slot_clock::SlotClock;
@@ -3189,99 +3190,129 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "Processing gossip execution proof"
         );
 
-        // Basic structural validation
-        if !execution_proof.is_structurally_valid() {
-            warn!(
-                %block_hash,
-                subnet_id = %subnet_id_u64,
-                "Rejecting structurally invalid execution proof"
-            );
-            self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-            self.gossip_penalize_peer(
-                peer_id,
-                PeerAction::LowToleranceError,
-                "invalid_execution_proof_structure",
-            );
-            return;
-        }
+        // Create gossip verified execution proof (includes full verification)
+        let verified_proof = match GossipVerifiedExecutionProof::<T>::new(
+            execution_proof.clone(),
+            subnet_id,
+            &self.chain,
+        ) {
+            Ok(verified) => verified,
+            Err(GossipExecutionProofError::InvalidProof { reason }) => {
+                warn!(
+                    %block_hash,
+                    subnet_id = %subnet_id_u64,
+                    %reason,
+                    "Rejecting execution proof with invalid cryptographic proof"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_execution_proof_crypto",
+                );
+                return;
+            }
+            Err(GossipExecutionProofError::InvalidSubnetId { expected, received }) => {
+                warn!(
+                    %block_hash,
+                    expected,
+                    received,
+                    "Rejecting execution proof with mismatched subnet ID"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "execution_proof_subnet_mismatch",
+                );
+                return;
+            }
+            Err(GossipExecutionProofError::InvalidStructure { reason }) => {
+                warn!(
+                    %block_hash,
+                    subnet_id = %subnet_id_u64,
+                    %reason,
+                    "Rejecting structurally invalid execution proof"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "invalid_execution_proof_structure",
+                );
+                return;
+            }
+            Err(e) => {
+                warn!(
+                    %block_hash,
+                    subnet_id = %subnet_id_u64,
+                    error = ?e,
+                    "Failed to verify execution proof"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return;
+            }
+        };
 
-        // Validate subnet ID matches "proof ID"
-        //
-        // Note: `subnet_id_u64` was the subnet that the message was received on
-        // while `execution_proof.subnet_id` was the subnet ID embedded in the proof
-        if subnet_id_u64 != *execution_proof.subnet_id {
-            warn!(
-                %block_hash,
-                expected_subnet = %subnet_id_u64,
-                proof_subnet = %execution_proof.subnet_id,
-                "Rejecting execution proof with mismatched subnet ID"
-            );
-            self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-            self.gossip_penalize_peer(
-                peer_id,
-                PeerAction::LowToleranceError,
-                "execution_proof_subnet_mismatch",
-            );
-            return;
-        }
-
-        // Store the proof in the execution payload proof store
-        if let Err(e) = self
+        // Store the verified proof in the data availability checker
+        let block_root = verified_proof.block_root();
+        
+        // Extract proof data for re-broadcasting before moving verified_proof
+        let proof_to_rebroadcast = verified_proof.as_proof().clone();
+        let subnet_for_rebroadcast = verified_proof.subnet_id();
+        
+        match self
             .chain
-            .execution_payload_proof_store
-            .store_proof(execution_proof.as_ref().clone())
+            .data_availability_checker
+            .put_gossip_verified_execution_proofs(block_root, std::iter::once(verified_proof))
         {
-            warn!(
-                %block_hash,
-                subnet_id = %subnet_id_u64,
-                error = %e,
-                "Failed to store execution proof"
-            );
+            Err(e) => {
+                warn!(
+                    %block_hash,
+                    subnet_id = %subnet_id_u64,
+                    error = ?e,
+                    "Failed to store execution proof in data availability checker"
+                );
 
-            // Handle different error types appropriately
-            if e.should_penalize_peer() {
-                // Validation errors should penalize the peer
+                // For now, treat all DA checker errors as validation errors
+                // TODO: Add proper error categorization in AvailabilityCheckError
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::LowToleranceError,
                     "execution_proof_validation_failed",
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-            } else {
-                // Storage errors should not penalize peers
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return;
             }
-            return;
-        }
+            Ok(availability) => {
+                // Check if the block is now ready for import
+                match availability {
+                    Availability::ReadyForImport(_) => {
+                        debug!(
+                            %block_root,
+                            execution_block_hash = %block_hash,
+                            subnet_id = subnet_id_u64,
+                            "Block became ready for import after receiving execution proof"
+                        );
+                        // TODO: Trigger block import if this was the final missing component
+                    }
+                    Availability::MissingComponents(_) => {
+                        debug!(
+                            %block_root,
+                            execution_block_hash = %block_hash,
+                            subnet_id = subnet_id_u64,
+                            "Execution proof stored, but block still missing other components"
+                        );
+                    }
+                }
 
-        // Proof stored successfully
-        debug!(
-            execution_block_hash = %block_hash,
-            subnet_id = subnet_id_u64,
-            "Execution proof received via gossip"
-        );
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-
-        // Re-evaluate optimistic blocks now that we have this proof
-        self.handle_proof_chain_update(block_hash, subnet_id_u64);
-    }
-
-    /// Handle proven chain updates after successfully storing a proof
-    fn handle_proof_chain_update(&self, block_hash: types::ExecutionBlockHash, subnet_id: u64) {
-        match self
-            .chain
-            .re_evaluate_optimistic_blocks_with_proofs(block_hash)
-        {
-            Ok(_) => {
-                // Success - any important updates are logged by re_evaluate_optimistic_blocks_with_proofs
-            }
-            Err(e) => {
-                warn!(
-                    %block_hash,
-                    subnet_id = %subnet_id,
-                    error = ?e,
-                    "Failed to update proven chain after proof reception"
+                debug!(
+                    %block_root,
+                    execution_block_hash = %block_hash,
+                    subnet_id = subnet_id_u64,
+                    "Execution proof received via gossip"
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
             }
         }
     }

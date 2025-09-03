@@ -118,6 +118,8 @@ use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use tokio::sync::mpsc::UnboundedSender;
+use types::{ExecutionProof, ExecutionProofSubnetId};
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
@@ -434,9 +436,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
         Mutex<ObservedOperations<SignedBlsToExecutionChange, T::EthSpec>>,
     /// Interfaces with the execution client.
     pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
-    /// Storage for execution payload proofs used in stateless validation.
-    pub execution_payload_proof_store:
-        Arc<crate::execution_proof_store::ExecutionPayloadProofStore>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHead<T>,
@@ -493,6 +492,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
+    /// Channel for locally generated execution proofs to be published by the network task.
+    pub execution_proof_publish_tx: Option<UnboundedSender<(ExecutionProofSubnetId, ExecutionProof)>>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {
@@ -3747,7 +3748,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         match availability {
-            Availability::Available(block) => {
+            Availability::ReadyForImport(block) => {
                 publish_fn()?;
                 // Block is fully available, import into fork choice
                 self.import_available_block(block).await
@@ -3911,11 +3912,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Register optimistic blocks for proof validation in stateless validation mode
+        // This is now handled by the DA checker when blocks are added to the availability cache
         if payload_verification_status.is_optimistic() {
-            if let Ok(execution_payload) = block.execution_payload() {
-                let execution_block_hash = execution_payload.block_hash().into();
-                self.register_optimistic_block_for_proof(block_root, execution_block_hash);
-            }
+            debug!(
+                block_root = ?block_root,
+                "Block imported optimistically - execution proof requirements handled by DA checker"
+            );
         }
 
         // If the block is recent enough and it was not optimistically imported, check to see if it

@@ -3,7 +3,6 @@ use crate::beacon_chain::{
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::data_availability_checker::DataAvailabilityChecker;
-use crate::execution_proof_store::ExecutionPayloadProofStore;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
@@ -44,6 +43,8 @@ use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
     FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
+use tokio::sync::mpsc::UnboundedSender;
+use types::{ExecutionProof, ExecutionProofSubnetId};
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -103,6 +104,8 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
     rng: Option<Box<dyn RngCore + Send>>,
+    /// Optional channel to publish locally generated execution proofs.
+    execution_proof_publish_tx: Option<UnboundedSender<(ExecutionProofSubnetId, ExecutionProof)>>,
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>
@@ -142,7 +145,17 @@ where
             validator_monitor_config: None,
             import_all_data_columns: false,
             rng: None,
+            execution_proof_publish_tx: None,
         }
+    }
+
+    /// Sets the channel used to publish locally generated execution proofs.
+    pub fn execution_proof_publish_tx(
+        mut self,
+        tx: UnboundedSender<(ExecutionProofSubnetId, ExecutionProof)>,
+    ) -> Self {
+        self.execution_proof_publish_tx = Some(tx);
+        self
     }
 
     /// Override the default spec (as defined by `E`).
@@ -942,6 +955,13 @@ where
         };
         debug!(?custody_context, "Loading persisted custody context");
 
+        // Extract execution proof requirements before moving chain_config
+        let min_execution_proofs_required = if self.chain_config.stateless_validation {
+            Some(self.chain_config.stateless_min_proofs_required)
+        } else {
+            None
+        };
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -980,10 +1000,6 @@ where
             observed_attester_slashings: <_>::default(),
             observed_bls_to_execution_changes: <_>::default(),
             execution_layer: self.execution_layer.clone(),
-            // TODO: allow for persisting and loading from disk (when a block has been confirmed)
-            execution_payload_proof_store: Arc::new(ExecutionPayloadProofStore::new(
-                max_execution_payload_proofs,
-            )),
             genesis_validators_root,
             genesis_time,
             canonical_head,
@@ -1023,11 +1039,13 @@ where
                     store,
                     custody_context,
                     self.spec,
+                    min_execution_proofs_required,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
+            execution_proof_publish_tx: self.execution_proof_publish_tx,
         };
 
         let head = beacon_chain.head_snapshot();

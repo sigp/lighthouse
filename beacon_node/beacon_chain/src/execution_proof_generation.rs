@@ -6,7 +6,7 @@
 
 use tracing::debug;
 use types::{
-    execution_proof_subnet_id::ExecutionProofSubnetId, EthSpec, ExecutionPayload, ExecutionProof,
+    execution_proof_subnet_id::ExecutionProofSubnetId, EthSpec, ExecutionPayload, ExecutionProof, Hash256,
 };
 
 /// Generate a proof for an execution payload
@@ -18,6 +18,7 @@ use types::{
 /// and can be easily serialized for sending to external systems.
 /// The execution_state_witness would be obtained from the EL (e.g., via debug_executionWitness)
 pub async fn generate_proof<T: EthSpec>(
+    block_root: Hash256,
     payload: &ExecutionPayload<T>,
     execution_state_witness: &[u8],
     proof_id: ExecutionProofSubnetId,
@@ -52,7 +53,7 @@ pub async fn generate_proof<T: EthSpec>(
     )
     .into_bytes();
 
-    ExecutionProof::new(execution_block_hash, proof_id, 1, dummy_data)
+    ExecutionProof::new(block_root, execution_block_hash, proof_id, 1, dummy_data)
 }
 
 /// Validate a proof (placeholder implementation)
@@ -108,7 +109,7 @@ mod tests {
 
         let exec_payload = ExecutionPayload::Bellatrix(payload.execution_payload);
         let dummy_witness = b"test_witness_data";
-        let proof = generate_proof(&exec_payload, dummy_witness, proof_id).await;
+        let proof = generate_proof(Hash256::random(), &exec_payload, dummy_witness, proof_id).await;
 
         assert_eq!(proof.block_hash, execution_block_hash);
         assert_eq!(proof.subnet_id, proof_id);
@@ -129,6 +130,7 @@ mod tests {
 
         // Test version 1 proof (supported)
         let v1_proof = ExecutionProof::new(
+            Hash256::random(),
             hash,
             ExecutionProofSubnetId::new(0).unwrap(),
             1,
@@ -138,6 +140,7 @@ mod tests {
 
         // Test unsupported version
         let v2_proof = ExecutionProof::new(
+            Hash256::random(),
             hash,
             ExecutionProofSubnetId::new(0).unwrap(),
             2,
@@ -147,7 +150,7 @@ mod tests {
 
         // Test empty data with version 1 (should be invalid)
         let empty_v1 =
-            ExecutionProof::new(hash, ExecutionProofSubnetId::new(0).unwrap(), 1, vec![]);
+            ExecutionProof::new(Hash256::random(), hash, ExecutionProofSubnetId::new(0).unwrap(), 1, vec![]);
         assert!(!validate_proof(&empty_v1));
     }
 
@@ -179,18 +182,21 @@ mod tests {
         let dummy_witness = b"test_witness_data";
 
         let proof_0 = generate_proof(
+            Hash256::random(),
             &exec_payload,
             dummy_witness,
             ExecutionProofSubnetId::new(0).unwrap(),
         )
         .await;
         let proof_1 = generate_proof(
+            Hash256::random(),
             &exec_payload,
             dummy_witness,
             ExecutionProofSubnetId::new(1).unwrap(),
         )
         .await;
         let proof_2 = generate_proof(
+            Hash256::random(),
             &exec_payload,
             dummy_witness,
             ExecutionProofSubnetId::new(2).unwrap(),
@@ -250,9 +256,10 @@ mod tests {
         let witness_data = b"deterministic_witness_data";
 
         // Generate proof multiple times with same input
-        let proof1 = generate_proof(&exec_payload, witness_data, proof_id).await;
-        let proof2 = generate_proof(&exec_payload, witness_data, proof_id).await;
-        let proof3 = generate_proof(&exec_payload, witness_data, proof_id).await;
+        let block_root = Hash256::random();
+        let proof1 = generate_proof(block_root, &exec_payload, witness_data, proof_id).await;
+        let proof2 = generate_proof(block_root, &exec_payload, witness_data, proof_id).await;
+        let proof3 = generate_proof(block_root, &exec_payload, witness_data, proof_id).await;
 
         // All proofs should be identical
         assert_eq!(proof1.block_hash, proof2.block_hash);
@@ -276,7 +283,7 @@ mod tests {
 
         // Now test that different inputs produce different proofs
         let different_witness = b"different_witness_data";
-        let proof_different = generate_proof(&exec_payload, different_witness, proof_id).await;
+        let proof_different = generate_proof(block_root, &exec_payload, different_witness, proof_id).await;
 
         // Same block hash and subnet, but different proof data
         assert_eq!(proof_different.block_hash, proof1.block_hash);

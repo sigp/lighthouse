@@ -1,7 +1,7 @@
 //! Execution payload proof message for gossip.
 
 use crate::execution_proof_subnet_id::ExecutionProofSubnetId;
-use crate::ExecutionBlockHash;
+use crate::{ExecutionBlockHash, Hash256};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 
@@ -11,6 +11,8 @@ use ssz_derive::{Decode, Encode};
 /// Multiple proof types can exist for a single execution payload
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Encode, Decode)]
 pub struct ExecutionProof {
+    /// The beacon block root this proof is for
+    pub block_root: Hash256,
     /// The execution block hash this proof attests to
     pub block_hash: ExecutionBlockHash,
     /// The subnet ID where this proof was received/should be sent (maps to gossip subnet)
@@ -25,12 +27,14 @@ pub struct ExecutionProof {
 impl ExecutionProof {
     /// Create a new execution proof for gossip
     pub fn new(
+        block_root: Hash256,
         block_hash: ExecutionBlockHash,
         subnet_id: ExecutionProofSubnetId,
         version: u32,
         proof_data: Vec<u8>,
     ) -> Self {
         Self {
+            block_root,
             block_hash,
             subnet_id,
             version,
