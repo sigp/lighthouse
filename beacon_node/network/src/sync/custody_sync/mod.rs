@@ -27,8 +27,8 @@ const BACKFILL_BATCH_BUFFER_SIZE: u8 = 20;
 mod batch;
 
 /// Columns are downloaded in batches from peers. This constant specifies how many epochs worth of
-/// blocks per batch are requested _at most_. A batch may request less blocks to account for
-/// already requested slots. There is a timeout for each batch request. If this value is too high,
+/// columns per batch are requested _at most_. A batch may request less columns to account for
+/// already requested columns. There is a timeout for each batch request. If this value is too high,
 /// we will negatively report peers with poor bandwidth. This can be set arbitrarily high, in which
 /// case the responder will fill the response up to the max request size, assuming they have the
 /// bandwidth to do so.
@@ -74,23 +74,23 @@ pub struct CustodySync<T: BeaconChainTypes> {
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
 
-    /// Batches validated by this chain.
+    /// Batches validated.
     validated_batches: u64,
 
-    /// We keep track of peers that are participating in the backfill sync. Unlike RangeSync,
-    /// BackFillSync uses all synced peers to download the chain from. If BackFillSync fails, we don't
+    /// We keep track of peers that are participating in custody backfill sync. Unlike RangeSync,
+    /// custody backfill sync uses all synced peers to download the chain from. If custody backfill sync fails, we don't
     /// want to penalize all our synced peers, so we use this variable to keep track of peers that
-    /// have participated and only penalize these peers if backfill sync fails.
+    /// have participated and only penalize these peers if custody backfill sync fails.
     participating_peers: HashSet<PeerId>,
 
-    /// When a backfill sync fails, we keep track of whether a new fully synced peer has joined.
+    /// When a custody backfill sync fails, we keep track of whether a new fully synced peer has joined.
     /// This signifies that we are able to attempt to restart a failed chain.
     restart_failed_sync: bool,
 
-    /// Reference to the beacon chain to obtain initial starting points for the backfill sync.
+    /// Reference to the beacon chain to obtain initial starting points for custody backfill sync.
     beacon_chain: Arc<BeaconChain<T>>,
 
-    /// Reference to the network globals in order to obtain valid peers to backfill blocks from
+    /// Reference to the network globals in order to obtain valid peers to backfill columns from
     /// (i.e synced peers).
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 }
@@ -175,7 +175,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     }
 
     /// Starts syncing.
-    #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
+    #[must_use = "A failure here indicates custody backfill sync has failed and the global sync state should be updated"]
     pub fn start(
         &mut self,
         column_indices: HashSet<ColumnIndex>,
@@ -219,15 +219,16 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             CustodyBackFillState::Failed => {
                 // Attempt to recover from a failed sync. All local variables should be reset and
                 // cleared already for a fresh start.
-                // We only attempt to restart a failed backfill sync if a new synced peer has been
+                // We only attempt to restart a failed custody backfill sync if a new synced peer has been
                 // added.
+                // TODO(custody-sync) check `restart_failed_sync`
                 // if !self.restart_failed_sync {
                 //    return Ok(SyncStart::NotSyncing);
                 // }
 
                 self.set_state(CustodyBackFillState::Syncing);
 
-                debug!(start_epoch = %self.current_start, "Resuming a failed backfill sync");
+                debug!(start_epoch = %self.current_start, "Resuming a failed custody backfill sync");
 
                 // begin requesting data columns from the peer pool, until all peers are exhausted.
                 self.request_batches(network)?;
@@ -253,7 +254,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                         self.set_state(CustodyBackFillState::Syncing);
                         // Resume any previously failed batches.
                         self.resume_batches(network)?;
-                        // begin requesting blocks from the peer pool, until all peers are exhausted.
+                        // begin requesting columns from the peer pool, until all peers are exhausted.
                         self.request_batches(network)?;
 
                         // start processing batches if needed
@@ -474,12 +475,12 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         }
     }
 
-    /// a data column has been received for a batch.
+    /// A data column has been received for a batch.
     /// If the column correctly completes the batch it will be processed if possible.
-    /// If this returns an error, the custody sync has failed and will be restarted once new peers
+    /// If this returns an error, custody sync has failed and will be restarted once new peers
     /// join the system.
     /// The sync manager should update the global sync state on failure.
-    #[must_use = "A failure here indicates the backfill sync has failed and the global sync state should be updated"]
+    #[must_use = "A failure here indicates custody backfill sync has failed and the global sync state should be updated"]
     pub fn on_data_column_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
@@ -517,7 +518,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     "Completed batch received"
                 );
 
-                // pre-emptively request more blocks from peers whilst we process current blocks,
+                // pre-emptively request more columns from peers whilst we process current columns.
                 self.request_batches(network)?;
                 self.process_completed_batches(network)
             }
@@ -533,15 +534,15 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
     /// The beacon processor has completed processing a batch. This function handles the result
     /// of the batch processor.
-    /// If an error is returned the BackFill sync has failed.
-    #[must_use = "A failure here indicates the custody backfill sync has failed and the global sync state should be updated"]
+    /// If an error is returned custody backfill sync has failed.
+    #[must_use = "A failure here indicates custody backfill sync has failed and the global sync state should be updated"]
     pub fn on_batch_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
         result: &CustodyBatchProcessResult,
     ) -> Result<ProcessResult, CustodyBackfillError> {
-        // The first two cases are possible in regular sync, should not occur in backfill, but we
+        // The first two cases are possible in regular sync, should not occur in custody backfill, but we
         // keep this logic for handling potential processing race conditions.
         // result
         let batch = match &self.current_processing_batch {
@@ -649,20 +650,16 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                             .map(|_| ProcessResult::Successful)
                     }
                     Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
-                        // check that we have not exceeded the re-process retry counter
-                        // If a batch has exceeded the invalid batch lookup attempts limit, it means
-                        // that it is likely all peers are sending invalid batches
-                        // repeatedly and are either malicious or faulty. We stop the backfill sync and
-                        // report all synced peers that have participated.
+                        
                         warn!(
                             score_adjustment = %penalty,
                             batch_epoch = %batch_id,
-                            "Backfill batch failed to download. Penalizing peers"
+                            "Custody backfill batch failed to download. Penalizing peers"
                         );
 
                         for peer in self.participating_peers.drain() {
-                            // TODO(das): `participating_peers` only includes block peers. Should we
-                            // penalize the custody column peers too?
+                            // TODO(custody-sync) at the moment we are penalizing all peers involved with the batch.
+                            // we actually only want to penalize the subset that failed the batch, not all of them
                             network.report_peer(peer, *penalty, "backfill_batch_failed");
                         }
                         self.fail_sync(CustodyBackfillError::BatchProcessingFailed(*batch_id))
@@ -700,7 +697,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<ProcessResult, CustodyBackfillError> {
-        // Only process batches if backfill is syncing and only process one batch at a time
+        // Only process batches if custody backfill is syncing and only process one batch at a time
         if self.state() != CustodyBackFillState::Syncing || self.current_processing_batch.is_some()
         {
             return Ok(ProcessResult::Successful);
@@ -728,7 +725,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 | CustodyBatchState::AwaitingDownload
                 | CustodyBatchState::Processing(_) => {
                     // these are all inconsistent states:
-                    // - Failed -> non recoverable batch. Chain should have been removed
+                    // - Failed -> non recoverable batch. Columns should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
                     //   re-requested.
                     // - Processing -> `self.current_processing_batch` is None
@@ -858,7 +855,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         self.to_be_downloaded = self.to_be_downloaded.min(validating_epoch);
 
         if self.batches.contains_key(&self.to_be_downloaded) {
-            // if custody sync is advanced by Range beyond the previous `self.to_be_downloaded`, we
+            // if custody backfill sync is advanced by Range beyond the previous `self.to_be_downloaded`, we
             // won't have this batch, so we need to request it.
             self.to_be_downloaded -= CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
         }
@@ -878,7 +875,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         // The current batch could not be processed, indicating either the current or previous
         // batches are invalid.
 
-        // The previous batch could be incomplete due to the block sizes being too large to fit in
+        // The previous batch could be incomplete due to the columns being too large to fit in
         // a single RPC request or there could be consecutive empty batches which are not supposed
         // to be there
 
@@ -1062,18 +1059,14 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         self.restart_failed_sync = false;
 
         // Reset all downloading and processing targets
+        // NOTE: Lets keep validated_batches for posterity
         self.processing_target = self.current_start;
         self.to_be_downloaded = self.current_start;
         self.last_batch_downloaded = false;
         self.current_processing_batch = None;
 
-        // NOTE: Lets keep validated_batches for posterity
-
-        // Emit the log here
         error!(?error, "Backfill sync failed");
 
-        // Return the error, kinda weird pattern, but I want to use
-        // `self.fail_chain(_)?` in other parts of the code.
         Err(error)
     }
 
