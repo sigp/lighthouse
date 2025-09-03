@@ -3286,14 +3286,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // Store the verified proof in the data availability checker
         let block_root = verified_proof.block_root();
 
-        // Extract proof data for re-broadcasting before moving verified_proof
-        let proof_to_rebroadcast = verified_proof.as_proof().clone();
-        let subnet_for_rebroadcast = verified_proof.subnet_id();
-
         match self
             .chain
-            .data_availability_checker
-            .put_gossip_verified_execution_proofs(block_root, std::iter::once(verified_proof))
+            .check_gossip_execution_proof_availability_and_import(block_root, std::iter::once(verified_proof))
+            .await
         {
             Err(e) => {
                 warn!(
@@ -3313,25 +3309,28 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 return;
             }
-            Ok(availability) => {
-                // Check if the block is now ready for import
-                match availability {
-                    Importability::ReadyForImport(_) => {
-                        debug!(
-                            %block_root,
-                            execution_block_hash = %block_hash,
-                            subnet_id = subnet_id_u64,
-                            "Block became ready for import after receiving execution proof"
+            Ok(availability_status) => {
+                match availability_status {
+                    AvailabilityProcessingStatus::Imported(imported_root) => {
+                        info!(
+                            %imported_root,
+                            "Imported fully available block after receiving execution proof"
                         );
-                        // TODO: Trigger block import if this was the final missing component
+                        self.chain.recompute_head_at_current_slot().await;
+                        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                            block_root: imported_root,
+                            imported: true,
+                        });
+                        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
                     }
-                    Importability::MissingComponents(_) => {
+                    AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
                             %block_root,
                             execution_block_hash = %block_hash,
                             subnet_id = subnet_id_u64,
                             "Execution proof stored, but block still missing other components"
                         );
+                        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
                     }
                 }
 
@@ -3341,7 +3340,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     subnet_id = subnet_id_u64,
                     "Execution proof received via gossip"
                 );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
             }
         }
     }

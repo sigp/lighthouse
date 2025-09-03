@@ -3717,6 +3717,39 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
+    /// Checks if the provided execution proof(s) can make any cached blocks available/importable.
+    ///  Otherwise caches the proof(s) in the data availability checker.
+    ///
+    /// Note: Unlike blobs/data columns, execution proofs do not carry a signed header because
+    /// they arrive after the block has been made. So we do not perform any slashing-related checks for proofs.
+    pub async fn check_gossip_execution_proof_availability_and_import<
+        O: crate::observed_data_sidecars::ObservationStrategy,
+    >(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        execution_proofs: impl IntoIterator<
+            Item = crate::execution_proof_verification::GossipVerifiedExecutionProof<T, O>,
+        >,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        // Obtain the slot from the DA checker pending components. If we don't have the
+        // block pending yet, return an error.
+        //
+        // Note: This assumes that we won't ask for a proof if its in the store.
+        let slot = self
+            .data_availability_checker
+            .get_execution_valid_block(&block_root)
+            .map(|b| b.slot())
+            // TODO: This is not an InternalError, just means we've received a proof without a block
+            .ok_or_else(|| BlockError::InternalError("missing block in DA checker for execution proof".to_string()))?;
+
+        let availability = self
+            .data_availability_checker
+            .put_gossip_verified_execution_proofs(block_root, execution_proofs)?;
+
+        self.process_availability(slot, availability, || Ok(()))
+            .await
+    }
+
     fn check_columns_for_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
