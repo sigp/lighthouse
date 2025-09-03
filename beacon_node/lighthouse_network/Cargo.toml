@@ -45,7 +45,6 @@ superstruct = { workspace = true }
 task_executor = { workspace = true }
 tiny-keccak = "2"
 tokio = { workspace = true }
-tokio-io-timeout = "1"
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
