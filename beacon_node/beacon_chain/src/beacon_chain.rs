@@ -3959,15 +3959,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
         }
 
-        // Register optimistic blocks for proof validation in stateless validation mode
-        // This is now handled by the DA checker when blocks are added to the availability cache
-        if payload_verification_status.is_optimistic() {
-            debug!(
-                block_root = ?block_root,
-                "Block imported optimistically - execution proof requirements handled by DA checker"
-            );
-        }
-
         // If the block is recent enough and it was not optimistically imported, check to see if it
         // becomes the head block. If so, apply it to the early attester cache. This will allow
         // attestations to the block without waiting for the block and state to be inserted to the
