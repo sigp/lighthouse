@@ -115,8 +115,12 @@ pub async fn handle_rpc<E: EthSpec>(
                 ENGINE_NEW_PAYLOAD_V3 => get_param::<JsonExecutionPayloadDeneb<E>>(params, 0)
                     .map(|jep| JsonExecutionPayload::Deneb(jep))
                     .map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?,
-                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadFulu<E>>(params, 0)
-                    .map(|jep| JsonExecutionPayload::Fulu(jep))
+                ENGINE_NEW_PAYLOAD_V4 => get_param::<JsonExecutionPayloadGloas<E>>(params, 0)
+                    .map(|jep| JsonExecutionPayload::Gloas(jep))
+                    .or_else(|_| {
+                        get_param::<JsonExecutionPayloadFulu<E>>(params, 0)
+                            .map(|jep| JsonExecutionPayload::Fulu(jep))
+                    })
                     .or_else(|_| {
                         get_param::<JsonExecutionPayloadElectra<E>>(params, 0)
                             .map(|jep| JsonExecutionPayload::Electra(jep))
@@ -185,7 +189,7 @@ pub async fn handle_rpc<E: EthSpec>(
                         ));
                     }
                 }
-                ForkName::Electra | ForkName::Fulu => {
+                ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
                     if method == ENGINE_NEW_PAYLOAD_V1
                         || method == ENGINE_NEW_PAYLOAD_V2
                         || method == ENGINE_NEW_PAYLOAD_V3
@@ -322,7 +326,7 @@ pub async fn handle_rpc<E: EthSpec>(
                 ));
             }
 
-            // validate method called correctly according to fulu fork time
+            // validate method called correctly according to osaka fork time
             if ctx
                 .execution_block_generator
                 .read()
@@ -335,6 +339,23 @@ pub async fn handle_rpc<E: EthSpec>(
             {
                 return Err((
                     format!("{} called after Fulu fork!", method),
+                    FORK_REQUEST_MISMATCH_ERROR_CODE,
+                ));
+            }
+
+            // validate method called correctly according to amsterdam fork time
+            if ctx
+                .execution_block_generator
+                .read()
+                .get_fork_at_timestamp(response.timestamp())
+                == ForkName::Gloas
+                && (method == ENGINE_GET_PAYLOAD_V1
+                    || method == ENGINE_GET_PAYLOAD_V2
+                    || method == ENGINE_GET_PAYLOAD_V3
+                    || method == ENGINE_GET_PAYLOAD_V4)
+            {
+                return Err((
+                    format!("{} called after Gloas fork!", method),
                     FORK_REQUEST_MISMATCH_ERROR_CODE,
                 ));
             }
@@ -415,6 +436,21 @@ pub async fn handle_rpc<E: EthSpec>(
                         })
                         .unwrap()
                     }
+                    JsonExecutionPayload::Gloas(execution_payload) => {
+                        serde_json::to_value(JsonGetPayloadResponseGloas {
+                            execution_payload,
+                            block_value: Uint256::from(DEFAULT_MOCK_EL_PAYLOAD_VALUE_WEI),
+                            blobs_bundle: maybe_blobs
+                                .ok_or((
+                                    "No blobs returned despite V5 Payload".to_string(),
+                                    GENERIC_ERROR_CODE,
+                                ))?
+                                .into(),
+                            should_override_builder: false,
+                            execution_requests: Default::default(),
+                        })
+                        .unwrap()
+                    }
                     _ => unreachable!(),
                 }),
                 _ => unreachable!(),
@@ -451,7 +487,8 @@ pub async fn handle_rpc<E: EthSpec>(
                                     ForkName::Capella
                                     | ForkName::Deneb
                                     | ForkName::Electra
-                                    | ForkName::Fulu => {
+                                    | ForkName::Fulu
+                                    | ForkName::Gloas => {
                                         get_param::<Option<JsonPayloadAttributesV2>>(params, 1)
                                             .map(|opt| opt.map(JsonPayloadAttributes::V2))
                                             .transpose()
@@ -515,7 +552,7 @@ pub async fn handle_rpc<E: EthSpec>(
                             ));
                         }
                     }
-                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
+                    ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
                         if method == ENGINE_FORKCHOICE_UPDATED_V1 {
                             return Err((
                                 format!("{} called after Deneb fork!", method),

@@ -15,7 +15,7 @@ pub type Transactions<E> = VariableList<
 pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             Default,
@@ -88,12 +88,12 @@ pub struct ExecutionPayload<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
     pub withdrawals: Withdrawals<E>,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
 }
@@ -122,6 +122,7 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
             ForkName::Deneb => ExecutionPayloadDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Electra => ExecutionPayloadElectra::from_ssz_bytes(bytes).map(Self::Electra),
             ForkName::Fulu => ExecutionPayloadFulu::from_ssz_bytes(bytes).map(Self::Fulu),
+            ForkName::Gloas => ExecutionPayloadGloas::from_ssz_bytes(bytes).map(Self::Gloas),
         }
     }
 }
@@ -169,6 +170,9 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayload<E> 
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
+            ForkName::Gloas => {
+                Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
         })
     }
 }
@@ -181,6 +185,7 @@ impl<E: EthSpec> ExecutionPayload<E> {
             ExecutionPayload::Deneb(_) => ForkName::Deneb,
             ExecutionPayload::Electra(_) => ForkName::Electra,
             ExecutionPayload::Fulu(_) => ForkName::Fulu,
+            ExecutionPayload::Gloas(_) => ForkName::Gloas,
         }
     }
 }

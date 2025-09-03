@@ -3059,6 +3059,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
+    #[instrument(skip_all, level = "debug")]
     pub async fn process_gossip_data_columns(
         self: &Arc<Self>,
         data_columns: Vec<GossipVerifiedDataColumn<T>>,
@@ -3813,19 +3814,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await??
         };
-
-        // Remove block components from da_checker AFTER completing block import. Then we can assert
-        // the following invariant:
-        // > A valid unfinalized block is either in fork-choice or da_checker.
-        //
-        // If we remove the block when it becomes available, there's some time window during
-        // `import_block` where the block is nowhere. Consumers of the da_checker can handle the
-        // extend time a block may exist in the da_checker.
-        //
-        // If `import_block` errors (only errors with internal errors), the pending components will
-        // be pruned on data_availability_checker maintenance as finality advances.
-        self.data_availability_checker
-            .remove_pending_components(block_root);
 
         Ok(AvailabilityProcessingStatus::Imported(block_root))
     }
@@ -5702,6 +5690,48 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         parent_root,
                         state_root: Hash256::zero(),
                         body: BeaconBlockBodyFulu {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings: proposer_slashings.into(),
+                            attester_slashings: attester_slashings_electra.into(),
+                            attestations: attestations_electra.into(),
+                            deposits: deposits.into(),
+                            voluntary_exits: voluntary_exits.into(),
+                            sync_aggregate: sync_aggregate
+                                .ok_or(BlockProductionError::MissingSyncAggregate)?,
+                            execution_payload: payload
+                                .try_into()
+                                .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
+                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            blob_kzg_commitments: kzg_commitments
+                                .ok_or(BlockProductionError::InvalidPayloadFork)?,
+                            execution_requests: maybe_requests
+                                .ok_or(BlockProductionError::MissingExecutionRequests)?,
+                        },
+                    }),
+                    maybe_blobs_and_proofs,
+                    execution_payload_value,
+                )
+            }
+            BeaconState::Gloas(_) => {
+                let (
+                    payload,
+                    kzg_commitments,
+                    maybe_blobs_and_proofs,
+                    maybe_requests,
+                    execution_payload_value,
+                ) = block_contents
+                    .ok_or(BlockProductionError::MissingExecutionPayload)?
+                    .deconstruct();
+
+                (
+                    BeaconBlock::Gloas(BeaconBlockGloas {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root: Hash256::zero(),
+                        body: BeaconBlockBodyGloas {
                             randao_reveal,
                             eth1_data,
                             graffiti,

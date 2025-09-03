@@ -21,7 +21,9 @@ use beacon_processor::{work_reprocessing_queue::*, *};
 use gossipsub::MessageAcceptance;
 use itertools::Itertools;
 use lighthouse_network::rpc::InboundRequestId;
-use lighthouse_network::rpc::methods::{BlobsByRangeRequest, MetaDataV3};
+use lighthouse_network::rpc::methods::{
+    BlobsByRangeRequest, DataColumnsByRangeRequest, MetaDataV3,
+};
 use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
     discv5::enr::{self, CombinedKey},
@@ -30,6 +32,7 @@ use lighthouse_network::{
 };
 use matches::assert_matches;
 use slot_clock::SlotClock;
+use std::collections::HashSet;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
@@ -70,7 +73,7 @@ struct TestRig {
     beacon_processor_tx: BeaconProcessorSend<E>,
     work_journal_rx: mpsc::Receiver<&'static str>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
-    _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
+    sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
     network_beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     _harness: BeaconChainHarness<T>,
@@ -202,7 +205,7 @@ impl TestRig {
             beacon_processor_rx,
         } = BeaconProcessorChannels::new(&beacon_processor_config);
 
-        let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
+        let (sync_tx, sync_rx) = mpsc::unbounded_channel();
 
         // Default metadata
         let meta_data = if spec.is_peer_das_scheduled() {
@@ -310,7 +313,7 @@ impl TestRig {
             beacon_processor_tx,
             work_journal_rx,
             network_rx,
-            _sync_rx,
+            sync_rx,
             duplicate_cache,
             network_beacon_processor,
             _harness: harness,
@@ -427,6 +430,20 @@ impl TestRig {
                 BlobsByRangeRequest {
                     start_slot: 0,
                     count,
+                },
+            )
+            .unwrap();
+    }
+
+    pub fn enqueue_data_columns_by_range_request(&self, count: u64, columns: Vec<u64>) {
+        self.network_beacon_processor
+            .send_data_columns_by_range_request(
+                PeerId::random(),
+                InboundRequestId::new_unchecked(42, 24),
+                DataColumnsByRangeRequest {
+                    start_slot: 0,
+                    count,
+                    columns,
                 },
             )
             .unwrap();
@@ -663,6 +680,45 @@ impl TestRig {
             tokio::select! {
                 _ = &mut timeout_future => break,
                 maybe_msg = self.network_rx.recv() => {
+                    match maybe_msg {
+                        Some(msg) => events.push(msg),
+                        None => break, // Channel closed
+                    }
+                }
+            }
+        }
+
+        if events.is_empty() {
+            None
+        } else {
+            Some(events)
+        }
+    }
+
+    /// Listen for sync messages and collect them for a specified duration or until reaching a count.
+    ///
+    /// Returns None if no messages were received, or Some(Vec) containing the received messages.
+    pub async fn receive_sync_messages_with_timeout(
+        &mut self,
+        timeout: Duration,
+        count: Option<usize>,
+    ) -> Option<Vec<SyncMessage<E>>> {
+        let mut events = vec![];
+
+        let timeout_future = tokio::time::sleep(timeout);
+        tokio::pin!(timeout_future);
+
+        loop {
+            // Break if we've received the requested count of messages
+            if let Some(target_count) = count
+                && events.len() >= target_count
+            {
+                break;
+            }
+
+            tokio::select! {
+                _ = &mut timeout_future => break,
+                maybe_msg = self.sync_rx.recv() => {
                     match maybe_msg {
                         Some(msg) => events.push(msg),
                         None => break, // Channel closed
@@ -1364,4 +1420,116 @@ async fn test_blobs_by_range() {
         }
     }
     assert_eq!(blob_count, actual_count);
+}
+
+/// Ensure that data column processing that results in block import sends a sync notification
+#[tokio::test]
+async fn test_data_column_import_notifies_sync() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    }
+
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+    let block_root = rig.next_block.canonical_root();
+
+    // Enqueue the block first to prepare for data column processing
+    rig.enqueue_gossip_block();
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+    rig.receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
+        .await
+        .expect("should receive sync message");
+
+    // Enqueue data columns which should trigger block import when complete
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    if num_data_columns > 0 {
+        for i in 0..num_data_columns {
+            rig.enqueue_gossip_data_columns(i);
+            rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+                .await;
+        }
+
+        // Verify block import succeeded
+        assert_eq!(
+            rig.head_root(),
+            block_root,
+            "block should be imported and become head"
+        );
+
+        // Check that sync was notified of the successful import
+        let sync_messages = rig
+            .receive_sync_messages_with_timeout(Duration::from_millis(100), Some(1))
+            .await
+            .expect("should receive sync message");
+
+        // Verify we received the expected GossipBlockProcessResult message
+        assert_eq!(
+            sync_messages.len(),
+            1,
+            "should receive exactly one sync message"
+        );
+        match &sync_messages[0] {
+            SyncMessage::GossipBlockProcessResult {
+                block_root: msg_block_root,
+                imported,
+            } => {
+                assert_eq!(*msg_block_root, block_root, "block root should match");
+                assert!(*imported, "block should be marked as imported");
+            }
+            other => panic!("expected GossipBlockProcessResult, got {:?}", other),
+        }
+    }
+}
+
+#[tokio::test]
+async fn test_data_columns_by_range_request_only_returns_requested_columns() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+    let slot_count = 4;
+
+    let all_custody_columns = rig
+        .chain
+        .sampling_columns_for_epoch(rig.chain.epoch().unwrap());
+    let available_columns: Vec<u64> = all_custody_columns.to_vec();
+
+    let requested_columns = vec![available_columns[0], available_columns[2]];
+
+    rig.enqueue_data_columns_by_range_request(slot_count, requested_columns.clone());
+
+    let mut received_columns = Vec::new();
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::DataColumnsByRange(data_column),
+            inbound_request_id: _,
+        } = next
+        {
+            if let Some(column) = data_column {
+                received_columns.push(column.index);
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+
+    for received_index in &received_columns {
+        assert!(
+            requested_columns.contains(received_index),
+            "Received column index {} was not in requested columns {:?}",
+            received_index,
+            requested_columns
+        );
+    }
+
+    let unique_received: HashSet<_> = received_columns.into_iter().collect();
+    assert!(
+        !unique_received.is_empty(),
+        "Should have received at least some data columns"
+    );
 }
