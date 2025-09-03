@@ -740,5 +740,6 @@ fn extract_execution_payload<E: EthSpec>(
             ExecutionPayload::Electra(payload.execution_payload.clone())
         }
         FullPayloadRef::Fulu(payload) => ExecutionPayload::Fulu(payload.execution_payload.clone()),
+        FullPayloadRef::Gloas(payload) => ExecutionPayload::Gloas(payload.execution_payload.clone()),
     })
 }
