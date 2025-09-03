@@ -1,4 +1,5 @@
 use crate::test_utils::TestRandom;
+use crate::variant_mappings::BaseAndElectra;
 use crate::*;
 use derivative::Derivative;
 use merkle_proof::{MerkleTree, MerkleTreeError};
@@ -64,7 +65,9 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
         Gloas(metastruct(mappings(beacon_block_body_gloas_fields(groups(fields))))),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
-    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    map_ref_into(AttestationRef, AttesterSlashingRef),
+    map_ref_mut_into(AttestationRefMut)
 )]
 #[cfg_attr(
     feature = "arbitrary",
@@ -318,87 +321,29 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     }
 
     pub fn attestations_len(&self) -> usize {
-        match self {
-            Self::Base(body) => body.attestations.len(),
-            Self::Altair(body) => body.attestations.len(),
-            Self::Bellatrix(body) => body.attestations.len(),
-            Self::Capella(body) => body.attestations.len(),
-            Self::Deneb(body) => body.attestations.len(),
-            Self::Electra(body) => body.attestations.len(),
-            Self::Fulu(body) => body.attestations.len(),
-            Self::Gloas(body) => body.attestations.len(),
-        }
+        map_beacon_block_body_ref!(&'a _, self, |inner, cons| {
+            cons(inner);
+            inner.attestations.len()
+        })
     }
 
     pub fn attester_slashings_len(&self) -> usize {
-        match self {
-            Self::Base(body) => body.attester_slashings.len(),
-            Self::Altair(body) => body.attester_slashings.len(),
-            Self::Bellatrix(body) => body.attester_slashings.len(),
-            Self::Capella(body) => body.attester_slashings.len(),
-            Self::Deneb(body) => body.attester_slashings.len(),
-            Self::Electra(body) => body.attester_slashings.len(),
-            Self::Fulu(body) => body.attester_slashings.len(),
-            Self::Gloas(body) => body.attester_slashings.len(),
-        }
+        map_beacon_block_body_ref!(&'a _, self, |inner, cons| {
+            cons(inner);
+            inner.attester_slashings.len()
+        })
     }
 
     pub fn attestations(&self) -> Box<dyn Iterator<Item = AttestationRef<'a, E>> + 'a> {
-        match self {
-            Self::Base(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
-            Self::Altair(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
-            Self::Bellatrix(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
-            Self::Capella(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
-            Self::Deneb(body) => Box::new(body.attestations.iter().map(AttestationRef::Base)),
-            Self::Electra(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
-            Self::Fulu(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
-            Self::Gloas(body) => Box::new(body.attestations.iter().map(AttestationRef::Electra)),
-        }
+        map_beacon_block_body_ref_into_attestation_ref!(&'a _, self, |body, cons| {
+            Box::new(body.attestations.iter().map(cons))
+        })
     }
 
     pub fn attester_slashings(&self) -> Box<dyn Iterator<Item = AttesterSlashingRef<'a, E>> + 'a> {
-        match self {
-            Self::Base(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Base),
-            ),
-            Self::Altair(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Base),
-            ),
-            Self::Bellatrix(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Base),
-            ),
-            Self::Capella(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Base),
-            ),
-            Self::Deneb(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Base),
-            ),
-            Self::Electra(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Electra),
-            ),
-            Self::Fulu(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Electra),
-            ),
-            Self::Gloas(body) => Box::new(
-                body.attester_slashings
-                    .iter()
-                    .map(AttesterSlashingRef::Electra),
-            ),
-        }
+        map_beacon_block_body_ref_into_attester_slashing_ref!(&'a _, self, |body, cons| {
+            Box::new(body.attester_slashings.iter().map(cons))
+        })
     }
 }
 
@@ -406,30 +351,9 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRefMut<'a, 
     pub fn attestations_mut(
         &'a mut self,
     ) -> Box<dyn Iterator<Item = AttestationRefMut<'a, E>> + 'a> {
-        match self {
-            Self::Base(body) => Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base)),
-            Self::Altair(body) => {
-                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
-            }
-            Self::Bellatrix(body) => {
-                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
-            }
-            Self::Capella(body) => {
-                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
-            }
-            Self::Deneb(body) => {
-                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Base))
-            }
-            Self::Electra(body) => {
-                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
-            }
-            Self::Fulu(body) => {
-                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
-            }
-            Self::Gloas(body) => {
-                Box::new(body.attestations.iter_mut().map(AttestationRefMut::Electra))
-            }
-        }
+        map_beacon_block_body_ref_mut_into_attestation_ref_mut!(&'a _, self, |body, cons| {
+            Box::new(body.attestations.iter_mut().map(cons))
+        })
     }
 }
 

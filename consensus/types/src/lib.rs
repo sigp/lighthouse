@@ -96,6 +96,7 @@ pub mod sync_committee_message;
 pub mod sync_selection_proof;
 pub mod sync_subnet_id;
 pub mod validator_registration_data;
+pub mod variant_mappings;
 pub mod withdrawal;
 
 pub mod epoch_cache;
