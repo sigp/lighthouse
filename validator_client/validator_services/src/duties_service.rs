@@ -117,13 +117,16 @@ pub struct SubscriptionSlots {
 #[derive(Copy, Clone, Debug)]
 pub struct SelectionProofConfig {
     pub lookahead_slot: u64,
-    pub computation_offset: Duration, // The seconds to compute the selection proof before a slot
-    pub selections_endpoint: bool, // whether to call the selections endpoint, true for DVT with middleware
-    pub parallel_sign: bool, // whether to sign the selection proof in parallel, true in distributed mode
+    /// The seconds to compute the selection proof before a slot.
+    pub computation_offset: Duration,
+    /// Whether to call the selections endpoint, true for DVT with middleware.
+    pub selections_endpoint: bool,
+    /// Whether to sign the selection proof in parallel, true in distributed mode.
+    pub parallel_sign: bool,
 }
 
-impl SelectionProofConfig {
-    // Create a default associated function to be passed in DutiesServiceBuilder::new()
+/// The default config for selection proofs covers the non-DVT case.
+impl Default for SelectionProofConfig {
     fn default() -> Self {
         Self {
             lookahead_slot: 0,
@@ -175,11 +178,18 @@ async fn make_selection_proof<S: ValidatorStore + 'static, T: SlotClock>(
             })
             .await;
 
-        let response_data = &middleware_response
+        let response_data = middleware_response
             .map_err(|e| {
                 Error::FailedToProduceSelectionProof(ValidatorStoreError::Middleware(e.to_string()))
             })?
-            .data[0];
+            .data
+            .pop()
+            .ok_or_else(|| {
+                Error::FailedToProduceSelectionProof(ValidatorStoreError::Middleware(format!(
+                    "attestation selection proof - empty response for validator {}",
+                    duty.validator_index
+                )))
+            })?;
 
         debug!(
             "validator_index" = response_data.validator_index,
@@ -188,7 +198,7 @@ async fn make_selection_proof<S: ValidatorStore + 'static, T: SlotClock>(
             "full selection proof" = ?response_data.selection_proof,
             "Received selection from middleware"
         );
-        SelectionProof::from(response_data.selection_proof.clone())
+        SelectionProof::from(response_data.selection_proof)
     } else {
         validator_store
             .produce_selection_proof(duty.pubkey, duty.slot)

@@ -1,5 +1,5 @@
 use crate::duties_service::{DutiesService, Error, SelectionProofConfig};
-use eth2::types::{Signature, SyncCommitteeSelection};
+use eth2::types::SyncCommitteeSelection;
 use futures::future::join_all;
 use futures::stream::{FuturesUnordered, StreamExt};
 use logging::crit;
@@ -530,7 +530,7 @@ pub async fn make_sync_selection_proof<S: ValidatorStore, T: SlotClock>(
             "slot" = %proof_slot,
             "subcommittee_index" = *subnet_id,
             // This is partial selection proof
-            "partial selection proof" = ?Signature::from(selection_proof.clone()),
+            "partial selection proof" = ?selection_proof,
             "Sending sync selection to middleware"
         );
 
@@ -557,8 +557,15 @@ pub async fn make_sync_selection_proof<S: ValidatorStore, T: SlotClock>(
             .await;
 
         match middleware_response {
-            Ok(response) => {
-                let response_data = &response.data[0];
+            Ok(mut response) => {
+                let Some(response_data) = response.data.pop() else {
+                    error!(
+                        validator_index = duty.validator_index,
+                        slot = %proof_slot,
+                        "Empty response from sync selection middleware",
+                    );
+                    return None;
+                };
                 debug!(
                     "validator_index" = response_data.validator_index,
                     "slot" = %response_data.slot,
@@ -570,7 +577,7 @@ pub async fn make_sync_selection_proof<S: ValidatorStore, T: SlotClock>(
 
                 // Convert the response to a SyncSelectionProof
                 let full_selection_proof =
-                    SyncSelectionProof::from(response_data.selection_proof.clone());
+                    SyncSelectionProof::from(response_data.selection_proof);
                 Some(full_selection_proof)
             }
             Err(e) => {
