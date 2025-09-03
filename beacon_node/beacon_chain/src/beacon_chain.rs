@@ -3740,7 +3740,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .get_execution_valid_block(&block_root)
             .map(|b| b.slot())
             // TODO: This is not an InternalError, just means we've received a proof without a block
-            .ok_or_else(|| BlockError::InternalError("missing block in DA checker for execution proof".to_string()))?;
+            .ok_or_else(|| {
+                BlockError::InternalError(
+                    "missing block in DA checker for execution proof".to_string(),
+                )
+            })?;
 
         let availability = self
             .data_availability_checker

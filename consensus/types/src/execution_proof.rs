@@ -78,13 +78,7 @@ mod tests {
         let subnet_id = ExecutionProofSubnetId::new(0).unwrap();
         let proof_data = vec![1, 2, 3, 4];
 
-        let proof = ExecutionProof::new(
-            block_root,
-            block_hash,
-            subnet_id,
-            1,
-            proof_data.clone(),
-        );
+        let proof = ExecutionProof::new(block_root, block_hash, subnet_id, 1, proof_data.clone());
 
         assert_eq!(proof.block_root, block_root);
         assert_eq!(proof.block_hash, block_hash);

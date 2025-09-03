@@ -3288,7 +3288,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match self
             .chain
-            .check_gossip_execution_proof_availability_and_import(block_root, std::iter::once(verified_proof))
+            .check_gossip_execution_proof_availability_and_import(
+                block_root,
+                std::iter::once(verified_proof),
+            )
             .await
         {
             Err(e) => {
@@ -3321,7 +3324,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             block_root: imported_root,
                             imported: true,
                         });
-                        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Accept,
+                        );
                     }
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
@@ -3330,7 +3337,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             subnet_id = subnet_id_u64,
                             "Execution proof stored, but block still missing other components"
                         );
-                        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Accept,
+                        );
                     }
                 }
 
