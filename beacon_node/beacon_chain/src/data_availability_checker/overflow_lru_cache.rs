@@ -298,6 +298,18 @@ impl<E: EthSpec> PendingComponents<E> {
             payload_verification_outcome,
         } = recover(block.clone(), &self.span)?;
 
+        // If execution proofs were required and are now present, upgrade the payload
+        // verification status to Verified so fork choice reflects proof-backed validity.
+        let payload_verification_outcome = match &proof_data {
+            ImportableProofData::Proofs(_) => {
+                let mut outcome = payload_verification_outcome.clone();
+                outcome.payload_verification_status =
+                    fork_choice::PayloadVerificationStatus::Verified;
+                outcome
+            }
+            ImportableProofData::NoneRequired => payload_verification_outcome,
+        };
+
         let available_block = AvailableBlock {
             block_root: self.block_root,
             block,
