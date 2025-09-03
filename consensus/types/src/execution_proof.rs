@@ -18,7 +18,7 @@ pub struct ExecutionProof {
     /// The subnet ID where this proof was received/should be sent (maps to gossip subnet)
     pub subnet_id: ExecutionProofSubnetId,
     /// Version of the proof format - allows for one subnet to upgrade their proof without all needing to
-    pub version: u32,
+    pub version: u64,
     /// Opaque proof data - structure depends on subnet_id and version
     /// This will contain cryptographic proofs received via gossip
     pub proof_data: Vec<u8>,
@@ -30,7 +30,7 @@ impl ExecutionProof {
         block_root: Hash256,
         block_hash: ExecutionBlockHash,
         subnet_id: ExecutionProofSubnetId,
-        version: u32,
+        version: u64,
         proof_data: Vec<u8>,
     ) -> Self {
         Self {
