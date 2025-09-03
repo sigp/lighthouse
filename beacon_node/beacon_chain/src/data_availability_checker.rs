@@ -390,7 +390,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block,
                     blob_data: AvailableBlockData::Blobs(blob_list),
                     blobs_available_timestamp: None,
-                    proof_data: AvailableProofData::NoneRequired,
+                    proof_data: ImportableProofData::NoneRequired,
                     spec: self.spec.clone(),
                 }))
             } else {
@@ -416,7 +416,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                             .collect(),
                     ),
                     blobs_available_timestamp: None,
-                    proof_data: AvailableProofData::NoneRequired,
+                    proof_data: ImportableProofData::NoneRequired,
                     spec: self.spec.clone(),
                 }))
             } else {
@@ -429,7 +429,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             block,
             blob_data: AvailableBlockData::NoData,
             blobs_available_timestamp: None,
-            proof_data: AvailableProofData::NoneRequired,
+            proof_data: ImportableProofData::NoneRequired,
             spec: self.spec.clone(),
         }))
     }
@@ -486,7 +486,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         block,
                         blob_data: AvailableBlockData::Blobs(blobs),
                         blobs_available_timestamp: None,
-                        proof_data: AvailableProofData::NoneRequired,
+                        proof_data: ImportableProofData::NoneRequired,
                         spec: self.spec.clone(),
                     })
                 } else {
@@ -501,7 +501,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                             data_columns.into_iter().map(|d| d.into_inner()).collect(),
                         ),
                         blobs_available_timestamp: None,
-                        proof_data: AvailableProofData::NoneRequired,
+                        proof_data: ImportableProofData::NoneRequired,
                         spec: self.spec.clone(),
                     })
                 } else {
@@ -513,7 +513,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                     block,
                     blob_data: AvailableBlockData::NoData,
                     blobs_available_timestamp: None,
-                    proof_data: AvailableProofData::NoneRequired,
+                    proof_data: ImportableProofData::NoneRequired,
                     spec: self.spec.clone(),
                 })
             };
@@ -768,10 +768,8 @@ pub enum AvailableBlockData<E: EthSpec> {
 ///
 /// The proofs that were collected that convinced the node that the
 /// Block's execution payload was indeed valid.
-///
-/// TODO: Rename to ImportableProofData
 #[derive(Debug, Clone)]
-pub enum AvailableProofData {
+pub enum ImportableProofData {
     /// Execution proofs that were used to validate this block.
     /// The number of proofs is at least `min_proofs_required` because
     /// that is needed for the block to be seen as available/importable.
@@ -789,7 +787,7 @@ pub struct AvailableBlock<E: EthSpec> {
     /// Timestamp at which this block first became available (UNIX timestamp, time since 1970).
     blobs_available_timestamp: Option<Duration>,
     /// Execution proof data for this block
-    pub proof_data: AvailableProofData,
+    pub proof_data: ImportableProofData,
     pub spec: Arc<ChainSpec>,
 }
 
@@ -798,7 +796,7 @@ impl<E: EthSpec> AvailableBlock<E> {
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E>>,
         data: AvailableBlockData<E>,
-        proof_data: AvailableProofData,
+        proof_data: ImportableProofData,
         spec: Arc<ChainSpec>,
     ) -> Self {
         Self {

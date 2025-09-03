@@ -3,7 +3,7 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
-use beacon_chain::data_availability_checker::{AvailableBlock, AvailableProofData};
+use beacon_chain::data_availability_checker::{AvailableBlock, ImportableProofData};
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
@@ -2564,7 +2564,7 @@ async fn weak_subjectivity_sync_test(
                 block_root,
                 Arc::new(corrupt_block),
                 data,
-                AvailableProofData::NoneRequired,
+                ImportableProofData::NoneRequired,
                 Arc::new(spec),
             )
         };

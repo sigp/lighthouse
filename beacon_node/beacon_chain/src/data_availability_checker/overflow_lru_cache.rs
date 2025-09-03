@@ -7,7 +7,7 @@ use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
-use crate::data_availability_checker::{Importability, AvailabilityCheckError, AvailableProofData};
+use crate::data_availability_checker::{Importability, AvailabilityCheckError, ImportableProofData};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
@@ -310,7 +310,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             blob_data,
             blobs_available_timestamp,
-            proof_data: super::AvailableProofData::NoneRequired,
+            proof_data: super::ImportableProofData::NoneRequired,
             spec: spec.clone(),
         };
 
@@ -334,7 +334,7 @@ impl<E: EthSpec> PendingComponents<E> {
         spec: &Arc<ChainSpec>,
         block: &DietAvailabilityPendingExecutedBlock<E>,
         min_execution_proofs_required: Option<usize>,
-    ) -> Result<Option<AvailableProofData>, AvailabilityCheckError> {
+    ) -> Result<Option<ImportableProofData>, AvailabilityCheckError> {
         // Check DA boundary like blobs/columns do
         let current_epoch = block.epoch();
         let da_boundary = spec.min_epoch_data_availability_boundary(current_epoch);
@@ -342,12 +342,12 @@ impl<E: EthSpec> PendingComponents<E> {
 
         if !within_da_boundary {
             // Historical block outside DA boundary - no execution proofs required (allows sync)
-            return Ok(Some(AvailableProofData::NoneRequired));
+            return Ok(Some(ImportableProofData::NoneRequired));
         }
 
         let Some(num_expected_proofs) = min_execution_proofs_required else {
             // Node not configured for execution proof requirements
-            return Ok(Some(AvailableProofData::NoneRequired));
+            return Ok(Some(ImportableProofData::NoneRequired));
         };
 
         let num_received_proofs = self.verified_execution_proofs.len();
@@ -355,13 +355,13 @@ impl<E: EthSpec> PendingComponents<E> {
         match num_received_proofs.cmp(&num_expected_proofs) {
             Ordering::Greater => {
                 // More proofs than required (fine)
-                Ok(Some(AvailableProofData::Proofs(
+                Ok(Some(ImportableProofData::Proofs(
                     self.verified_execution_proofs.values().cloned().collect(),
                 )))
             }
             Ordering::Equal => {
                 // Exact number of proofs required
-                Ok(Some(AvailableProofData::Proofs(
+                Ok(Some(ImportableProofData::Proofs(
                     self.verified_execution_proofs.values().cloned().collect(),
                 )))
             }
