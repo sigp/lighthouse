@@ -687,11 +687,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // Batch is not ready, nothing to process
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
+                // Batches can be in `AwaitingDownload` state if there weren't good data column subnet
+                // peers to send the request to.
+                BatchState::AwaitingDownload => return Ok(ProcessResult::Successful),
+                BatchState::Failed | BatchState::Processing(_) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
-                    // - AwaitingDownload -> A recoverable failed batch should have been
-                    //   re-requested.
                     // - Processing -> `self.current_processing_batch` is None
                     self.fail_sync(BackFillError::InvalidSyncState(String::from(
                         "Invalid expected batch state",
@@ -790,7 +791,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     }
                 }
                 BatchState::Downloading(..) => {}
-                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
+                BatchState::AwaitingDownload => return,
+                BatchState::Failed | BatchState::Poisoned => {
                     crit!("batch indicates inconsistent chain state while advancing chain")
                 }
                 BatchState::AwaitingProcessing(..) => {}
