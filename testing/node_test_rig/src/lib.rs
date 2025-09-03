@@ -4,7 +4,7 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use eth2::{BeaconNodeHttpClient, Timeouts, reqwest::ClientBuilder};
+use eth2::{BeaconNodeHttpClient, Timeouts, HttpClientBuilderWithUserAgent};
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -81,7 +81,7 @@ impl<E: EthSpec> LocalBeaconNode<E> {
             format!("http://{}:{}", listen_addr.ip(), listen_addr.port()).as_str(),
         )
         .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
-        let beacon_node_http_client = ClientBuilder::new()
+        let beacon_node_http_client = HttpClientBuilderWithUserAgent::new(None)
             .timeout(HTTP_TIMEOUT)
             .build()
             .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;

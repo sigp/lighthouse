@@ -7,8 +7,8 @@ use eth2::types::{
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
-    CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
-    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error,
+    CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, HttpClientBuilderWithUserAgent,
+    JSON_CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error,
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};
@@ -25,9 +25,6 @@ pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
 
 /// This timeout is in accordance with v0.2.0 of the [builder specs](https://github.com/flashbots/mev-boost/pull/20).
 pub const DEFAULT_GET_HEADER_TIMEOUT_MILLIS: u64 = 1000;
-
-/// Default user agent for HTTP requests.
-pub const DEFAULT_USER_AGENT: &str = lighthouse_version::VERSION;
 
 /// The value we set on the `ACCEPT` http header to indicate a preference for ssz response.
 pub const PREFERENCE_ACCEPT_VALUE: &str = "application/octet-stream;q=1.0,application/json;q=0.9";
@@ -77,8 +74,8 @@ impl BuilderHttpClient {
         builder_header_timeout: Option<Duration>,
         disable_ssz: bool,
     ) -> Result<Self, Error> {
-        let user_agent = user_agent.unwrap_or(DEFAULT_USER_AGENT.to_string());
-        let client = reqwest::Client::builder().user_agent(&user_agent).build()?;
+        let user_agent = user_agent.unwrap_or(lighthouse_version::user_agent());
+        let client = HttpClientBuilderWithUserAgent::new(Some(user_agent.clone())).build()?;
         Ok(Self {
             client,
             server,

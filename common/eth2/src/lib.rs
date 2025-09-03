@@ -21,8 +21,9 @@ use derivative::Derivative;
 use futures::Stream;
 use futures_util::StreamExt;
 use libp2p_identity::PeerId;
+use lighthouse_version;
 use pretty_reqwest_error::PrettyReqwestError;
-pub use reqwest;
+use reqwest;
 use reqwest::{
     Body, IntoUrl, RequestBuilder, Response,
     header::{HeaderMap, HeaderValue},
@@ -237,8 +238,13 @@ impl AsRef<str> for BeaconNodeHttpClient {
 
 impl BeaconNodeHttpClient {
     pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
+        let client = reqwest::ClientBuilder::new()
+            .user_agent(lighthouse_version::user_agent())
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             timeouts,
         }
@@ -2901,5 +2907,15 @@ pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
         }
     } else {
         Err(Error::StatusCode(status))
+    }
+}
+
+/// A wrapper around `reqwest::ClientBuilder` which adds a user agent for client identification
+pub struct HttpClientBuilderWithUserAgent;
+
+impl HttpClientBuilderWithUserAgent {
+    pub fn new(user_agent: Option<String>) -> reqwest::ClientBuilder {
+        let user_agent = user_agent.unwrap_or(lighthouse_version::user_agent());
+        reqwest::ClientBuilder::new().user_agent(user_agent)
     }
 }

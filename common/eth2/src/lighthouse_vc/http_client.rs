@@ -1,5 +1,6 @@
 use super::types::*;
 use crate::Error;
+use lighthouse_version;
 use reqwest::{
     IntoUrl,
     header::{HeaderMap, HeaderValue},
@@ -45,8 +46,13 @@ impl Display for AuthorizationHeader {
 impl ValidatorClientHttpClient {
     /// Create a new client pre-initialised with an API token.
     pub fn new(server: SensitiveUrl, secret: String) -> Result<Self, Error> {
+        let client = reqwest::ClientBuilder::new()
+            .user_agent(lighthouse_version::user_agent())
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             api_token: Some(secret.into()),
             authorization_header: AuthorizationHeader::Bearer,
@@ -57,8 +63,13 @@ impl ValidatorClientHttpClient {
     ///
     /// A token can be fetched by using `self.get_auth`, and then reading the token from disk.
     pub fn new_unauthenticated(server: SensitiveUrl) -> Result<Self, Error> {
+        let client = reqwest::ClientBuilder::new()
+            .user_agent(lighthouse_version::user_agent())
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Ok(Self {
-            client: reqwest::Client::new(),
+            client,
             server,
             api_token: None,
             authorization_header: AuthorizationHeader::Omit,
@@ -696,5 +707,89 @@ async fn ok_or_error(response: Response) -> Result<Response, Error> {
         Err(Error::ServerMessage(message))
     } else {
         Err(Error::StatusCode(status))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockito::{Matcher, Server};
+    use std::str::FromStr;
+
+    #[test]
+    fn test_validator_client_creation_with_user_agent() {
+        let server = SensitiveUrl::parse("http://localhost:5062").unwrap();
+        let secret = "test-secret".to_string();
+
+        // Test authenticated client
+        let client = ValidatorClientHttpClient::new(server.clone(), secret.clone()).unwrap();
+        assert!(client.api_token().is_some());
+        assert_eq!(client.authorization_header, AuthorizationHeader::Bearer);
+
+        // Test unauthenticated client
+        let unauth_client = ValidatorClientHttpClient::new_unauthenticated(server).unwrap();
+        assert!(unauth_client.api_token().is_none());
+        assert_eq!(unauth_client.authorization_header, AuthorizationHeader::Omit);
+    }
+
+    #[tokio::test]
+    async fn test_validator_client_user_agent_in_requests() {
+        // Create mock server
+        let mut server = Server::new_async().await;
+        let expected_user_agent = lighthouse_version::user_agent();
+
+        // Mock the auth endpoint with user agent verification
+        let auth_mock = server
+            .mock("GET", "/lighthouse/auth")
+            .match_header("user-agent", expected_user_agent.as_str())
+            .with_status(200)
+            .with_body(r#"{"token_path":"/tmp/test","api_token":"test-token"}"#)
+            .create_async()
+            .await;
+
+        // Create client
+        let server_url = SensitiveUrl::parse(&server.url()).unwrap();
+        let client = ValidatorClientHttpClient::new_unauthenticated(server_url).unwrap();
+
+        // Make request - this should include the user agent header
+        let _result = client.get_auth().await;
+
+        // Verify the mock was called with correct user agent
+        auth_mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_validator_client_user_agent_with_auth_token() {
+        // Create mock server
+        let mut server = Server::new_async().await;
+        let expected_user_agent = lighthouse_version::user_agent();
+        let auth_token = "test-bearer-token";
+
+        // Mock the keystores endpoint with both user agent and authorization verification
+        let keystores_mock = server
+            .mock("GET", "/eth/v1/keystores")
+            .match_header("user-agent", expected_user_agent.as_str())
+            .match_header("authorization", format!("Bearer {}", auth_token).as_str())
+            .with_status(200)
+            .with_body(r#"{"data":[]}"#)
+            .create_async()
+            .await;
+
+        // Create authenticated client
+        let server_url = SensitiveUrl::parse(&server.url()).unwrap();
+        let client = ValidatorClientHttpClient::new(server_url, auth_token.to_string()).unwrap();
+
+        // Make request - this should include both user agent and authorization headers
+        let _result = client.get_keystores().await;
+
+        // Verify the mock was called with correct headers
+        keystores_mock.assert_async().await;
+    }
+
+    #[test]
+    fn test_authorization_header_display() {
+        assert_eq!(AuthorizationHeader::Omit.to_string(), "Omit");
+        assert_eq!(AuthorizationHeader::Basic.to_string(), "Basic");
+        assert_eq!(AuthorizationHeader::Bearer.to_string(), "Bearer");
     }
 }

@@ -48,6 +48,15 @@ pub fn version_with_platform() -> String {
     format!("{}/{}-{}", VERSION, consts::ARCH, consts::OS)
 }
 
+/// Returns `CLIENT_NAME/VERSION` used as default User-Agent for HTTP requests.
+///
+/// ## Example
+///
+/// `Lighthouse/v7.1.0-67da032+`
+pub fn user_agent() -> String {
+    format!("{}", VERSION)
+}
+
 /// Returns semantic versioning information only.
 ///
 /// ## Example
@@ -89,6 +98,36 @@ mod test {
             re.is_match(version()),
             "semantic version doesn't match regex: {}",
             version()
+        );
+    }
+
+    #[test]
+    fn user_agent_formatting() {
+        let ua = user_agent();
+
+        // User agent should match the VERSION format
+        let re = Regex::new(
+            r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta).[0-9])?(-[[:xdigit:]]{7})?\+?$",
+        )
+        .unwrap();
+
+        assert!(
+            re.is_match(&ua),
+            "user agent doesn't match expected format: {}",
+            ua
+        );
+
+        // User agent should be equal to VERSION
+        assert_eq!(ua, VERSION, "user_agent() should return VERSION");
+    }
+
+    #[test]
+    fn user_agent_non_empty() {
+        let ua = user_agent();
+        assert!(!ua.is_empty(), "user agent should not be empty");
+        assert!(
+            ua.starts_with("Lighthouse/"),
+            "user agent should start with 'Lighthouse/'"
         );
     }
 }

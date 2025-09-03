@@ -17,7 +17,7 @@ use beacon_node_fallback::{
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
 use environment::RuntimeContext;
-use eth2::{BeaconNodeHttpClient, StatusCode, Timeouts, reqwest::ClientBuilder};
+use eth2::{BeaconNodeHttpClient, HttpClientBuilderWithUserAgent, StatusCode, Timeouts};
 use initialized_validators::Error::UnableToOpenVotingKeystore;
 use lighthouse_validator_store::LighthouseValidatorStore;
 use parking_lot::RwLock;
@@ -272,7 +272,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             let url = x.1;
             let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
 
-            let mut beacon_node_http_client_builder = ClientBuilder::new();
+            let mut beacon_node_http_client_builder = HttpClientBuilderWithUserAgent::new(None);
 
             // Add new custom root certificates if specified.
             if let Some(certificates) = &config.beacon_nodes_tls_certs {
