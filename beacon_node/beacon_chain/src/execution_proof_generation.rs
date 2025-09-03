@@ -6,7 +6,8 @@
 
 use tracing::debug;
 use types::{
-    execution_proof_subnet_id::ExecutionProofSubnetId, EthSpec, ExecutionPayload, ExecutionProof, Hash256,
+    EthSpec, ExecutionPayload, ExecutionProof, Hash256,
+    execution_proof_subnet_id::ExecutionProofSubnetId,
 };
 
 /// Generate a proof for an execution payload
@@ -29,7 +30,7 @@ pub async fn generate_proof<T: EthSpec>(
     // Simulate (some) proof computation delay
     // In a real implementation, this would be the time needed for zkVM local proof generation
     // or communication with external proof generation services
-    use rand::{rng, Rng};
+    use rand::{Rng, rng};
     let delay_ms = rng().random_range(1000..=3000);
 
     debug!(
@@ -149,8 +150,13 @@ mod tests {
         assert!(!validate_proof(&v2_proof)); // Should fail validation for unknown version
 
         // Test empty data with version 1 (should be invalid)
-        let empty_v1 =
-            ExecutionProof::new(Hash256::random(), hash, ExecutionProofSubnetId::new(0).unwrap(), 1, vec![]);
+        let empty_v1 = ExecutionProof::new(
+            Hash256::random(),
+            hash,
+            ExecutionProofSubnetId::new(0).unwrap(),
+            1,
+            vec![],
+        );
         assert!(!validate_proof(&empty_v1));
     }
 
@@ -283,7 +289,8 @@ mod tests {
 
         // Now test that different inputs produce different proofs
         let different_witness = b"different_witness_data";
-        let proof_different = generate_proof(block_root, &exec_payload, different_witness, proof_id).await;
+        let proof_different =
+            generate_proof(block_root, &exec_payload, different_witness, proof_id).await;
 
         // Same block hash and subnet, but different proof data
         assert_eq!(proof_different.block_hash, proof1.block_hash);

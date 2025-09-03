@@ -88,10 +88,12 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_processor_config: Option<BeaconProcessorConfig>,
     beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
     light_client_server_rv: Option<Receiver<LightClientProducerEvent<T::EthSpec>>>,
-    exec_proof_rx: Option<tokio::sync::mpsc::UnboundedReceiver<(
-        types::ExecutionProofSubnetId,
-        types::ExecutionProof,
-    )>>,
+    exec_proof_rx: Option<
+        tokio::sync::mpsc::UnboundedReceiver<(
+            types::ExecutionProofSubnetId,
+            types::ExecutionProof,
+        )>,
+    >,
     eth_spec_instance: T::EthSpec,
 }
 
@@ -218,7 +220,8 @@ where
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
                     .map_err(|e| format!("Failed to create RNG: {:?}", e))?,
-            )).execution_proof_publish_tx(exec_proof_tx);
+            ))
+            .execution_proof_publish_tx(exec_proof_tx);
 
         // Stash receiver to start a publisher once networking is up
         self.exec_proof_rx = Some(exec_proof_rx);
@@ -797,23 +800,23 @@ where
                 if let (Some(network_senders), Some(mut exec_rx)) =
                     (&self.network_senders, self.exec_proof_rx.take())
                 {
-                let network_tx = network_senders.network_send();
-                let publisher_executor = runtime_context.executor.clone();
-                publisher_executor.spawn(
-                    async move {
-                        use lighthouse_network::PubsubMessage;
-                        while let Some((subnet_id, proof)) = exec_rx.recv().await {
-                            let msg = PubsubMessage::ExecutionProofMessage(Box::new((
-                                subnet_id,
-                                Arc::new(proof.clone()),
-                            )));
-                            let _ = network_tx.send(network::NetworkMessage::Publish {
-                                messages: vec![msg],
-                            });
-                        }
-                    },
-                    "execution_proof_publisher",
-                );
+                    let network_tx = network_senders.network_send();
+                    let publisher_executor = runtime_context.executor.clone();
+                    publisher_executor.spawn(
+                        async move {
+                            use lighthouse_network::PubsubMessage;
+                            while let Some((subnet_id, proof)) = exec_rx.recv().await {
+                                let msg = PubsubMessage::ExecutionProofMessage(Box::new((
+                                    subnet_id,
+                                    Arc::new(proof.clone()),
+                                )));
+                                let _ = network_tx.send(network::NetworkMessage::Publish {
+                                    messages: vec![msg],
+                                });
+                            }
+                        },
+                        "execution_proof_publisher",
+                    );
                 }
             }
         }

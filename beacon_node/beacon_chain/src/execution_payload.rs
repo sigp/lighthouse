@@ -599,7 +599,8 @@ fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
     chain.task_executor.spawn(
         async move {
             if let Err(e) =
-                generate_and_store_execution_proofs_from_block(&chain_clone, block_root, &payload).await
+                generate_and_store_execution_proofs_from_block(&chain_clone, block_root, &payload)
+                    .await
             {
                 warn!("Failed to generate execution proofs: {:?}", e);
             }
@@ -609,16 +610,15 @@ fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
 }
 
 /// Generate and store execution proofs from a block.
-/// 
+///
 /// Proofs are stored using the DA checker
-/// 
+///
 /// TODO: This simulates receiving proofs that would normally come from zkVMs or other proof generators
 pub async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     block_root: Hash256,
     payload: &ExecutionPayload<T::EthSpec>,
 ) -> Result<(), BlockProductionError> {
-
     // TODO: The caller should check in the da checker, if we have already saved the proof for this payload
     // TODO: or we could do it here.
 
@@ -655,17 +655,14 @@ pub async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>
 
         // Generate proof using the execution_proof_generation module
         let proof = crate::execution_proof_generation::generate_proof(
-            block_root,
-            payload,
-            &witness,
-            proof_id,
-        ).await;
+            block_root, payload, &witness, proof_id,
+        )
+        .await;
 
-        let verified_proof = match crate::execution_proof_verification::GossipVerifiedExecutionProof::<T>::new(
-            Arc::new(proof.clone()),
-            proof_id,
-            chain,
-        ) {
+        let verified_proof = match crate::execution_proof_verification::GossipVerifiedExecutionProof::<
+            T,
+        >::new(Arc::new(proof.clone()), proof_id, chain)
+        {
             Ok(verified) => verified,
             Err(e) => {
                 warn!(
@@ -681,7 +678,8 @@ pub async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>
         // Store in local DA checker and enqueue for broadcast (locally generated)
         match chain
             .data_availability_checker
-            .put_gossip_verified_execution_proofs(block_root, std::iter::once(verified_proof)) {
+            .put_gossip_verified_execution_proofs(block_root, std::iter::once(verified_proof))
+        {
             Ok(_) => {
                 debug!(
                     execution_block_hash = ?execution_block_hash,
@@ -740,6 +738,8 @@ fn extract_execution_payload<E: EthSpec>(
             ExecutionPayload::Electra(payload.execution_payload.clone())
         }
         FullPayloadRef::Fulu(payload) => ExecutionPayload::Fulu(payload.execution_payload.clone()),
-        FullPayloadRef::Gloas(payload) => ExecutionPayload::Gloas(payload.execution_payload.clone()),
+        FullPayloadRef::Gloas(payload) => {
+            ExecutionPayload::Gloas(payload.execution_payload.clone())
+        }
     })
 }

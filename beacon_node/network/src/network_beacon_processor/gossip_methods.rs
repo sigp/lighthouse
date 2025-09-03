@@ -7,7 +7,9 @@ use crate::{
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
-use beacon_chain::execution_proof_verification::{GossipExecutionProofError, GossipVerifiedExecutionProof};
+use beacon_chain::execution_proof_verification::{
+    GossipExecutionProofError, GossipVerifiedExecutionProof,
+};
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -3282,11 +3284,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         // Store the verified proof in the data availability checker
         let block_root = verified_proof.block_root();
-        
+
         // Extract proof data for re-broadcasting before moving verified_proof
         let proof_to_rebroadcast = verified_proof.as_proof().clone();
         let subnet_for_rebroadcast = verified_proof.subnet_id();
-        
+
         match self
             .chain
             .data_availability_checker

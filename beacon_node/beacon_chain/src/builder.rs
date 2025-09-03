@@ -38,12 +38,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
+use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info};
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
     FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
-use tokio::sync::mpsc::UnboundedSender;
 use types::{ExecutionProof, ExecutionProofSubnetId};
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing

@@ -19,8 +19,8 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, ExecutionProof, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
+    ExecutionProof, Hash256, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -112,7 +112,9 @@ impl<E: EthSpec> Debug for Importability<E> {
             Self::MissingComponents(block_root) => {
                 write!(f, "MissingComponents({})", block_root)
             }
-            Self::ReadyForImport(block) => write!(f, "ReadyForImport({:?})", block.import_data.block_root),
+            Self::ReadyForImport(block) => {
+                write!(f, "ReadyForImport({:?})", block.import_data.block_root)
+            }
         }
     }
 }
@@ -212,21 +214,26 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     }
 
     /// Put gossip verified execution proofs into the availability cache.
-    /// 
+    ///
     /// This allows stateless validation nodes to collect proofs for execution payloads.
     pub fn put_gossip_verified_execution_proofs<I, O>(
         &self,
         block_root: Hash256,
         execution_proofs: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> 
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>
     where
-        I: IntoIterator<Item = crate::execution_proof_verification::GossipVerifiedExecutionProof<T, O>>,
+        I: IntoIterator<
+            Item = crate::execution_proof_verification::GossipVerifiedExecutionProof<T, O>,
+        >,
         O: crate::observed_data_sidecars::ObservationStrategy,
     {
-        self.availability_cache
-            .put_execution_proofs(block_root, execution_proofs.into_iter().map(|v| v.into_inner().into_inner()))
+        self.availability_cache.put_execution_proofs(
+            block_root,
+            execution_proofs
+                .into_iter()
+                .map(|v| v.into_inner().into_inner()),
+        )
     }
-
 
     /// Put a list of blobs received via RPC into the availability cache. This performs KZG
     /// verification on the blobs in the list.
@@ -540,7 +547,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.da_check_required_for_epoch(epoch) // Only for recent blocks within DA boundary
     }
 
-
     /// See `Self::blobs_required_for_epoch`
     fn blobs_required_for_block(&self, block: &SignedBeaconBlock<T::EthSpec>) -> bool {
         block.num_expected_blobs() > 0 && self.blobs_required_for_epoch(block.epoch())
@@ -762,19 +768,19 @@ pub enum AvailableBlockData<E: EthSpec> {
 }
 
 /// Execution proof data
-/// 
+///
 /// The proofs that were collected that convinced the node that the
 /// Block's execution payload was indeed valid.
-/// 
+///
 /// TODO: Rename to ImportableProofData
 #[derive(Debug, Clone)]
 pub enum AvailableProofData {
     /// Execution proofs that were used to validate this block.
-    /// The number of proofs is at least `min_proofs_required` because 
+    /// The number of proofs is at least `min_proofs_required` because
     /// that is needed for the block to be seen as available/importable.
     Proofs(Vec<ExecutionProof>),
     /// This is the case when the node opts to not receive proofs
-    NoneRequired
+    NoneRequired,
 }
 
 /// A fully available block that is ready to be imported into fork choice.

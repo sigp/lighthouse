@@ -640,7 +640,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     if !topic_kinds.contains(&message.kind()) {
                         topic_kinds.push(message.kind());
                     }
-                    
+
                     // Add detailed debug for execution proof messages
                     if let PubsubMessage::ExecutionProofMessage(proof_box) = message {
                         let (subnet_id, proof) = proof_box.as_ref();

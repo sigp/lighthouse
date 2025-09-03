@@ -8,16 +8,14 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::BeaconChainError;
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::execution_proof_generation;
 use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
-use crate::BeaconChainError;
 use slot_clock::SlotClock;
 use tracing::debug;
-use types::{
-    EthSpec, ExecutionProof, Hash256, Slot,
-};
 use types::execution_proof_subnet_id::ExecutionProofSubnetId;
+use types::{EthSpec, ExecutionProof, Hash256, Slot};
 
 /// An error occurred while validating a gossip execution proof.
 #[derive(Debug)]
@@ -199,16 +197,19 @@ impl VerifiedExecutionProofList {
         seen_timestamp: Duration,
     ) -> Result<Self, String> {
         let mut verified_proofs = Vec::new();
-        
+
         for proof in proofs {
             // Perform cryptographic verification for each proof
             if execution_proof_generation::validate_proof(&proof) {
                 verified_proofs.push(VerifiedExecutionProof::new(proof, seen_timestamp));
             } else {
-                return Err(format!("Invalid execution proof for subnet {}", *proof.subnet_id));
+                return Err(format!(
+                    "Invalid execution proof for subnet {}",
+                    *proof.subnet_id
+                ));
             }
         }
-        
+
         Ok(Self { verified_proofs })
     }
 
