@@ -151,13 +151,10 @@ impl<E: EthSpec> PendingComponents<E> {
 
     /// Merges execution proofs into the cache.
     /// Only inserts proofs that are structurally valid and not already present.
-    /// TODO: Remove the return of new proofs
     pub fn merge_execution_proofs<I: IntoIterator<Item = ExecutionProof>>(
         &mut self,
         execution_proofs: I,
-    ) -> Result<Vec<ExecutionProof>, AvailabilityCheckError> {
-        let mut newly_added_proofs = Vec::new();
-
+    ) {
         for proof in execution_proofs {
             // TODO: Check the proof, not just structure
             if proof.is_structurally_valid()
@@ -167,11 +164,10 @@ impl<E: EthSpec> PendingComponents<E> {
             {
                 self.verified_execution_proofs
                     .insert(proof.subnet_id, proof.clone());
-                newly_added_proofs.push(proof);
             }
         }
 
-        Ok(newly_added_proofs)
+       
     }
 
     /// Returns the number of execution proofs for this block
@@ -310,7 +306,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             blob_data,
             blobs_available_timestamp,
-            proof_data: super::ImportableProofData::NoneRequired,
+            proof_data,
             spec: spec.clone(),
         };
 
@@ -643,8 +639,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 .map(|(_, v)| v)
                 .unwrap_or_else(|| PendingComponents::empty(block_root, default_max_len));
 
-            let _newly_added_proofs =
-                pending_components.merge_execution_proofs(execution_proofs)?;
+            pending_components.merge_execution_proofs(execution_proofs);
 
             debug!(
                 component = "execution_proofs",
@@ -666,7 +661,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
             });
 
-        let _newly_added_proofs = pending_components.merge_execution_proofs(execution_proofs)?;
+        pending_components.merge_execution_proofs(execution_proofs);
 
         let num_expected_columns = self
             .custody_context
