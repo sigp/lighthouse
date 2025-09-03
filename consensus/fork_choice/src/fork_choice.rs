@@ -193,6 +193,8 @@ pub enum PayloadVerificationStatus {
     Verified,
     /// An EL has not yet made a determination about the execution payload.
     Optimistic,
+    // /// We are waiting for proofs to determine whether the execution payload is valid
+    // AwaitingProof,
     /// The block is either pre-merge-fork, or prior to the terminal PoW block.
     Irrelevant,
 }
@@ -203,6 +205,12 @@ impl PayloadVerificationStatus {
         match self {
             PayloadVerificationStatus::Verified => false,
             PayloadVerificationStatus::Optimistic => true,
+            // | PayloadVerificationStatus::AwaitingProof => {
+            //// Note: We treat Optimistic and AwaitingProofs as the same thing re forkchoice
+            //// Because in both cases, it is not possible to determine whether the execution payload
+            //// is valid.
+            // true
+            // }
             PayloadVerificationStatus::Irrelevant => false,
         }
     }
