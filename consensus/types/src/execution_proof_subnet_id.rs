@@ -22,7 +22,8 @@ pub const MAX_EXECUTION_PROOF_SUBNETS: u64 = 8;
 
 /// ExecutionProofSubnetId is both the id for the subnet that a particular proof will be on
 /// and the proof ID to identify the proof. ie, we have one type of proof per subnet.
-#[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExecutionProofSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 

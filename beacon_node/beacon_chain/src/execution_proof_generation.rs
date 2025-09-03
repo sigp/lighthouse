@@ -29,8 +29,8 @@ pub async fn generate_proof<T: EthSpec>(
     // Simulate (some) proof computation delay
     // In a real implementation, this would be the time needed for zkVM local proof generation
     // or communication with external proof generation services
-    use rand::{thread_rng, Rng};
-    let delay_ms = thread_rng().gen_range(1000..=3000);
+    use rand::{rng, Rng};
+    let delay_ms = rng().random_range(1000..=3000);
 
     debug!(
         execution_block_hash = ?execution_block_hash,
