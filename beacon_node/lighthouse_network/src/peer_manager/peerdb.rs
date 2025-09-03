@@ -1,7 +1,7 @@
 use crate::discovery::enr::PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY;
-use crate::discovery::{peer_id_to_node_id, CombinedKey};
+use crate::discovery::{CombinedKey, peer_id_to_node_id};
 use crate::{
-    metrics, multiaddr::Multiaddr, types::Subnet, Enr, EnrExt, Gossipsub, PeerId, SyncInfo,
+    Enr, EnrExt, Gossipsub, PeerId, SyncInfo, metrics, multiaddr::Multiaddr, types::Subnet,
 };
 use itertools::Itertools;
 use logging::crit;
@@ -11,7 +11,7 @@ use std::net::IpAddr;
 use std::time::Instant;
 use std::{cmp::Ordering, fmt::Display};
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     fmt::Formatter,
 };
 use sync_status::SyncStatus;
@@ -253,15 +253,17 @@ impl<E: EthSpec> PeerDB<E> {
     ///
     /// If `earliest_available_slot` info is not available, then return peer anyway assuming it has the
     /// required data.
+    ///
+    /// If `allowed_peers` is `Some`, then filters for the epoch only for those peers.
     pub fn synced_peers_for_epoch<'a>(
         &'a self,
         epoch: Epoch,
-        allowed_peers: &'a HashSet<PeerId>,
+        allowed_peers: Option<&'a HashSet<PeerId>>,
     ) -> impl Iterator<Item = &'a PeerId> {
         self.peers
             .iter()
             .filter(move |(peer_id, info)| {
-                allowed_peers.contains(peer_id)
+                allowed_peers.is_none_or(|allowed| allowed.contains(peer_id))
                     && info.is_connected()
                     && match info.sync_status() {
                         SyncStatus::Synced { info } => {
@@ -270,7 +272,9 @@ impl<E: EthSpec> PeerDB<E> {
                         SyncStatus::Advanced { info } => {
                             info.has_slot(epoch.end_slot(E::slots_per_epoch()))
                         }
-                        _ => false,
+                        SyncStatus::IrrelevantPeer
+                        | SyncStatus::Behind { .. }
+                        | SyncStatus::Unknown => false,
                     }
             })
             .map(|(peer_id, _)| peer_id)
@@ -320,20 +324,34 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Returns an iterator of all peers that are supposed to be custodying
-    /// the given subnet id that also belong to `allowed_peers`.
-    pub fn good_range_sync_custody_subnet_peer<'a>(
-        &'a self,
+    /// the given subnet id.
+    pub fn good_range_sync_custody_subnet_peers(
+        &self,
         subnet: DataColumnSubnetId,
-        allowed_peers: &'a HashSet<PeerId>,
-    ) -> impl Iterator<Item = &'a PeerId> {
+    ) -> impl Iterator<Item = &PeerId> {
         self.peers
             .iter()
-            .filter(move |(peer_id, info)| {
+            .filter(move |(_, info)| {
                 // The custody_subnets hashset can be populated via enr or metadata
-                let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
-                allowed_peers.contains(peer_id) && info.is_connected() && is_custody_subnet_peer
+                info.is_connected() && info.is_assigned_to_custody_subnet(&subnet)
             })
             .map(|(peer_id, _)| peer_id)
+    }
+
+    /// Returns `true` if the given peer is assigned to the given subnet.
+    /// else returns `false`
+    ///
+    /// Returns `false` if peer doesn't exist in peerdb.
+    pub fn is_good_range_sync_custody_subnet_peer(
+        &self,
+        subnet: DataColumnSubnetId,
+        peer: &PeerId,
+    ) -> bool {
+        if let Some(info) = self.peers.get(peer) {
+            info.is_connected() && info.is_assigned_to_custody_subnet(&subnet)
+        } else {
+            false
+        }
     }
 
     /// Gives the ids of all known disconnected peers.
@@ -413,12 +431,11 @@ impl<E: EthSpec> PeerDB<E> {
             .peers
             .iter()
             .filter_map(|(peer_id, info)| {
-                if let PeerConnectionStatus::Dialing { since } = info.connection_status() {
-                    if (*since) + std::time::Duration::from_secs(DIAL_TIMEOUT)
+                if let PeerConnectionStatus::Dialing { since } = info.connection_status()
+                    && (*since) + std::time::Duration::from_secs(DIAL_TIMEOUT)
                         < std::time::Instant::now()
-                    {
-                        return Some(*peer_id);
-                    }
+                {
+                    return Some(*peer_id);
                 }
                 None
             })
@@ -805,8 +822,9 @@ impl<E: EthSpec> PeerDB<E> {
         } else {
             let peer_info = self.peers.get_mut(&peer_id).expect("peer exists");
             let node_id = peer_id_to_node_id(&peer_id).expect("convert peer_id to node_id");
-            let subnets = compute_subnets_for_node(node_id.raw(), spec.custody_requirement, spec)
-                .expect("should compute custody subnets");
+            let subnets =
+                compute_subnets_for_node::<E>(node_id.raw(), spec.custody_requirement, spec)
+                    .expect("should compute custody subnets");
             peer_info.set_custody_subnets(subnets);
         }
 

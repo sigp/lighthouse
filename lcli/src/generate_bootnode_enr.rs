@@ -1,8 +1,8 @@
 use clap::ArgMatches;
 use lighthouse_network::{
-    discovery::{build_enr, CombinedKey, CombinedKeyExt, ENR_FILENAME},
+    NETWORK_KEY_FILENAME, NetworkConfig,
+    discovery::{CombinedKey, CombinedKeyExt, ENR_FILENAME, build_enr},
     libp2p::identity::secp256k1,
-    NetworkConfig, NETWORK_KEY_FILENAME,
 };
 use std::io::Write;
 use std::path::PathBuf;
@@ -38,8 +38,15 @@ pub fn run<E: EthSpec>(matches: &ArgMatches, spec: &ChainSpec) -> Result<(), Str
         next_fork_version: genesis_fork_version,
         next_fork_epoch: Epoch::max_value(), // FAR_FUTURE_EPOCH
     };
-    let enr = build_enr::<E>(&enr_key, &config, &enr_fork_id, genesis_fork_digest, spec)
-        .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
+    let enr = build_enr::<E>(
+        &enr_key,
+        &config,
+        &enr_fork_id,
+        None,
+        genesis_fork_digest,
+        spec,
+    )
+    .map_err(|e| format!("Unable to create ENR: {:?}", e))?;
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("Unable to create output-dir: {:?}", e))?;
 

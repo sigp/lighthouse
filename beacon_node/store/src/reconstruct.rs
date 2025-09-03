@@ -2,10 +2,10 @@
 use crate::hot_cold_store::{HotColdDB, HotColdDBError};
 use crate::metrics;
 use crate::{Error, ItemStore};
-use itertools::{process_results, Itertools};
+use itertools::{Itertools, process_results};
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockSignatureStrategy, ConsensusContext,
-    VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot, per_block_processing,
+    per_slot_processing,
 };
 use std::sync::Arc;
 use tracing::{debug, info};

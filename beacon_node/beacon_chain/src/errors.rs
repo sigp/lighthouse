@@ -16,6 +16,7 @@ use operation_pool::OpPoolError;
 use safe_arith::ArithError;
 use ssz_types::Error as SszTypesError;
 use state_processing::{
+    BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
     block_signature_verifier::Error as BlockSignatureVerifierError,
     per_block_processing::errors::{
         AttestationValidationError, AttesterSlashingValidationError,
@@ -24,7 +25,6 @@ use state_processing::{
     },
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,
-    BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
 };
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;

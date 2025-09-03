@@ -1,21 +1,21 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::types::{GossipEncoding, GossipKind, GossipTopic};
 use crate::TopicHash;
-use snap::raw::{decompress_len, Decoder, Encoder};
+use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecutionProof, ExecutionProofSubnetId,
-    ForkContext, ForkName, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    ProposerSlashing, SignedAggregateAndProof, SignedAggregateAndProofBase,
-    SignedAggregateAndProofElectra, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,7 +197,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 return Err(format!(
                                     "Unknown gossipsub fork digest: {:?}",
                                     gossip_topic.fork_digest
-                                ))
+                                ));
                             }
                         };
                         Ok(PubsubMessage::AggregateAndProofAttestation(Box::new(
@@ -244,11 +244,15 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 SignedBeaconBlockFulu::from_ssz_bytes(data)
                                     .map_err(|e| format!("{:?}", e))?,
                             ),
+                            Some(ForkName::Gloas) => SignedBeaconBlock::<E>::Gloas(
+                                SignedBeaconBlockGloas::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            ),
                             None => {
                                 return Err(format!(
                                     "Unknown gossipsub fork digest: {:?}",
                                     gossip_topic.fork_digest
-                                ))
+                                ));
                             }
                         };
                         Ok(PubsubMessage::BeaconBlock(Arc::new(beacon_block)))
@@ -256,17 +260,16 @@ impl<E: EthSpec> PubsubMessage<E> {
                     GossipKind::BlobSidecar(blob_index) => {
                         if let Some(fork_name) =
                             fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest)
+                            && fork_name.deneb_enabled()
                         {
-                            if fork_name.deneb_enabled() {
-                                let blob_sidecar = Arc::new(
-                                    BlobSidecar::from_ssz_bytes(data)
-                                        .map_err(|e| format!("{:?}", e))?,
-                                );
-                                return Ok(PubsubMessage::BlobSidecar(Box::new((
-                                    *blob_index,
-                                    blob_sidecar,
-                                ))));
-                            }
+                            let blob_sidecar = Arc::new(
+                                BlobSidecar::from_ssz_bytes(data)
+                                    .map_err(|e| format!("{:?}", e))?,
+                            );
+                            return Ok(PubsubMessage::BlobSidecar(Box::new((
+                                *blob_index,
+                                blob_sidecar,
+                            ))));
                         }
 
                         Err(format!(
@@ -332,7 +335,7 @@ impl<E: EthSpec> PubsubMessage<E> {
                                 return Err(format!(
                                     "Unknown gossipsub fork digest: {:?}",
                                     gossip_topic.fork_digest
-                                ))
+                                ));
                             }
                         };
                         Ok(PubsubMessage::AttesterSlashing(Box::new(attester_slashing)))
@@ -361,30 +364,38 @@ impl<E: EthSpec> PubsubMessage<E> {
                         )))
                     }
                     GossipKind::LightClientFinalityUpdate => {
-                        let light_client_finality_update = match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
+                        let light_client_finality_update = match fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                        {
                             Some(&fork_name) => {
-                                    LightClientFinalityUpdate::from_ssz_bytes(data, fork_name)
+                                LightClientFinalityUpdate::from_ssz_bytes(data, fork_name)
                                     .map_err(|e| format!("{:?}", e))?
-                            },
-                            None => return Err(format!(
-                                "light_client_finality_update topic invalid for given fork digest {:?}",
-                                gossip_topic.fork_digest
-                            )),
+                            }
+                            None => {
+                                return Err(format!(
+                                    "light_client_finality_update topic invalid for given fork digest {:?}",
+                                    gossip_topic.fork_digest
+                                ));
+                            }
                         };
                         Ok(PubsubMessage::LightClientFinalityUpdate(Box::new(
                             light_client_finality_update,
                         )))
                     }
                     GossipKind::LightClientOptimisticUpdate => {
-                        let light_client_optimistic_update = match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
+                        let light_client_optimistic_update = match fork_context
+                            .get_fork_from_context_bytes(gossip_topic.fork_digest)
+                        {
                             Some(&fork_name) => {
                                 LightClientOptimisticUpdate::from_ssz_bytes(data, fork_name)
-                                .map_err(|e| format!("{:?}", e))?
-                            },
-                            None => return Err(format!(
-                                "light_client_optimistic_update topic invalid for given fork digest {:?}",
-                                gossip_topic.fork_digest
-                            )),
+                                    .map_err(|e| format!("{:?}", e))?
+                            }
+                            None => {
+                                return Err(format!(
+                                    "light_client_optimistic_update topic invalid for given fork digest {:?}",
+                                    gossip_topic.fork_digest
+                                ));
+                            }
                         };
                         Ok(PubsubMessage::LightClientOptimisticUpdate(Box::new(
                             light_client_optimistic_update,
@@ -459,10 +470,7 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             PubsubMessage::Attestation(data) => write!(
                 f,
                 "SingleAttestation: subnet_id: {}, attestation_slot: {}, committee_index: {:?}, attester_index: {:?}",
-                *data.0,
-                data.1.data.slot,
-                data.1.committee_index,
-                data.1.attester_index,
+                *data.0, data.1.data.slot, data.1.committee_index, data.1.attester_index,
             ),
             PubsubMessage::VoluntaryExit(_data) => write!(f, "Voluntary Exit"),
             PubsubMessage::ProposerSlashing(_data) => write!(f, "Proposer Slashing"),

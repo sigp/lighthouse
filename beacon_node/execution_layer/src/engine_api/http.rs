@@ -35,7 +35,6 @@ pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
 pub const ENGINE_NEW_PAYLOAD_V2: &str = "engine_newPayloadV2";
 pub const ENGINE_NEW_PAYLOAD_V3: &str = "engine_newPayloadV3";
 pub const ENGINE_NEW_PAYLOAD_V4: &str = "engine_newPayloadV4";
-pub const ENGINE_NEW_PAYLOAD_V5: &str = "engine_newPayloadV5";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
@@ -75,7 +74,6 @@ pub static LIGHTHOUSE_CAPABILITIES: &[&str] = &[
     ENGINE_NEW_PAYLOAD_V2,
     ENGINE_NEW_PAYLOAD_V3,
     ENGINE_NEW_PAYLOAD_V4,
-    ENGINE_NEW_PAYLOAD_V5,
     ENGINE_GET_PAYLOAD_V1,
     ENGINE_GET_PAYLOAD_V2,
     ENGINE_GET_PAYLOAD_V3,
@@ -226,7 +224,7 @@ pub mod deposit_methods {
     use super::Log;
     use crate::HttpJsonRpc;
     use serde::{Deserialize, Serialize};
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
     use std::fmt;
     use std::ops::Range;
     use std::str::FromStr;
@@ -805,7 +803,7 @@ impl HttpJsonRpc {
         new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
+            JsonExecutionPayload::Deneb(new_payload_request_deneb.execution_payload.clone().into()),
             new_payload_request_deneb.versioned_hashes,
             new_payload_request_deneb.parent_beacon_block_root,
         ]);
@@ -826,7 +824,9 @@ impl HttpJsonRpc {
         new_payload_request_electra: NewPayloadRequestElectra<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::V4(new_payload_request_electra.execution_payload.clone().into()),
+            JsonExecutionPayload::Electra(
+                new_payload_request_electra.execution_payload.clone().into()
+            ),
             new_payload_request_electra.versioned_hashes,
             new_payload_request_electra.parent_beacon_block_root,
             new_payload_request_electra
@@ -845,16 +845,39 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
     pub async fn new_payload_v4_fulu<E: EthSpec>(
         &self,
         new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::V5(new_payload_request_fulu.execution_payload.clone().into()),
+            JsonExecutionPayload::Fulu(new_payload_request_fulu.execution_payload.clone().into()),
             new_payload_request_fulu.versioned_hashes,
             new_payload_request_fulu.parent_beacon_block_root,
             new_payload_request_fulu
+                .execution_requests
+                .get_execution_requests_list(),
+        ]);
+
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(
+                ENGINE_NEW_PAYLOAD_V4,
+                params,
+                ENGINE_NEW_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn new_payload_v4_gloas<E: EthSpec>(
+        &self,
+        new_payload_request_gloas: NewPayloadRequestGloas<'_, E>,
+    ) -> Result<PayloadStatusV1, Error> {
+        let params = json!([
+            JsonExecutionPayload::Gloas(new_payload_request_gloas.execution_payload.clone().into()),
+            new_payload_request_gloas.versioned_hashes,
+            new_payload_request_gloas.parent_beacon_block_root,
+            new_payload_request_gloas
                 .execution_requests
                 .get_execution_requests_list(),
         ]);
@@ -876,7 +899,7 @@ impl HttpJsonRpc {
     ) -> Result<GetPayloadResponse<E>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let payload_v1: JsonExecutionPayloadV1<E> = self
+        let payload_v1: JsonExecutionPayloadBellatrix<E> = self
             .rpc_request(
                 ENGINE_GET_PAYLOAD_V1,
                 params,
@@ -902,26 +925,26 @@ impl HttpJsonRpc {
 
         match fork_name {
             ForkName::Bellatrix => {
-                let response: JsonGetPayloadResponseV1<E> = self
+                let response: JsonGetPayloadResponseBellatrix<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                JsonGetPayloadResponse::V1(response)
+                JsonGetPayloadResponse::Bellatrix(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
             ForkName::Capella => {
-                let response: JsonGetPayloadResponseV2<E> = self
+                let response: JsonGetPayloadResponseCapella<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V2,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                JsonGetPayloadResponse::V2(response)
+                JsonGetPayloadResponse::Capella(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -941,14 +964,14 @@ impl HttpJsonRpc {
 
         match fork_name {
             ForkName::Deneb => {
-                let response: JsonGetPayloadResponseV3<E> = self
+                let response: JsonGetPayloadResponseDeneb<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V3,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                JsonGetPayloadResponse::V3(response)
+                JsonGetPayloadResponse::Deneb(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -968,14 +991,14 @@ impl HttpJsonRpc {
 
         match fork_name {
             ForkName::Electra => {
-                let response: JsonGetPayloadResponseV4<E> = self
+                let response: JsonGetPayloadResponseElectra<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V4,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                JsonGetPayloadResponse::V4(response)
+                JsonGetPayloadResponse::Electra(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -995,14 +1018,26 @@ impl HttpJsonRpc {
 
         match fork_name {
             ForkName::Fulu => {
-                let response: JsonGetPayloadResponseV5<E> = self
+                let response: JsonGetPayloadResponseFulu<E> = self
                     .rpc_request(
                         ENGINE_GET_PAYLOAD_V5,
                         params,
                         ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
                     )
                     .await?;
-                JsonGetPayloadResponse::V5(response)
+                JsonGetPayloadResponse::Fulu(response)
+                    .try_into()
+                    .map_err(Error::BadResponse)
+            }
+            ForkName::Gloas => {
+                let response: JsonGetPayloadResponseGloas<E> = self
+                    .rpc_request(
+                        ENGINE_GET_PAYLOAD_V5,
+                        params,
+                        ENGINE_GET_PAYLOAD_TIMEOUT * self.execution_timeout_multiplier,
+                    )
+                    .await?;
+                JsonGetPayloadResponse::Gloas(response)
                     .try_into()
                     .map_err(Error::BadResponse)
             }
@@ -1136,7 +1171,6 @@ impl HttpJsonRpc {
             new_payload_v2: capabilities.contains(ENGINE_NEW_PAYLOAD_V2),
             new_payload_v3: capabilities.contains(ENGINE_NEW_PAYLOAD_V3),
             new_payload_v4: capabilities.contains(ENGINE_NEW_PAYLOAD_V4),
-            new_payload_v5: capabilities.contains(ENGINE_NEW_PAYLOAD_V5),
             forkchoice_updated_v1: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V1),
             forkchoice_updated_v2: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V2),
             forkchoice_updated_v3: capabilities.contains(ENGINE_FORKCHOICE_UPDATED_V3),
@@ -1285,9 +1319,15 @@ impl HttpJsonRpc {
                 }
             }
             NewPayloadRequest::Fulu(new_payload_request_fulu) => {
-                // TODO(fulu): switch to v5 endpoint when the EL is ready for Fulu
                 if engine_capabilities.new_payload_v4 {
                     self.new_payload_v4_fulu(new_payload_request_fulu).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
+                }
+            }
+            NewPayloadRequest::Gloas(new_payload_request_gloas) => {
+                if engine_capabilities.new_payload_v4 {
+                    self.new_payload_v4_gloas(new_payload_request_gloas).await
                 } else {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
@@ -1328,6 +1368,13 @@ impl HttpJsonRpc {
                 }
             }
             ForkName::Fulu => {
+                if engine_capabilities.get_payload_v5 {
+                    self.get_payload_v5(fork_name, payload_id).await
+                } else {
+                    Err(Error::RequiredMethodUnsupported("engine_getPayloadv5"))
+                }
+            }
+            ForkName::Gloas => {
                 if engine_capabilities.get_payload_v5 {
                     self.get_payload_v5(fork_name, payload_id).await
                 } else {
@@ -1392,7 +1439,7 @@ impl HttpJsonRpc {
 mod test {
     use super::auth::JwtKey;
     use super::*;
-    use crate::test_utils::{MockServer, DEFAULT_JWT_SECRET};
+    use crate::test_utils::{DEFAULT_JWT_SECRET, MockServer};
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -1503,10 +1550,11 @@ mod test {
     fn encode_transactions<E: EthSpec>(
         transactions: Transactions<E>,
     ) -> Result<serde_json::Value, serde_json::Error> {
-        let ep: JsonExecutionPayload<E> = JsonExecutionPayload::V1(JsonExecutionPayloadV1 {
-            transactions,
-            ..<_>::default()
-        });
+        let ep: JsonExecutionPayload<E> =
+            JsonExecutionPayload::Bellatrix(JsonExecutionPayloadBellatrix {
+                transactions,
+                ..<_>::default()
+            });
         let json = serde_json::to_value(ep)?;
         Ok(json.get("transactions").unwrap().clone())
     }

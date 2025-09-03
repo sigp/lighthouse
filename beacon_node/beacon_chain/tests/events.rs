@@ -2,13 +2,13 @@ use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::test_utils::{BeaconChainHarness, TEST_DATA_COLUMN_SIDECARS_SSZ};
 use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::test_utils::TestRandom;
 use types::{
-    BlobSidecar, DataColumnSidecar, EthSpec, ForkName, MinimalEthSpec, RuntimeVariableList,
+    BlobSidecar, DataColumnSidecar, EthSpec, ForkName, MinimalEthSpec, RuntimeVariableList, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -64,8 +64,17 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
 
     // build and process a gossip verified data column
     let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
-    let sidecar = Arc::new(DataColumnSidecar::random_for_test(&mut rng));
-    let gossip_verified_data_column = GossipVerifiedDataColumn::__new_for_testing(sidecar);
+    let sidecar = {
+        // DA checker only accepts sampling columns, so we need to create one with a sampling index.
+        let mut random_sidecar = DataColumnSidecar::random_for_test(&mut rng);
+        let slot = Slot::new(10);
+        let epoch = slot.epoch(E::slots_per_epoch());
+        random_sidecar.signed_block_header.message.slot = slot;
+        random_sidecar.index = harness.chain.sampling_columns_for_epoch(epoch)[0];
+        random_sidecar
+    };
+    let gossip_verified_data_column =
+        GossipVerifiedDataColumn::__new_for_testing(Arc::new(sidecar));
     let expected_sse_data_column = SseDataColumnSidecar::from_data_column_sidecar(
         gossip_verified_data_column.as_data_column(),
     );
@@ -153,7 +162,7 @@ async fn data_column_sidecar_event_on_process_rpc_columns() {
     // load the precomputed column sidecar to avoid computing them for every block in the tests.
     let mut sidecar = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
         TEST_DATA_COLUMN_SIDECARS_SSZ,
-        spec.number_of_columns as usize,
+        E::number_of_columns(),
     )
     .unwrap()[0]
         .clone();
