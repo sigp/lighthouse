@@ -226,9 +226,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     {
         self.availability_cache.put_execution_proofs(
             block_root,
-            execution_proofs
-                .into_iter()
-                .map(|v| v.into_inner().into_inner()),
+            execution_proofs.into_iter().map(|v| v.into_inner()),
         )
     }
 

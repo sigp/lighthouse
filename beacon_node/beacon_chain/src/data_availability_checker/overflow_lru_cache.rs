@@ -7,10 +7,9 @@ use crate::blob_verification::KzgVerifiedBlob;
 use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
-use crate::data_availability_checker::{
-    AvailabilityCheckError, Availability, ImportableProofData,
-};
+use crate::data_availability_checker::{Availability, AvailabilityCheckError, ImportableProofData};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::execution_proof_verification::VerifiedExecutionProof;
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -23,7 +22,7 @@ use types::blob_sidecar::BlobIdentifier;
 use types::execution_proof_subnet_id::ExecutionProofSubnetId;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
-    ExecutionProof, Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
+    Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
 };
 
 /// This represents the components of a partially available block
@@ -37,7 +36,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
     pub reconstruction_started: bool,
     /// Verified execution proofs indexed by subnet ID
-    pub verified_execution_proofs: HashMap<ExecutionProofSubnetId, ExecutionProof>,
+    pub verified_execution_proofs: HashMap<ExecutionProofSubnetId, VerifiedExecutionProof>,
     span: Span,
 }
 
@@ -152,20 +151,15 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Merges execution proofs into the cache.
-    /// Only inserts proofs that are structurally valid and not already present.
-    pub fn merge_execution_proofs<I: IntoIterator<Item = ExecutionProof>>(
+    /// Only inserts proofs that are not already present.
+    pub fn merge_execution_proofs<I: IntoIterator<Item = VerifiedExecutionProof>>(
         &mut self,
         execution_proofs: I,
     ) {
-        for proof in execution_proofs {
-            // TODO: Check the proof, not just structure
-            if proof.is_structurally_valid()
-                && !self
-                    .verified_execution_proofs
-                    .contains_key(&proof.subnet_id)
-            {
-                self.verified_execution_proofs
-                    .insert(proof.subnet_id, proof.clone());
+        for vproof in execution_proofs {
+            let subnet_id = vproof.as_proof().subnet_id;
+            if !self.verified_execution_proofs.contains_key(&subnet_id) {
+                self.verified_execution_proofs.insert(subnet_id, vproof);
             }
         }
     }
@@ -361,13 +355,19 @@ impl<E: EthSpec> PendingComponents<E> {
             Ordering::Greater => {
                 // More proofs than required (fine)
                 Ok(Some(ImportableProofData::Proofs(
-                    self.verified_execution_proofs.values().cloned().collect(),
+                    self.verified_execution_proofs
+                        .values()
+                        .map(|vp| vp.clone().into_inner())
+                        .collect(),
                 )))
             }
             Ordering::Equal => {
                 // Exact number of proofs required
                 Ok(Some(ImportableProofData::Proofs(
-                    self.verified_execution_proofs.values().cloned().collect(),
+                    self.verified_execution_proofs
+                        .values()
+                        .map(|vp| vp.clone().into_inner())
+                        .collect(),
                 )))
             }
             Ordering::Less => {
@@ -625,7 +625,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     }
 
     /// Puts execution proofs into the availability cache as pending components.
-    pub fn put_execution_proofs<I: IntoIterator<Item = ExecutionProof>>(
+    pub fn put_execution_proofs<I: IntoIterator<Item = VerifiedExecutionProof>>(
         &self,
         block_root: Hash256,
         execution_proofs: I,
