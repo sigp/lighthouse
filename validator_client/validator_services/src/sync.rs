@@ -576,8 +576,7 @@ pub async fn make_sync_selection_proof<S: ValidatorStore, T: SlotClock>(
                 );
 
                 // Convert the response to a SyncSelectionProof
-                let full_selection_proof =
-                    SyncSelectionProof::from(response_data.selection_proof);
+                let full_selection_proof = SyncSelectionProof::from(response_data.selection_proof);
                 Some(full_selection_proof)
             }
             Err(e) => {
@@ -645,44 +644,45 @@ pub async fn fill_in_aggregation_proofs<S: ValidatorStore, T: SlotClock + 'stati
             }
 
             while let Some(result) = futures_unordered.next().await {
-                if let Some((validator_index, proof_slot, subnet_id, proof)) = result {
-                    let sync_map = duties_service.sync_duties.committees.read();
-                    let Some(committee_duties) = sync_map.get(&sync_committee_period) else {
-                        debug!("period" = sync_committee_period, "Missing sync duties");
-                        continue;
-                    };
+                let Some((validator_index, proof_slot, subnet_id, proof)) = result else {
+                    continue;
+                };
+                let sync_map = duties_service.sync_duties.committees.read();
+                let Some(committee_duties) = sync_map.get(&sync_committee_period) else {
+                    debug!("period" = sync_committee_period, "Missing sync duties");
+                    continue;
+                };
 
-                    let validators = committee_duties.validators.read();
+                let validators = committee_duties.validators.read();
 
-                    // Check if the validator is an aggregator
-                    match proof.is_aggregator::<S::E>() {
-                        Ok(true) => {
-                            if let Some(Some(duty)) = validators.get(&validator_index) {
-                                debug!(
-                                    validator_index,
-                                    "slot" = %proof_slot,
-                                    "subcommittee_index" = *subnet_id,
-                                    // log full selection proof for debugging
-                                    "full selection proof" = ?proof,
-                                    "Validator is sync aggregator"
-                                );
-
-                                // Store the proof
-                                duty.aggregation_duties
-                                    .proofs
-                                    .write()
-                                    .insert((proof_slot, subnet_id), proof);
-                            }
-                        }
-                        Ok(false) => {} // Not an aggregator
-                        Err(e) => {
-                            warn!(
+                // Check if the validator is an aggregator
+                match proof.is_aggregator::<S::E>() {
+                    Ok(true) => {
+                        if let Some(Some(duty)) = validators.get(&validator_index) {
+                            debug!(
                                 validator_index,
-                                %slot,
-                                "error" = ?e,
-                                "Error determining is_aggregator"
+                                "slot" = %proof_slot,
+                                "subcommittee_index" = *subnet_id,
+                                // log full selection proof for debugging
+                                "full selection proof" = ?proof,
+                                "Validator is sync aggregator"
                             );
+
+                            // Store the proof
+                            duty.aggregation_duties
+                                .proofs
+                                .write()
+                                .insert((proof_slot, subnet_id), proof);
                         }
+                    }
+                    Ok(false) => {} // Not an aggregator
+                    Err(e) => {
+                        warn!(
+                            validator_index,
+                            %slot,
+                            "error" = ?e,
+                            "Error determining is_aggregator"
+                        );
                     }
                 }
             }
