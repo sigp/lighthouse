@@ -773,6 +773,11 @@ pub enum ImportableProofData {
     /// Execution proofs that were used to validate this block.
     /// The number of proofs is at least `min_proofs_required` because
     /// that is needed for the block to be seen as available/importable.
+    ///
+    /// TODO: Its possible for us to provide a proof that that the
+    /// ExecutionPayload was invalid. Is this useful? This would allow
+    /// us to distinguish between the case where the prover cannot create a
+    /// proof of a valid payload.
     Proofs(Vec<ExecutionProof>),
     /// This is the case when the node opts to not receive proofs
     NoneRequired,
