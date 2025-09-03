@@ -85,7 +85,7 @@ pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
     spec: Arc<ChainSpec>,
 }
 
-pub type AvailabilityAndReconstructedColumns<E> = (Availability<E>, DataColumnSidecarList<E>);
+pub type AvailabilityAndReconstructedColumns<E> = (Importability<E>, DataColumnSidecarList<E>);
 
 #[derive(Debug)]
 pub enum DataColumnReconstructionResult<E: EthSpec> {
@@ -217,7 +217,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         execution_proofs: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError>
+    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError>
     where
         I: IntoIterator<
             Item = crate::execution_proof_verification::GossipVerifiedExecutionProof<T, O>,
@@ -239,7 +239,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
         let seen_timestamp = self
             .slot_clock
             .now_duration()
@@ -268,7 +268,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         slot: Slot,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
         // Attributes fault to the specific peer that sent an invalid column
         let kzg_verified_columns =
             KzgVerifiedDataColumn::from_batch_with_scoring(custody_columns, &self.kzg)
@@ -305,7 +305,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         blobs: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_kzg_verified_blobs(block_root, blobs.into_iter().map(|b| b.into_inner()))
     }
@@ -315,7 +315,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         blobs: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_kzg_verified_blobs(block_root, blobs)
     }
@@ -334,7 +334,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         slot: Slot,
         data_columns: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
             .custody_context
@@ -356,7 +356,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         custody_columns: I,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
@@ -366,7 +366,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
-    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache
             .put_pending_executed_block(executed_block)
     }
