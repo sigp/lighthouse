@@ -19,7 +19,7 @@ use beacon_chain::{
     PayloadVerificationOutcome, PayloadVerificationStatus,
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
-    data_availability_checker::Importability,
+    data_availability_checker::Availability,
     test_utils::{
         BeaconChainHarness, EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
         generate_rand_block_and_data_columns, test_spec,
@@ -1087,8 +1087,8 @@ impl TestRig {
             .put_pending_executed_block(executed_block)
             .unwrap()
         {
-            Importability::ReadyForImport(_) => panic!("block removed from da_checker, available"),
-            Importability::MissingComponents(block_root) => {
+            Availability::Available(_) => panic!("block removed from da_checker, available"),
+            Availability::MissingComponents(block_root) => {
                 self.log(&format!("inserted block to da_checker {block_root:?}"))
             }
         };
@@ -1107,8 +1107,8 @@ impl TestRig {
             )
             .unwrap()
         {
-            Importability::ReadyForImport(_) => panic!("blob removed from da_checker, available"),
-            Importability::MissingComponents(block_root) => {
+            Availability::Available(_) => panic!("blob removed from da_checker, available"),
+            Availability::MissingComponents(block_root) => {
                 self.log(&format!("inserted blob to da_checker {block_root:?}"))
             }
         };

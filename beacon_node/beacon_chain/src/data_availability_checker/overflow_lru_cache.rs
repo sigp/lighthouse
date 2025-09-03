@@ -8,7 +8,7 @@ use crate::block_verification_types::{
     AvailabilityPendingExecutedBlock, AvailableBlock, AvailableExecutedBlock,
 };
 use crate::data_availability_checker::{
-    AvailabilityCheckError, Importability, ImportableProofData,
+    AvailabilityCheckError, Availability, ImportableProofData,
 };
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
@@ -544,7 +544,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_blobs: I,
-    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_blobs = kzg_verified_blobs.into_iter().peekable();
 
         let Some(epoch) = kzg_verified_blobs
@@ -587,7 +587,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_data_columns: I,
-    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_data_columns = kzg_verified_data_columns.into_iter().peekable();
         let Some(epoch) = kzg_verified_data_columns
             .peek()
@@ -597,7 +597,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             // before this point, e.g. due to a CGC change that caused extra columns to be downloaded
             // // before the new CGC took effect.
             // Return `Ok` without marking the block as available.
-            return Ok(Importability::MissingComponents(block_root));
+            return Ok(Availability::MissingComponents(block_root));
         };
 
         let pending_components =
@@ -629,7 +629,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         execution_proofs: I,
-    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut execution_proofs = execution_proofs.into_iter().peekable();
 
         let Some(epoch) = execution_proofs.peek().and_then(|_proof| {
@@ -658,7 +658,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             );
 
             write_lock.put(block_root, pending_components);
-            return Ok(Importability::MissingComponents(block_root));
+            return Ok(Availability::MissingComponents(block_root));
         };
 
         let mut write_lock = self.critical.write();
@@ -690,10 +690,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         )? {
             write_lock.put(block_root, pending_components);
             drop(write_lock);
-            Ok(Importability::ReadyForImport(Box::new(available_block)))
+            Ok(Availability::Available(Box::new(available_block)))
         } else {
             write_lock.put(block_root, pending_components);
-            Ok(Importability::MissingComponents(block_root))
+            Ok(Availability::MissingComponents(block_root))
         }
     }
 
@@ -702,7 +702,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         block_root: Hash256,
         pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
         num_expected_columns_opt: Option<usize>,
-    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
             self.min_execution_proofs_required,
@@ -722,9 +722,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             // imported, but re-inserted immediately, causing partial pending components to be
             // stored and served to peers.
             // Components are only removed via LRU eviction as finality advances.
-            Ok(Importability::ReadyForImport(Box::new(available_block)))
+            Ok(Availability::Available(Box::new(available_block)))
         } else {
-            Ok(Importability::MissingComponents(block_root))
+            Ok(Availability::MissingComponents(block_root))
         }
     }
 
@@ -811,7 +811,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn put_pending_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
-    ) -> Result<Importability<T::EthSpec>, AvailabilityCheckError> {
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let epoch = executed_block.as_block().epoch();
         let block_root = executed_block.import_data.block_root;
 
@@ -1126,7 +1126,7 @@ mod test {
             .expect("should put block");
         if blobs_expected == 0 {
             assert!(
-                matches!(availability, Importability::ReadyForImport(_)),
+                matches!(availability, Availability::Available(_)),
                 "block doesn't have blobs, should be available"
             );
             assert_eq!(
@@ -1136,7 +1136,7 @@ mod test {
             );
         } else {
             assert!(
-                matches!(availability, Importability::MissingComponents(_)),
+                matches!(availability, Availability::MissingComponents(_)),
                 "should be pending blobs"
             );
             assert_eq!(
@@ -1157,9 +1157,9 @@ mod test {
                 .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             if blob_index == blobs_expected - 1 {
-                assert!(matches!(availability, Importability::ReadyForImport(_)));
+                assert!(matches!(availability, Availability::Available(_)));
             } else {
-                assert!(matches!(availability, Importability::MissingComponents(_)));
+                assert!(matches!(availability, Availability::MissingComponents(_)));
                 assert_eq!(cache.critical.read().len(), 1);
             }
         }
@@ -1179,7 +1179,7 @@ mod test {
                 .put_kzg_verified_blobs(root, kzg_verified_blobs.clone())
                 .expect("should put blob");
             assert!(
-                matches!(availability, Importability::MissingComponents(_)),
+                matches!(availability, Availability::MissingComponents(_)),
                 "should be pending block"
             );
             assert_eq!(
@@ -1192,7 +1192,7 @@ mod test {
             .put_pending_executed_block(pending_block)
             .expect("should put block");
         assert!(
-            matches!(availability, Importability::ReadyForImport(_)),
+            matches!(availability, Availability::Available(_)),
             "block should be available: {:?}",
             availability
         );
@@ -1270,7 +1270,7 @@ mod test {
 
             // should be unavailable since we made sure all blocks had blobs
             assert!(
-                matches!(availability, Importability::MissingComponents(_)),
+                matches!(availability, Availability::MissingComponents(_)),
                 "should be pending blobs"
             );
 
