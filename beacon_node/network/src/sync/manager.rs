@@ -68,7 +68,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 use types::{
     BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
@@ -858,7 +858,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         Ok(ProcessResult::Successful) => {}
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Err(error) => {
-                            error!(error = ?error, "Backfill sync failed");
+                            warn!(error = ?error, "Backfill sync failed");
                             // Update the global status
                             self.update_sync_state();
                         }
