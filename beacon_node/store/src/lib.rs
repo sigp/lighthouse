@@ -106,6 +106,8 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     fn delete_batch(&self, column: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error>;
 
+    fn upgrade(&self);
+
     fn delete_if(
         &self,
         column: DBColumn,

@@ -2,34 +2,13 @@ use crate::BeaconChainTypes;
 use std::sync::Arc;
 use store::{Error, HotColdDB, KeyValueStoreOp};
 
-#[cfg(feature = "redb")]
-use store::config::BeaconNodeBackend;
+use store::database::interface::BeaconNodeBackend;
 
 pub fn upgrade_to_v29<T: BeaconChainTypes>(
-    _db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<Vec<KeyValueStoreOp>, Error> {
-    #[cfg(feature = "redb")]
-    {
-        if let Some(backend) = db.backend() {
-            if let BeaconNodeBackend::Redb(redb) = backend {
-                match redb.upgrade() {
-                    Ok(did_upgrade) => {
-                        if did_upgrade {
-                            tracing::info!("Redb file format successfully upgraded to v29");
-                        } else {
-                            tracing::info!("Redb file-format already at v29, no upgrade needed");
-                        }
-                    }
-                    Err(e) => {
-                        return Err(Error::MigrationError(format! {
-                            "Redb file-format upgrade failed: {e}"
-                        }));
-                    }
-                }
-            }
-        }
-    }
 
+    db.upgrade();
     Ok(vec![])
 }
 
@@ -47,6 +26,7 @@ pub fn downgrade_from_v29<T: BeaconChainTypes>(
             }
         }
     }
+    // Downgrade would probably be a no-op in all cases, and we just wont allow it (so maybe return an error always)
 
     // For all other backends, just no-op
     Ok(vec![])

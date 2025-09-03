@@ -5,6 +5,7 @@ use crate::database::redb_impl;
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore, metrics};
 use crate::{KeyValueStoreOp, StoreConfig, config::DatabaseBackend};
 use std::collections::HashSet;
+use std::fmt::Debug;
 use std::path::Path;
 use types::EthSpec;
 
@@ -166,6 +167,13 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_batch(txn, col, ops),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_batch(txn, col, ops),
+        }
+    }
+    
+    fn upgrade(&self) {
+        match self {
+            BeaconNodeBackend::LevelDb(level_db) => todo!(),
+            BeaconNodeBackend::Redb(redb) => redb.upgrade(),
         }
     }
 
