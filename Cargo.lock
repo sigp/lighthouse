@@ -5642,7 +5642,6 @@ dependencies = [
  "tempfile",
  "tiny-keccak",
  "tokio",
- "tokio-io-timeout",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
@@ -9430,16 +9429,6 @@ dependencies = [
  "tokio-macros",
  "tracing",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "tokio-io-timeout"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "30b74022ada614a1b4834de765f9bb43877f910cc8ce4be40e89042c9223a8bf"
-dependencies = [
- "pin-project-lite",
- "tokio",
 ]
 
 [[package]]
