@@ -1163,28 +1163,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             self.send_batch(network, batch_id)?;
         }
 
-        // Force requesting the `processing_batch` to progress sync if required
-        if !self.batches.contains_key(&self.processing_target) {
-            debug!(?self.processing_target,"Forcing requesting processing_target to progress sync");
-            if !self.good_peers_on_sampling_subnets(self.processing_target, network) {
-                debug!(
-                    src = "request_batches_processing",
-                    "Waiting for peers to be available on sampling column subnets"
-                );
-                return Ok(KeepChain);
-            }
-
-            if let Entry::Vacant(entry) = self.batches.entry(self.processing_target) {
-                let batch_type = network.batch_type(self.processing_target);
-                let processing_batch =
-                    BatchInfo::new(&self.processing_target, EPOCHS_PER_BATCH, batch_type);
-                entry.insert(processing_batch);
-                self.send_batch(network, self.processing_target)?;
-            } else {
-                self.attempt_send_awaiting_download_batches(network, "request_batches_processing")?;
-            }
-        }
-
         // No more batches, simply stop
         Ok(KeepChain)
     }
