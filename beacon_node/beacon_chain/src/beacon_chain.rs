@@ -28,6 +28,7 @@ use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataC
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
+use crate::events::SyncServiceMessage;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
@@ -125,6 +126,7 @@ use store::{
     KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
+use tokio::sync::mpsc;
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
@@ -490,6 +492,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
+    /// The sending channel for the beacon chain to send messages to sync.
+    pub sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {
@@ -6870,6 +6874,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .unwrap_or_else(
                 |e| tracing::error!(error = ?e, "Failed to update data column custody info"),
             );
+    }
+
+    /// The da boundary for custodying columns. It will just be the DA boundary unless we are near the Fulu fork epoch.
+    pub fn get_column_da_boundary(&self) -> Option<Epoch> {
+        match self.data_availability_boundary() {
+            Some(da_boundary_epoch) => {
+                if let Some(fulu_fork_epoch) = self.spec.fulu_fork_epoch {
+                    if da_boundary_epoch < fulu_fork_epoch {
+                        Some(fulu_fork_epoch)
+                    } else {
+                        Some(da_boundary_epoch)
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None, // If no DA boundary set, dont try to custody backfill
+        }
     }
 
     /// This method serves to get a sense of the current chain health. It is used in block proposal

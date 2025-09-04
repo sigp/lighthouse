@@ -6,10 +6,10 @@
 #![allow(clippy::unit_arg)]
 
 use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcessor};
-use crate::service::{NetworkMessage, SyncServiceMessage};
+use crate::service::NetworkMessage;
 use crate::status::status_message;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, events::SyncServiceMessage};
 use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
@@ -86,22 +86,14 @@ impl<T: BeaconChainTypes> Router<T> {
         executor: task_executor::TaskExecutor,
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
         fork_context: Arc<ForkContext>,
-    ) -> Result<
-        (
-            mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
-            mpsc::UnboundedSender<SyncServiceMessage>,
-        ),
-        String,
-    > {
+    ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
         trace!("Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
-
         // generate the message channel
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
-        let (sync_service_send, sync_service_recv) =
-            mpsc::unbounded_channel::<SyncServiceMessage>();
 
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send,
@@ -147,7 +139,7 @@ impl<T: BeaconChainTypes> Router<T> {
             "router",
         );
 
-        Ok((handler_send, sync_service_send))
+        Ok(handler_send)
     }
 
     /// Handle all messages incoming from the network service.

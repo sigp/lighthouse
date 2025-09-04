@@ -46,6 +46,8 @@ pub enum BackFillState {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 /// The state of the custody backfill sync.
 pub enum CustodyBackFillState {
+    /// The sync is waiting for the `earliest_available_data_column_slot`s epoch  to finalize before starting.
+    AwaitingFinalization,
     /// The sync is partially completed and currently paused.
     Paused,
     /// We are currently backfilling custody columns.

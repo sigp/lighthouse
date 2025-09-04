@@ -5,6 +5,7 @@ use crate::beacon_chain::{
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::data_availability_checker::DataAvailabilityChecker;
+use crate::events::SyncServiceMessage;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::graffiti_calculator::{GraffitiCalculator, GraffitiOrigin};
@@ -38,6 +39,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
@@ -102,6 +104,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
     rng: Option<Box<dyn RngCore + Send>>,
+    sync_service_send: Option<mpsc::UnboundedSender<SyncServiceMessage>>,
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>
@@ -141,6 +144,7 @@ where
             validator_monitor_config: None,
             import_all_data_columns: false,
             rng: None,
+            sync_service_send: None,
         }
     }
 
@@ -662,6 +666,14 @@ where
         self
     }
 
+    pub fn sync_service_send(
+        mut self,
+        sync_service_send: Option<mpsc::UnboundedSender<SyncServiceMessage>>,
+    ) -> Self {
+        self.sync_service_send = sync_service_send;
+        self
+    }
+
     /// Fetch a reference to the slot clock.
     ///
     /// Can be used for mutation during testing due to `SlotClock`'s internal mutability.
@@ -941,6 +953,10 @@ where
         };
         debug!(?custody_context, "Loading persisted custody context");
 
+        let Some(sync_service_send) = self.sync_service_send else {
+            return Err("Must supply a sync service send channel".to_string());
+        };
+
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
             config: self.chain_config,
@@ -1023,6 +1039,7 @@ where
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
+            sync_service_send,
         };
 
         let head = beacon_chain.head_snapshot();

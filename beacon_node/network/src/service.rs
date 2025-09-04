@@ -5,7 +5,7 @@ use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes, events::SyncServiceMessage};
 use beacon_processor::BeaconProcessorSend;
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
@@ -117,11 +117,6 @@ pub enum NetworkMessage<E: EthSpec> {
     },
 }
 
-#[derive(Debug)]
-pub enum SyncServiceMessage {
-    CustodyCountChanged { columns: HashSet<ColumnIndex> },
-}
-
 /// Messages triggered by validators that may trigger a subscription to a subnet.
 ///
 /// These messages can be very numerous with large validator counts (hundreds of thousands per
@@ -190,8 +185,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// The sending channel for the network service to send messages to be routed throughout
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
-    /// The sending channel for the network service to send messages to sync.
-    sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
     /// A reference to lighthouse's database to persist the DHT.
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
@@ -221,6 +214,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
     ) -> Result<
         (
             NetworkService<T>,
@@ -317,13 +311,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         // launch derived network services
 
         // router task
-        let (router_send, sync_service_send) = Router::spawn(
+        let router_send = Router::spawn(
             beacon_chain.clone(),
             network_globals.clone(),
             network_senders.network_send(),
             executor.clone(),
             invalid_block_storage,
             beacon_processor_send,
+            sync_service_recv,
             fork_context.clone(),
         )?;
 
@@ -353,7 +348,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_recv,
             validator_subscription_recv,
             router_send,
-            sync_service_send,
             store,
             network_globals: network_globals.clone(),
             next_digest_update,
@@ -376,6 +370,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
+        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
     ) -> Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>), String> {
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
@@ -383,6 +378,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             libp2p_registry,
             beacon_processor_send,
+            sync_service_recv,
         )
         .await?;
 
@@ -747,12 +743,11 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
 
-                if let Err(e) =
-                    self.sync_service_send
-                        .send(SyncServiceMessage::CustodyCountChanged {
-                            columns: new_column_indices,
-                        })
-                {
+                if let Err(e) = self.beacon_chain.sync_service_send.send(
+                    SyncServiceMessage::CustodyCountChanged {
+                        columns: new_column_indices,
+                    },
+                ) {
                     warn!(
                         error = ?e,
                         "Failed to send custody count change to the sync service"

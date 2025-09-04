@@ -116,6 +116,16 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         }
     }
 
+    pub fn wait_for_finalization(
+        &mut self,
+        column_indices: HashSet<ColumnIndex>,
+    ) -> Result<(), CustodyBackfillError> {
+        self.set_state(CustodyBackFillState::AwaitingFinalization);
+        self.set_start_epoch()?;
+        self.columns = column_indices;
+        Ok(())
+    }
+
     /// Pauses the custody sync if it's currently syncing.
     pub fn pause(&mut self) {
         if let CustodyBackFillState::Syncing = self.state() {
@@ -178,7 +188,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     #[must_use = "A failure here indicates custody backfill sync has failed and the global sync state should be updated"]
     pub fn start(
         &mut self,
-        column_indices: HashSet<ColumnIndex>,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<SyncStart, CustodyBackfillError> {
         match self.state() {
@@ -187,13 +196,12 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     self.set_state(CustodyBackFillState::Completed);
                     return Ok(SyncStart::NotSyncing);
                 }
-            } // already syncing ignore.
+            }
             CustodyBackFillState::Paused => {
                 if self.check_completed() {
                     self.set_state(CustodyBackFillState::Completed);
                     return Ok(SyncStart::NotSyncing);
                 }
-                self.columns = column_indices;
                 self.set_start_epoch()?;
                 if self
                     .network_globals
@@ -240,8 +248,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     self.current_processing_batch = None;
                     self.batches = BTreeMap::new();
 
-                    self.columns = column_indices;
-                    self.set_start_epoch()?;
                     if self
                         .network_globals
                         .peers
@@ -266,7 +272,9 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     return Ok(SyncStart::NotSyncing);
                 }
             }
-            CustodyBackFillState::Pending => return Ok(SyncStart::NotSyncing),
+            CustodyBackFillState::Pending | CustodyBackFillState::AwaitingFinalization => {
+                return Ok(SyncStart::NotSyncing);
+            }
         }
 
         let Some(column_da_boundary) = self.get_column_da_boundary() else {
@@ -650,7 +658,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                             .map(|_| ProcessResult::Successful)
                     }
                     Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
-                        
                         warn!(
                             score_adjustment = %penalty,
                             batch_epoch = %batch_id,
@@ -1101,11 +1108,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         }
     }
 
-    pub fn set_status_to_pending(
-        &mut self,
-        columns: HashSet<ColumnIndex>,
-    ) -> Result<(), CustodyBackfillError> {
-        self.columns = columns;
+    pub fn set_status_to_pending(&mut self) -> Result<(), CustodyBackfillError> {
         self.set_start_epoch()?;
         self.set_state(CustodyBackFillState::Pending);
 

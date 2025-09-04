@@ -41,7 +41,7 @@ use super::network_context::{
 use super::peer_sync_info::{PeerSyncType, remote_sync_type};
 use super::range_sync::{EPOCHS_PER_BATCH, RangeSync, RangeSyncType};
 use crate::network_beacon_processor::{ChainSegmentProcessId, NetworkBeaconProcessor};
-use crate::service::{NetworkMessage, SyncServiceMessage};
+use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
@@ -52,6 +52,7 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
+    events::SyncServiceMessage,
 };
 use futures::StreamExt;
 use lighthouse_network::SyncInfo;
@@ -966,7 +967,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    pub(crate) fn handle_sync_service_message(&mut self, sync_service_message: SyncServiceMessage) {
+    fn start_custody_sync(&mut self) {
         let sync_state = {
             let head = self.chain.best_slot();
             let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
@@ -987,38 +988,46 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 SyncState::Synced
             }
         };
-
-        match sync_service_message {
-            SyncServiceMessage::CustodyCountChanged { columns } => {
-                match sync_state {
-                    SyncState::Synced => {
-                        let anchor_info = self.chain.store.get_anchor_info();
-                        if !anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
-                            if let Err(e) = self.custody_sync.set_status_to_pending(columns) {
-                                tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
-                            }
-                            return;
-                        }
-
-                        match self.custody_sync.start(columns, &mut self.network) {
-                            Ok(SyncStart::Syncing {
-                                completed,
-                                remaining,
-                            }) => {
-                                info!(?completed, ?remaining, "Starting Custody Sync");
-                            }
-                            Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the custody backfill sync state didn't start.
-                            Err(e) => {
-                                error!(error = ?e, "Custody backfill sync failed to start");
-                            }
-                        }
+        match sync_state {
+            SyncState::Synced => {
+                let anchor_info = self.chain.store.get_anchor_info();
+                if !anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
+                    if let Err(e) = self.custody_sync.set_status_to_pending() {
+                        tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
                     }
-                    _ => {
-                        if let Err(e) = self.custody_sync.set_status_to_pending(columns) {
-                            tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
-                        }
+                    return;
+                }
+                match self.custody_sync.start(&mut self.network) {
+                    Ok(SyncStart::Syncing {
+                        completed,
+                        remaining,
+                    }) => {
+                        info!(?completed, ?remaining, "Starting Custody Sync");
+                    }
+                    Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the custody backfill sync state didn't start.
+                    Err(e) => {
+                        error!(error = ?e, "Custody backfill sync failed to start");
                     }
                 }
+            }
+            _ => {
+                if let Err(e) = self.custody_sync.set_status_to_pending() {
+                    tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
+                }
+            }
+        }
+    }
+
+    pub(crate) fn handle_sync_service_message(&mut self, sync_service_message: SyncServiceMessage) {
+        match sync_service_message {
+            SyncServiceMessage::CustodyCountChanged { columns } => {
+                // Wait for the current epoch to finalize before starting custody sync
+                if let Err(e) = self.custody_sync.wait_for_finalization(columns) {
+                    tracing::warn!(error = ?e, "Failed to set custody backfill state to awaiting finalization");
+                }
+            }
+            SyncServiceMessage::EarliestCustodyEpochFinalized => {
+                self.start_custody_sync();
             }
         }
     }

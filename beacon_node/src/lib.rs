@@ -2,6 +2,7 @@ mod cli;
 mod config;
 
 pub use beacon_chain;
+use beacon_chain::events::SyncServiceMessage;
 use beacon_chain::{builder::Witness, slot_clock::SystemTimeSlotClock};
 use clap::ArgMatches;
 pub use cli::cli_app;
@@ -13,6 +14,7 @@ use slasher::{DatabaseBackendOverride, Slasher};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use store::database::interface::BeaconNodeBackend;
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 use types::{ChainSpec, Epoch, EthSpec, ForkName};
 
@@ -131,9 +133,13 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let discv5_executor = Discv5Executor(executor);
         client_config.network.discv5_config.executor = Some(Box::new(discv5_executor));
 
+        let (sync_service_send, sync_service_recv) =
+            mpsc::unbounded_channel::<SyncServiceMessage>();
+
         builder
+            .sync_service_send(sync_service_send)
             .build_beacon_chain()?
-            .network(Arc::new(client_config.network))
+            .network(Arc::new(client_config.network), sync_service_recv)
             .await?
             .notifier()?
             .http_metrics_config(client_config.http_metrics.clone())

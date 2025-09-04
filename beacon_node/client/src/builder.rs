@@ -6,6 +6,7 @@ use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
+use beacon_chain::events::SyncServiceMessage;
 use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
@@ -41,6 +42,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
+use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use types::data_column_custody_group::get_custody_groups_ordered;
 use types::{
@@ -89,6 +91,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
     light_client_server_rv: Option<Receiver<LightClientProducerEvent<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
+    sync_service_send: Option<mpsc::UnboundedSender<SyncServiceMessage>>,
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>
@@ -122,6 +125,7 @@ where
             beacon_processor_config: None,
             beacon_processor_channels: None,
             light_client_server_rv: None,
+            sync_service_send: None,
         }
     }
 
@@ -145,6 +149,14 @@ where
 
     pub fn slasher(mut self, slasher: Arc<Slasher<E>>) -> Self {
         self.slasher = Some(slasher);
+        self
+    }
+
+    pub fn sync_service_send(
+        mut self,
+        sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
+    ) -> Self {
+        self.sync_service_send = Some(sync_service_send);
         self
     }
 
@@ -204,6 +216,7 @@ where
             .execution_layer(execution_layer)
             .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
             .validator_monitor_config(config.validator_monitor.clone())
+            .sync_service_send(self.sync_service_send.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)
                     .map_err(|e| format!("Failed to create RNG: {:?}", e))?,
@@ -453,7 +466,11 @@ where
     }
 
     /// Starts the networking stack.
-    pub async fn network(mut self, config: Arc<NetworkConfig>) -> Result<Self, String> {
+    pub async fn network(
+        mut self,
+        config: Arc<NetworkConfig>,
+        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
+    ) -> Result<Self, String> {
         let beacon_chain = self
             .beacon_chain
             .clone()
@@ -481,6 +498,7 @@ where
             context.executor,
             libp2p_registry.as_mut(),
             beacon_processor_channels.beacon_processor_tx.clone(),
+            sync_service_recv,
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
