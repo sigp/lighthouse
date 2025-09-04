@@ -74,6 +74,10 @@ paste = { workspace = true }
 state_processing = { workspace = true }
 tokio = { workspace = true }
 
+[lints.clippy]
+module_inception = "allow"
+module_name_repetitions = "allow"
+
 [[bench]]
 name = "benches"
 harness = false

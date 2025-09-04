@@ -1,4 +1,6 @@
-use super::*;
+use kzg::KzgCommitment;
+
+use crate::test_utils::TestRandom;
 
 impl TestRandom for KzgCommitment {
     fn random_for_test(rng: &mut impl rand::RngCore) -> Self {

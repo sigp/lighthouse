@@ -49,7 +49,7 @@ use tree_hash_derive::TreeHash;
 use types::ChainSpec;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
-use types::sync_committee::Error as SyncCommitteeError;
+use types::sync_committee::SyncCommitteeError;
 use types::{
     AggregateSignature, BeaconStateError, EthSpec, Hash256, SignedContributionAndProof, Slot,
     SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,

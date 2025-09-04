@@ -1,23 +1,23 @@
 #![allow(clippy::arithmetic_side_effects)]
 
-use std::fmt::Debug;
-
-pub use rand::{RngCore, SeedableRng};
-pub use rand_xorshift::XorShiftRng;
-
-pub use generate_deterministic_keypairs::generate_deterministic_keypair;
-pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
-pub use generate_deterministic_keypairs::load_keypairs_from_yaml;
-use ssz::{Decode, Encode, ssz_encode};
-pub use test_random::{TestRandom, test_random_instance};
-use tree_hash::TreeHash;
-
 #[macro_use]
 mod macros;
 mod generate_deterministic_keypairs;
 #[cfg(test)]
 mod generate_random_block_and_blobs;
 mod test_random;
+
+pub use generate_deterministic_keypairs::generate_deterministic_keypair;
+pub use generate_deterministic_keypairs::generate_deterministic_keypairs;
+pub use generate_deterministic_keypairs::load_keypairs_from_yaml;
+pub use test_random::{TestRandom, test_random_instance};
+
+pub use rand::{RngCore, SeedableRng};
+pub use rand_xorshift::XorShiftRng;
+
+use ssz::{Decode, Encode, ssz_encode};
+use std::fmt::Debug;
+use tree_hash::TreeHash;
 
 pub fn test_ssz_tree_hash_pair<T, U>(v1: &T, v2: &U)
 where

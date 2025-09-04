@@ -19,7 +19,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use test_random_derive::TestRandom;
-use types::beacon_block_body::KzgCommitments;
 use types::test_utils::TestRandom;
 pub use types::*;
 

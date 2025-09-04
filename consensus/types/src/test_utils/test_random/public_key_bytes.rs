@@ -1,9 +1,9 @@
-use bls::PUBLIC_KEY_BYTES_LEN;
+use bls::{PUBLIC_KEY_BYTES_LEN, PublicKey, PublicKeyBytes};
 
-use super::*;
+use crate::test_utils::TestRandom;
 
 impl TestRandom for PublicKeyBytes {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
+    fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
         //50-50 chance for signature to be "valid" or invalid
         if bool::random_for_test(rng) {
             //valid signature

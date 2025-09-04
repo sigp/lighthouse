@@ -1,7 +1,7 @@
-use super::*;
+use crate::{core::Uint256, test_utils::TestRandom};
 
 impl TestRandom for Uint256 {
-    fn random_for_test(rng: &mut impl RngCore) -> Self {
+    fn random_for_test(rng: &mut impl rand::RngCore) -> Self {
         let mut key_bytes = [0; 32];
         rng.fill_bytes(&mut key_bytes);
         Self::from_le_slice(&key_bytes[..])
