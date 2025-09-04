@@ -22,12 +22,14 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
 use tempfile::{TempDir, tempdir};
 use tokio::sync::oneshot;
 use types::ChainSpec;
 use validator_services::block_service::BlockService;
+use warp::Filter;
 use zeroize::Zeroizing;
 
 pub const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
@@ -432,6 +434,33 @@ impl ApiTester {
                 "the locally-generated deposit sig should create the same deposit sig"
             );
         }
+
+        self
+    }
+
+    pub async fn test_user_agent_is_set(self) -> Self {
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let captured_filter = captured.clone();
+
+        // Warp route: capture User-Agent header
+        let route = warp::any()
+            .and(warp::header::optional::<String>("user-agent"))
+            .map(move |ua: Option<String>| {
+                *captured_filter.lock().unwrap() = ua;
+                warp::reply()
+            });
+
+        // Start ephemeral server
+        let (addr, server) = warp::serve(route).bind_ephemeral(([127, 0, 0, 1], 0));
+        tokio::spawn(server);
+
+        // Make a request (simulate Lighthouse client)
+        let url = format!("http://{}/", addr);
+        let _client = self.client.create_request(&url).await;
+
+        // Check captured User-Agent
+        let ua = captured.lock().unwrap().clone().unwrap();
+        assert_eq!(ua, lighthouse_version::user_agent());
 
         self
     }

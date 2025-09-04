@@ -38,5 +38,3 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
-mockito = { workspace = true }
-regex = { workspace = true }
