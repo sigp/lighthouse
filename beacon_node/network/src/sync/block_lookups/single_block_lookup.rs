@@ -267,6 +267,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         // that can make progress so it must be dropped. Consider the lookup completed.
         // This case can happen if we receive the components from gossip during a retry.
         if self.all_components_processed() {
+            self.span = Span::none();
             Ok(LookupResult::Completed)
         } else {
             Ok(LookupResult::Pending)
