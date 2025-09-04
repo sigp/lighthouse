@@ -71,7 +71,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         column_indices: &[ColumnIndex],
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Self {
-        let span = debug_span!(parent: None, SPAN_OUTGOING_CUSTODY_REQUEST, %block_root);
+        let span = debug_span!(
+            parent: Span::current(),
+            SPAN_OUTGOING_CUSTODY_REQUEST,
+            %block_root,
+            ?column_indices
+        );
         Self {
             block_root,
             custody_id,
@@ -250,8 +255,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     return Err(Error::TooManyFailures);
                 }
 
-                // TODO(das): When is a fork and only a subset of your peers know about a block, we should
-                // only query the peers on that fork. Should this case be handled? How to handle it?
                 let custodial_peers = cx.get_custodial_peers(*column_index);
 
                 // We draw from the total set of peers, but prioritize those peers who we have
@@ -268,6 +271,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                             // De-prioritize peers that have failed to successfully respond to
                             // requests recently
                             self.failed_peers.contains(peer),
+                            // TODO: update this to look at the protocol
                             // Prefer peers with fewer requests to load balance across peers.
                             // We batch requests to the same peer, so count existence in the
                             // `columns_to_request_by_peer` as a single 1 request.
@@ -297,6 +301,13 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 }
             }
         }
+
+        debug!(
+            lookup_peers = lookup_peers.len(),
+            "Requesting {} columns from {} peers",
+            self.column_requests.len(),
+            columns_to_request_by_peer.len(),
+        );
 
         for (peer_id, indices) in columns_to_request_by_peer.into_iter() {
             let request_result = cx
