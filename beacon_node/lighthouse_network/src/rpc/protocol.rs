@@ -11,7 +11,6 @@ use std::marker::PhantomData;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
-use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
@@ -425,7 +424,6 @@ pub struct RPCProtocol<E: EthSpec> {
     pub max_rpc_size: usize,
     pub enable_light_client_server: bool,
     pub phantom: PhantomData<E>,
-    pub ttfb_timeout: Duration,
 }
 
 impl<E: EthSpec> UpgradeInfo for RPCProtocol<E> {
@@ -652,7 +650,7 @@ pub fn rpc_data_column_limits<E: EthSpec>(
 
 pub type InboundOutput<TSocket, E> = (RequestType<E>, InboundFramed<TSocket, E>);
 pub type InboundFramed<TSocket, E> =
-    Framed<std::pin::Pin<Box<TimeoutStream<Compat<TSocket>>>>, SSZSnappyInboundCodec<E>>;
+    Framed<std::pin::Pin<Box<Compat<TSocket>>>, SSZSnappyInboundCodec<E>>;
 
 impl<TSocket, E> InboundUpgrade<TSocket> for RPCProtocol<E>
 where
@@ -676,10 +674,7 @@ where
                 ),
             };
 
-            let mut timed_socket = TimeoutStream::new(socket);
-            timed_socket.set_read_timeout(Some(self.ttfb_timeout));
-
-            let socket = Framed::new(Box::pin(timed_socket), codec);
+            let socket = Framed::new(Box::pin(socket), codec);
 
             // MetaData requests should be empty, return the stream
             match versioned_protocol {

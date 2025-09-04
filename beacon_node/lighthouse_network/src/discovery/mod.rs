@@ -1223,7 +1223,7 @@ impl<E: EthSpec> Discovery<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rpc::methods::{MetaData, MetaDataV2};
+    use crate::rpc::methods::{MetaData, MetaDataV3};
     use libp2p::identity::secp256k1;
     use types::{BitVector, MinimalEthSpec, SubnetId};
 
@@ -1248,10 +1248,11 @@ mod tests {
         .unwrap();
         let globals = NetworkGlobals::new(
             enr,
-            MetaData::V2(MetaDataV2 {
+            MetaData::V3(MetaDataV3 {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
+                custody_group_count: spec.custody_requirement,
             }),
             vec![],
             false,
