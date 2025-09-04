@@ -8,6 +8,7 @@ use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_tracing::SPAN_OUTGOING_CUSTODY_REQUEST;
 use parking_lot::RwLock;
+use rand::Rng;
 use std::collections::HashSet;
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
@@ -225,7 +226,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
         let lookup_peers = self.lookup_peers.read();
 
-        for (column_index, request) in self.column_requests.iter_mut() {
+        for (column_index, request) in self.column_requests.iter() {
             if let Some(wait_duration) = request.is_awaiting_download() {
                 // Note: an empty response is considered a successful response, so we may end up
                 // retrying many more times than `MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS`.
@@ -235,35 +236,15 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
                 let custodial_peers = cx.get_custodial_peers(*column_index);
 
-                // We draw from the total set of peers, but prioritize those peers who we have
-                // received an attestation / status / block message claiming to have imported the
-                // lookup. The frequency of those messages is low, so drawing only from lookup_peers
-                // could cause many lookups to take much longer or fail as they don't have enough
-                // custody peers on a given column
-                let mut priorized_peers = custodial_peers
-                    .iter()
-                    .filter(|peer| {
-                        // Exclude peers that we have already made too many attempts to without success.
-                        self.peer_attempts.get(peer).copied().unwrap_or(0)
-                            <= MAX_CUSTODY_PEER_ATTEMPTS
-                    })
-                    .map(|peer| {
-                        (
-                            // Prioritize peers that claim to know have imported this block
-                            if lookup_peers.contains(peer) { 0 } else { 1 },
-                            // De-prioritize peers that we have already attempted to download from
-                            self.peer_attempts.get(peer).copied().unwrap_or(0),
-                            // Prefer peers with fewer requests to load balance across peers.
-                            active_request_count_by_peer.get(peer).copied().unwrap_or(0),
-                            *peer,
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                priorized_peers.sort_unstable();
+                let peer_to_request = self.select_request_peer(
+                    &active_request_count_by_peer,
+                    &lookup_peers,
+                    custodial_peers,
+                );
 
-                if let Some((_, _, _, peer_id)) = priorized_peers.first() {
+                if let Some(peer_id) = peer_to_request {
                     columns_to_request_by_peer
-                        .entry(*peer_id)
+                        .entry(peer_id)
                         .or_default()
                         .push(*column_index);
                 } else if wait_duration > MAX_STALE_NO_PEERS_DURATION {
@@ -337,6 +318,44 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         }
 
         Ok(None)
+    }
+
+    /// We draw from the total set of peers, but prioritize those peers who we have
+    /// received an attestation / status / block message claiming to have imported the
+    /// lookup. The frequency of those messages is low, so drawing only from lookup_peers
+    /// could cause many lookups to take much longer or fail as they don't have enough
+    /// custody peers on a given column
+    fn select_request_peer(
+        &self,
+        active_request_count_by_peer: &HashMap<PeerId, usize>,
+        lookup_peers: &HashSet<PeerId>,
+        custodial_peers: Vec<PeerId>,
+    ) -> Option<PeerId> {
+        let mut prioritized_peers = custodial_peers
+            .iter()
+            .filter(|peer| {
+                // Exclude peers that we have already made too many attempts to without success.
+                self.peer_attempts.get(peer).copied().unwrap_or(0) <= MAX_CUSTODY_PEER_ATTEMPTS
+            })
+            .map(|peer| {
+                (
+                    // Prioritize peers that claim to know have imported this block
+                    if lookup_peers.contains(peer) { 0 } else { 1 },
+                    // De-prioritize peers that we have already attempted to download from
+                    self.peer_attempts.get(peer).copied().unwrap_or(0),
+                    // Prefer peers with fewer requests to load balance across peers.
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Random factor to break ties, otherwise the PeerID breaks ties
+                    rand::rng().random::<u32>(),
+                    *peer,
+                )
+            })
+            .collect::<Vec<_>>();
+        prioritized_peers.sort_unstable();
+
+        prioritized_peers
+            .first()
+            .map(|(_, _, _, _, peer_id)| *peer_id)
     }
 }
 
