@@ -5096,8 +5096,7 @@ dependencies = [
 [[package]]
 name = "leveldb-sys"
 version = "2.0.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dd94a4d0242a437e5e41a27c782b69a624469ca1c4d1e5cb3c337f74a8031d4"
+source = "git+https://github.com/skade/leveldb-sys.git?rev=5b3102b7ea9b08e33acb3ffda400f78c52e8fa35#5b3102b7ea9b08e33acb3ffda400f78c52e8fa35"
 dependencies = [
  "cmake",
  "ffi-opaque",
