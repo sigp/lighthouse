@@ -1134,7 +1134,7 @@ impl<E: EthSpec> PeerManager<E> {
         }
 
         // Check data column sampling subnets
-        // If the peer exists in a smapling subnet that is less than or equal to MIN_SAMPLING_COLUMN_SUBNET_PEERS, we keep it
+        // If the peer exists in a sampling subnet that is less than or equal to MIN_SAMPLING_COLUMN_SUBNET_PEERS, we keep it
         let should_protect_sampling = candidate_info
             .custody_subnets
             .iter()
