@@ -106,7 +106,11 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     fn delete_batch(&self, column: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error>;
 
+    // TODO(migration-v29) can delete these functions once db migration v29 is deprecated
+    // TODO(migration-v29) make sure upgrade returns a Result<(), Error> and propogate the error up to
+    // the migration script accordingly.
     fn upgrade(&self);
+    fn is_redb(&self) -> bool;
 
     fn delete_if(
         &self,

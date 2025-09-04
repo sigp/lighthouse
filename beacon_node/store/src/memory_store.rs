@@ -146,6 +146,12 @@ impl<E: EthSpec> KeyValueStore<E> for MemoryStore<E> {
         });
         Ok(())
     }
+
+    fn upgrade(&self) {}
+
+    fn is_redb(&self) -> bool {
+        false
+    }
 }
 
 impl<E: EthSpec> ItemStore<E> for MemoryStore<E> {}

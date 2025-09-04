@@ -169,11 +169,24 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_batch(txn, col, ops),
         }
     }
-    
+
+    // TODO(migration-v29) in the redb case, lets raise an info log
+    // TODO(migration-v29) the level_db case should be a no-op
     fn upgrade(&self) {
         match self {
+            #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(level_db) => todo!(),
+            #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(redb) => redb.upgrade(),
+        }
+    }
+
+    fn is_redb(&self) -> bool {
+        match self {
+            #[cfg(feature = "leveldb")]
+            BeaconNodeBackend::LevelDb(level_db) => false,
+            #[cfg(feature = "redb")]
+            BeaconNodeBackend::Redb(redb) => true,
         }
     }
 
