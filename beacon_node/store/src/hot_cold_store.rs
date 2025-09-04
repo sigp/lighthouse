@@ -84,6 +84,8 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     historic_state_cache: Mutex<HistoricStateCache<E>>,
     /// Chain spec.
     pub spec: Arc<ChainSpec>,
+    /// Database backend type
+    pub database_backend: Option<DatabaseBackend>,
     /// Mere vessel for E.
     _phantom: PhantomData<E>,
 }
@@ -244,6 +246,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             config,
             hierarchy,
             spec,
+            database_backend: None,
             _phantom: PhantomData,
         };
 
@@ -266,6 +269,11 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
     ) -> Result<Arc<Self>, Error> {
         debug!("Opening HotColdDB");
         config.verify::<E>()?;
+
+        #[cfg(feature = "redb")]
+        let database_backend = DatabaseBackend::Redb;
+        #[cfg(feature = "leveldb")]
+        let database_backend = DatabaseBackend::LevelDb;
 
         let hierarchy = config.hierarchy_config.to_moduli()?;
 
@@ -296,6 +304,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             config,
             hierarchy,
             spec,
+            database_backend: Some(database_backend),
             _phantom: PhantomData,
         };
         // Load the config from disk but don't error on a failed read because the config itself may

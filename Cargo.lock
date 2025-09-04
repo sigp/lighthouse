@@ -893,6 +893,7 @@ dependencies = [
  "proto_array",
  "rand 0.9.0",
  "rayon",
+ "redb",
  "safe_arith",
  "sensitive_url",
  "serde",
