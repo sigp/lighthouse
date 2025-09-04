@@ -2885,11 +2885,10 @@ mod tests {
         *peer_manager.network_globals.sampling_subnets.write() = HashSet::new();
 
         // Create 12 peers:
-        // - 4 on custody subnet 0
-        // - 3 on subnet 1
-        //-  2 on subnet 2
-        // - 3 scattered.
-        // Every 4th peer (0,4,8) is on sync committee 0.
+        // * 4 on custody subnet 0, all on sync committee 0 subnet as well (should only prune up to 2 peers)
+        // * 3 on subnet 1
+        // * 2 on subnet 2
+        // * 3 scattered.
         let mut peers = Vec::new();
         for i in 0..12 {
             let peer = PeerId::random();
@@ -2901,7 +2900,7 @@ mod tests {
                 7..9 => 2,
                 _ => i - 6,
             };
-            let on_sync_committee = i % 4 == 0;
+            let on_sync_committee = i < 4;
 
             {
                 let mut peers_db = peer_manager.network_globals.peers.write();
@@ -2949,10 +2948,10 @@ mod tests {
             .cloned()
             .collect();
 
-        let sync_committee_peers = [&peers[0], &peers[4], &peers[8]];
+        // only 2 peers should be pruned from the 4 peers in subnet 0.
         let remaining_sync_peers = connected_peers
             .iter()
-            .filter(|peer| sync_committee_peers.contains(peer))
+            .filter(|peer| peers[0..4].contains(peer))
             .count();
         assert_eq!(
             remaining_sync_peers, 2,
