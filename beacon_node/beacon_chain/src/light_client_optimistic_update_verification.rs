@@ -120,8 +120,8 @@ impl<T: BeaconChainTypes> VerifiedLightClientOptimisticUpdate<T> {
             if signature_slot != rcv_optimistic_update.signature_slot() {
                 // The locally constructed optimistic update is not up to date, probably
                 // because the node has fallen behind and needs to sync.
-                if rcv_optimistic_update.signature_slot() >  signature_slot {
-                    return Err(Error::Ignore)
+                if rcv_optimistic_update.signature_slot() > signature_slot {
+                    return Err(Error::Ignore);
                 }
                 return Err(Error::MismatchedSignatureSlot {
                     local: signature_slot,
