@@ -688,7 +688,7 @@ pub async fn proposer_boost_re_org_test(
     assert_eq!(
         should_re_org,
         !forkchoice_updates.contains_update_for(block_b_exec_hash),
-        "{forkchoice_updates:?}"
+        "{block_b_exec_hash:?}"
     );
 
     // Check the timing of the first fork choice update with payload attributes for block C.
