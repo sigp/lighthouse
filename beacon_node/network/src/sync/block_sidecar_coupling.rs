@@ -55,7 +55,7 @@ enum RangeBlockDataRequest<E: EthSpec> {
             ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
         >,
         /// The column indices corresponding to the request
-        column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
+        request_to_column_indices: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
         expected_custody_columns: Vec<ColumnIndex>,
         attempt: usize,
     },
@@ -115,13 +115,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
         } else if let Some((requests, expected_custody_columns)) = data_columns {
-            let column_peers: HashMap<_, _> = requests.into_iter().collect();
+            let request_to_column_indices: HashMap<_, _> = requests.into_iter().collect();
             RangeBlockDataRequest::DataColumns {
-                requests: column_peers
+                requests: request_to_column_indices
                     .keys()
                     .map(|id| (*id, ByRangeRequest::Active(*id)))
                     .collect(),
-                column_peers,
+                request_to_column_indices,
                 expected_custody_columns,
                 attempt: 0,
             }
@@ -151,14 +151,17 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             block_blob: self.block_peer,
             data_columns: match &self.block_data_request {
                 RangeBlockDataRequest::NoData | RangeBlockDataRequest::Blobs(_) => HashMap::new(),
-                RangeBlockDataRequest::DataColumns { column_peers, .. } => column_peers
+                RangeBlockDataRequest::DataColumns {
+                    request_to_column_indices,
+                    ..
+                } => request_to_column_indices
                     .iter()
                     .map(|(k, v)| (k.peer, v.clone()))
                     .collect(),
                 RangeBlockDataRequest::DataColumnsFromRoot {
-                    request_to_column_indices: column_peers,
+                    request_to_column_indices,
                     ..
-                } => column_peers
+                } => request_to_column_indices
                     .iter()
                     .map(|(k, v)| (k.peer, v.clone()))
                     .collect(),
@@ -176,12 +179,12 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::DataColumns {
                 requests,
                 expected_custody_columns: _,
-                column_peers,
+                request_to_column_indices,
                 attempt: _,
             } => {
                 for (request, columns) in failed_column_requests.into_iter() {
                     requests.insert(request, ByRangeRequest::Active(request));
-                    column_peers.insert(request, columns);
+                    request_to_column_indices.insert(request, columns);
                 }
                 Ok(())
             }
@@ -362,7 +365,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::DataColumns {
                 requests,
                 expected_custody_columns,
-                column_peers,
+                request_to_column_indices,
                 attempt,
             } => {
                 let mut data_columns = vec![];
@@ -380,7 +383,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 // Note: this assumes that only 1 peer is responsible for a column
                 // with a batch.
-                for (id, columns) in column_peers {
+                for (id, columns) in request_to_column_indices.iter() {
                     for column in columns {
                         column_to_peer_id.insert(*column, id.peer);
                     }
@@ -406,6 +409,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         // delete it from the entries as we are going to make
                         // a separate attempt for those components.
                         requests.retain(|&k, _| k.peer != *peer);
+                        request_to_column_indices.retain(|&k, _| k.peer != *peer);
                     }
                 }
 

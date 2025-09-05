@@ -225,13 +225,13 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     components_by_range_requests:
         FnvHashMap<ComponentsByRangeRequestId, RangeBlockComponentsRequest<T::EthSpec>>,
 
-    // todo(pawan): make this a bounded queue, make the types better, add better docs
     // A hashmap with the key being the parent request and the value being the data column by root
     // requests that we have to retry because of one of the following reasons:
     // 1. The root requests couldn't be made after the parent blocks request because there were no
     // column peers available
     // 2. The root request errored (either peer sent an RPC error or an empty response)
-    requests_to_retry: HashMap<ComponentsByRangeRequestId, DataColumnsByRootBatchBlockRequest>,
+    pending_column_by_root_range_requests:
+        HashMap<ComponentsByRangeRequestId, DataColumnsByRootBatchBlockRequest>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -314,7 +314,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
             custody_by_root_requests: <_>::default(),
             components_by_range_requests: FnvHashMap::default(),
-            requests_to_retry: Default::default(),
+            pending_column_by_root_range_requests: Default::default(),
             network_beacon_processor,
             chain,
             fork_context,
@@ -345,7 +345,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
             components_by_range_requests: _,
-            requests_to_retry: _,
+            pending_column_by_root_range_requests: _,
             execution_engine_state: _,
             network_beacon_processor: _,
             chain: _,
@@ -452,7 +452,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             components_by_range_requests: _,
             execution_engine_state: _,
             network_beacon_processor: _,
-            requests_to_retry: _,
+            pending_column_by_root_range_requests: _,
             chain: _,
             fork_context: _,
             // Don't use a fallback match. We want to be sure that all requests are considered when
@@ -567,7 +567,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let active_requests = self.active_request_count_by_peer();
 
         // Collect entries to process and remove from requests_to_retry
-        let entries_to_process: Vec<_> = self.requests_to_retry.drain().collect();
+        let entries_to_process: Vec<_> =
+            self.pending_column_by_root_range_requests.drain().collect();
         let mut entries_to_keep = Vec::new();
 
         for (parent_request, requests) in entries_to_process {
@@ -637,7 +638,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         // Re-insert entries that still need to be retried
-        self.requests_to_retry.extend(entries_to_keep);
+        self.pending_column_by_root_range_requests
+            .extend(entries_to_keep);
 
         Ok(())
     }
@@ -1820,12 +1822,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let mut peer_to_columns: HashMap<PeerId, Vec<ColumnIndex>> = HashMap::new();
         let mut no_peers_for_column: Vec<ColumnIndex> = Vec::new();
         for column in self.chain.sampling_columns_for_epoch(batch_epoch).iter() {
-            let data_column = DataColumnSubnetId::new(*column);
+            let subnet_id = DataColumnSubnetId::new(*column);
             if let Some(custody_peer) = self
                 .network_globals()
                 .peers
                 .read()
-                .good_custody_subnet_peer_range_sync(data_column, batch_epoch)
+                .good_custody_subnet_peer_range_sync(subnet_id, batch_epoch)
                 .next()
             {
                 peer_to_columns
@@ -1878,7 +1880,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 indices: no_peers_for_column,
             };
 
-            self.requests_to_retry
+            self.pending_column_by_root_range_requests
                 .insert(id.parent_request_id, data_columns_by_root_request);
         }
 
