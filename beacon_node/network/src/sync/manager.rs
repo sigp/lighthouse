@@ -1134,13 +1134,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if let Some(resp) =
                     self.network
                         .on_data_columns_by_root_response(req_id, peer_id, data_column)
-                {
-                    if let Some(result) = self
+                    && let Some(result) = self
                         .network
                         .on_custody_by_root_response(custody_id, req_id, peer_id, resp)
-                    {
-                        self.on_custody_by_root_result(custody_id.requester, result);
-                    }
+                {
+                    self.on_custody_by_root_result(custody_id.requester, result);
                 }
             }
             DataColumnsByRootRequester::RangeSync { parent } => {

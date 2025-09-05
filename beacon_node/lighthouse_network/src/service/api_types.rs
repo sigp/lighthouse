@@ -283,6 +283,7 @@ mod tests {
                     lookup_id: 101,
                 }),
             }),
+            peer: PeerId::random(),
         };
         assert_eq!(format!("{id}"), "123/Custody/121/Lookup/101");
     }

@@ -328,7 +328,7 @@ impl<E: EthSpec> PeerDB<E> {
     }
 
     /// Returns an iterator of all good gossipsub peers that are supposed to be custodying
-    /// the given subnet id.
+    /// the given subnet id and have the epoch according to their status messages.
     pub fn good_custody_subnet_peer_range_sync(
         &self,
         subnet: DataColumnSubnetId,

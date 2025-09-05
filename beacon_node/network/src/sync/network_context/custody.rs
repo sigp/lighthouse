@@ -5,7 +5,7 @@ use beacon_chain::BeaconChainTypes;
 use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
-use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
+use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester, Id};
 use lighthouse_tracing::SPAN_OUTGOING_CUSTODY_REQUEST;
 use lru_cache::LRUTimeCache;
 use parking_lot::RwLock;
@@ -50,8 +50,8 @@ pub enum Error {
     /// There should only exist a single request at a time. Having multiple requests is a bug and
     /// can result in undefined state, so it's treated as a hard error and the lookup is dropped.
     UnexpectedRequestId {
-        expected_req_id: DataColumnsByRootRequestId,
-        req_id: DataColumnsByRootRequestId,
+        expected_req_id: Id,
+        req_id: Id,
     },
 }
 
@@ -401,8 +401,8 @@ impl<E: EthSpec> ColumnRequest<E> {
             Status::Downloading(expected_req_id) => {
                 if req_id != *expected_req_id {
                     return Err(Error::UnexpectedRequestId {
-                        expected_req_id: *expected_req_id,
-                        req_id,
+                        expected_req_id: expected_req_id.id,
+                        req_id: req_id.id,
                     });
                 }
                 self.status = Status::NotStarted(Instant::now());
@@ -434,8 +434,8 @@ impl<E: EthSpec> ColumnRequest<E> {
             Status::Downloading(expected_req_id) => {
                 if req_id != *expected_req_id {
                     return Err(Error::UnexpectedRequestId {
-                        expected_req_id: *expected_req_id,
-                        req_id,
+                        expected_req_id: expected_req_id.id,
+                        req_id: req_id.id,
                     });
                 }
                 self.status = Status::Downloaded(peer_id, data_column, seen_timestamp);

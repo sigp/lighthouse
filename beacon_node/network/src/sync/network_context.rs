@@ -573,7 +573,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         for (parent_request, requests) in entries_to_process {
             let mut data_column_requests = Vec::new();
             let requester = DataColumnsByRootRequester::RangeSync {
-                parent: parent_request.clone(),
+                parent: parent_request,
             };
             let custody_indices = requests.indices.iter().cloned().collect();
             let synced_peers = self
@@ -829,7 +829,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Create the overall components_by_range request ID before its individual components
         let id = ComponentsByRangeRequestId {
             id: self.next_id(),
-            requester: requester.clone(),
+            requester,
         };
 
         let blocks_req_id = self.send_blocks_by_range_request(
@@ -940,6 +940,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Received a blocks by range or blobs by range response for a request that couples blocks '
     /// and blobs.
+    #[allow(clippy::type_complexity)]
     pub fn range_block_component_response(
         &mut self,
         id: ComponentsByRangeRequestId,
@@ -1766,7 +1767,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     fn request_columns_on_successful_blocks(
         &mut self,
         id: BlocksByRangeRequestId,
-        blocks: &Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+        blocks: &[Arc<SignedBeaconBlock<T::EthSpec>>],
     ) -> Result<(), RpcResponseError> {
         let batch_epoch = id.batch_id();
         // Return early if no columns are required for this epoch
@@ -1790,10 +1791,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // We have blocks here, check if they need data columns and request them
         for block in blocks.iter() {
             // Request columns only if the blob_kzg_commitments is non-empty
-            if let Ok(commitments) = block.message().body().blob_kzg_commitments() {
-                if !commitments.is_empty() {
-                    block_roots.push(block.canonical_root());
-                }
+            if let Ok(commitments) = block.message().body().blob_kzg_commitments()
+                && !commitments.is_empty()
+            {
+                block_roots.push(block.canonical_root());
             }
         }
 
