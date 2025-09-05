@@ -133,7 +133,7 @@ pub async fn gossip_partial_pass() {
         .client
         .post_beacon_blocks_v2_ssz(&PublishBlockRequest::new(block, blobs), validation_level)
         .await;
-    assert!(response.is_ok());
+    assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
 }
 
 // This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
@@ -823,6 +823,7 @@ pub async fn blinded_gossip_invalid() {
     let pre_finalized_block_root = Hash256::zero();
     /* mandated by Beacon API spec */
     if tester.harness.spec.is_fulu_scheduled() {
+        // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
@@ -875,7 +876,16 @@ pub async fn blinded_gossip_partial_pass() {
         .client
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
-    assert!(response.is_ok());
+    if tester.harness.spec.is_fulu_scheduled() {
+        let error_response = response.unwrap_err();
+        // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
+        assert_eq!(
+            error_response.status(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
+    } else {
+        assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
+    }
 }
 
 // This test checks that a block that is valid from both a gossip and consensus perspective is accepted when using `broadcast_validation=gossip`.
@@ -1025,6 +1035,7 @@ pub async fn blinded_consensus_invalid() {
 
     /* mandated by Beacon API spec */
     if tester.harness.spec.is_fulu_scheduled() {
+        // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
             Some(StatusCode::INTERNAL_SERVER_ERROR)
@@ -1081,12 +1092,18 @@ pub async fn blinded_consensus_gossip() {
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
 
+    assert!(response.is_err());
+
+    let error_response: eth2::Error = response.err().unwrap();
+
     /* mandated by Beacon API spec */
     if tester.harness.spec.is_fulu_scheduled() {
-        assert!(response.is_ok());
+        // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
+        assert_eq!(
+            error_response.status(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
     } else {
-        assert!(response.is_err());
-        let error_response: eth2::Error = response.err().unwrap();
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
         assert_server_message_error(
             error_response,
@@ -1337,12 +1354,17 @@ pub async fn blinded_equivocation_gossip() {
         .post_beacon_blinded_blocks_v2(&blinded_block, validation_level)
         .await;
 
+    assert!(response.is_err());
+    let error_response: eth2::Error = response.err().unwrap();
+
     /* mandated by Beacon API spec */
     if tester.harness.spec.is_fulu_scheduled() {
-        assert!(response.is_ok())
+        // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
+        assert_eq!(
+            error_response.status(),
+            Some(StatusCode::INTERNAL_SERVER_ERROR)
+        );
     } else {
-        assert!(response.is_err());
-        let error_response: eth2::Error = response.err().unwrap();
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
         assert_server_message_error(
             error_response,
@@ -1406,8 +1428,7 @@ pub async fn blinded_equivocation_consensus_late_equivocation() {
     );
     assert_ne!(block_a.state_root(), block_b.state_root());
 
-    // From the Fulu fork, external builder will no longer send back a full
-    // payload and blobs, hence further checks in this test
+    // From fulu builders never send back a full payload, hence further checks in this test
     // are not possible
     if !tester.harness.spec.is_fulu_scheduled() {
         let unblinded_block_a = reconstruct_block(

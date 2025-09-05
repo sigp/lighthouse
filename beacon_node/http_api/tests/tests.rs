@@ -1599,7 +1599,7 @@ impl ApiTester {
 
         assert!(response.is_ok());
 
-        assert_eq!(response.expect("infailable").status(), StatusCode::ACCEPTED);
+        assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1628,7 +1628,7 @@ impl ApiTester {
             .await;
 
         assert!(response.is_ok());
-        assert_eq!(response.expect("infailable").status(), StatusCode::ACCEPTED);
+        assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
             "gossip valid blocks should be sent to network"

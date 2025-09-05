@@ -532,7 +532,10 @@ impl<E: EthSpec> MockBuilder<E> {
                 blobs.clone().map(|b| (b.proofs, b.blobs)),
             );
             self.beacon_client
-                .post_beacon_blocks_v2(&publish_block_request, Some(BroadcastValidation::Gossip))
+                .post_beacon_blocks_v2(
+                    &publish_block_request,
+                    Some(BroadcastValidation::ConsensusAndEquivocation),
+                )
                 .await
                 .map_err(|e| {
                     // XXX: this should really be a 400 but warp makes that annoyingly difficult
