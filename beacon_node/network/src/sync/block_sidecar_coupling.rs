@@ -72,7 +72,7 @@ enum RangeBlockDataRequest<E: EthSpec> {
         // Indicates if we have made column requests for each of the `expected_custody_columns` or not
         all_requests_made: bool,
         /// The column indices corresponding to the request
-        column_peers: HashMap<DataColumnsByRootRequestId, Vec<ColumnIndex>>,
+        request_to_column_indices: HashMap<DataColumnsByRootRequestId, Vec<ColumnIndex>>,
         expected_custody_columns: HashSet<ColumnIndex>,
         attempt: usize,
     },
@@ -130,7 +130,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 requests: HashMap::new(),
                 all_requests_made: false,
                 attempt: 0,
-                column_peers: HashMap::new(),
+                request_to_column_indices: HashMap::new(),
                 expected_custody_columns,
             }
         } else {
@@ -155,7 +155,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     .iter()
                     .map(|(k, v)| (k.peer, v.clone()))
                     .collect(),
-                RangeBlockDataRequest::DataColumnsFromRoot { column_peers, .. } => column_peers
+                RangeBlockDataRequest::DataColumnsFromRoot {
+                    request_to_column_indices: column_peers,
+                    ..
+                } => column_peers
                     .iter()
                     .map(|(k, v)| (k.peer, v.clone()))
                     .collect(),
@@ -200,17 +203,17 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 requests,
                 attempt: _,
                 all_requests_made,
-                column_peers,
+                request_to_column_indices,
                 expected_custody_columns,
             } => {
-                for (request, peers) in column_requests {
+                for (request, indices) in column_requests {
                     requests.insert(request, ByRangeRequest::Active(request));
-                    column_peers.insert(request, peers);
+                    request_to_column_indices.insert(request, indices);
                 }
 
                 if !*all_requests_made {
                     let mut all_columns_requested = HashSet::new();
-                    for columns in column_peers.values() {
+                    for columns in request_to_column_indices.values() {
                         all_columns_requested.extend(columns.iter());
                     }
                     *all_requests_made = all_columns_requested == *expected_custody_columns;
@@ -414,7 +417,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::DataColumnsFromRoot {
                 all_requests_made,
                 attempt,
-                column_peers,
+                request_to_column_indices,
                 expected_custody_columns,
                 requests,
             } => {
@@ -439,7 +442,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 // Note: this assumes that only 1 peer is responsible for a column
                 // with a batch.
-                for (id, columns) in column_peers {
+                for (id, columns) in request_to_column_indices.iter() {
                     for column in columns {
                         column_to_peer_id.insert(*column, id.peer);
                     }
@@ -467,6 +470,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         // delete it from the entries as we are going to make
                         // a separate attempt for those components.
                         requests.retain(|&k, _| k.peer != *peer);
+                        request_to_column_indices.retain(|&k, _| k.peer != *peer);
                     }
                 }
 

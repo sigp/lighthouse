@@ -617,7 +617,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 faulty_component,
             } => {
                 let Some(responsible_peers) = batch.responsible_peers() else {
-                    crit!("Shouldn't happen");
+                    error!(?batch_id, "Responsible peers not found for a failed batch");
                     return self
                         .fail_sync(BackFillError::BatchProcessingFailed(batch_id))
                         .map(|_| ProcessResult::Successful);
