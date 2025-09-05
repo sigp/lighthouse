@@ -42,12 +42,18 @@ use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, TreeHashType};
 /// assert!(long.push(6).is_err());
 ///
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
-#[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
+#[derive(Clone, Serialize, Deserialize, Derivative)]
+#[derivative(
+    Debug = "transparent",
+    PartialEq,
+    Eq,
+    Hash(bound = "T: std::hash::Hash")
+)]
 #[serde(transparent)]
 pub struct RuntimeVariableList<T> {
     vec: Vec<T>,
     #[serde(skip)]
+    #[derivative(Debug = "ignore")]
     max_len: usize,
 }
 

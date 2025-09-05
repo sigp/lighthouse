@@ -2,9 +2,13 @@
 //!
 //! The length of the list cannot be changed once it is set.
 
-#[derive(Clone, Debug)]
+use derivative::Derivative;
+
+#[derive(Clone, Derivative)]
+#[derivative(Debug = "transparent")]
 pub struct RuntimeFixedVector<T> {
     vec: Vec<T>,
+    #[derivative(Debug = "ignore")]
     len: usize,
 }
 
