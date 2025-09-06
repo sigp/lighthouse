@@ -1064,6 +1064,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
                             QueuedColumnReconstruction {
                                 block_root,
+                                slot: *slot,
                                 process_fn: Box::pin(async move {
                                     cloned_self
                                         .attempt_data_column_reconstruction(block_root, true)

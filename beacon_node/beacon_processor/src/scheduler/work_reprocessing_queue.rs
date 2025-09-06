@@ -175,6 +175,7 @@ pub struct QueuedBackfillBatch(pub AsyncFn);
 
 pub struct QueuedColumnReconstruction {
     pub block_root: Hash256,
+    pub slot: Slot,
     pub process_fn: AsyncFn,
 }
 
@@ -755,10 +756,12 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
                 if let Some(seconds_from_current_slot) =
                     self.slot_clock.seconds_from_current_slot_start()
+                    && let Some(current_slot) = self.slot_clock.now()
                     && seconds_from_current_slot >= RECONSTRUCTION_DEADLINE
+                    && current_slot == request.slot
                 {
                     // If we are at least `RECONSTRUCTION_DEADLINE` seconds into the current slot,
-                    // process reconstruction immediatly.
+                    // and the reconstruction request is for the current slot, process reconstruction immediately.
                     reconstruction_delay = Duration::from_secs(0);
                 }
                 match self.queued_column_reconstructions.entry(request.block_root) {
