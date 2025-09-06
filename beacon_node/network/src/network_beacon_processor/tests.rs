@@ -860,7 +860,6 @@ async fn data_column_reconstruction_at_slot_start() {
     }
 }
 
-
 // Test that column reconstruction happens immediately for columns that arrive at the
 // reconstruction deadline.
 #[tokio::test]
