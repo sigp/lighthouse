@@ -808,6 +808,8 @@ fn junk_message_id() -> MessageId {
     MessageId::new(&[])
 }
 
+// Test that column reconstruction is delayed for columns that arrive
+// at the beginning of the slot.
 #[tokio::test]
 async fn data_column_reconstruction_at_slot_start() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
@@ -858,6 +860,9 @@ async fn data_column_reconstruction_at_slot_start() {
     }
 }
 
+
+// Test that column reconstruction happens immediately for columns that arrive at the
+// reconstruction deadline.
 #[tokio::test]
 async fn data_column_reconstruction_at_deadline() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
@@ -905,6 +910,7 @@ async fn data_column_reconstruction_at_deadline() {
     }
 }
 
+// Test the column reconstruction is delayed for columns that arrive for a previous slot.
 #[tokio::test]
 async fn data_column_reconstruction_at_next_slot() {
     let mut rig = TestRig::new(SMALL_CHAIN).await;
