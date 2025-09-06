@@ -601,6 +601,40 @@ impl TestRig {
             .await
     }
 
+    pub async fn assert_event_journal_completes_with_timeout(
+        &mut self,
+        expected: &[WorkType],
+        timeout: Duration,
+    ) {
+        self.assert_event_journal_with_timeout(
+            &expected
+                .iter()
+                .map(Into::<&'static str>::into)
+                .chain(std::iter::once(WORKER_FREED))
+                .chain(std::iter::once(NOTHING_TO_DO))
+                .collect::<Vec<_>>(),
+            timeout,
+        )
+        .await
+    }
+
+    pub async fn assert_event_journal_does_not_complete_with_timeout(
+        &mut self,
+        expected: &[WorkType],
+        timeout: Duration,
+    ) {
+        self.assert_not_in_event_journal_with_timeout(
+            &expected
+                .iter()
+                .map(Into::<&'static str>::into)
+                .chain(std::iter::once(WORKER_FREED))
+                .chain(std::iter::once(NOTHING_TO_DO))
+                .collect::<Vec<_>>(),
+            timeout,
+        )
+        .await
+    }
+
     pub async fn assert_event_journal_completes(&mut self, expected: &[WorkType]) {
         self.assert_event_journal(
             &expected
@@ -649,6 +683,37 @@ impl TestRig {
         }
 
         assert_eq!(events, expected);
+    }
+
+    /// Assert that the `BeaconProcessor` event journal is not as `expected`.
+    pub async fn assert_not_in_event_journal_with_timeout(
+        &mut self,
+        expected: &[&str],
+        timeout: Duration,
+    ) {
+        let mut events = Vec::with_capacity(expected.len());
+
+        let drain_future = async {
+            while let Some(event) = self.work_journal_rx.recv().await {
+                events.push(event);
+
+                // Break as soon as we collect the desired number of events.
+                if events.len() >= expected.len() {
+                    break;
+                }
+            }
+        };
+
+        // Panic if we don't time out.
+        tokio::select! {
+            _ = tokio::time::sleep(timeout) => {},
+            _ = drain_future =>  panic!(
+                "Got events before timeout. Expected no events but got {:?}",
+                events
+            ),
+        }
+
+        assert_ne!(events, expected);
     }
 
     /// Listen for network messages and collect them for a specified duration or until reaching a count.
@@ -741,6 +806,157 @@ fn junk_peer_id() -> PeerId {
 
 fn junk_message_id() -> MessageId {
     MessageId::new(&[])
+}
+
+#[tokio::test]
+async fn data_column_reconstruction_at_slot_start() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    rig.enqueue_gossip_block();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    if num_data_columns > 0 {
+        // Reconstruction is delayed by 100ms, we should not be able to complete
+        // reconstruction up to this point
+        rig.assert_event_journal_does_not_complete_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(100),
+        )
+        .await;
+
+        // We've waited at least 150ms, reconstruction can now be triggered
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(200),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn data_column_reconstruction_at_deadline() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    rig.enqueue_gossip_block();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+
+    // We push the slot clock to 3 seconds into the slot, this is the deadline to trigger reconstruction.
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start + Duration::from_secs(3));
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    // Since we're at the reconstruction deadline, reconstruction should be triggered immediately
+    if num_data_columns > 0 {
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(50),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn data_column_reconstruction_at_next_slot() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    rig.enqueue_gossip_block();
+
+    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
+        .await;
+
+    // We push the slot clock to the next slot.
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start + Duration::from_secs(12));
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    if num_data_columns > 0 {
+        // Since we are in the next slot reconstruction for the previous slot should be delayed again
+        rig.assert_event_journal_does_not_complete_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(100),
+        )
+        .await;
+
+        // We've waited at least 150ms, reconstruction can now be triggered
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(200),
+        )
+        .await;
+    }
 }
 
 /// Blocks that arrive early should be queued for later processing.
