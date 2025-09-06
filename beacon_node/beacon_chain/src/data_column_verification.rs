@@ -376,7 +376,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     ) -> Result<Vec<KzgVerifiedCustodyDataColumn<E>>, KzgError> {
         let all_data_columns = reconstruct_data_columns(
             kzg,
-            &partial_set_of_columns
+            partial_set_of_columns
                 .iter()
                 .map(|d| d.clone_arc())
                 .collect::<Vec<_>>(),
