@@ -1,9 +1,9 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
-use environment::Environment;
-use slashing_protection::{
+use eip_3076::{
     interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
     SLASHING_PROTECTION_FILENAME,
 };
+use environment::Environment;
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;

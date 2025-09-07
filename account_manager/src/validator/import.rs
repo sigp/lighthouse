@@ -11,7 +11,7 @@ use account_utils::{
 };
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use eip_3076::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;

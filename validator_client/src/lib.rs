@@ -3,11 +3,12 @@ pub mod config;
 
 use crate::cli::ValidatorClient;
 pub use config::Config;
+use eip_3076::SlashingDatabase;
+use eip_3076::SLASHING_PROTECTION_FILENAME;
 use initialized_validators::InitializedValidators;
 use metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{

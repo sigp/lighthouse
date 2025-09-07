@@ -1,5 +1,5 @@
+use eip_3076::NotSafe;
 use eth2::types::{FullBlockContents, PublishBlockRequest};
-use slashing_protection::NotSafe;
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::Arc;

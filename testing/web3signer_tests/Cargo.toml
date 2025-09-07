@@ -22,7 +22,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
-slashing_protection = { workspace = true }
+eip_3076 = { workspace = true }
 slot_clock = { workspace = true }
 task_executor = { workspace = true }
 tempfile = { workspace = true }

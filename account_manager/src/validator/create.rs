@@ -7,9 +7,9 @@ use account_utils::{
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR};
+use eip_3076::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use environment::Environment;
 use eth2_wallet_manager::WalletManager;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::ffi::OsStr;
 use std::fs;
 use std::fs::create_dir_all;
@@ -272,8 +272,7 @@ fn existing_validator_count<P: AsRef<Path>>(validator_dir: P) -> Result<usize, S
             iter.filter_map(|e| e.ok())
                 .filter(|e| {
                     e.file_name() != OsStr::new(validator_definitions::CONFIG_FILENAME)
-                        && e.file_name()
-                            != OsStr::new(slashing_protection::SLASHING_PROTECTION_FILENAME)
+                        && e.file_name() != OsStr::new(eip_3076::SLASHING_PROTECTION_FILENAME)
                 })
                 .count()
         })

@@ -20,6 +20,7 @@ mod tests {
     use account_utils::validator_definitions::{
         SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
+    use eip_3076::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
     use eth2::types::FullBlockContents;
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
@@ -30,7 +31,6 @@ mod tests {
     use parking_lot::Mutex;
     use reqwest::Client;
     use serde::Serialize;
-    use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
     use slot_clock::{SlotClock, TestingSlotClock};
     use std::env;
     use std::fmt::Debug;

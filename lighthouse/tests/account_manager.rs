@@ -17,7 +17,7 @@ use account_utils::{
     validator_definitions::{SigningDefinition, ValidatorDefinition, ValidatorDefinitions},
     STDIN_INPUTS_FLAG,
 };
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use eip_3076::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};

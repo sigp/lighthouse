@@ -29,7 +29,7 @@ parking_lot = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
-slashing_protection = { workspace = true }
+eip_3076 = { workspace = true }
 slot_clock = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

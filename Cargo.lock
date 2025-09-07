@@ -11,6 +11,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "directory",
+ "eip_3076",
  "environment",
  "eth2",
  "eth2_keystore",
@@ -21,7 +22,6 @@ dependencies = [
  "safe_arith",
  "sensitive_url",
  "serde_json",
- "slashing_protection",
  "slot_clock",
  "tempfile",
  "tokio",
@@ -2571,6 +2571,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "eip_3076"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "ethereum_serde_utils",
+ "filesystem",
+ "r2d2",
+ "r2d2_sqlite",
+ "rayon",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
+ "types",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2764,6 +2782,7 @@ name = "eth2"
 version = "0.1.0"
 dependencies = [
  "derivative",
+ "eip_3076",
  "either",
  "enr",
  "eth2_keystore",
@@ -2783,7 +2802,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "slashing_protection",
  "ssz_types",
  "test_random_derive",
  "tokio",
@@ -5494,6 +5512,7 @@ dependencies = [
  "console-subscriber",
  "database_manager",
  "directory",
+ "eip_3076",
  "environment",
  "eth2",
  "eth2_network_config",
@@ -5510,7 +5529,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "slasher",
- "slashing_protection",
  "store",
  "task_executor",
  "tempfile",
@@ -5586,6 +5604,7 @@ dependencies = [
  "account_utils",
  "beacon_node_fallback",
  "doppelganger_service",
+ "eip_3076",
  "either",
  "environment",
  "eth2",
@@ -5595,7 +5614,6 @@ dependencies = [
  "parking_lot 0.12.3",
  "serde",
  "signing_method",
- "slashing_protection",
  "slot_clock",
  "task_executor",
  "tokio",
@@ -8577,24 +8595,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "slashing_protection"
-version = "0.1.0"
-dependencies = [
- "arbitrary",
- "ethereum_serde_utils",
- "filesystem",
- "r2d2",
- "r2d2_sqlite",
- "rayon",
- "rusqlite",
- "serde",
- "serde_json",
- "tempfile",
- "tracing",
- "types",
-]
-
-[[package]]
 name = "slot_clock"
 version = "0.2.0"
 dependencies = [
@@ -9817,6 +9817,7 @@ dependencies = [
  "directory",
  "dirs",
  "doppelganger_service",
+ "eip_3076",
  "environment",
  "eth2",
  "fdlimit",
@@ -9830,7 +9831,6 @@ dependencies = [
  "reqwest",
  "sensitive_url",
  "serde",
- "slashing_protection",
  "slot_clock",
  "tokio",
  "tracing",
@@ -9870,6 +9870,7 @@ dependencies = [
  "directory",
  "dirs",
  "doppelganger_service",
+ "eip_3076",
  "eth2",
  "eth2_keystore",
  "ethereum_serde_utils",
@@ -9888,7 +9889,6 @@ dependencies = [
  "serde",
  "serde_json",
  "signing_method",
- "slashing_protection",
  "slot_clock",
  "sysinfo",
  "system_health",
@@ -9990,8 +9990,8 @@ dependencies = [
 name = "validator_store"
 version = "0.1.0"
 dependencies = [
+ "eip_3076",
  "eth2",
- "slashing_protection",
  "types",
 ]
 
@@ -10245,6 +10245,7 @@ version = "0.1.0"
 dependencies = [
  "account_utils",
  "async-channel 1.9.0",
+ "eip_3076",
  "environment",
  "eth2",
  "eth2_keystore",
@@ -10258,7 +10259,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "slashing_protection",
  "slot_clock",
  "task_executor",
  "tempfile",

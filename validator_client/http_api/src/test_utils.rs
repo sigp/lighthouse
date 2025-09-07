@@ -6,6 +6,7 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
+use eip_3076::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use eth2::{
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
@@ -17,7 +18,6 @@ use initialized_validators::{InitializedValidators, OnDecryptFailure};
 use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};

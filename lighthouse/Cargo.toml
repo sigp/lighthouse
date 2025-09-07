@@ -84,7 +84,7 @@ eth2 = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_network = { workspace = true }
 sensitive_url = { workspace = true }
-slashing_protection = { workspace = true }
+eip_3076 = { workspace = true }
 tempfile = { workspace = true }
 validator_dir = { workspace = true }
 zeroize = { workspace = true }

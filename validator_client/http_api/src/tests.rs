@@ -12,6 +12,7 @@ use account_utils::{
     random_password_string, validator_definitions::ValidatorDefinitions,
 };
 use deposit_contract::decode_eth1_tx_data;
+use eip_3076::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use eth2::{
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
@@ -21,7 +22,6 @@ use eth2_keystore::KeystoreBuilder;
 use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
