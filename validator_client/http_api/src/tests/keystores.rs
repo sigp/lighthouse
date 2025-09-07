@@ -1,6 +1,7 @@
 use super::*;
 use account_utils::random_password_string;
 use bls::PublicKeyBytes;
+use eip_3076::interchange::{Interchange, InterchangeMetadata};
 use eth2::lighthouse_vc::types::UpdateFeeRecipientRequest;
 use eth2::lighthouse_vc::{
     http_client::ValidatorClientHttpClient as HttpClient,
@@ -9,9 +10,7 @@ use eth2::lighthouse_vc::{
 };
 use itertools::Itertools;
 use lighthouse_validator_store::DEFAULT_GAS_LIMIT;
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
-use slashing_protection::interchange::{Interchange, InterchangeMetadata};
+use rand::{Rng, SeedableRng, rngs::StdRng};
 use std::{collections::HashMap, path::Path};
 use tokio::runtime::Handle;
 use types::{Address, attestation::AttestationBase};

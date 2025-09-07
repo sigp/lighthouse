@@ -1,9 +1,10 @@
-use crate::InterchangeError;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
 use std::io;
 use types::{Epoch, Hash256, PublicKeyBytes, Slot};
+
+use crate::NotSafe;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -155,5 +156,114 @@ impl Interchange {
             metadata: self.metadata.clone(),
             data,
         })
+    }
+}
+
+#[derive(Debug)]
+pub enum InterchangeError {
+    UnsupportedVersion(u64),
+    GenesisValidatorsMismatch {
+        interchange_file: Hash256,
+        client: Hash256,
+    },
+    MaxInconsistent,
+    SummaryInconsistent,
+    SQLError(String),
+    SQLPoolError(r2d2::Error),
+    SerdeJsonError(serde_json::Error),
+    InvalidPubkey(String),
+    NotSafe(NotSafe),
+    AtomicBatchAborted(Vec<InterchangeImportOutcome>),
+}
+
+impl From<NotSafe> for InterchangeError {
+    fn from(error: NotSafe) -> Self {
+        InterchangeError::NotSafe(error)
+    }
+}
+
+impl From<rusqlite::Error> for InterchangeError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::SQLError(error.to_string())
+    }
+}
+
+impl From<r2d2::Error> for InterchangeError {
+    fn from(error: r2d2::Error) -> Self {
+        InterchangeError::SQLPoolError(error)
+    }
+}
+
+impl From<serde_json::Error> for InterchangeError {
+    fn from(error: serde_json::Error) -> Self {
+        InterchangeError::SerdeJsonError(error)
+    }
+}
+
+/// Check that `new` is `Some` and greater than or equal to prev.
+///
+/// If prev is `None` and `new` is `Some` then `true` is returned.
+fn monotonic<T: PartialOrd>(new: Option<T>, prev: Option<T>) -> bool {
+    new.is_some_and(|new_val| prev.is_none_or(|prev_val| new_val >= prev_val))
+}
+
+/// The result of importing a single entry from an interchange file.
+#[derive(Debug)]
+pub enum InterchangeImportOutcome {
+    Success {
+        pubkey: PublicKeyBytes,
+        summary: ValidatorSummary,
+    },
+    Failure {
+        pubkey: PublicKeyBytes,
+        error: NotSafe,
+    },
+}
+
+impl InterchangeImportOutcome {
+    pub fn failed(&self) -> bool {
+        matches!(self, InterchangeImportOutcome::Failure { .. })
+    }
+}
+
+/// Minimum and maximum slots and epochs signed by a validator.
+#[derive(Debug)]
+pub struct ValidatorSummary {
+    pub min_block_slot: Option<Slot>,
+    pub max_block_slot: Option<Slot>,
+    pub min_attestation_source: Option<Epoch>,
+    pub min_attestation_target: Option<Epoch>,
+    pub max_attestation_source: Option<Epoch>,
+    pub max_attestation_target: Option<Epoch>,
+}
+
+impl ValidatorSummary {
+    pub fn check_block_consistency(&self, prev: &Self, imported_blocks: bool) -> bool {
+        if imported_blocks {
+            // Max block slot should be monotonically increasing and non-null.
+            // Minimum should match maximum due to pruning.
+            monotonic(self.max_block_slot, prev.max_block_slot)
+                && self.min_block_slot == self.max_block_slot
+        } else {
+            // Block slots should be unchanged.
+            prev.min_block_slot == self.min_block_slot && prev.max_block_slot == self.max_block_slot
+        }
+    }
+
+    pub fn check_attestation_consistency(&self, prev: &Self, imported_attestations: bool) -> bool {
+        if imported_attestations {
+            // Max source and target epochs should be monotically increasing and non-null.
+            // Minimums should match maximums due to pruning.
+            monotonic(self.max_attestation_source, prev.max_attestation_source)
+                && monotonic(self.max_attestation_target, prev.max_attestation_target)
+                && self.min_attestation_source == self.max_attestation_source
+                && self.min_attestation_target == self.max_attestation_target
+        } else {
+            // Attestation epochs should be unchanged.
+            self.min_attestation_source == prev.min_attestation_source
+                && self.max_attestation_source == prev.max_attestation_source
+                && self.min_attestation_target == prev.min_attestation_target
+                && self.max_attestation_target == prev.max_attestation_target
+        }
     }
 }

@@ -1,5 +1,9 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use doppelganger_service::DoppelgangerService;
+use eip_3076::{
+    NotSafe, Safe,
+    interchange::{Interchange, InterchangeError},
+};
 use eth2::types::PublishBlockRequest;
 use initialized_validators::InitializedValidators;
 use logging::crit;
@@ -7,9 +11,7 @@ use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use signing_method::Error as SigningError;
 use signing_method::{SignableMessage, SigningContext, SigningMethod};
-use slashing_protection::{
-    InterchangeError, NotSafe, Safe, SlashingDatabase, interchange::Interchange,
-};
+use slashing_protection::SlashingDatabase;
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::path::Path;

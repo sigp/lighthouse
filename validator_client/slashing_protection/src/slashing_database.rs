@@ -1,10 +1,12 @@
-use crate::interchange::{
-    Interchange, InterchangeData, InterchangeMetadata, SignedAttestation as InterchangeAttestation,
-    SignedBlock as InterchangeBlock,
+use eip_3076::{
+    InvalidAttestation, InvalidBlock, NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot,
+    interchange::{
+        Interchange, InterchangeData, InterchangeError, InterchangeImportOutcome,
+        InterchangeMetadata, SignedAttestation as InterchangeAttestation,
+        SignedBlock as InterchangeBlock, ValidatorSummary,
+    },
+    signing_root_from_row,
 };
-use crate::signed_attestation::InvalidAttestation;
-use crate::signed_block::InvalidBlock;
-use crate::{NotSafe, Safe, SignedAttestation, SignedBlock, SigningRoot, signing_root_from_row};
 use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
@@ -1139,48 +1141,6 @@ impl SlashingDatabase {
     }
 }
 
-/// Minimum and maximum slots and epochs signed by a validator.
-#[derive(Debug)]
-pub struct ValidatorSummary {
-    pub min_block_slot: Option<Slot>,
-    pub max_block_slot: Option<Slot>,
-    pub min_attestation_source: Option<Epoch>,
-    pub min_attestation_target: Option<Epoch>,
-    pub max_attestation_source: Option<Epoch>,
-    pub max_attestation_target: Option<Epoch>,
-}
-
-impl ValidatorSummary {
-    fn check_block_consistency(&self, prev: &Self, imported_blocks: bool) -> bool {
-        if imported_blocks {
-            // Max block slot should be monotonically increasing and non-null.
-            // Minimum should match maximum due to pruning.
-            monotonic(self.max_block_slot, prev.max_block_slot)
-                && self.min_block_slot == self.max_block_slot
-        } else {
-            // Block slots should be unchanged.
-            prev.min_block_slot == self.min_block_slot && prev.max_block_slot == self.max_block_slot
-        }
-    }
-
-    fn check_attestation_consistency(&self, prev: &Self, imported_attestations: bool) -> bool {
-        if imported_attestations {
-            // Max source and target epochs should be monotically increasing and non-null.
-            // Minimums should match maximums due to pruning.
-            monotonic(self.max_attestation_source, prev.max_attestation_source)
-                && monotonic(self.max_attestation_target, prev.max_attestation_target)
-                && self.min_attestation_source == self.max_attestation_source
-                && self.min_attestation_target == self.max_attestation_target
-        } else {
-            // Attestation epochs should be unchanged.
-            self.min_attestation_source == prev.min_attestation_source
-                && self.max_attestation_source == prev.max_attestation_source
-                && self.min_attestation_target == prev.min_attestation_target
-                && self.max_attestation_target == prev.max_attestation_target
-        }
-    }
-}
-
 /// Take the maximum of `opt_x` and `y`, returning `y` if `opt_x` is `None`.
 fn max_or<T: Copy + Ord>(opt_x: Option<T>, y: T) -> T {
     opt_x.map_or(y, |x| std::cmp::max(x, y))
@@ -1191,66 +1151,6 @@ fn max_or<T: Copy + Ord>(opt_x: Option<T>, y: T) -> T {
 /// If prev is `None` and `new` is `Some` then `true` is returned.
 fn monotonic<T: PartialOrd>(new: Option<T>, prev: Option<T>) -> bool {
     new.is_some_and(|new_val| prev.is_none_or(|prev_val| new_val >= prev_val))
-}
-
-/// The result of importing a single entry from an interchange file.
-#[derive(Debug)]
-pub enum InterchangeImportOutcome {
-    Success {
-        pubkey: PublicKeyBytes,
-        summary: ValidatorSummary,
-    },
-    Failure {
-        pubkey: PublicKeyBytes,
-        error: NotSafe,
-    },
-}
-
-impl InterchangeImportOutcome {
-    pub fn failed(&self) -> bool {
-        matches!(self, InterchangeImportOutcome::Failure { .. })
-    }
-}
-
-#[derive(Debug)]
-pub enum InterchangeError {
-    UnsupportedVersion(u64),
-    GenesisValidatorsMismatch {
-        interchange_file: Hash256,
-        client: Hash256,
-    },
-    MaxInconsistent,
-    SummaryInconsistent,
-    SQLError(String),
-    SQLPoolError(r2d2::Error),
-    SerdeJsonError(serde_json::Error),
-    InvalidPubkey(String),
-    NotSafe(NotSafe),
-    AtomicBatchAborted(Vec<InterchangeImportOutcome>),
-}
-
-impl From<NotSafe> for InterchangeError {
-    fn from(error: NotSafe) -> Self {
-        InterchangeError::NotSafe(error)
-    }
-}
-
-impl From<rusqlite::Error> for InterchangeError {
-    fn from(error: rusqlite::Error) -> Self {
-        Self::SQLError(error.to_string())
-    }
-}
-
-impl From<r2d2::Error> for InterchangeError {
-    fn from(error: r2d2::Error) -> Self {
-        InterchangeError::SQLPoolError(error)
-    }
-}
-
-impl From<serde_json::Error> for InterchangeError {
-    fn from(error: serde_json::Error) -> Self {
-        InterchangeError::SerdeJsonError(error)
-    }
 }
 
 #[cfg(test)]

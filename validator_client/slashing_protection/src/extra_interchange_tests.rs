@@ -2,6 +2,7 @@
 
 use crate::test_utils::pubkey;
 use crate::*;
+use eip_3076::{NotSafe, interchange::InterchangeError};
 use tempfile::tempdir;
 use types::FixedBytesExtended;
 

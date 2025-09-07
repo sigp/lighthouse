@@ -23,6 +23,7 @@ members = [
     "common/compare_fields_derive",
     "common/deposit_contract",
     "common/directory",
+    "common/eip_3076",
     "common/eth2",
     "common/eth2_config",
     "common/eth2_interop_keypairs",
@@ -79,6 +80,7 @@ members = [
     "testing/validator_test_rig",
     "testing/web3signer_tests",
     "validator_client",
+    "validator_client/slashing_protection",
     "validator_client/beacon_node_fallback",
     "validator_client/doppelganger_service",
     "validator_client/graffiti_file",
@@ -87,7 +89,6 @@ members = [
     "validator_client/initialized_validators",
     "validator_client/lighthouse_validator_store",
     "validator_client/signing_method",
-    "validator_client/slashing_protection",
     "validator_client/validator_metrics",
     "validator_client/validator_services",
     "validator_manager",
@@ -144,6 +145,7 @@ eth2_key_derivation = { path = "crypto/eth2_key_derivation" }
 eth2_keystore = { path = "crypto/eth2_keystore" }
 eth2_network_config = { path = "common/eth2_network_config" }
 eth2_wallet = { path = "crypto/eth2_wallet" }
+eip_3076 = { path = "common/eip_3076" }
 ethereum_hashing = "0.7.0"
 ethereum_serde_utils = "0.8.0"
 ethereum_ssz = "0.9.0"
@@ -234,7 +236,6 @@ serde_yaml = "0.9"
 sha2 = "0.9"
 signing_method = { path = "validator_client/signing_method" }
 slasher = { path = "slasher", default-features = false }
-slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
@@ -275,6 +276,7 @@ validator_http_metrics = { path = "validator_client/http_metrics" }
 validator_metrics = { path = "validator_client/validator_metrics" }
 validator_services = { path = "validator_client/validator_services" }
 validator_store = { path = "validator_client/validator_store" }
+slashing_protection = { path = "validator_client/slashing_protection" }
 validator_test_rig = { path = "testing/validator_test_rig" }
 warp = { version = "0.3.7", default-features = false, features = ["tls"] }
 warp_utils = { path = "common/warp_utils" }

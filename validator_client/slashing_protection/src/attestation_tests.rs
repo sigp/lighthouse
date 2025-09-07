@@ -2,6 +2,7 @@
 
 use crate::test_utils::*;
 use crate::*;
+use eip_3076::{InvalidAttestation, NotSafe, SignedAttestation};
 use types::{AttestationData, Checkpoint, Epoch, FixedBytesExtended, Slot};
 
 pub fn build_checkpoint(epoch_num: u64) -> Checkpoint {

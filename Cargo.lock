@@ -11,6 +11,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "directory",
+ "eip_3076",
  "environment",
  "eth2",
  "eth2_keystore",
@@ -2583,6 +2584,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eip_3076"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "ethereum_serde_utils",
+ "r2d2",
+ "rayon",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tracing",
+ "types",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2849,6 +2865,7 @@ name = "eth2"
 version = "0.1.0"
 dependencies = [
  "derivative",
+ "eip_3076",
  "either",
  "enr",
  "eth2_keystore",
@@ -2868,7 +2885,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "slashing_protection",
  "ssz_types",
  "test_random_derive",
  "tokio",
@@ -5575,6 +5591,7 @@ dependencies = [
  "console-subscriber",
  "database_manager",
  "directory",
+ "eip_3076",
  "environment",
  "eth2",
  "eth2_network_config",
@@ -5674,6 +5691,7 @@ dependencies = [
  "account_utils",
  "beacon_node_fallback",
  "doppelganger_service",
+ "eip_3076",
  "either",
  "environment",
  "eth2",
@@ -8831,6 +8849,7 @@ name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "eip_3076",
  "ethereum_serde_utils",
  "filesystem",
  "r2d2",
@@ -9002,7 +9021,6 @@ dependencies = [
  "ethereum_ssz_derive",
  "itertools 0.10.5",
  "leveldb",
- "logging",
  "lru",
  "metrics",
  "parking_lot 0.12.3",
@@ -9017,7 +9035,6 @@ dependencies = [
  "superstruct",
  "tempfile",
  "tracing",
- "tracing-subscriber",
  "types",
  "xdelta3",
  "zstd 0.13.3",
@@ -10103,6 +10120,7 @@ dependencies = [
  "directory",
  "dirs",
  "doppelganger_service",
+ "eip_3076",
  "environment",
  "eth2",
  "fdlimit",
@@ -10156,6 +10174,7 @@ dependencies = [
  "directory",
  "dirs",
  "doppelganger_service",
+ "eip_3076",
  "eth2",
  "eth2_keystore",
  "ethereum_serde_utils",
@@ -10276,8 +10295,8 @@ dependencies = [
 name = "validator_store"
 version = "0.1.0"
 dependencies = [
+ "eip_3076",
  "eth2",
- "slashing_protection",
  "types",
 ]
 
@@ -10531,6 +10550,7 @@ version = "0.1.0"
 dependencies = [
  "account_utils",
  "async-channel 1.9.0",
+ "eip_3076",
  "environment",
  "eth2",
  "eth2_keystore",

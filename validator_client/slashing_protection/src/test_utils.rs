@@ -1,4 +1,5 @@
 use crate::*;
+use eip_3076::{InvalidAttestation, InvalidBlock, NotSafe, Safe};
 use tempfile::{TempDir, tempdir};
 use types::{AttestationData, BeaconBlockHeader, test_utils::generate_deterministic_keypair};
 

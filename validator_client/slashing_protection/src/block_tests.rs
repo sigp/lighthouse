@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::test_utils::*;
+use eip_3076::{InvalidBlock, NotSafe, SignedBlock};
 use types::{BeaconBlockHeader, FixedBytesExtended, Slot};
 
 pub fn block(slot: u64) -> BeaconBlockHeader {

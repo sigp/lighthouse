@@ -1,8 +1,8 @@
 [package]
-name = "slashing_protection"
+name = "eip_3076"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>", "pscott <scottpiriou@gmail.com>"]
-edition = { workspace = true }
+edition.workspace = true
 autotests = false
 
 [features]
@@ -12,20 +12,12 @@ portable = ["types/portable"]
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"] }
 ethereum_serde_utils = { workspace = true }
-filesystem = { workspace = true }
 r2d2 = { workspace = true }
-r2d2_sqlite = "0.21.0"
 rusqlite = { workspace = true }
-eip_3076 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tempfile = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 
 [dev-dependencies]
 rayon = { workspace = true }
-
-[[test]]
-name = "slashing_protection_tests"
-path = "tests/main.rs"

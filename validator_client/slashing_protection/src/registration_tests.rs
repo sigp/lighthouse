@@ -2,6 +2,7 @@
 
 use crate::test_utils::*;
 use crate::*;
+use eip_3076::NotSafe;
 use std::iter;
 use tempfile::tempdir;
 

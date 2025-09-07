@@ -1,9 +1,7 @@
 use clap::{Arg, ArgAction, ArgMatches, Command};
+use eip_3076::interchange::{Interchange, InterchangeError, InterchangeImportOutcome};
 use environment::Environment;
-use slashing_protection::{
-    InterchangeError, InterchangeImportOutcome, SLASHING_PROTECTION_FILENAME, SlashingDatabase,
-    interchange::Interchange,
-};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;

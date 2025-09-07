@@ -1,5 +1,6 @@
 //! Tests for upgrading a previous version of the database to the latest schema.
-use slashing_protection::{NotSafe, SlashingDatabase};
+use eip_3076::NotSafe;
+use slashing_protection::SlashingDatabase;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
