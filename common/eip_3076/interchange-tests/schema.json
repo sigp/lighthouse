@@ -1,0 +1,94 @@
+{
+  "title": "Signing history",
+  "description": "This schema provides a record of the blocks and attestations signed by a set of validators",
+  "type": "object",
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "interchange_format_version": {
+          "type": "string",
+          "description": "The version of the interchange format that this document adheres to"
+        },
+        "genesis_validators_root": {
+          "type": "string",
+          "description": "Calculated at Genesis time; serves to uniquely identify the chain"
+        }
+      },
+      "required": [
+        "interchange_format_version",
+        "genesis_validators_root"
+      ]
+    },
+    "data": {
+      "type": "array",
+      "items": [
+        {
+          "type": "object",
+          "properties": {
+            "pubkey": {
+              "type": "string",
+              "description": "The BLS public key of the validator (encoded as a 0x-prefixed hex string)"
+            },
+            "signed_blocks": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "slot": {
+                      "type": "string",
+                      "description": "The slot number of the block that was signed"
+                    },
+                    "signing_root": {
+                      "type": "string",
+                      "description": "The output of compute_signing_root(block, domain)"
+                    }
+                  },
+                  "required": [
+                    "slot"
+                  ]
+                }
+              ]
+            },
+            "signed_attestations": {
+              "type": "array",
+              "items": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "source_epoch": {
+                      "type": "string",
+                      "description": "The attestation.data.source.epoch of the signed attestation"
+                    },
+                    "target_epoch": {
+                      "type": "string",
+                      "description": "The attestation.data.target.epoch of the signed attestation"
+                    },
+                    "signing_root": {
+                      "type": "string",
+                      "description": "The output of compute_signing_root(attestation, domain)"
+                    }
+                  },
+                  "required": [
+                    "source_epoch",
+                    "target_epoch"
+                  ]
+                }
+              ]
+            }
+          },
+          "required": [
+            "pubkey",
+            "signed_blocks",
+            "signed_attestations"
+          ]
+        }
+      ]
+    }
+  },
+  "required": [
+    "metadata",
+    "data"
+  ]
+}

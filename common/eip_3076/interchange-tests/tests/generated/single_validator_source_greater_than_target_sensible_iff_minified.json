@@ -1,0 +1,51 @@
+{
+  "name": "single_validator_source_greater_than_target_sensible_iff_minified",
+  "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "steps": [
+    {
+      "should_succeed": true,
+      "contains_slashable_data": true,
+      "interchange": {
+        "metadata": {
+          "interchange_format_version": "5",
+          "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "data": [
+          {
+            "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+            "signed_blocks": [],
+            "signed_attestations": [
+              {
+                "source_epoch": "5",
+                "target_epoch": "2"
+              },
+              {
+                "source_epoch": "6",
+                "target_epoch": "7"
+              }
+            ]
+          }
+        ]
+      },
+      "blocks": [],
+      "attestations": [
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "source_epoch": "5",
+          "target_epoch": "8",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "source_epoch": "6",
+          "target_epoch": "8",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": true,
+          "should_succeed_complete": true
+        }
+      ]
+    }
+  ]
+}

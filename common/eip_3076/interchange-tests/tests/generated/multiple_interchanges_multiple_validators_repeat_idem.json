@@ -1,0 +1,183 @@
+{
+  "name": "multiple_interchanges_multiple_validators_repeat_idem",
+  "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "steps": [
+    {
+      "should_succeed": true,
+      "contains_slashable_data": false,
+      "interchange": {
+        "metadata": {
+          "interchange_format_version": "5",
+          "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "data": [
+          {
+            "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+            "signed_blocks": [
+              {
+                "slot": "2"
+              },
+              {
+                "slot": "4"
+              },
+              {
+                "slot": "6"
+              }
+            ],
+            "signed_attestations": [
+              {
+                "source_epoch": "0",
+                "target_epoch": "1"
+              },
+              {
+                "source_epoch": "1",
+                "target_epoch": "2"
+              }
+            ]
+          },
+          {
+            "pubkey": "0xb89bebc699769726a318c8e9971bd3171297c61aea4a6578a7a4f94b547dcba5bac16a89108b6b6a1fe3695d1a874a0b",
+            "signed_blocks": [
+              {
+                "slot": "8"
+              },
+              {
+                "slot": "10"
+              },
+              {
+                "slot": "12"
+              }
+            ],
+            "signed_attestations": [
+              {
+                "source_epoch": "0",
+                "target_epoch": "1"
+              },
+              {
+                "source_epoch": "0",
+                "target_epoch": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "blocks": [],
+      "attestations": []
+    },
+    {
+      "should_succeed": true,
+      "contains_slashable_data": true,
+      "interchange": {
+        "metadata": {
+          "interchange_format_version": "5",
+          "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "data": [
+          {
+            "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+            "signed_blocks": [
+              {
+                "slot": "2"
+              },
+              {
+                "slot": "4"
+              },
+              {
+                "slot": "6"
+              }
+            ],
+            "signed_attestations": [
+              {
+                "source_epoch": "0",
+                "target_epoch": "1"
+              },
+              {
+                "source_epoch": "1",
+                "target_epoch": "2"
+              }
+            ]
+          },
+          {
+            "pubkey": "0xb89bebc699769726a318c8e9971bd3171297c61aea4a6578a7a4f94b547dcba5bac16a89108b6b6a1fe3695d1a874a0b",
+            "signed_blocks": [
+              {
+                "slot": "8"
+              },
+              {
+                "slot": "10"
+              },
+              {
+                "slot": "12"
+              }
+            ],
+            "signed_attestations": [
+              {
+                "source_epoch": "0",
+                "target_epoch": "1"
+              },
+              {
+                "source_epoch": "0",
+                "target_epoch": "3"
+              }
+            ]
+          }
+        ]
+      },
+      "blocks": [
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "slot": "0",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "slot": "3",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": true
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "slot": "7",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": true,
+          "should_succeed_complete": true
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "slot": "3",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": true
+        },
+        {
+          "pubkey": "0xb89bebc699769726a318c8e9971bd3171297c61aea4a6578a7a4f94b547dcba5bac16a89108b6b6a1fe3695d1a874a0b",
+          "slot": "0",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        }
+      ],
+      "attestations": [
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "source_epoch": "0",
+          "target_epoch": "4",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xb89bebc699769726a318c8e9971bd3171297c61aea4a6578a7a4f94b547dcba5bac16a89108b6b6a1fe3695d1a874a0b",
+          "source_epoch": "0",
+          "target_epoch": "4",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": true,
+          "should_succeed_complete": true
+        }
+      ]
+    }
+  ]
+}

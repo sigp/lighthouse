@@ -1,0 +1,19 @@
+{
+  "name": "wrong_genesis_validators_root",
+  "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "steps": [
+    {
+      "should_succeed": false,
+      "contains_slashable_data": false,
+      "interchange": {
+        "metadata": {
+          "interchange_format_version": "5",
+          "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "data": []
+      },
+      "blocks": [],
+      "attestations": []
+    }
+  ]
+}

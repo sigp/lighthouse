@@ -1,0 +1,104 @@
+{
+  "name": "single_validator_single_block_and_attestation",
+  "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "steps": [
+    {
+      "should_succeed": true,
+      "contains_slashable_data": false,
+      "interchange": {
+        "metadata": {
+          "interchange_format_version": "5",
+          "genesis_validators_root": "0x0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "data": [
+          {
+            "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+            "signed_blocks": [
+              {
+                "slot": "32"
+              }
+            ],
+            "signed_attestations": [
+              {
+                "source_epoch": "15",
+                "target_epoch": "20"
+              }
+            ]
+          }
+        ]
+      },
+      "blocks": [
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "slot": "32",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "slot": "33",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": true,
+          "should_succeed_complete": true
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "slot": "31",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "slot": "1",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        }
+      ],
+      "attestations": [
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "source_epoch": "3",
+          "target_epoch": "4",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "source_epoch": "14",
+          "target_epoch": "19",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "source_epoch": "15",
+          "target_epoch": "20",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "source_epoch": "16",
+          "target_epoch": "20",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": false,
+          "should_succeed_complete": false
+        },
+        {
+          "pubkey": "0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c",
+          "source_epoch": "15",
+          "target_epoch": "21",
+          "signing_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "should_succeed": true,
+          "should_succeed_complete": true
+        }
+      ]
+    }
+  ]
+}
