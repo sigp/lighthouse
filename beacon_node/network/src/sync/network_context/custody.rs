@@ -71,7 +71,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             parent: Span::current(),
             SPAN_OUTGOING_CUSTODY_REQUEST,
             %block_root,
-            ?column_indices
         );
         Self {
             block_root,
@@ -259,12 +258,22 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             }
         }
 
-        debug!(
-            lookup_peers = lookup_peers.len(),
-            "Requesting {} columns from {} peers",
-            self.column_requests.len(),
-            columns_to_request_by_peer.len(),
-        );
+        let peer_requests = columns_to_request_by_peer.len();
+        if peer_requests > 0 {
+            let columns_requested_count = columns_to_request_by_peer
+                .values()
+                .map(|v| v.len())
+                .sum::<usize>();
+            debug!(
+                lookup_peers = lookup_peers.len(),
+                "Requesting {} columns from {} peers", columns_requested_count, peer_requests,
+            );
+        } else {
+            debug!(
+                lookup_peers = lookup_peers.len(),
+                "No column peers found for look up",
+            );
+        }
 
         for (peer_id, indices) in columns_to_request_by_peer.into_iter() {
             let request_result = cx
