@@ -990,7 +990,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .collect();
         debug!(
             ?awaiting_downloads,
-            src, "Attempting to send batches awaiting downlaod"
+            src, "Attempting to send batches awaiting download"
         );
 
         for batch_id in awaiting_downloads {
@@ -1225,20 +1225,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> bool {
         if network.chain.spec.is_peer_das_enabled_for_epoch(epoch) {
             // Require peers on all sampling column subnets before sending batches
+            let sampling_subnets = network.network_globals().sampling_subnets();
             network
                 .network_globals()
-                .sampling_subnets()
-                .iter()
-                .all(|subnet_id| {
-                    let peer_count = network
-                        .network_globals()
-                        .peers
-                        .read()
-                        .good_custody_subnet_peer_range_sync(*subnet_id, epoch)
-                        .count();
-
-                    peer_count > 0
-                })
+                .peers
+                .read()
+                .has_good_custody_range_sync_peer(&sampling_subnets, epoch)
         } else {
             true
         }

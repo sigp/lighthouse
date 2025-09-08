@@ -34,6 +34,7 @@ use lighthouse_network::service::api_types::{
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use lighthouse_tracing::SPAN_OUTGOING_RANGE_REQUEST;
 use parking_lot::RwLock;
+use rand::seq::IteratorRandom;
 pub use requests::LookupVerifyError;
 use requests::{
     ActiveRequests, BlobsByRangeRequestItems, BlobsByRootRequestItems, BlocksByRangeRequestItems,
@@ -563,7 +564,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     ///
     /// This function must be manually invoked at regular intervals or when a new peer
     /// gets added.
-    pub fn retry_pending_requests(&mut self) -> Result<(), String> {
+    pub fn retry_pending_root_range_requests(&mut self) -> Result<(), String> {
         let active_requests = self.active_request_count_by_peer();
 
         // Collect entries to process and remove from requests_to_retry
@@ -1827,8 +1828,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .network_globals()
                 .peers
                 .read()
-                .good_custody_subnet_peer_range_sync(subnet_id, batch_epoch)
-                .next()
+                .good_custody_subnet_peer_range_sync(subnet_id, batch_epoch).choose(&mut rand::rng())
             {
                 peer_to_columns
                     .entry(*custody_peer)

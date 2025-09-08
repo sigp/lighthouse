@@ -146,7 +146,7 @@ pub enum BatchState<E: EthSpec> {
     /// The batch has been completely downloaded and is ready for processing.
     AwaitingProcessing(ResponsiblePeers, Vec<RpcBlock<E>>, Instant),
     /// The batch is being processed.
-    Processing(Attempt, ResponsiblePeers), // todo(pawan): attempt contains the peer, remove that
+    Processing(Attempt, ResponsiblePeers),
     /// The batch was successfully processed and is waiting to be validated.
     ///
     /// It is not sufficient to process a batch successfully to consider it correct. This is
