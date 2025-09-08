@@ -218,12 +218,31 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for block production ONLY.
     /// When publishing a block constructed locally, the EL will have already verified the cell proofs.
     /// When publishing a block constructed externally, there will be no columns here.
-    pub fn new_for_block_publishing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
-        Self {
+    pub fn new_for_block_publishing(
+        column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, GossipDataColumnError> {
+        // Check if the data column is already in the DA checker cache. This happens when data columns
+        // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
+        // it has already passed the gossip checks, even though this particular instance hasn't been
+        // seen / published on the gossip network yet (passed the `verify_is_first_sidecar` check above).
+        // In this case, we should accept it for gossip propagation.
+        if chain
+            .data_availability_checker
+            .is_data_column_cached(&column_sidecar.block_root(), &column_sidecar)
+        {
+            // Observe this data column so we don't process it again.
+            if O::observe() {
+                observe_gossip_data_column(&column_sidecar, chain)?;
+            }
+            return Err(GossipDataColumnError::PriorKnownUnpublished);
+        }
+
+        Ok(Self {
             block_root: column_sidecar.block_root(),
             data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
             _phantom: Default::default(),
-        }
+        })
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.

@@ -3,9 +3,7 @@ use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_column_verification::{
-    GossipVerifiedDataColumn, observe_gossip_data_column,
-};
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -419,20 +417,10 @@ fn build_data_columns<T: BeaconChainTypes>(
             warp_utils::reject::custom_bad_request(format!("{e:?}"))
         })?;
 
-    for data_column_sidecar in &data_column_sidecars {
-        if let Err(e) = observe_gossip_data_column(data_column_sidecar, chain) {
-            error!(
-                error = ?e,
-                %slot,
-                "Unable to mark data column as observed - the block will still be published"
-            );
-        };
-    }
-
     let gossip_verified_data_columns = data_column_sidecars
         .into_iter()
-        .map(|data_column_sidecar| {
-            GossipVerifiedDataColumn::new_for_block_publishing(data_column_sidecar)
+        .filter_map(|data_column_sidecar| {
+            GossipVerifiedDataColumn::new_for_block_publishing(data_column_sidecar, chain).ok()
         })
         .collect::<Vec<_>>();
 
