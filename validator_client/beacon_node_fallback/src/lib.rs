@@ -359,6 +359,13 @@ impl CandidateBeaconNode {
             hint = UPDATE_REQUIRED_LOG_HINT,
             "Beacon node has mismatched Fulu fork epoch"
             );
+        } else if beacon_node_spec.gloas_fork_epoch != spec.gloas_fork_epoch {
+            warn!(
+            endpoint = %self.beacon_node,
+            endpoint_gloas_fork_epoch = ?beacon_node_spec.gloas_fork_epoch,
+            hint = UPDATE_REQUIRED_LOG_HINT,
+            "Beacon node has mismatched Gloas fork epoch"
+            );
         }
 
         Ok(())

@@ -42,11 +42,12 @@ pub static BEACON_PROCESSOR_WORKERS_SPAWNED_TOTAL: LazyLock<Result<IntCounter>> 
             "The number of workers ever spawned by the gossip processing pool.",
         )
     });
-pub static BEACON_PROCESSOR_WORKERS_ACTIVE_TOTAL: LazyLock<Result<IntGauge>> =
+pub static BEACON_PROCESSOR_WORKERS_ACTIVE_GAUGE_BY_TYPE: LazyLock<Result<IntGaugeVec>> =
     LazyLock::new(|| {
-        try_create_int_gauge(
-            "beacon_processor_workers_active_total",
-            "Count of active workers in the gossip processing pool.",
+        try_create_int_gauge_vec(
+            "beacon_processor_workers_active_gauge_by_type",
+            "Int gauge of the number of active workers per work type",
+            &["type"],
         )
     });
 pub static BEACON_PROCESSOR_IDLE_EVENTS_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {

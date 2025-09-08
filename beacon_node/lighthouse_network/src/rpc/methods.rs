@@ -400,11 +400,11 @@ impl DataColumnsByRangeRequest {
         .len()
     }
 
-    pub fn ssz_max_len(spec: &ChainSpec) -> usize {
+    pub fn ssz_max_len<E: EthSpec>() -> usize {
         DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
-            columns: vec![0; spec.number_of_columns as usize],
+            columns: vec![0; E::number_of_columns()],
         }
         .as_ssz_bytes()
         .len()
@@ -481,20 +481,22 @@ pub struct BlocksByRootRequest {
 }
 
 impl BlocksByRootRequest {
-    pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+    pub fn new(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blocks = fork_context
             .spec
             .max_request_blocks(fork_context.current_fork_name());
-        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
-        Self::V2(BlocksByRootRequestV2 { block_roots })
+        let block_roots = RuntimeVariableList::new(block_roots, max_request_blocks)
+            .map_err(|e| format!("BlocksByRootRequestV2 too many roots: {e:?}"))?;
+        Ok(Self::V2(BlocksByRootRequestV2 { block_roots }))
     }
 
-    pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Self {
+    pub fn new_v1(block_roots: Vec<Hash256>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blocks = fork_context
             .spec
             .max_request_blocks(fork_context.current_fork_name());
-        let block_roots = RuntimeVariableList::from_vec(block_roots, max_request_blocks);
-        Self::V1(BlocksByRootRequestV1 { block_roots })
+        let block_roots = RuntimeVariableList::new(block_roots, max_request_blocks)
+            .map_err(|e| format!("BlocksByRootRequestV1 too many roots: {e:?}"))?;
+        Ok(Self::V1(BlocksByRootRequestV1 { block_roots }))
     }
 }
 
@@ -506,29 +508,31 @@ pub struct BlobsByRootRequest {
 }
 
 impl BlobsByRootRequest {
-    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Self {
+    pub fn new(blob_ids: Vec<BlobIdentifier>, fork_context: &ForkContext) -> Result<Self, String> {
         let max_request_blob_sidecars = fork_context
             .spec
             .max_request_blob_sidecars(fork_context.current_fork_name());
-        let blob_ids = RuntimeVariableList::from_vec(blob_ids, max_request_blob_sidecars);
-        Self { blob_ids }
+        let blob_ids = RuntimeVariableList::new(blob_ids, max_request_blob_sidecars)
+            .map_err(|e| format!("BlobsByRootRequestV1 too many blob IDs: {e:?}"))?;
+        Ok(Self { blob_ids })
     }
 }
 
 /// Request a number of data columns from a peer.
 #[derive(Clone, Debug, PartialEq)]
-pub struct DataColumnsByRootRequest {
+pub struct DataColumnsByRootRequest<E: EthSpec> {
     /// The list of beacon block roots and column indices being requested.
-    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier>,
+    pub data_column_ids: RuntimeVariableList<DataColumnsByRootIdentifier<E>>,
 }
 
-impl DataColumnsByRootRequest {
+impl<E: EthSpec> DataColumnsByRootRequest<E> {
     pub fn new(
-        data_column_ids: Vec<DataColumnsByRootIdentifier>,
+        data_column_ids: Vec<DataColumnsByRootIdentifier<E>>,
         max_request_blocks: usize,
-    ) -> Self {
-        let data_column_ids = RuntimeVariableList::from_vec(data_column_ids, max_request_blocks);
-        Self { data_column_ids }
+    ) -> Result<Self, &'static str> {
+        let data_column_ids = RuntimeVariableList::new(data_column_ids, max_request_blocks)
+            .map_err(|_| "DataColumnsByRootRequest too many column IDs")?;
+        Ok(Self { data_column_ids })
     }
 
     pub fn max_requested(&self) -> usize {
@@ -924,7 +928,7 @@ impl std::fmt::Display for BlobsByRangeRequest {
     }
 }
 
-impl std::fmt::Display for DataColumnsByRootRequest {
+impl<E: EthSpec> std::fmt::Display for DataColumnsByRootRequest<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,

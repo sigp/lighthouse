@@ -327,5 +327,6 @@ async fn process_block(&self, block: Block) -> Result<(), Error> {
 - Full builds and tests take 5+ minutes - use large timeouts (300s+) for any `cargo build`, `cargo nextest`, or `make` commands
 - Use `cargo check` for faster iteration during development and always run after code changes
 - Prefer targeted package tests (`cargo nextest run -p <package>`) and individual tests over full test suite when debugging specific issues
+- Use `cargo fmt --all && make lint-fix` to format code and fix linting issues once a task is complete
 - Always understand the broader codebase patterns before making changes
 - Minimum Supported Rust Version (MSRV) is documented in `lighthouse/Cargo.toml` - ensure Rust version meets or exceeds this requirement

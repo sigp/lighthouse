@@ -14,9 +14,11 @@ ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 hex = { workspace = true }
+rayon = { workspace = true }
 rust_eth_kzg = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+tracing = { workspace = true }
 tree_hash = { workspace = true }
 
 [dev-dependencies]
