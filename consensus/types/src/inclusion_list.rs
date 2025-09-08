@@ -27,6 +27,7 @@ pub struct InclusionList<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub validator_index: u64,
     pub inclusion_list_committee_root: Hash256,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
 }
 
