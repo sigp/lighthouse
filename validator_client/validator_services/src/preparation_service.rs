@@ -8,7 +8,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 use types::{
     Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,

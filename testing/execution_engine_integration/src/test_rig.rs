@@ -1,5 +1,5 @@
 use crate::execution_engine::{
-    ExecutionEngine, GenericExecutionEngine, ACCOUNT1, ACCOUNT2, KEYSTORE_PASSWORD, PRIVATE_KEYS,
+    ACCOUNT1, ACCOUNT2, ExecutionEngine, GenericExecutionEngine, KEYSTORE_PASSWORD, PRIVATE_KEYS,
 };
 use crate::transactions::transactions;
 use ethers_middleware::SignerMiddleware;
@@ -11,9 +11,9 @@ use execution_layer::{
     PayloadParameters, PayloadStatus,
 };
 use fork_choice::ForkchoiceUpdateParameters;
-use reqwest::{header::CONTENT_TYPE, Client};
+use reqwest::{Client, header::CONTENT_TYPE};
 use sensitive_url::SensitiveUrl;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;

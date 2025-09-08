@@ -9,10 +9,10 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
-use futures::channel::mpsc::{channel, Receiver, Sender};
-use futures::{future, StreamExt};
-use logging::tracing_logging_layer::LoggingLayer;
+use futures::channel::mpsc::{Receiver, Sender, channel};
+use futures::{StreamExt, future};
 use logging::SSELoggingComponents;
+use logging::tracing_logging_layer::LoggingLayer;
 use logroller::{Compression, LogRollerBuilder, Rotation, RotationSize};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 use {
     futures::Future,
     std::{pin::Pin, task::Context, task::Poll},
-    tokio::signal::unix::{signal, Signal, SignalKind},
+    tokio::signal::unix::{Signal, SignalKind, signal},
 };
 
 #[cfg(not(target_family = "unix"))]

@@ -1,8 +1,8 @@
 use clap::ArgMatches;
 use lighthouse_network::{
-    discovery::{build_enr, CombinedKey, ENR_FILENAME},
+    NETWORK_KEY_FILENAME, NetworkConfig,
+    discovery::{CombinedKey, ENR_FILENAME, build_enr},
     libp2p::identity::secp256k1,
-    NetworkConfig, NETWORK_KEY_FILENAME,
 };
 use network_utils::enr_ext::CombinedKeyExt;
 use std::io::Write;

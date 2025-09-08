@@ -1,23 +1,30 @@
 use crate::metrics;
-use crate::network_beacon_processor::{NetworkBeaconProcessor, FUTURE_SLOT_TOLERANCE};
+use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use itertools::{process_results, Itertools};
+use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
+use lighthouse_tracing::{
+    SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
+    SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
+    SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST, SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
+    SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP, SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
+    SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE, SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
+};
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{HashMap, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
-use tracing::{debug, error, warn};
+use tracing::{Span, debug, error, field, instrument, warn};
 use types::blob_sidecar::BlobIdentifier;
-use types::{Epoch, EthSpec, Hash256, Slot};
+use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
 
 impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /* Auxiliary functions */
@@ -155,12 +162,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub async fn handle_blocks_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: BlocksByRootRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -172,7 +189,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRoot` request from the peer.
-    pub async fn handle_blocks_by_root_request_inner(
+    async fn handle_blocks_by_root_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -245,12 +262,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRoot` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_blobs_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -260,7 +287,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRoot` request from the peer.
-    pub fn handle_blobs_by_root_request_inner(
+    fn handle_blobs_by_root_request_inner(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -339,12 +366,36 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(
+            peer_id = %peer_id,
+            client = tracing::field::Empty,
+            non_custody_indices = tracing::field::Empty,
+        )
+    )]
     pub fn handle_data_columns_by_root_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest,
+        request: DataColumnsByRootRequest<T::EthSpec>,
     ) {
+        let requested_columns = request
+            .data_column_ids
+            .iter()
+            .flat_map(|id| id.columns.clone())
+            .unique()
+            .collect::<Vec<_>>();
+        self.record_data_column_request_in_span(
+            &peer_id,
+            &requested_columns,
+            None,
+            Span::current(),
+        );
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -354,18 +405,26 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRoot` request from the peer.
-    pub fn handle_data_columns_by_root_request_inner(
+    fn handle_data_columns_by_root_request_inner(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
-        request: DataColumnsByRootRequest,
+        request: DataColumnsByRootRequest<T::EthSpec>,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let mut send_data_column_count = 0;
+        // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
+        let available_columns = self.chain.custody_columns_for_epoch(None);
 
         for data_column_ids_by_root in request.data_column_ids.as_slice() {
+            let indices_to_retrieve = data_column_ids_by_root
+                .columns
+                .iter()
+                .copied()
+                .filter(|c| available_columns.contains(c))
+                .collect::<Vec<_>>();
             match self.chain.get_data_columns_checking_all_caches(
                 data_column_ids_by_root.block_root,
-                data_column_ids_by_root.columns.as_slice(),
+                &indices_to_retrieve,
             ) {
                 Ok(data_columns) => {
                     send_data_column_count += data_columns.len();
@@ -400,12 +459,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Ok(())
     }
 
+    #[instrument(
+        name = SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_light_client_updates_by_range(
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: LightClientUpdatesByRangeRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -420,7 +489,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientUpdatesByRange` request from the peer.
-    pub fn handle_light_client_updates_by_range_request_inner(
+    fn handle_light_client_updates_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -491,12 +560,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientBootstrap` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_light_client_bootstrap(
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         request: LightClientBootstrapRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_single_item(
             peer_id,
             inbound_request_id,
@@ -521,11 +600,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientOptimisticUpdate` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_light_client_optimistic_update(
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_single_item(
             peer_id,
             inbound_request_id,
@@ -545,11 +634,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `LightClientFinalityUpdate` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_light_client_finality_update(
         self: &Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_single_item(
             peer_id,
             inbound_request_id,
@@ -569,12 +668,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRange` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub async fn handle_blocks_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         req: BlocksByRangeRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -586,7 +695,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlocksByRange` request from the peer.
-    pub async fn handle_blocks_by_range_request_inner(
+    async fn handle_blocks_by_range_request_inner(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -700,7 +809,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(e) => {
                     if matches!(
                         e,
-                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, ref boxed_error)
+                        BeaconChainError::ExecutionLayerErrorPayloadReconstruction(_block_hash, boxed_error)
                         if matches!(**boxed_error, execution_layer::Error::EngineError(_))
                     ) {
                         warn!(
@@ -855,12 +964,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `BlobsByRange` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST,
+        parent = None,
+        skip_all,
+        level = "debug",
+        fields(peer_id = %peer_id, client = tracing::field::Empty)
+    )]
     pub fn handle_blobs_by_range_request(
         self: Arc<Self>,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         req: BlobsByRangeRequest,
     ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -982,12 +1101,27 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRange` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST,
+        parent = None,
+        skip_all,
+        level = "debug",
+        fields(peer_id = %peer_id, non_custody_indices = tracing::field::Empty, client = tracing::field::Empty)
+    )]
     pub fn handle_data_columns_by_range_request(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
         req: DataColumnsByRangeRequest,
     ) {
+        let epoch = Slot::new(req.start_slot).epoch(T::EthSpec::slots_per_epoch());
+        self.record_data_column_request_in_span(
+            &peer_id,
+            &req.columns,
+            Some(epoch),
+            Span::current(),
+        );
+
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
@@ -997,7 +1131,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     /// Handle a `DataColumnsByRange` request from the peer.
-    pub fn handle_data_columns_by_range_request_inner(
+    fn handle_data_columns_by_range_request_inner(
         &self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId,
@@ -1060,8 +1194,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.get_block_roots_for_slot_range(req.start_slot, req.count, "DataColumnsByRange")?;
         let mut data_columns_sent = 0;
 
+        // Only attempt lookups for columns the node has advertised and is responsible for maintaining custody of.
+        let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
+        let available_columns = self
+            .chain
+            .custody_columns_for_epoch(Some(request_start_epoch));
+
+        let indices_to_retrieve = req
+            .columns
+            .iter()
+            .copied()
+            .filter(|c| available_columns.contains(c))
+            .collect::<Vec<_>>();
+
         for root in block_roots {
-            for index in &req.columns {
+            for index in &indices_to_retrieve {
                 match self.chain.get_data_column(&root, index) {
                     Ok(Some(data_column_sidecar)) => {
                         // Due to skip slots, data columns could be out of the range, we ensure they
@@ -1156,5 +1303,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 self.send_error_response(peer_id, error_code, reason.into(), inbound_request_id);
             }
         }
+    }
+
+    fn record_data_column_request_in_span(
+        &self,
+        peer_id: &PeerId,
+        requested_indices: &[ColumnIndex],
+        epoch_opt: Option<Epoch>,
+        span: Span,
+    ) {
+        let non_custody_indices = {
+            let custody_columns = self
+                .chain
+                .data_availability_checker
+                .custody_context()
+                .custody_columns_for_epoch(epoch_opt, &self.chain.spec);
+            requested_indices
+                .iter()
+                .filter(|subnet_id| !custody_columns.contains(subnet_id))
+                .collect::<Vec<_>>()
+        };
+        // This field is used to identify if peers are sending requests on columns we don't custody.
+        span.record("non_custody_indices", field::debug(non_custody_indices));
+
+        let client = self.network_globals.client(peer_id);
+        span.record("client", field::display(client.kind));
     }
 }

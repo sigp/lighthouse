@@ -1,9 +1,9 @@
 use crate::{
-    test_utils::{RngCore, TestRandom},
     Hash256,
+    test_utils::{RngCore, TestRandom},
 };
 use regex::bytes::Regex;
-use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 use std::str::FromStr;
@@ -12,9 +12,9 @@ use tree_hash::{PackedEncoding, TreeHash};
 pub const GRAFFITI_BYTES_LEN: usize = 32;
 
 /// The 32-byte `graffiti` field on a beacon block.
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Default, Debug, PartialEq, Hash, Clone, Copy, Serialize, Deserialize)]
 #[serde(transparent)]
-#[derive(arbitrary::Arbitrary)]
 pub struct Graffiti(#[serde(with = "serde_graffiti")] pub [u8; GRAFFITI_BYTES_LEN]);
 
 impl Graffiti {

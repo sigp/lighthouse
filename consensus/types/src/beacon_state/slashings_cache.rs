@@ -1,12 +1,14 @@
 use crate::{BeaconStateError, Slot, Validator};
+#[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
 use rpds::HashTrieSetSync as HashTrieSet;
 
 /// Persistent (cheap to clone) cache of all slashed validator indices.
-#[derive(Debug, Default, Clone, PartialEq, Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct SlashingsCache {
     latest_block_slot: Option<Slot>,
-    #[arbitrary(default)]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     slashed_validators: HashTrieSet<usize>,
 }
 

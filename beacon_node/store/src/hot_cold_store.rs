@@ -6,19 +6,19 @@ use crate::historic_state_cache::HistoricStateCache;
 use crate::iter::{BlockRootsIterator, ParentRootBlockIterator, RootsIterator};
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    AnchorInfo, BlobInfo, CompactionTimestamp, DataColumnInfo, SchemaVersion, ANCHOR_INFO_KEY,
-    ANCHOR_UNINITIALIZED, BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY,
-    CURRENT_SCHEMA_VERSION, DATA_COLUMN_INFO_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
-    STATE_UPPER_LIMIT_NO_RETAIN,
+    ANCHOR_INFO_KEY, ANCHOR_UNINITIALIZED, AnchorInfo, BLOB_INFO_KEY, BlobInfo,
+    COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, CompactionTimestamp,
+    DATA_COLUMN_CUSTODY_INFO_KEY, DATA_COLUMN_INFO_KEY, DataColumnCustodyInfo, DataColumnInfo,
+    SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion,
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
-    get_data_column_key,
+    BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, StoreItem,
+    StoreOp, get_data_column_key,
     metrics::{self, COLD_METRIC, HOT_METRIC},
-    parse_data_column_key, BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error, ItemStore,
-    KeyValueStoreOp, StoreItem, StoreOp,
+    parse_data_column_key,
 };
-use itertools::{process_results, Itertools};
+use itertools::{Itertools, process_results};
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
@@ -26,10 +26,10 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    block_replayer::PreSlotHook, AllCaches, BlockProcessingError, BlockReplayer,
-    SlotProcessingError,
+    AllCaches, BlockProcessingError, BlockReplayer, SlotProcessingError,
+    block_replayer::PreSlotHook,
 };
-use std::cmp::{min, Ordering};
+use std::cmp::{Ordering, min};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
@@ -37,7 +37,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 use zstd::{Decoder, Encoder};
@@ -91,6 +91,7 @@ struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
     blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
     data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
+    data_column_custody_info_cache: Option<DataColumnCustodyInfo>,
 }
 
 impl<E: EthSpec> BlockCache<E> {
@@ -99,6 +100,7 @@ impl<E: EthSpec> BlockCache<E> {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
             data_column_cache: LruCache::new(size),
+            data_column_custody_info_cache: None,
         }
     }
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
@@ -111,6 +113,12 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get_or_insert_mut(block_root, Default::default)
             .insert(data_column.index, data_column);
+    }
+    pub fn put_data_column_custody_info(
+        &mut self,
+        data_column_custody_info: Option<DataColumnCustodyInfo>,
+    ) {
+        self.data_column_custody_info_cache = data_column_custody_info;
     }
     pub fn get_block<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a SignedBeaconBlock<E>> {
         self.block_cache.get(block_root)
@@ -128,6 +136,9 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get(block_root)
             .and_then(|map| map.get(column_index).cloned())
+    }
+    pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
+        self.data_column_custody_info_cache.clone()
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
         let _ = self.block_cache.pop(block_root);
@@ -922,6 +933,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ));
     }
 
+    pub fn put_data_column_custody_info(
+        &self,
+        earliest_data_column_slot: Option<Slot>,
+    ) -> Result<(), Error> {
+        let data_column_custody_info = DataColumnCustodyInfo {
+            earliest_data_column_slot,
+        };
+
+        self.blobs_db
+            .put(&DATA_COLUMN_CUSTODY_INFO_KEY, &data_column_custody_info)?;
+
+        self.block_cache
+            .lock()
+            .put_data_column_custody_info(Some(data_column_custody_info));
+
+        Ok(())
+    }
+
     pub fn put_data_columns(
         &self,
         block_root: &Hash256,
@@ -1011,6 +1040,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// - `result_state_root == state.canonical_root()`
     /// - `state.slot() <= max_slot`
     /// - `state.get_latest_block_root(result_state_root) == block_root`
+    #[instrument(skip(self, max_slot), level = "debug")]
     pub fn get_advanced_hot_state(
         &self,
         block_root: Hash256,
@@ -1082,6 +1112,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// If this function returns `Some(state)` then that `state` will always have
     /// `latest_block_header` matching `block_root` but may not be advanced all the way through to
     /// `max_slot`.
+    #[instrument(skip(self), level = "debug")]
     pub fn get_advanced_hot_state_from_cache(
         &self,
         block_root: Hash256,
@@ -2389,6 +2420,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })
     }
 
+    /// Fetch custody info from the cache.
+    /// If custody info doesn't exist in the cache,
+    /// try to fetch from the DB and prime the cache.
+    pub fn get_data_column_custody_info(&self) -> Result<Option<DataColumnCustodyInfo>, Error> {
+        let Some(data_column_custody_info) = self.block_cache.lock().get_data_column_custody_info()
+        else {
+            let data_column_custody_info = self
+                .blobs_db
+                .get::<DataColumnCustodyInfo>(&DATA_COLUMN_CUSTODY_INFO_KEY)?;
+
+            // Update the cache
+            self.block_cache
+                .lock()
+                .put_data_column_custody_info(data_column_custody_info.clone());
+
+            return Ok(data_column_custody_info);
+        };
+
+        Ok(Some(data_column_custody_info))
+    }
+
     /// Fetch all columns for a given block from the store.
     pub fn get_data_columns(
         &self,
@@ -2426,7 +2478,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .first()
                     .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
                 {
-                    let blobs = BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize);
+                    let blobs = BlobSidecarList::new(blobs, max_blobs_per_block as usize)?;
                     self.block_cache
                         .lock()
                         .put_blobs(*block_root, blobs.clone());
@@ -3589,15 +3641,15 @@ pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStor
             .ok_or(StateSummaryIteratorError::MissingSummary(state_root))?;
 
         // Protect against infinite loops if the state summaries are not strictly descending
-        if let Some(previous_slot) = previous_slot {
-            if state_summary.slot >= previous_slot {
-                drop(split);
-                return Err(StateSummaryIteratorError::CircularSummaries {
-                    state_root,
-                    state_slot: state_summary.slot,
-                    previous_slot,
-                });
-            }
+        if let Some(previous_slot) = previous_slot
+            && state_summary.slot >= previous_slot
+        {
+            drop(split);
+            return Err(StateSummaryIteratorError::CircularSummaries {
+                state_root,
+                state_slot: state_summary.slot,
+                previous_slot,
+            });
         }
         previous_slot = Some(state_summary.slot);
 

@@ -24,13 +24,13 @@ use libp2p_identity::PeerId;
 use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
 use reqwest::{
-    header::{HeaderMap, HeaderValue},
     Body, IntoUrl, RequestBuilder, Response,
+    header::{HeaderMap, HeaderValue},
 };
 pub use reqwest::{StatusCode, Url};
 use reqwest_eventsource::{Event, EventSource};
 pub use sensitive_url::{SensitiveError, SensitiveUrl};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
 use std::future::Future;
@@ -55,11 +55,13 @@ pub const JSON_CONTENT_TYPE_HEADER: &str = "application/json";
 const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT: u32 = 24;
+const HTTP_ATTESTATION_AGGREGATOR_TIMEOUT_QUOTIENT: u32 = 24; // For DVT involving middleware only
 const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT: u32 = 24; // For DVT involving middleware only
 const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
@@ -150,11 +152,13 @@ pub struct Timeouts {
     pub attestation: Duration,
     pub attester_duties: Duration,
     pub attestation_subscriptions: Duration,
+    pub attestation_aggregators: Duration,
     pub liveness: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
     pub sync_committee_contribution: Duration,
     pub sync_duties: Duration,
+    pub sync_aggregators: Duration,
     pub get_beacon_blocks_ssz: Duration,
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
@@ -168,11 +172,13 @@ impl Timeouts {
             attestation: timeout,
             attester_duties: timeout,
             attestation_subscriptions: timeout,
+            attestation_aggregators: timeout,
             liveness: timeout,
             proposal: timeout,
             proposer_duties: timeout,
             sync_committee_contribution: timeout,
             sync_duties: timeout,
+            sync_aggregators: timeout,
             get_beacon_blocks_ssz: timeout,
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
@@ -187,12 +193,14 @@ impl Timeouts {
             attester_duties: base_timeout / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
             attestation_subscriptions: base_timeout
                 / HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT,
+            attestation_aggregators: base_timeout / HTTP_ATTESTATION_AGGREGATOR_TIMEOUT_QUOTIENT,
             liveness: base_timeout / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
             proposal: base_timeout / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
             proposer_duties: base_timeout / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
             sync_committee_contribution: base_timeout
                 / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
             sync_duties: base_timeout / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+            sync_aggregators: base_timeout / HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT,
             get_beacon_blocks_ssz: base_timeout / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
             get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
             get_deposit_snapshot: base_timeout / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
@@ -979,6 +987,32 @@ impl BeaconNodeHttpClient {
                     .collect()
             })
         })
+    }
+
+    /// `GET beacon/light_client/updates`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_light_client_updates_ssz<E: EthSpec>(
+        &self,
+        start_period: u64,
+        count: u64,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("light_client")
+            .push("updates");
+
+        path.query_pairs_mut()
+            .append_pair("start_period", &start_period.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("count", &count.to_string());
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `GET beacon/light_client/bootstrap`
@@ -2755,7 +2789,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_events<E: EthSpec>(
         &self,
         topic: &[EventTopic],
-    ) -> Result<impl Stream<Item = Result<EventKind<E>, Error>>, Error> {
+    ) -> Result<impl Stream<Item = Result<EventKind<E>, Error>> + use<E>, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -2814,6 +2848,42 @@ impl BeaconNodeHttpClient {
             self.timeouts.sync_duties,
         )
         .await
+    }
+
+    /// `POST validator/beacon_committee_selections`
+    pub async fn post_validator_beacon_committee_selections(
+        &self,
+        selections: &[BeaconCommitteeSelection],
+    ) -> Result<GenericResponse<Vec<BeaconCommitteeSelection>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("beacon_committee_selections");
+
+        self.post_with_timeout_and_response(
+            path,
+            &selections,
+            self.timeouts.attestation_aggregators,
+        )
+        .await
+    }
+
+    /// `POST validator/sync_committee_selections`
+    pub async fn post_validator_sync_committee_selections(
+        &self,
+        selections: &[SyncCommitteeSelection],
+    ) -> Result<GenericResponse<Vec<SyncCommitteeSelection>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("sync_committee_selections");
+
+        self.post_with_timeout_and_response(path, &selections, self.timeouts.sync_aggregators)
+            .await
     }
 }
 

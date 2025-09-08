@@ -10,19 +10,9 @@ use tree_hash_derive::TreeHash;
 /// Two conflicting proposals from the same proposer (validator).
 ///
 /// Spec v0.12.1
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
+    Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 #[context_deserialize(ForkName)]
 pub struct ProposerSlashing {

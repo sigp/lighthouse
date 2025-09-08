@@ -2,11 +2,11 @@ use bls::PublicKeyBytes;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{prelude::*, BufReader};
+use std::io::{BufReader, prelude::*};
 use std::path::PathBuf;
 use std::str::FromStr;
 use tracing::warn;
-use types::{graffiti::GraffitiString, Graffiti};
+use types::{Graffiti, graffiti::GraffitiString};
 
 #[derive(Debug)]
 #[allow(clippy::enum_variant_names)]

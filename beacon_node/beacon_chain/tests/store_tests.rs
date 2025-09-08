@@ -7,20 +7,21 @@ use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
-    get_kzg, mock_execution_layer_from_parts, test_spec, AttestationStrategy, BeaconChainHarness,
-    BlockStrategy, DiskHarnessType,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
+    mock_execution_layer_from_parts, test_spec,
 };
 use beacon_chain::{
+    BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
+    NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
-    migrate::MigratorConfig, BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot,
-    BlockError, ChainConfig, NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
+    migrate::MigratorConfig,
 };
 use logging::create_test_tracing_subscriber;
 use maplit::hashset;
-use rand::rngs::StdRng;
 use rand::Rng;
+use rand::rngs::StdRng;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::{state_advance::complete_state_advance, BlockReplayer};
+use state_processing::{BlockReplayer, state_advance::complete_state_advance};
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -28,13 +29,13 @@ use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 use store::database::interface::BeaconNodeBackend;
-use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN};
+use store::metadata::{CURRENT_SCHEMA_VERSION, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion};
 use store::{
+    BlobInfo, DBColumn, HotColdDB, StoreConfig,
     hdiff::HierarchyConfig,
     iter::{BlockRootsIterator, StateRootsIterator},
-    BlobInfo, DBColumn, HotColdDB, StoreConfig,
 };
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use tracing::info;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
@@ -183,6 +184,7 @@ async fn light_client_bootstrap_test() {
         LightClientBootstrap::Deneb(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Electra(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
         LightClientBootstrap::Fulu(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
+        LightClientBootstrap::Gloas(lc_bootstrap) => lc_bootstrap.header.beacon.slot,
     };
 
     assert_eq!(
@@ -297,7 +299,7 @@ async fn randomised_skips() {
     let mut head_slot = 0;
 
     for slot in 1..=num_slots {
-        if rng.gen_bool(0.8) {
+        if rng.random_bool(0.8) {
             harness
                 .extend_chain(
                     1,
@@ -410,13 +412,15 @@ async fn randao_genesis_storage() {
         .await;
 
     // Check that genesis value is still present
-    assert!(harness
-        .chain
-        .head_snapshot()
-        .beacon_state
-        .randao_mixes()
-        .iter()
-        .any(|x| *x == genesis_value));
+    assert!(
+        harness
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .randao_mixes()
+            .iter()
+            .any(|x| *x == genesis_value)
+    );
 
     // Then upon adding one more block, it isn't
     harness.advance_slot();
@@ -427,13 +431,15 @@ async fn randao_genesis_storage() {
             AttestationStrategy::AllValidators,
         )
         .await;
-    assert!(!harness
-        .chain
-        .head_snapshot()
-        .beacon_state
-        .randao_mixes()
-        .iter()
-        .any(|x| *x == genesis_value));
+    assert!(
+        !harness
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .randao_mixes()
+            .iter()
+            .any(|x| *x == genesis_value)
+    );
 
     check_finalization(&harness, num_slots);
     check_split_slot(&harness, store);
@@ -2660,10 +2666,12 @@ async fn weak_subjectivity_sync_test(
 
         // Prune_payloads is set to false in the default config, so the payload should exist
         if block.message().execution_payload().is_ok() {
-            assert!(beacon_chain
-                .store
-                .execution_payload_exists(&block_root)
-                .unwrap(),);
+            assert!(
+                beacon_chain
+                    .store
+                    .execution_payload_exists(&block_root)
+                    .unwrap(),
+            );
         }
 
         prev_block_root = block_root;
@@ -3157,7 +3165,11 @@ async fn schema_downgrade_to_min_version(
         )
         .await;
 
-    let min_version = SchemaVersion(22);
+    let min_version = if spec.is_fulu_scheduled() {
+        SchemaVersion(27)
+    } else {
+        SchemaVersion(22)
+    };
 
     // Save the slot clock so that the new harness doesn't revert in time.
     let slot_clock = harness.chain.slot_clock.clone();
@@ -3618,10 +3630,12 @@ async fn prune_historic_states() {
         .map(Result::unwrap)
         .collect::<Vec<_>>();
     for &(state_root, slot) in &first_epoch_state_roots {
-        assert!(store
-            .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
-            .unwrap()
-            .is_some());
+        assert!(
+            store
+                .get_state(&state_root, Some(slot), CACHE_STATE_IN_TESTS)
+                .unwrap()
+                .is_some()
+        );
     }
 
     store
@@ -3790,11 +3804,13 @@ async fn replay_from_split_state() {
     let anchor_slot = store.get_anchor_info().anchor_slot;
     assert_eq!(split.slot, 3 * E::slots_per_epoch());
     assert_eq!(anchor_slot, 0);
-    assert!(store
-        .hierarchy
-        .storage_strategy(split.slot, anchor_slot)
-        .unwrap()
-        .is_replay_from());
+    assert!(
+        store
+            .hierarchy
+            .storage_strategy(split.slot, anchor_slot)
+            .unwrap()
+            .is_replay_from()
+    );
 
     // Close the database and reopen it.
     drop(store);

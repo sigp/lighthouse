@@ -3,7 +3,7 @@ use eth2::lighthouse::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
 use state_processing::{
-    per_epoch_processing::EpochProcessingSummary, BlockReplayError, BlockReplayer,
+    BlockReplayError, BlockReplayer, per_epoch_processing::EpochProcessingSummary,
 };
 use std::sync::Arc;
 use types::{BeaconState, BeaconStateError, EthSpec, Hash256};

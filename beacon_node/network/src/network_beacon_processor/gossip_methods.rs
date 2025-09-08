@@ -9,6 +9,8 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
 use beacon_chain::{
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
+    GossipVerifiedBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -16,11 +18,12 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
-    GossipVerifiedBlock, NotifyExecutionLayer,
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use lighthouse_tracing::{
+    SPAN_PROCESS_GOSSIP_BLOB, SPAN_PROCESS_GOSSIP_BLOCK, SPAN_PROCESS_GOSSIP_DATA_COLUMN,
+};
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
 use slot_clock::SlotClock;
@@ -32,23 +35,22 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc::error::TrySendError;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
-    beacon_block::BlockImportSource, Attestation, AttestationData, AttestationRef,
-    AttesterSlashing, BlobSidecar, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
+    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
+    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
 use beacon_processor::{
+    DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
     work_reprocessing_queue::{
         QueuedAggregate, QueuedGossipBlock, QueuedLightClientUpdate, QueuedUnaggregate,
         ReprocessQueueMessage,
     },
-    DuplicateCache, GossipAggregatePackage, GossipAttestationBatch,
 };
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
@@ -603,11 +605,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    #[instrument(
+        name = SPAN_PROCESS_GOSSIP_DATA_COLUMN,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
+    )]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
-        _peer_client: Client,
         subnet_id: DataColumnSubnetId,
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         seen_duration: Duration,
@@ -623,7 +631,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
         match self
             .chain
-            .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), *subnet_id)
+            .verify_data_column_sidecar_for_gossip(column_sidecar.clone(), subnet_id)
         {
             Ok(gossip_verified_data_column) => {
                 metrics::inc_counter(
@@ -650,6 +658,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         duration,
                     );
                 }
+
                 self.process_gossip_verified_data_column(
                     peer_id,
                     gossip_verified_data_column,
@@ -760,6 +769,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = SPAN_PROCESS_GOSSIP_BLOB,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(
+            slot = ?blob_sidecar.slot(),
+            block_root = ?blob_sidecar.block_root(),
+            index = blob_sidecar.index),
+    )]
     pub async fn process_gossip_blob(
         self: &Arc<Self>,
         message_id: MessageId,
@@ -927,7 +946,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    pub async fn process_gossip_verified_blob(
+    async fn process_gossip_verified_blob(
         self: &Arc<Self>,
         peer_id: PeerId,
         verified_blob: GossipVerifiedBlob<T>,
@@ -995,7 +1014,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    pub async fn process_gossip_verified_data_column(
+    async fn process_gossip_verified_data_column(
         self: &Arc<Self>,
         peer_id: PeerId,
         verified_data_column: GossipVerifiedDataColumn<T>,
@@ -1013,7 +1032,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
 
-        match result {
+        match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
                     info!(
@@ -1039,6 +1058,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // another column arrives it either completes availability or pushes
                     // reconstruction back a bit.
                     let cloned_self = Arc::clone(self);
+                    let block_root = *block_root;
                     let send_result = self.beacon_processor_send.try_send(WorkEvent {
                         drop_during_sync: false,
                         work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
@@ -1087,6 +1107,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
             }
         }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or data column. If a
+        // importing a block results in `Imported`, notify. Do not notify of data column errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
+        }
     }
 
     /// Process the beacon block received from the gossip network and:
@@ -1097,6 +1127,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(
+        name = SPAN_PROCESS_GOSSIP_BLOCK,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(block_root = tracing::field::Empty),
+    )]
     pub async fn process_gossip_block(
         self: Arc<Self>,
         message_id: MessageId,
@@ -1118,6 +1155,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await
         {
             let block_root = gossip_verified_block.block_root;
+            Span::current().record("block_root", block_root.to_string());
 
             if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
                 self.process_gossip_verified_block(
@@ -1142,7 +1180,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
     /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
-    pub async fn process_gossip_unverified_block(
+    async fn process_gossip_unverified_block(
         self: &Arc<Self>,
         message_id: MessageId,
         peer_id: PeerId,
@@ -1425,7 +1463,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// Process the beacon block that has already passed gossip verification.
     ///
     /// Raises a log if there are errors.
-    pub async fn process_gossip_verified_block(
+    #[instrument(skip_all)]
+    async fn process_gossip_verified_block(
         self: Arc<Self>,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
@@ -1436,32 +1475,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let block = verified_block.block.block_cloned();
         let block_root = verified_block.block_root;
 
-        // Note: okay to issue sampling request before the block is execution verified. If the
-        // proposer sends us a block with invalid blob transactions it can trigger us to issue
-        // sampling queries that will never resolve. This attack is equivalent to withholding data.
-        // Dismissed proposal to move this block to post-execution: https://github.com/sigp/lighthouse/pull/6492
-        if block.num_expected_blobs() > 0 {
-            // Trigger sampling for block not yet execution valid. At this point column custodials are
-            // unlikely to have received their columns. Triggering sampling so early is only viable with
-            // either:
-            // - Sync delaying sampling until some latter window
-            // - Re-processing early sampling requests: https://github.com/sigp/lighthouse/pull/5569
-            if self.chain.should_sample_slot(block.slot()) {
-                self.send_sync_message(SyncMessage::SampleBlock(block_root, block.slot()));
-            }
-        }
-
         // Block is gossip valid. Attempt to fetch blobs from the EL using versioned hashes derived
         // from kzg commitments, without having to wait for all blobs to be sent from the peers.
         let publish_blobs = true;
         let self_clone = self.clone();
         let block_clone = block.clone();
+        let current_span = Span::current();
         self.executor.spawn(
             async move {
                 self_clone
                     .fetch_engine_blobs_and_publish(block_clone, block_root, publish_blobs)
                     .await
-            },
+            }
+            .instrument(current_span),
             "fetch_blobs_gossip",
         );
 
@@ -1528,7 +1554,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Block with unknown parent attempted to be processed"
                 );
             }
-            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
+            Err(e @ BlockError::ExecutionPayloadError(epe)) if !epe.penalize_peer() => {
                 debug!(
                     error = %e,
                     "Failed to verify execution payload"

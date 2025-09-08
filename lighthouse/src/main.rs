@@ -7,26 +7,29 @@ use clap::FromArgMatches;
 use clap::Subcommand;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::{
-    flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config, FLAG_HEADER,
+    FLAG_HEADER, flags::DISABLE_MALLOC_TUNING_FLAG, get_color_style, get_eth2_network_config,
 };
 use cli::LighthouseSubcommands;
-use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
+use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default};
 use environment::tracing_common;
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use ethereum_hashing::have_sha_extensions;
 use futures::TryFutureExt;
 use lighthouse_version::VERSION;
-use logging::{build_workspace_filter, crit, MetricsLayer};
+use logging::{MetricsLayer, build_workspace_filter, crit};
 use malloc_utils::configure_memory_allocator;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::tonic_types::transport::ClientTlsConfig;
+use opentelemetry_otlp::{WithExportConfig, WithTonicConfig};
 use std::backtrace::Backtrace;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{info, warn, Level};
-use tracing_subscriber::{filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
+use tracing::{Level, info, warn};
+use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
@@ -74,15 +77,7 @@ fn bls_hardware_acceleration() -> bool {
 }
 
 fn allocator_name() -> String {
-    #[cfg(target_os = "windows")]
-    {
-        "system".to_string()
-    }
-    #[cfg(not(target_os = "windows"))]
-    match malloc_utils::jemalloc::page_size() {
-        Ok(page_size) => format!("jemalloc ({}K)", page_size / 1024),
-        Err(e) => format!("jemalloc (error: {e:?})"),
-    }
+    malloc_utils::allocator_name()
 }
 
 fn build_profile_name() -> String {
@@ -99,7 +94,12 @@ fn build_profile_name() -> String {
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var("RUST_BACKTRACE").is_err() {
-        std::env::set_var("RUST_BACKTRACE", "1");
+        // `set_var` is marked unsafe because it is unsafe to use if there are multiple threads
+        // reading or writing from the environment. We are at the very beginning of execution and
+        // have not spun up any threads or the tokio runtime, so it is safe to use.
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
     }
 
     // Parse the CLI parameters.
@@ -279,6 +279,32 @@ fn main() {
                 .display_order(0)
         )
         .arg(
+            Arg::new("telemetry-collector-url")
+                .long("telemetry-collector-url")
+                .value_name("URL")
+                .help(
+                    "URL of the OpenTelemetry collector to export tracing spans \
+                    (e.g., http://localhost:4317). If not set, tracing export is disabled.",
+                )
+                .action(ArgAction::Set)
+                .global(true)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("telemetry-service-name")
+                .long("telemetry-service-name")
+                .value_name("NAME")
+                .help(
+                    "Override the OpenTelemetry service name. \
+                    Defaults to 'lighthouse-bn' for beacon node, 'lighthouse-vc' for validator \
+                    client, or 'lighthouse' for other subcommands."
+                )
+                .requires("telemetry-collector-url")
+                .action(ArgAction::Set)
+                .global(true)
+                .display_order(0)
+        )
+        .arg(
             Arg::new("datadir")
                 .long("datadir")
                 .short('d')
@@ -452,15 +478,16 @@ fn main() {
     // Only apply this optimization for the beacon node. It's the only process with a substantial
     // memory footprint.
     let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
-    if is_beacon_node && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
-        if let Err(e) = configure_memory_allocator() {
-            eprintln!(
-                "Unable to configure the memory allocator: {} \n\
+    if is_beacon_node
+        && !matches.get_flag(DISABLE_MALLOC_TUNING_FLAG)
+        && let Err(e) = configure_memory_allocator()
+    {
+        eprintln!(
+            "Unable to configure the memory allocator: {} \n\
                 Try providing the --{} flag",
-                e, DISABLE_MALLOC_TUNING_FLAG
-            );
-            exit(1)
-        }
+            e, DISABLE_MALLOC_TUNING_FLAG
+        );
+        exit(1)
     }
 
     let result = get_eth2_network_config(&matches).and_then(|eth2_network_config| {
@@ -650,13 +677,17 @@ fn run<E: EthSpec>(
         logging_layers.push(
             file_logging_layer
                 .with_filter(logger_config.logfile_debug_level)
-                .with_filter(workspace_filter)
+                .with_filter(workspace_filter.clone())
                 .boxed(),
         );
     }
 
     if let Some(sse_logging_layer) = sse_logging_layer_opt {
-        logging_layers.push(sse_logging_layer.boxed());
+        logging_layers.push(
+            sse_logging_layer
+                .with_filter(workspace_filter.clone())
+                .boxed(),
+        );
     }
 
     if let Some(libp2p_discv5_layer) = libp2p_discv5_layer {
@@ -673,6 +704,49 @@ fn run<E: EthSpec>(
 
     logging_layers.push(MetricsLayer.boxed());
 
+    let mut environment = builder
+        .multi_threaded_tokio_runtime()?
+        .eth2_network_config(eth2_network_config)?
+        .build()?;
+
+    if let Some(telemetry_collector_url) = matches.get_one::<String>("telemetry-collector-url") {
+        let telemetry_layer = environment.runtime().block_on(async {
+            let exporter = opentelemetry_otlp::SpanExporter::builder()
+                .with_tonic()
+                .with_tls_config(ClientTlsConfig::new().with_native_roots())
+                .with_endpoint(telemetry_collector_url)
+                .build()
+                .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;
+
+            let service_name = matches
+                .get_one::<String>("telemetry-service-name")
+                .cloned()
+                .unwrap_or_else(|| match matches.subcommand() {
+                    Some(("beacon_node", _)) => "lighthouse-bn".to_string(),
+                    Some(("validator_client", _)) => "lighthouse-vc".to_string(),
+                    _ => "lighthouse".to_string(),
+                });
+
+            let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
+                .with_batch_exporter(exporter)
+                .with_resource(
+                    opentelemetry_sdk::Resource::builder()
+                        .with_service_name(service_name)
+                        .build(),
+                )
+                .build();
+
+            let tracer = provider.tracer("lighthouse");
+            Ok::<_, String>(
+                tracing_opentelemetry::layer()
+                    .with_tracer(tracer)
+                    .with_filter(workspace_filter),
+            )
+        })?;
+
+        logging_layers.push(telemetry_layer.boxed());
+    }
+
     #[cfg(feature = "console-subscriber")]
     {
         let console_layer = console_subscriber::spawn();
@@ -686,11 +760,6 @@ fn run<E: EthSpec>(
     if let Err(e) = logging_result {
         eprintln!("Failed to initialize logger: {e}");
     }
-
-    let mut environment = builder
-        .multi_threaded_tokio_runtime()?
-        .eth2_network_config(eth2_network_config)?
-        .build()?;
 
     // Log panics properly.
     {

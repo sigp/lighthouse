@@ -1,5 +1,5 @@
 use beacon_chain::{
-    validator_monitor::HISTORIC_EPOCHS, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes, validator_monitor::HISTORIC_EPOCHS,
 };
 use eth2::types::{Epoch, ValidatorStatus};
 use serde::{Deserialize, Serialize};
@@ -126,23 +126,22 @@ pub fn get_validator_info<T: BeaconChainTypes>(
     let mut validators = HashMap::new();
 
     for id in ids {
-        if let Ok(index) = id.parse::<u64>() {
-            if let Some(validator) = chain
+        if let Ok(index) = id.parse::<u64>()
+            && let Some(validator) = chain
                 .validator_monitor
                 .read()
                 .get_monitored_validator(index)
-            {
-                let mut info = vec![];
-                for epoch in epochs.clone() {
-                    if let Some(total_balance) = validator.get_total_balance(Epoch::new(epoch)) {
-                        info.push(ValidatorInfoValues {
-                            epoch,
-                            total_balance,
-                        });
-                    }
+        {
+            let mut info = vec![];
+            for epoch in epochs.clone() {
+                if let Some(total_balance) = validator.get_total_balance(Epoch::new(epoch)) {
+                    info.push(ValidatorInfoValues {
+                        epoch,
+                        total_balance,
+                    });
                 }
-                validators.insert(id.clone(), ValidatorInfo { info });
             }
+            validators.insert(id.clone(), ValidatorInfo { info });
         }
     }
 
@@ -198,58 +197,57 @@ pub fn post_validator_monitor_metrics<T: BeaconChainTypes>(
     let mut validators = HashMap::new();
 
     for id in ids {
-        if let Ok(index) = id.parse::<u64>() {
-            if let Some(validator) = chain
+        if let Ok(index) = id.parse::<u64>()
+            && let Some(validator) = chain
                 .validator_monitor
                 .read()
                 .get_monitored_validator(index)
-            {
-                let val_metrics = validator.metrics.read();
-                let attestation_hits = val_metrics.attestation_hits;
-                let attestation_misses = val_metrics.attestation_misses;
-                let attestation_head_hits = val_metrics.attestation_head_hits;
-                let attestation_head_misses = val_metrics.attestation_head_misses;
-                let attestation_target_hits = val_metrics.attestation_target_hits;
-                let attestation_target_misses = val_metrics.attestation_target_misses;
-                let latest_attestation_inclusion_distance =
-                    val_metrics.latest_attestation_inclusion_distance;
-                drop(val_metrics);
+        {
+            let val_metrics = validator.metrics.read();
+            let attestation_hits = val_metrics.attestation_hits;
+            let attestation_misses = val_metrics.attestation_misses;
+            let attestation_head_hits = val_metrics.attestation_head_hits;
+            let attestation_head_misses = val_metrics.attestation_head_misses;
+            let attestation_target_hits = val_metrics.attestation_target_hits;
+            let attestation_target_misses = val_metrics.attestation_target_misses;
+            let latest_attestation_inclusion_distance =
+                val_metrics.latest_attestation_inclusion_distance;
+            drop(val_metrics);
 
-                let attestations = attestation_hits + attestation_misses;
-                let attestation_hit_percentage: f64 = if attestations == 0 {
-                    0.0
-                } else {
-                    (100 * attestation_hits / attestations) as f64
-                };
-                let head_attestations = attestation_head_hits + attestation_head_misses;
-                let attestation_head_hit_percentage: f64 = if head_attestations == 0 {
-                    0.0
-                } else {
-                    (100 * attestation_head_hits / head_attestations) as f64
-                };
+            let attestations = attestation_hits + attestation_misses;
+            let attestation_hit_percentage: f64 = if attestations == 0 {
+                0.0
+            } else {
+                (100 * attestation_hits / attestations) as f64
+            };
+            let head_attestations = attestation_head_hits + attestation_head_misses;
+            let attestation_head_hit_percentage: f64 = if head_attestations == 0 {
+                0.0
+            } else {
+                (100 * attestation_head_hits / head_attestations) as f64
+            };
 
-                let target_attestations = attestation_target_hits + attestation_target_misses;
-                let attestation_target_hit_percentage: f64 = if target_attestations == 0 {
-                    0.0
-                } else {
-                    (100 * attestation_target_hits / target_attestations) as f64
-                };
+            let target_attestations = attestation_target_hits + attestation_target_misses;
+            let attestation_target_hit_percentage: f64 = if target_attestations == 0 {
+                0.0
+            } else {
+                (100 * attestation_target_hits / target_attestations) as f64
+            };
 
-                let metrics = ValidatorMetrics {
-                    attestation_hits,
-                    attestation_misses,
-                    attestation_hit_percentage,
-                    attestation_head_hits,
-                    attestation_head_misses,
-                    attestation_head_hit_percentage,
-                    attestation_target_hits,
-                    attestation_target_misses,
-                    attestation_target_hit_percentage,
-                    latest_attestation_inclusion_distance,
-                };
+            let metrics = ValidatorMetrics {
+                attestation_hits,
+                attestation_misses,
+                attestation_hit_percentage,
+                attestation_head_hits,
+                attestation_head_misses,
+                attestation_head_hit_percentage,
+                attestation_target_hits,
+                attestation_target_misses,
+                attestation_target_hit_percentage,
+                latest_attestation_inclusion_distance,
+            };
 
-                validators.insert(id.clone(), metrics);
-            }
+            validators.insert(id.clone(), metrics);
         }
     }
 

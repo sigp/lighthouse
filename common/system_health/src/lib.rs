@@ -1,4 +1,4 @@
-use lighthouse_network::{types::SyncState, NetworkGlobals};
+use lighthouse_network::{NetworkGlobals, types::SyncState};
 use network_utils::discovery_metrics;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};

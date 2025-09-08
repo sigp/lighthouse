@@ -33,7 +33,7 @@ lru_cache = { workspace = true }
 metrics = { workspace = true }
 network_utils = { workspace = true }
 parking_lot = { workspace = true }
-prometheus-client = "0.22.0"
+prometheus-client = "0.23.0"
 rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
@@ -45,7 +45,6 @@ strum = { workspace = true }
 superstruct = { workspace = true }
 task_executor = { workspace = true }
 tokio = { workspace = true }
-tokio-io-timeout = "1"
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -53,7 +52,7 @@ types = { workspace = true }
 unsigned-varint = { version = "0.8", features = ["codec"] }
 
 [dependencies.libp2p]
-version = "0.55"
+version = "0.56"
 default-features = false
 features = [
     "identify",

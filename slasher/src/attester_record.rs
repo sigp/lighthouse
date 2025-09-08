@@ -1,9 +1,9 @@
-use crate::{database::IndexedAttestationId, Error};
+use crate::{Error, database::IndexedAttestationId};
 use ssz_derive::{Decode, Encode};
 use std::borrow::Cow;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 use tree_hash::TreeHash as _;
 use tree_hash_derive::TreeHash;

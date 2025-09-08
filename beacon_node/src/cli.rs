@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
-use clap_utils::{get_color_style, FLAG_HEADER};
+use clap::{Arg, ArgAction, ArgGroup, Command, builder::ArgPredicate, crate_version};
+use clap_utils::{FLAG_HEADER, get_color_style};
 use strum::VariantNames;
 
 #[allow(clippy::large_stack_frames)]
@@ -75,15 +75,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
                 .help("Advertises a false CGC for testing PeerDAS. Do NOT use in production.")
-                .hide(true)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("enable-sampling")
-                .long("enable-sampling")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .help("Enable peer sampling on data columns. Disabled by default.")
                 .hide(true)
                 .display_order(0)
         )
@@ -245,7 +236,6 @@ pub fn cli_app() -> Command {
                 .long("network-load")
                 .value_name("INTEGER")
                 .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].")
-                .default_value("3")
                 .hide(true)
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -916,6 +906,14 @@ pub fn cli_app() -> Command {
                 .help("Unsigned integer to multiply the default execution timeouts by.")
                 .default_value("1")
                 .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-get-blobs")
+                .long("disable-get-blobs")
+                .help("Disables the getBlobs optimisation to fetch blobs from the EL mempool")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(

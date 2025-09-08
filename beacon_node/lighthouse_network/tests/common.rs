@@ -1,13 +1,13 @@
 #![cfg(test)]
-use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
 use lighthouse_network::Multiaddr;
+use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::{NetworkConfig, NetworkEvent};
 use network_utils::enr_ext::EnrExt;
 use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info_span, Instrument};
+use tracing::{Instrument, debug, error, info_span};
 use tracing_subscriber::EnvFilter;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
@@ -28,6 +28,7 @@ pub fn spec_with_all_forks_enabled() -> ChainSpec {
     chain_spec.deneb_fork_epoch = Some(Epoch::new(4));
     chain_spec.electra_fork_epoch = Some(Epoch::new(5));
     chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
+    chain_spec.gloas_fork_epoch = Some(Epoch::new(7));
 
     // check that we have all forks covered
     assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
@@ -44,6 +45,7 @@ pub fn fork_context(fork_name: ForkName, spec: &ChainSpec) -> ForkContext {
         ForkName::Deneb => spec.deneb_fork_epoch,
         ForkName::Electra => spec.electra_fork_epoch,
         ForkName::Fulu => spec.fulu_fork_epoch,
+        ForkName::Gloas => spec.gloas_fork_epoch,
     };
     let current_slot = current_epoch
         .unwrap_or_else(|| panic!("expect fork {fork_name} to be scheduled"))
@@ -72,12 +74,18 @@ impl std::ops::DerefMut for Libp2pInstance {
 }
 
 #[allow(unused)]
-pub fn build_tracing_subscriber(level: &str, enabled: bool) {
+pub fn build_tracing_subscriber(
+    level: &str,
+    enabled: bool,
+) -> Option<tracing::subscriber::DefaultGuard> {
     if enabled {
-        tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::try_new(level).unwrap())
-            .try_init()
-            .unwrap();
+        Some(tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::try_new(level).unwrap())
+                .finish(),
+        ))
+    } else {
+        None
     }
 }
 
