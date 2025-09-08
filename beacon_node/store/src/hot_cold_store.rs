@@ -271,7 +271,7 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
         config.verify::<E>()?;
 
         #[cfg(feature = "redb")]
-        let database_backend = DatabaseBackend::Redb;
+        let _database_backend = DatabaseBackend::Redb;
         #[cfg(feature = "leveldb")]
         let database_backend = DatabaseBackend::LevelDb;
 
@@ -474,9 +474,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
-    pub fn upgrade(&self) {
-        self.hot_db.upgrade();
-        self.cold_db.upgrade();
+    pub fn upgrade(&self) -> Result<(), Error> {
+        self.hot_db.upgrade()?;
+        self.cold_db.upgrade()?;
+        Ok(())
     }
 
     pub fn is_redb(&self) -> bool {

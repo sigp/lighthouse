@@ -66,6 +66,7 @@ pub enum Error {
     LevelDbError(LevelDBError),
     #[cfg(feature = "redb")]
     RedbError(Box<redb::Error>),
+    RedbUpgrade(redb::UpgradeError),
     CacheBuildError(EpochCacheError),
     RandaoMixOutOfBounds,
     MilhouseError(milhouse::Error),
@@ -232,6 +233,13 @@ impl From<redb::CommitError> for Error {
 impl From<redb::CompactionError> for Error {
     fn from(e: redb::CompactionError) -> Self {
         Error::RedbError(Box::new(e.into()))
+    }
+}
+
+#[cfg(feature = "redb")]
+impl From<redb::UpgradeError> for Error {
+    fn from(e: redb::UpgradeError) -> Self {
+        Error::RedbUpgrade(e)
     }
 }
 

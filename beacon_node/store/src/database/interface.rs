@@ -5,8 +5,8 @@ use crate::database::redb_impl;
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore, metrics};
 use crate::{KeyValueStoreOp, StoreConfig, config::DatabaseBackend};
 use std::collections::HashSet;
-use std::fmt::Debug;
 use std::path::Path;
+use tracing::info;
 use types::EthSpec;
 
 pub enum BeaconNodeBackend<E: EthSpec> {
@@ -172,21 +172,28 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
 
     // TODO(migration-v29) in the redb case, lets raise an info log
     // TODO(migration-v29) the level_db case should be a no-op
-    fn upgrade(&self) {
+    fn upgrade(&self) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(level_db) => todo!(),
+            BeaconNodeBackend::LevelDb(_) => {
+                info!("LevelDB upgrade: no migration needed");
+                Ok(())
+            }
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(redb) => redb.upgrade(),
+            BeaconNodeBackend::Redb(redb) => {
+                info!("Running Redb v29 migration");
+                redb.upgrade()?;
+                Ok(())
+            }
         }
     }
 
     fn is_redb(&self) -> bool {
         match self {
             #[cfg(feature = "leveldb")]
-            BeaconNodeBackend::LevelDb(level_db) => false,
+            BeaconNodeBackend::LevelDb(_level_db) => false,
             #[cfg(feature = "redb")]
-            BeaconNodeBackend::Redb(redb) => true,
+            BeaconNodeBackend::Redb(_redb) => true,
         }
     }
 

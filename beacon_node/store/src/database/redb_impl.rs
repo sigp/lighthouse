@@ -29,7 +29,7 @@ impl From<WriteOptions> for redb::Durability {
 impl<E: EthSpec> Redb<E> {
     pub fn open(path: &Path) -> Result<Self, Error> {
         let db_file = path.join(DB_FILE_NAME);
-        let mut db = redb::Database::create(db_file)?;
+        let db = redb::Database::create(db_file)?;
 
         for column in DBColumn::iter() {
             Redb::<E>::create_table(&db, column.into())?;
@@ -41,8 +41,9 @@ impl<E: EthSpec> Redb<E> {
         })
     }
 
-    pub fn upgrade(&self) {
-        self.db.write().upgrade();
+    pub fn upgrade(&self) -> Result<(), Error> {
+        self.db.write().upgrade()?;
+        Ok(())
     }
 
     fn create_table(db: &redb::Database, table_name: &str) -> Result<(), Error> {
