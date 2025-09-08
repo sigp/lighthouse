@@ -8,8 +8,8 @@ use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_tracing::SPAN_OUTGOING_CUSTODY_REQUEST;
 use parking_lot::RwLock;
-use rand::Rng;
 use std::collections::HashSet;
+use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
 use tracing::{Span, debug, debug_span, warn};
@@ -224,6 +224,9 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         let active_request_count_by_peer = cx.active_request_count_by_peer();
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
         let lookup_peers = self.lookup_peers.read();
+        // Create deterministic hasher per request to ensure consistent peer ordering within
+        // this request (avoiding fragmentation) while varying selection across different requests
+        let random_state = RandomState::new();
 
         for (column_index, request) in self.column_requests.iter() {
             if let Some(wait_duration) = request.is_awaiting_download() {
@@ -233,12 +236,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     return Err(Error::TooManyFailures);
                 }
 
-                let custodial_peers = cx.get_custodial_peers(*column_index);
-
-                let peer_to_request = self.select_request_peer(
+                let peer_to_request = self.select_column_peer(
+                    cx,
                     &active_request_count_by_peer,
                     &lookup_peers,
-                    custodial_peers,
+                    *column_index,
+                    &random_state,
                 );
 
                 if let Some(peer_id) = peer_to_request {
@@ -329,17 +332,18 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         Ok(None)
     }
 
-    /// We draw from the total set of peers, but prioritize those peers who we have
-    /// received an attestation / status / block message claiming to have imported the
-    /// lookup. The frequency of those messages is low, so drawing only from lookup_peers
-    /// could cause many lookups to take much longer or fail as they don't have enough
-    /// custody peers on a given column
-    fn select_request_peer(
+    fn select_column_peer(
         &self,
+        cx: &mut SyncNetworkContext<T>,
         active_request_count_by_peer: &HashMap<PeerId, usize>,
         lookup_peers: &HashSet<PeerId>,
-        custodial_peers: Vec<PeerId>,
+        column_index: ColumnIndex,
+        random_state: &RandomState,
     ) -> Option<PeerId> {
+        // We draw from the total set of peers, but prioritize those peers who we have
+        // received an attestation or a block from (`lookup_peers`), as the `lookup_peers` may take
+        // time to build up and we are likely to not find any column peers initially.
+        let custodial_peers = cx.get_custodial_peers(column_index);
         let mut prioritized_peers = custodial_peers
             .iter()
             .filter(|peer| {
@@ -354,8 +358,9 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     self.peer_attempts.get(peer).copied().unwrap_or(0),
                     // Prefer peers with fewer requests to load balance across peers.
                     active_request_count_by_peer.get(peer).copied().unwrap_or(0),
-                    // Random factor to break ties, otherwise the PeerID breaks ties
-                    rand::rng().random::<u32>(),
+                    // The hash ensures consistent peer ordering within this request
+                    // to avoid fragmentation while varying selection across different requests.
+                    random_state.hash_one(peer),
                     *peer,
                 )
             })
