@@ -225,9 +225,9 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         // Check if the data column is already in the DA checker cache. This happens when data columns
         // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
         // it has already passed the gossip checks, even though this particular instance hasn't been
-        // seen / published on the gossip network yet (passed the `verify_is_first_sidecar` check above).
+        // seen / published on the gossip network yet (passed the `verify_is_unknown_sidecar` check above).
         // In this case, we should accept it for gossip propagation.
-        verify_is_first_sidecar(chain, &column_sidecar)?;
+        verify_is_unknown_sidecar(chain, &column_sidecar)?;
 
         if chain
             .data_availability_checker
@@ -479,12 +479,12 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
-    verify_is_first_sidecar(chain, &data_column)?;
+    verify_is_unknown_sidecar(chain, &data_column)?;
 
     // Check if the data column is already in the DA checker cache. This happens when data columns
     // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
     // it has already passed the gossip checks, even though this particular instance hasn't been
-    // seen / published on the gossip network yet (passed the `verify_is_first_sidecar` check above).
+    // seen / published on the gossip network yet (passed the `verify_is_unknown_sidecar` check above).
     // In this case, we should accept it for gossip propagation.
     if chain
         .data_availability_checker
@@ -560,7 +560,7 @@ fn verify_data_column_sidecar<E: EthSpec>(
 
 // Verify that this is the first column sidecar received for the tuple:
 // (block_header.slot, block_header.proposer_index, column_sidecar.index)
-fn verify_is_first_sidecar<T: BeaconChainTypes>(
+fn verify_is_unknown_sidecar<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     data_column: &DataColumnSidecar<T::EthSpec>,
 ) -> Result<(), GossipDataColumnError> {
