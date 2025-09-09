@@ -347,7 +347,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         let mut prioritized_peers = custodial_peers
             .iter()
             .filter(|peer| {
-                // Exclude peers that we have already made too many attempts to without success.
+                // Exclude peers that we have already made too many attempts to.
                 self.peer_attempts.get(peer).copied().unwrap_or(0) <= MAX_CUSTODY_PEER_ATTEMPTS
             })
             .map(|peer| {
