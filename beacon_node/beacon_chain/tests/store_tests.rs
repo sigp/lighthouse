@@ -4,6 +4,7 @@ use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::data_availability_checker::AvailableBlock;
+use beacon_chain::events::SyncServiceMessage;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::SyncCommitteeStrategy;
@@ -37,11 +38,10 @@ use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
 };
 use tempfile::{TempDir, tempdir};
+use tokio::sync::mpsc;
 use tracing::info;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
-use beacon_chain::events::SyncServiceMessage;
-use tokio::sync::mpsc;
 
 // Should ideally be divisible by 3.
 pub const LOW_VALIDATOR_COUNT: usize = 24;
