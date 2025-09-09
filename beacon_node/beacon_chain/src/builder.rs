@@ -1261,6 +1261,8 @@ mod test {
 
         let kzg = get_kzg(&spec);
 
+        let (sync_service_send, _) = mpsc::unbounded_channel::<SyncServiceMessage>();
+
         let chain = Builder::new(MinimalEthSpec, kzg)
             .store(Arc::new(store))
             .task_executor(runtime.task_executor.clone())
@@ -1269,6 +1271,7 @@ mod test {
             .testing_slot_clock(Duration::from_secs(1))
             .expect("should configure testing slot clock")
             .shutdown_sender(shutdown_tx)
+            .sync_service_send(Some(sync_service_send))
             .rng(Box::new(StdRng::seed_from_u64(42)))
             .build()
             .expect("should build");
