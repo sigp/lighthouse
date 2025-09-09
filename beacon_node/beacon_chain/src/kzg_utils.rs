@@ -365,14 +365,18 @@ pub fn reconstruct_blobs<E: EthSpec>(
 /// Reconstruct all data columns from a subset of data column sidecars (requires at least 50%).
 pub fn reconstruct_data_columns<E: EthSpec>(
     kzg: &Kzg,
-    data_columns: &[Arc<DataColumnSidecar<E>>],
+    mut data_columns: Vec<Arc<DataColumnSidecar<E>>>,
     spec: &ChainSpec,
 ) -> Result<DataColumnSidecarList<E>, KzgError> {
+    // Sort data columns by index to ensure ascending order for KZG operations
+    data_columns.sort_unstable_by_key(|dc| dc.index);
+
     let first_data_column = data_columns
         .first()
         .ok_or(KzgError::InconsistentArrayLength(
             "data_columns should have at least one element".to_string(),
         ))?;
+
     let num_of_blobs = first_data_column.kzg_commitments.len();
 
     let blob_cells_and_proofs_vec =
@@ -381,7 +385,7 @@ pub fn reconstruct_data_columns<E: EthSpec>(
             .map(|row_index| {
                 let mut cells: Vec<KzgCellRef> = vec![];
                 let mut cell_ids: Vec<u64> = vec![];
-                for data_column in data_columns {
+                for data_column in &data_columns {
                     let cell = data_column.column.get(row_index).ok_or(
                         KzgError::InconsistentArrayLength(format!(
                             "Missing data column at row index {row_index}"
@@ -433,6 +437,7 @@ mod test {
         test_build_data_columns_empty(&kzg, &spec);
         test_build_data_columns(&kzg, &spec);
         test_reconstruct_data_columns(&kzg, &spec);
+        test_reconstruct_data_columns_unordered(&kzg, &spec);
         test_reconstruct_blobs_from_data_columns(&kzg, &spec);
         test_validate_data_columns(&kzg, &spec);
     }
@@ -505,7 +510,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
         let blob_refs = blobs.iter().collect::<Vec<_>>();
@@ -516,10 +521,31 @@ mod test {
         // Now reconstruct
         let reconstructed_columns = reconstruct_data_columns(
             kzg,
-            &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
+            column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2].to_vec(),
             spec,
         )
         .unwrap();
+
+        for i in 0..E::number_of_columns() {
+            assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
+        }
+    }
+
+    #[track_caller]
+    fn test_reconstruct_data_columns_unordered(kzg: &Kzg, spec: &ChainSpec) {
+        let num_of_blobs = 2;
+        let (signed_block, blobs, proofs) =
+            create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
+        let blob_refs = blobs.iter().collect::<Vec<_>>();
+        let column_sidecars =
+            blobs_to_data_column_sidecars(&blob_refs, proofs.to_vec(), &signed_block, kzg, spec)
+                .unwrap();
+
+        // Test reconstruction with columns in reverse order (non-ascending)
+        let mut subset_columns: Vec<_> =
+            column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2].to_vec();
+        subset_columns.reverse(); // This would fail without proper sorting in reconstruct_data_columns
+        let reconstructed_columns = reconstruct_data_columns(kzg, subset_columns, spec).unwrap();
 
         for i in 0..E::number_of_columns() {
             assert_eq!(reconstructed_columns.get(i), column_sidecars.get(i), "{i}");
