@@ -992,25 +992,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_prune_blobs(data_availability_boundary);
         }
 
-        if let Some(earliest_data_column_slot) = self
-            .store
-            .get_data_column_custody_info()
-            .ok()
-            .flatten()
-            .and_then(|info| info.earliest_data_column_slot)
-        {
-            let earliest_data_column_epoch =
-                earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
-            let column_da_boundary = self.get_column_da_boundary().unwrap_or(Epoch::new(0));
-            let finalized_epoch = new_view.finalized_checkpoint.epoch;
-
-            // If our earliest available data column epoch is after the da boundary but equal to or earlier than the most recent finalized epoch
-            // send a message to custody sync that we've finalized and can begin syncing.
-            if earliest_data_column_epoch > column_da_boundary
-                && earliest_data_column_epoch <= finalized_epoch
-            {}
-        }
-
         if self.should_trigger_custody_backfill_sync(new_view.finalized_checkpoint.epoch) {
             if let Err(e) = self
                 .sync_service_send
