@@ -98,10 +98,10 @@ impl TestRig {
     }
 
     pub async fn new_supernode(chain_length: u64) -> Self {
-         // This allows for testing voluntary exits without building out a massive chain.
-         let mut spec = test_spec::<E>();
-         spec.shard_committee_period = 2;
-         Self::new_parametric(chain_length, BeaconProcessorConfig::default(), true, spec).await
+        // This allows for testing voluntary exits without building out a massive chain.
+        let mut spec = test_spec::<E>();
+        spec.shard_committee_period = 2;
+        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), true, spec).await
     }
 
     pub async fn new_parametric(
@@ -821,11 +821,10 @@ fn junk_message_id() -> MessageId {
 // at the beginning of the slot.
 #[tokio::test]
 async fn data_column_reconstruction_at_slot_start() {
-
     if test_spec::<E>().fulu_fork_epoch.is_none() {
         return;
     };
-    
+
     let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
 
     let slot_start = rig
@@ -873,7 +872,6 @@ async fn data_column_reconstruction_at_slot_start() {
 // reconstruction deadline.
 #[tokio::test]
 async fn data_column_reconstruction_at_deadline() {
-
     if test_spec::<E>().fulu_fork_epoch.is_none() {
         return;
     };
@@ -921,7 +919,6 @@ async fn data_column_reconstruction_at_deadline() {
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.
 #[tokio::test]
 async fn data_column_reconstruction_at_next_slot() {
-
     if test_spec::<E>().fulu_fork_epoch.is_none() {
         return;
     };
@@ -1597,8 +1594,13 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         enable_backfill_rate_limiting: false,
         ..Default::default()
     };
-    let mut rig =
-        TestRig::new_parametric(SMALL_CHAIN, beacon_processor_config, false, test_spec::<E>()).await;
+    let mut rig = TestRig::new_parametric(
+        SMALL_CHAIN,
+        beacon_processor_config,
+        false,
+        test_spec::<E>(),
+    )
+    .await;
 
     for _ in 0..3 {
         rig.enqueue_backfill_batch();
