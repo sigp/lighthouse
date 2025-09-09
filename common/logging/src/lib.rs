@@ -1,5 +1,3 @@
-use metrics::{IntCounter, Result as MetricsResult, try_create_int_counter};
-use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use tracing_subscriber::EnvFilter;
 
