@@ -8905,14 +8905,14 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.12.0"
-source = "git+https://github.com/sigp/ssz_types?rev=c557336ae9b806ab00baa7e5c4ce446f3e205f2d#c557336ae9b806ab00baa7e5c4ce446f3e205f2d"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75b55bedc9a18ed2860a46d6beb4f4082416ee1d60be0cc364cebdcdddc7afd4"
 dependencies = [
  "arbitrary",
- "derivative",
  "ethereum_serde_utils",
  "ethereum_ssz",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "serde",
  "serde_derive",
  "smallvec",
