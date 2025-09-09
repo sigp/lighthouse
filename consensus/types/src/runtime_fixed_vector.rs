@@ -2,14 +2,19 @@
 //!
 //! The length of the list cannot be changed once it is set.
 
-use derivative::Derivative;
+use std::fmt;
+use std::fmt::Debug;
 
-#[derive(Clone, Derivative)]
-#[derivative(Debug = "transparent")]
+#[derive(Clone)]
 pub struct RuntimeFixedVector<T> {
     vec: Vec<T>,
-    #[derivative(Debug = "ignore")]
     len: usize,
+}
+
+impl<T: Debug> Debug for RuntimeFixedVector<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} (len={})", self.vec, self.len)
+    }
 }
 
 impl<T: Clone + Default> RuntimeFixedVector<T> {
