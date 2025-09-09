@@ -17,7 +17,7 @@ OFFLINE_DURATION_SECS=${4:-120} # stopped duration  of non validating nodes
 # Reduce the polling time so that some progress can be seen
 POLL_INTERVAL_SECS=0.5
 # Timeout for this test, if the nodes fail to sync, fail the test.
-TIMEOUT_MINS=6
+TIMEOUT_MINS=5
 TIMEOUT_SECS=$((TIMEOUT_MINS * 60))
 # ------------------------------------------------------
 
