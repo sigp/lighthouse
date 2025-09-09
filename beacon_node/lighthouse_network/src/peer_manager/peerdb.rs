@@ -300,6 +300,7 @@ impl<E: EthSpec> PeerDB<E> {
             .filter(move |(_, info)| {
                 // We check both the metadata and gossipsub data as we only want to count long-lived subscribed peers
                 info.is_connected()
+                    && info.is_synced_or_advanced()
                     && info.on_subnet_metadata(&subnet)
                     && info.on_subnet_gossipsub(&subnet)
                     && info.is_good_gossipsub_peer()
@@ -318,40 +319,69 @@ impl<E: EthSpec> PeerDB<E> {
             .filter(move |(_, info)| {
                 // The custody_subnets hashset can be populated via enr or metadata
                 let is_custody_subnet_peer = info.is_assigned_to_custody_subnet(&subnet);
-                info.is_connected() && info.is_good_gossipsub_peer() && is_custody_subnet_peer
+                info.is_connected()
+                    && info.is_good_gossipsub_peer()
+                    && is_custody_subnet_peer
+                    && info.is_synced_or_advanced()
             })
             .map(|(peer_id, _)| peer_id)
     }
 
-    /// Returns an iterator of all peers that are supposed to be custodying
-    /// the given subnet id.
-    pub fn good_range_sync_custody_subnet_peers(
+    /// Checks if there is at least one good peer for each specified custody subnet for the given epoch.
+    /// A "good" peer is one that is both connected and synced (or advanced) for the specified epoch.
+    pub fn has_good_custody_range_sync_peer(
         &self,
-        subnet: DataColumnSubnetId,
-    ) -> impl Iterator<Item = &PeerId> {
-        self.peers
-            .iter()
-            .filter(move |(_, info)| {
-                // The custody_subnets hashset can be populated via enr or metadata
-                info.is_connected() && info.is_assigned_to_custody_subnet(&subnet)
-            })
-            .map(|(peer_id, _)| peer_id)
-    }
-
-    /// Returns `true` if the given peer is assigned to the given subnet.
-    /// else returns `false`
-    ///
-    /// Returns `false` if peer doesn't exist in peerdb.
-    pub fn is_good_range_sync_custody_subnet_peer(
-        &self,
-        subnet: DataColumnSubnetId,
-        peer: &PeerId,
+        subnets: &HashSet<DataColumnSubnetId>,
+        epoch: Epoch,
     ) -> bool {
-        if let Some(info) = self.peers.get(peer) {
-            info.is_connected() && info.is_assigned_to_custody_subnet(&subnet)
-        } else {
-            false
+        let mut remaining_subnets = subnets.clone();
+
+        let good_sync_peers_for_epoch = self.peers.values().filter(|&info| {
+            info.is_connected()
+                && match info.sync_status() {
+                    SyncStatus::Synced { info } | SyncStatus::Advanced { info } => {
+                        info.has_slot(epoch.end_slot(E::slots_per_epoch()))
+                    }
+                    SyncStatus::IrrelevantPeer
+                    | SyncStatus::Behind { .. }
+                    | SyncStatus::Unknown => false,
+                }
+        });
+
+        for info in good_sync_peers_for_epoch {
+            for subnet in info.custody_subnets_iter() {
+                if remaining_subnets.remove(subnet) && remaining_subnets.is_empty() {
+                    return true;
+                }
+            }
         }
+
+        false
+    }
+
+    /// Checks if there are sufficient good peers for a single custody subnet.
+    /// A "good" peer is one that is both connected and synced (or advanced).
+    pub fn has_good_peers_in_custody_subnet(
+        &self,
+        subnet: &DataColumnSubnetId,
+        target_peers: usize,
+    ) -> bool {
+        let mut peer_count = 0usize;
+        for info in self
+            .peers
+            .values()
+            .filter(|info| info.is_connected() && info.is_synced_or_advanced())
+        {
+            if info.is_assigned_to_custody_subnet(subnet) {
+                peer_count += 1;
+            }
+
+            if peer_count >= target_peers {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Gives the ids of all known disconnected peers.

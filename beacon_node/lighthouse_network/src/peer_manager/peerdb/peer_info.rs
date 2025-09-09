@@ -174,19 +174,6 @@ impl<E: EthSpec> PeerInfo<E> {
         self.subnets.iter()
     }
 
-    /// Returns the number of long lived subnets a peer is subscribed to.
-    // NOTE: This currently excludes sync committee subnets
-    pub fn long_lived_subnet_count(&self) -> usize {
-        if let Some(meta_data) = self.meta_data.as_ref() {
-            return meta_data.attnets().num_set_bits();
-        } else if let Some(enr) = self.enr.as_ref()
-            && let Ok(attnets) = enr.attestation_bitfield::<E>()
-        {
-            return attnets.num_set_bits();
-        }
-        0
-    }
-
     /// Returns an iterator over the long-lived subnets if it has any.
     pub fn long_lived_subnets(&self) -> Vec<Subnet> {
         let mut long_lived_subnets = Vec::new();
@@ -222,6 +209,13 @@ impl<E: EthSpec> PeerInfo<E> {
                 }
             }
         }
+
+        long_lived_subnets.extend(
+            self.custody_subnets
+                .iter()
+                .map(|&id| Subnet::DataColumn(id)),
+        );
+
         long_lived_subnets
     }
 
@@ -238,6 +232,11 @@ impl<E: EthSpec> PeerInfo<E> {
     /// Returns an iterator on this peer's custody subnets
     pub fn custody_subnets_iter(&self) -> impl Iterator<Item = &DataColumnSubnetId> {
         self.custody_subnets.iter()
+    }
+
+    /// Returns the number of custody subnets this peer is assigned to.
+    pub fn custody_subnet_count(&self) -> usize {
+        self.custody_subnets.len()
     }
 
     /// Returns true if the peer is connected to a long-lived subnet.
@@ -262,6 +261,17 @@ impl<E: EthSpec> PeerInfo<E> {
         {
             return true;
         }
+
+        // Check if the peer has custody subnets populated and the peer is subscribed to any of
+        // its custody subnets
+        let subscribed_to_any_custody_subnets = self
+            .custody_subnets
+            .iter()
+            .any(|subnet_id| self.subnets.contains(&Subnet::DataColumn(*subnet_id)));
+        if subscribed_to_any_custody_subnets {
+            return true;
+        }
+
         false
     }
 
@@ -315,6 +325,14 @@ impl<E: EthSpec> PeerInfo<E> {
         matches!(
             self.connection_status,
             PeerConnectionStatus::Connected { .. }
+        )
+    }
+
+    /// Checks if the peer is synced or advanced.
+    pub fn is_synced_or_advanced(&self) -> bool {
+        matches!(
+            self.sync_status,
+            SyncStatus::Synced { .. } | SyncStatus::Advanced { .. }
         )
     }
 
@@ -643,5 +661,52 @@ impl From<PeerConnectionStatus> for PeerState {
             Disconnecting { .. } => PeerState::Disconnecting,
             Disconnected { .. } | Banned { .. } | Unknown => PeerState::Disconnected,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Subnet;
+    use types::{DataColumnSubnetId, MainnetEthSpec};
+
+    type E = MainnetEthSpec;
+
+    fn create_test_peer_info() -> PeerInfo<E> {
+        PeerInfo::default()
+    }
+
+    #[test]
+    fn test_has_long_lived_subnet_empty_custody_subnets() {
+        let peer_info = create_test_peer_info();
+        // peer has no custody subnets or subscribed to any subnets hence return false
+        assert!(!peer_info.has_long_lived_subnet());
+    }
+
+    #[test]
+    fn test_has_long_lived_subnet_empty_subnets_with_custody_subnets() {
+        let mut peer_info = create_test_peer_info();
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(1));
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(2));
+        // Peer has custody subnets but isn't subscribed to any hence return false
+        assert!(!peer_info.has_long_lived_subnet());
+    }
+
+    #[test]
+    fn test_has_long_lived_subnet_subscribed_to_custody_subnets() {
+        let mut peer_info = create_test_peer_info();
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(1));
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(2));
+        peer_info.custody_subnets.insert(DataColumnSubnetId::new(3));
+
+        peer_info
+            .subnets
+            .insert(Subnet::DataColumn(DataColumnSubnetId::new(1)));
+        peer_info
+            .subnets
+            .insert(Subnet::DataColumn(DataColumnSubnetId::new(2)));
+        // Missing DataColumnSubnetId::new(3) - but peer is subscribed to some custody subnets
+        // Peer is subscribed to any custody subnets - return true
+        assert!(peer_info.has_long_lived_subnet());
     }
 }
