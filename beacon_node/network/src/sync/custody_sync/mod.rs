@@ -123,6 +123,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         self.set_state(CustodyBackFillState::AwaitingFinalization);
         self.set_start_epoch()?;
         self.columns = column_indices;
+        info!(requested_epoch=?self.current_start, "Custody sync will begin as soon as the requested epoch finalizes");
         Ok(())
     }
 
@@ -190,6 +191,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<SyncStart, CustodyBackfillError> {
+        info!(backfill_state = ?self.state(), "custody backfill satat");
         match self.state() {
             CustodyBackFillState::Syncing => {
                 if self.check_completed() {
@@ -431,6 +433,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<ProcessResult, CustodyBackfillError> {
+        info!(?batch_id, "Processing batch");
         if self.state() != CustodyBackFillState::Syncing || self.current_processing_batch.is_some()
         {
             return Ok(ProcessResult::Successful);
@@ -1095,7 +1098,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     }
 
     /// Updates the global network state indicating the current state of a backfill sync.
-    fn set_state(&self, state: CustodyBackFillState) {
+    pub fn set_state(&self, state: CustodyBackFillState) {
         *self.network_globals.custody_sync_state.write() = state;
     }
 
@@ -1111,7 +1114,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     pub fn set_status_to_pending(&mut self) -> Result<(), CustodyBackfillError> {
         self.set_start_epoch()?;
         self.set_state(CustodyBackFillState::Pending);
-
         Ok(())
     }
 

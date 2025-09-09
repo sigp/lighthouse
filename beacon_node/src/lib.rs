@@ -122,6 +122,11 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             builder
         };
 
+        let (sync_service_send, sync_service_recv) =
+            mpsc::unbounded_channel::<SyncServiceMessage>();
+
+        let builder = builder.sync_service_send(sync_service_send);
+
         let builder = builder
             .beacon_chain_builder(client_genesis, client_config.clone())
             .await?;
@@ -133,11 +138,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let discv5_executor = Discv5Executor(executor);
         client_config.network.discv5_config.executor = Some(Box::new(discv5_executor));
 
-        let (sync_service_send, sync_service_recv) =
-            mpsc::unbounded_channel::<SyncServiceMessage>();
-
         builder
-            .sync_service_send(sync_service_send)
             .build_beacon_chain()?
             .network(Arc::new(client_config.network), sync_service_recv)
             .await?

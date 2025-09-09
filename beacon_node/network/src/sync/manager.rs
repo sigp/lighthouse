@@ -62,7 +62,7 @@ use lighthouse_network::service::api_types::{
     CustodySyncByRangeRequestId, DataColumnsByRangeRequestId, DataColumnsByRootRequestId,
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
-use lighthouse_network::types::{NetworkGlobals, SyncState};
+use lighthouse_network::types::{CustodyBackFillState, NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
@@ -997,6 +997,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                     return;
                 }
+                // TODO(custody-sync) we shouldnt need this hack, fix it
+                // We need to set the state to Paused before calling start();
+                self.custody_sync.set_state(CustodyBackFillState::Paused);
                 match self.custody_sync.start(&mut self.network) {
                     Ok(SyncStart::Syncing {
                         completed,
