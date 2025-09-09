@@ -558,22 +558,22 @@ fn verify_data_column_sidecar<E: EthSpec>(
     Ok(())
 }
 
-// Verify that this is the first column sidecar received for the tuple:
-// (block_header.slot, block_header.proposer_index, column_sidecar.index)
+/// Verify that `column_sidecar` is not yet known, i.e. this is the first time `column_sidecar` has been received for the tuple:
+/// `(block_header.slot, block_header.proposer_index, column_sidecar.index)`
 fn verify_is_unknown_sidecar<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    data_column: &DataColumnSidecar<T::EthSpec>,
+    column_sidecar: &DataColumnSidecar<T::EthSpec>,
 ) -> Result<(), GossipDataColumnError> {
     if chain
         .observed_column_sidecars
         .read()
-        .proposer_is_known(data_column)
+        .proposer_is_known(column_sidecar)
         .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipDataColumnError::PriorKnown {
-            proposer: data_column.block_proposer_index(),
-            slot: data_column.slot(),
-            index: data_column.index,
+            proposer: column_sidecar.block_proposer_index(),
+            slot: column_sidecar.slot(),
+            index: column_sidecar.index,
         });
     }
     Ok(())
