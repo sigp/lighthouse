@@ -992,17 +992,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_prune_blobs(data_availability_boundary);
         }
 
-        if self.should_trigger_custody_backfill_sync(new_view.finalized_checkpoint.epoch) {
-            if let Err(e) = self
+        if self.should_trigger_custody_backfill_sync(new_view.finalized_checkpoint.epoch)
+            && let Err(e) = self
                 .sync_service_send
                 .send(SyncServiceMessage::EarliestCustodyEpochFinalized)
-            {
-                error!(
-                    finalized_epoch=?new_view.finalized_checkpoint.epoch,
-                    error=?e,
-                    "Unable to trigger custody backfill sync at finalized epoch"
-                );
-            }
+        {
+            error!(
+                finalized_epoch=?new_view.finalized_checkpoint.epoch,
+                error=?e,
+                "Unable to trigger custody backfill sync at finalized epoch"
+            );
         }
 
         // Take a write-lock on the canonical head and signal for it to prune.

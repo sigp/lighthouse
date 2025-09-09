@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))]
 #![cfg(test)]
 use crate::persisted_dht::load_dht;
+use crate::service::SyncServiceMessage;
 use crate::{NetworkConfig, NetworkService};
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::test_utils::BeaconChainHarness;
@@ -11,6 +12,7 @@ use lighthouse_network::{Enr, GossipTopic};
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
+use tokio::sync::mpsc;
 use types::{Epoch, EthSpec, MinimalEthSpec, SubnetId};
 
 impl<T: BeaconChainTypes> NetworkService<T> {
@@ -38,6 +40,7 @@ fn test_dht_persistence() {
 
     let (signal, exit) = async_channel::bounded(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+    let (_, sync_service_recv) = mpsc::unbounded_channel::<SyncServiceMessage>();
     let executor = task_executor::TaskExecutor::new(
         Arc::downgrade(&runtime),
         exit,
@@ -66,6 +69,7 @@ fn test_dht_persistence() {
             executor,
             None,
             beacon_processor_tx,
+            sync_service_recv,
         )
         .await
         .unwrap();
@@ -126,6 +130,8 @@ fn test_removing_topic_weight_on_old_topics() {
         config.upnp_enabled = false;
         let config = Arc::new(config);
 
+        let (_, sync_service_recv) = mpsc::unbounded_channel::<SyncServiceMessage>();
+
         let beacon_processor_channels =
             BeaconProcessorChannels::new(&BeaconProcessorConfig::default());
         NetworkService::build(
@@ -134,6 +140,7 @@ fn test_removing_topic_weight_on_old_topics() {
             executor.clone(),
             None,
             beacon_processor_channels.beacon_processor_tx,
+            sync_service_recv,
         )
         .await
         .unwrap()

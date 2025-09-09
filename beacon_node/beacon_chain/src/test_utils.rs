@@ -1,6 +1,7 @@
 use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
 use crate::data_column_verification::CustodyDataColumn;
+use crate::events::SyncServiceMessage;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
 pub use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -57,6 +58,7 @@ use store::database::interface::BeaconNodeBackend;
 use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
+use tokio::sync::mpsc;
 use tree_hash::TreeHash;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
@@ -552,6 +554,8 @@ where
 
         let validator_monitor_config = self.validator_monitor_config.unwrap_or_default();
 
+        let (sync_service_send, _) = mpsc::unbounded_channel::<SyncServiceMessage>();
+
         let chain_config = self.chain_config.unwrap_or_default();
         let mut builder = BeaconChainBuilder::new(self.eth_spec_instance, kzg.clone())
             .custom_spec(spec.clone())
@@ -567,6 +571,7 @@ where
             .chain_config(chain_config)
             .import_all_data_columns(self.import_all_data_columns)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
+            .sync_service_send(Some(sync_service_send))
             .validator_monitor_config(validator_monitor_config)
             .rng(Box::new(StdRng::seed_from_u64(42)));
 
