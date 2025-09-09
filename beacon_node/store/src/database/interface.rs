@@ -170,18 +170,16 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
         }
     }
 
-    // TODO(migration-v29) in the redb case, lets raise an info log
-    // TODO(migration-v29) the level_db case should be a no-op
     fn upgrade(&self) -> Result<(), Error> {
         match self {
             #[cfg(feature = "leveldb")]
             BeaconNodeBackend::LevelDb(_) => {
-                info!("LevelDB upgrade: no migration needed");
+                info!("LevelDB, no upgrade required");
                 Ok(())
             }
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(redb) => {
-                info!("Running Redb v29 migration");
+                info!("Updating Redb file format to v3");
                 redb.upgrade()?;
                 Ok(())
             }

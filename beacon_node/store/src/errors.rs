@@ -66,6 +66,7 @@ pub enum Error {
     LevelDbError(LevelDBError),
     #[cfg(feature = "redb")]
     RedbError(Box<redb::Error>),
+    #[cfg(feature = "redb")]
     RedbUpgrade(redb::UpgradeError),
     CacheBuildError(EpochCacheError),
     RandaoMixOutOfBounds,
