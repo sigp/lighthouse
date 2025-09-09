@@ -221,7 +221,7 @@ jobs:
     strategy:
       matrix:
         fork: [electra, fulu]
-        offline_secs: [120, 500]
+        offline_secs: [120, 300]
     steps:
       - uses: actions/checkout@v5
 
