@@ -17,6 +17,8 @@ pub const SPAN_PROCESS_GOSSIP_BLOCK: &str = "process_gossip_block";
 /// Sync methods root spans
 pub const SPAN_SYNCING_CHAIN: &str = "syncing_chain";
 pub const SPAN_OUTGOING_RANGE_REQUEST: &str = "outgoing_range_request";
+pub const SPAN_SINGLE_BLOCK_LOOKUP: &str = "single_block_lookup";
+pub const SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST: &str = "outgoing_block_by_root_request";
 pub const SPAN_OUTGOING_CUSTODY_REQUEST: &str = "outgoing_custody_request";
 pub const SPAN_PROCESS_RPC_BLOCK: &str = "process_rpc_block";
 pub const SPAN_PROCESS_RPC_BLOBS: &str = "process_rpc_blobs";
@@ -46,7 +48,7 @@ pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
     SPAN_PROCESS_GOSSIP_BLOB,
     SPAN_PROCESS_GOSSIP_BLOCK,
     SPAN_OUTGOING_RANGE_REQUEST,
-    SPAN_OUTGOING_CUSTODY_REQUEST,
+    SPAN_SINGLE_BLOCK_LOOKUP,
     SPAN_PROCESS_RPC_BLOCK,
     SPAN_PROCESS_RPC_BLOBS,
     SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
