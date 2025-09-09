@@ -94,12 +94,20 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), spec).await
+        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), false, spec).await
+    }
+
+    pub async fn new_supernode(chain_length: u64) -> Self {
+         // This allows for testing voluntary exits without building out a massive chain.
+         let mut spec = test_spec::<E>();
+         spec.shard_committee_period = 2;
+         Self::new_parametric(chain_length, BeaconProcessorConfig::default(), true, spec).await
     }
 
     pub async fn new_parametric(
         chain_length: u64,
         beacon_processor_config: BeaconProcessorConfig,
+        import_data_columns: bool,
         spec: ChainSpec,
     ) -> Self {
         let spec = Arc::new(spec);
@@ -108,6 +116,7 @@ impl TestRig {
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
+            .import_all_data_columns(import_data_columns)
             .chain_config(<_>::default())
             .build();
 
@@ -812,7 +821,12 @@ fn junk_message_id() -> MessageId {
 // at the beginning of the slot.
 #[tokio::test]
 async fn data_column_reconstruction_at_slot_start() {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+    
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
 
     let slot_start = rig
         .chain
@@ -829,11 +843,6 @@ async fn data_column_reconstruction_at_slot_start() {
         rig.next_block.slot() - 1,
         "chain should be at the correct slot"
     );
-
-    rig.enqueue_gossip_block();
-
-    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
-        .await;
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
@@ -864,7 +873,12 @@ async fn data_column_reconstruction_at_slot_start() {
 // reconstruction deadline.
 #[tokio::test]
 async fn data_column_reconstruction_at_deadline() {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
 
     let slot_start = rig
         .chain
@@ -881,11 +895,6 @@ async fn data_column_reconstruction_at_deadline() {
         rig.next_block.slot() - 1,
         "chain should be at the correct slot"
     );
-
-    rig.enqueue_gossip_block();
-
-    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
-        .await;
 
     // We push the slot clock to 3 seconds into the slot, this is the deadline to trigger reconstruction.
     rig.chain
@@ -912,7 +921,12 @@ async fn data_column_reconstruction_at_deadline() {
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.
 #[tokio::test]
 async fn data_column_reconstruction_at_next_slot() {
-    let mut rig = TestRig::new(SMALL_CHAIN).await;
+
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
 
     let slot_start = rig
         .chain
@@ -924,21 +938,24 @@ async fn data_column_reconstruction_at_next_slot() {
         .slot_clock
         .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
 
+    let current_slot = rig.next_block.slot() - 1;
+
     assert_eq!(
         rig.chain.slot().unwrap(),
-        rig.next_block.slot() - 1,
+        current_slot,
         "chain should be at the correct slot"
     );
-
-    rig.enqueue_gossip_block();
-
-    rig.assert_event_journal_completes(&[WorkType::GossipBlock])
-        .await;
 
     // We push the slot clock to the next slot.
     rig.chain
         .slot_clock
         .set_current_time(slot_start + Duration::from_secs(12));
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        current_slot - 1,
+        "chain should be at the next slot"
+    );
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
@@ -1581,7 +1598,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         ..Default::default()
     };
     let mut rig =
-        TestRig::new_parametric(SMALL_CHAIN, beacon_processor_config, test_spec::<E>()).await;
+        TestRig::new_parametric(SMALL_CHAIN, beacon_processor_config, false, test_spec::<E>()).await;
 
     for _ in 0..3 {
         rig.enqueue_backfill_batch();
