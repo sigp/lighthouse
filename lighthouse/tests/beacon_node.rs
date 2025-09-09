@@ -21,7 +21,6 @@ use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
-use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
@@ -31,6 +30,12 @@ const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
 const DUMMY_ENR_TCP_PORT: u16 = 7777;
 const DUMMY_ENR_UDP_PORT: u16 = 8888;
 const DUMMY_ENR_QUIC_PORT: u16 = 9999;
+
+// Fixed test ports for config-only assertions (no actual bind occurs in these tests).
+const TEST_TCP4_PORT: u16 = 39001;
+const TEST_TCP6_PORT: u16 = 39011;
+const TEST_UDP4_PORT: u16 = 39002;
+const TEST_UDP6_PORT: u16 = 39012;
 
 const _: () =
     assert!(DUMMY_ENR_QUIC_PORT != 0 && DUMMY_ENR_TCP_PORT != 0 && DUMMY_ENR_UDP_PORT != 0);
@@ -1039,8 +1044,8 @@ fn network_port_flag_over_ipv4_and_ipv6() {
             );
         });
 
-    let port = unused_tcp4_port().expect("Unable to find unused port.");
-    let port6 = unused_tcp6_port().expect("Unable to find unused port.");
+    let port = TEST_TCP4_PORT;
+    let port6 = TEST_TCP6_PORT;
     CommandLineTest::new()
         .flag("listen-address", Some("127.0.0.1"))
         .flag("listen-address", Some("::1"))
@@ -1422,8 +1427,8 @@ fn enr_match_flag_over_ipv6() {
     const ADDR: &str = "::1";
     let addr = ADDR.parse::<Ipv6Addr>().unwrap();
 
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+    let udp6_port = TEST_UDP6_PORT;
+    let tcp6_port = TEST_TCP6_PORT;
 
     CommandLineTest::new()
         .flag("enr-match", None)
@@ -1452,13 +1457,13 @@ fn enr_match_flag_over_ipv6() {
 fn enr_match_flag_over_ipv4_and_ipv6() {
     const IPV6_ADDR: &str = "::1";
 
-    let udp6_port = unused_udp6_port().expect("Unable to find unused port.");
-    let tcp6_port = unused_tcp6_port().expect("Unable to find unused port.");
+    let udp6_port = TEST_UDP6_PORT;
+    let tcp6_port = TEST_TCP6_PORT;
     let ipv6_addr = IPV6_ADDR.parse::<Ipv6Addr>().unwrap();
 
     const IPV4_ADDR: &str = "127.0.0.1";
-    let udp4_port = unused_udp4_port().expect("Unable to find unused port.");
-    let tcp4_port = unused_tcp4_port().expect("Unable to find unused port.");
+    let udp4_port = TEST_UDP4_PORT;
+    let tcp4_port = TEST_TCP4_PORT;
     let ipv4_addr = IPV4_ADDR.parse::<Ipv4Addr>().unwrap();
 
     CommandLineTest::new()

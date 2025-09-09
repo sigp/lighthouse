@@ -88,9 +88,9 @@ impl ListenAddress {
     pub fn unused_v4_ports() -> Self {
         ListenAddress::V4(ListenAddr {
             addr: Ipv4Addr::UNSPECIFIED,
-            disc_port: unused_port::unused_udp4_port().unwrap(),
-            quic_port: unused_port::unused_udp4_port().unwrap(),
-            tcp_port: unused_port::unused_tcp4_port().unwrap(),
+            disc_port: 0,
+            quic_port: 0,
+            tcp_port: 0,
         })
     }
 
@@ -98,9 +98,27 @@ impl ListenAddress {
     pub fn unused_v6_ports() -> Self {
         ListenAddress::V6(ListenAddr {
             addr: Ipv6Addr::UNSPECIFIED,
-            disc_port: unused_port::unused_udp6_port().unwrap(),
-            quic_port: unused_port::unused_udp6_port().unwrap(),
-            tcp_port: unused_port::unused_tcp6_port().unwrap(),
+            disc_port: 0,
+            quic_port: 0,
+            tcp_port: 0,
         })
+    }
+}
+
+/// Compute the UDP discovery port given flags and TCP port.
+pub fn compute_discovery_port(use_zero_ports: bool, tcp_port: u16, maybe_disc_port: Option<u16>) -> u16 {
+    if use_zero_ports {
+        0
+    } else {
+        maybe_disc_port.unwrap_or(tcp_port)
+    }
+}
+
+/// Compute the UDP QUIC port given flags and TCP port.
+pub fn compute_quic_port(use_zero_ports: bool, tcp_port: u16, maybe_quic_port: Option<u16>) -> u16 {
+    if use_zero_ports {
+        0
+    } else {
+        maybe_quic_port.unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 })
     }
 }
