@@ -935,11 +935,9 @@ async fn data_column_reconstruction_at_next_slot() {
         .slot_clock
         .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
 
-    let current_slot = rig.next_block.slot() - 1;
-
     assert_eq!(
         rig.chain.slot().unwrap(),
-        current_slot,
+        rig.next_block.slot() - 1,
         "chain should be at the correct slot"
     );
 
@@ -947,12 +945,6 @@ async fn data_column_reconstruction_at_next_slot() {
     rig.chain
         .slot_clock
         .set_current_time(slot_start + Duration::from_secs(12));
-
-    assert_eq!(
-        rig.chain.slot().unwrap(),
-        current_slot - 1,
-        "chain should be at the next slot"
-    );
 
     let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
     for i in 0..num_data_columns {
