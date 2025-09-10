@@ -16,7 +16,7 @@ BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,jemalloc,beacon-node-leveldb,beacon-node-redb
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
@@ -32,7 +32,7 @@ PROFILE ?= release
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair bellatrix capella deneb electra fulu
+FORKS=phase0 altair bellatrix capella deneb electra fulu gloas
 
 # List of all recent hard forks. This list is used to set env variables for http_api tests
 RECENT_FORKS=electra fulu
@@ -89,7 +89,7 @@ build-lcli-riscv64:
 SOURCE_DATE := $(shell git log -1 --pretty=%ct)
 
 # Default image for x86_64
-RUST_IMAGE_AMD64 ?= rust:1.82-bullseye@sha256:ac7fe7b0c9429313c0fe87d3a8993998d1fe2be9e3e91b5e2ec05d3a09d87128
+RUST_IMAGE_AMD64 ?= rust:1.88-bullseye@sha256:8e3c421122bf4cd3b2a866af41a4dd52d87ad9e315fd2cb5100e87a7187a9816
 
 # Reproducible build for x86_64
 build-reproducible-x86_64:
@@ -101,7 +101,7 @@ build-reproducible-x86_64:
 		-t lighthouse:reproducible-amd64 .
 
 # Default image for arm64
-RUST_IMAGE_ARM64 ?= rust:1.82-bullseye@sha256:3c1b8b6487513ad4e753d008b960260f5bcc81bf110883460f6ed3cd72bf439b
+RUST_IMAGE_ARM64 ?= rust:1.88-bullseye@sha256:8b22455a7ce2adb1355067638284ee99d21cc516fab63a96c4514beaf370aa94
 
 # Reproducible build for aarch64
 build-reproducible-aarch64:
@@ -143,7 +143,7 @@ build-release-tarballs:
 # test vectors.
 test-release:
 	cargo test --workspace --release --features "$(TEST_FEATURES)" \
- 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network
+ 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
 		--exclude http_api
 
 # Runs the full workspace tests in **release**, without downloading any additional
@@ -193,11 +193,11 @@ test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
 
-# Run the tests in the `beacon_chain` crate for all known forks.
-test-http-api: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
+# Run the tests in the `http_api` crate for recent forks.
+test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
 test-http-api-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p http_api
+	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
 
 
 # Run the tests in the `operation_pool` crate for all known forks.
@@ -279,7 +279,7 @@ lint:
 
 # Lints the code using Clippy and automatically fix some simple compiler warnings.
 lint-fix:
-	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint
+	EXTRA_CLIPPY_OPTS="--fix --allow-staged --allow-dirty" $(MAKE) lint-full
 
 # Also run the lints on the optimized-only tests
 lint-full:

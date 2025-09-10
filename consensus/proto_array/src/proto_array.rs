@@ -1,8 +1,8 @@
 use crate::error::InvalidBestNodeInfo;
-use crate::{error::Error, Block, ExecutionStatus, JustifiedBalances};
+use crate::{Block, ExecutionStatus, JustifiedBalances, error::Error};
 use serde::{Deserialize, Serialize};
-use ssz::four_byte_option_impl;
 use ssz::Encode;
+use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use superstruct::superstruct;
@@ -223,21 +223,18 @@ impl ProtoArray {
             // the delta by the new score amount (unless the block has an invalid execution status).
             //
             // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
-            if let Some(proposer_score_boost) = spec.proposer_score_boost {
-                if proposer_boost_root != Hash256::zero()
+            if let Some(proposer_score_boost) = spec.proposer_score_boost
+                && proposer_boost_root != Hash256::zero()
                     && proposer_boost_root == node.root
                     // Invalid nodes (or their ancestors) should not receive a proposer boost.
                     && !execution_status_is_invalid
-                {
-                    proposer_score = calculate_committee_fraction::<E>(
-                        new_justified_balances,
-                        proposer_score_boost,
-                    )
-                    .ok_or(Error::ProposerBoostOverflow(node_index))?;
-                    node_delta = node_delta
-                        .checked_add(proposer_score as i64)
-                        .ok_or(Error::DeltaOverflow(node_index))?;
-                }
+            {
+                proposer_score =
+                    calculate_committee_fraction::<E>(new_justified_balances, proposer_score_boost)
+                        .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                node_delta = node_delta
+                    .checked_add(proposer_score as i64)
+                    .ok_or(Error::DeltaOverflow(node_index))?;
             }
 
             // Apply the delta to the node.
@@ -428,7 +425,7 @@ impl ProtoArray {
                     return Err(Error::InvalidAncestorOfValidPayload {
                         ancestor_block_root: node.root,
                         ancestor_payload_block_hash,
-                    })
+                    });
                 }
             };
 
@@ -537,7 +534,7 @@ impl ProtoArray {
                         return Err(Error::ValidExecutionStatusBecameInvalid {
                             block_root: node.root,
                             payload_block_hash: *hash,
-                        })
+                        });
                     }
                     ExecutionStatus::Optimistic(hash) => {
                         invalidated_indices.insert(index);
@@ -594,27 +591,27 @@ impl ProtoArray {
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
 
-            if let Some(parent_index) = node.parent {
-                if invalidated_indices.contains(&parent_index) {
-                    match &node.execution_status {
-                        ExecutionStatus::Valid(hash) => {
-                            return Err(Error::ValidExecutionStatusBecameInvalid {
-                                block_root: node.root,
-                                payload_block_hash: *hash,
-                            })
-                        }
-                        ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
-                            node.execution_status = ExecutionStatus::Invalid(*hash)
-                        }
-                        ExecutionStatus::Irrelevant(_) => {
-                            return Err(Error::IrrelevantDescendant {
-                                block_root: node.root,
-                            })
-                        }
+            if let Some(parent_index) = node.parent
+                && invalidated_indices.contains(&parent_index)
+            {
+                match &node.execution_status {
+                    ExecutionStatus::Valid(hash) => {
+                        return Err(Error::ValidExecutionStatusBecameInvalid {
+                            block_root: node.root,
+                            payload_block_hash: *hash,
+                        });
                     }
-
-                    invalidated_indices.insert(index);
+                    ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
+                        node.execution_status = ExecutionStatus::Invalid(*hash)
+                    }
+                    ExecutionStatus::Irrelevant(_) => {
+                        return Err(Error::IrrelevantDescendant {
+                            block_root: node.root,
+                        });
+                    }
                 }
+
+                invalidated_indices.insert(index);
             }
         }
 

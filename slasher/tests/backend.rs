@@ -1,6 +1,6 @@
 #![cfg(feature = "lmdb")]
 
-use slasher::{config::MDBX_DATA_FILENAME, Config, DatabaseBackend, DatabaseBackendOverride};
+use slasher::{Config, DatabaseBackend, DatabaseBackendOverride, config::MDBX_DATA_FILENAME};
 use std::fs::File;
 use tempfile::tempdir;
 

@@ -2,15 +2,16 @@
 //! required for the HTTP API.
 
 use crate::{
-    Error as ServerError, CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER,
-    EXECUTION_PAYLOAD_BLINDED_HEADER, EXECUTION_PAYLOAD_VALUE_HEADER,
+    CONSENSUS_BLOCK_VALUE_HEADER, CONSENSUS_VERSION_HEADER, EXECUTION_PAYLOAD_BLINDED_HEADER,
+    EXECUTION_PAYLOAD_VALUE_HEADER, Error as ServerError,
 };
 use enr::{CombinedKey, Enr};
-use mediatype::{names, MediaType, MediaTypeList};
+use mediatype::{MediaType, MediaTypeList, names};
 use multiaddr::Multiaddr;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_utils::quoted_u64::Quoted;
+use ssz::Encode;
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::fmt::{self, Display};
@@ -365,7 +366,7 @@ pub struct ValidatorIdentityData {
 // this proposal:
 //
 // https://hackmd.io/bQxMDRt1RbS1TLno8K4NPg?view
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidatorStatus {
     PendingInitialized,
@@ -823,16 +824,32 @@ pub struct LightClientUpdatesQuery {
     pub count: u64,
 }
 
-#[derive(Encode, Decode)]
-pub struct LightClientUpdateResponseChunk {
+pub struct LightClientUpdateResponseChunk<E: EthSpec> {
     pub response_chunk_len: u64,
-    pub response_chunk: LightClientUpdateResponseChunkInner,
+    pub response_chunk: LightClientUpdateResponseChunkInner<E>,
 }
 
-#[derive(Encode, Decode)]
-pub struct LightClientUpdateResponseChunkInner {
+impl<E: EthSpec> Encode for LightClientUpdateResponseChunk<E> {
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        0_u64.ssz_bytes_len()
+            + self.response_chunk.context.len()
+            + self.response_chunk.payload.ssz_bytes_len()
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&self.response_chunk_len.to_le_bytes());
+        buf.extend_from_slice(&self.response_chunk.context);
+        self.response_chunk.payload.ssz_append(buf);
+    }
+}
+
+pub struct LightClientUpdateResponseChunkInner<E: EthSpec> {
     pub context: [u8; 4],
-    pub payload: Vec<u8>,
+    pub payload: LightClientUpdate<E>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
@@ -950,6 +967,23 @@ pub struct PeerCount {
     pub disconnecting: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BeaconCommitteeSelection {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+    pub selection_proof: Signature,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncCommitteeSelection {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub subcommittee_index: u64,
+    pub selection_proof: Signature,
+}
 // --------- Server Sent Event Types -----------
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -1115,7 +1149,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
                 return Err(serde::de::Error::custom(format!(
                     "SsePayloadAttributes failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Bellatrix => {
                 Self::V1(Deserialize::deserialize(deserializer).map_err(convert_err)?)
@@ -1123,7 +1157,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
             ForkName::Capella => {
                 Self::V2(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
                 Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
@@ -1565,7 +1599,7 @@ pub struct BroadcastValidationQuery {
 
 pub mod serde_status_code {
     use crate::StatusCode;
-    use serde::{de::Error, Deserialize, Serialize};
+    use serde::{Deserialize, Serialize, de::Error};
 
     pub fn serialize<S>(status_code: &StatusCode, ser: S) -> Result<S::Ok, S::Error>
     where
@@ -2388,6 +2422,9 @@ mod test {
                 rng,
             )),
             ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
+            ExecutionPayload::Gloas(ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
         ];
         let merged_forks = &ForkName::list_all()[2..];
         assert_eq!(
@@ -2435,6 +2472,17 @@ mod test {
                 let execution_payload =
                     ExecutionPayload::Fulu(
                         ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload =
+                    ExecutionPayload::Gloas(
+                        ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(rng),
                     );
                 let blobs_bundle = BlobsBundle::random_for_test(rng);
                 ExecutionPayloadAndBlobs {

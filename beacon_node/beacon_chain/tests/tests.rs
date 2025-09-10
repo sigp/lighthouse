@@ -1,12 +1,12 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
+    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
     attestation_verification::Error as AttnError,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::EpochProcessingError;
@@ -1035,11 +1035,13 @@ async fn pseudo_finalize_test_generic(
     // This is a regression test for https://github.com/sigp/lighthouse/pull/7105
     if !expect_true_finalization_migration {
         assert_eq!(expected_split_slot, pseudo_finalized_slot);
-        assert!(!harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&split.block_root));
+        assert!(
+            !harness
+                .chain
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&split.block_root)
+        );
     }
 }
 

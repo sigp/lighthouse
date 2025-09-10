@@ -1,4 +1,4 @@
-use crate::PeerDASTrustedSetup;
+use crate::{Error, PeerDASTrustedSetup};
 use serde::{
     de::{self, Deserializer, Visitor},
     Deserialize, Serialize,
@@ -52,28 +52,6 @@ impl TrustedSetup {
 
     pub fn g1_len(&self) -> usize {
         self.g1_lagrange.len()
-    }
-}
-
-impl From<&TrustedSetup> for PeerDASTrustedSetup {
-    fn from(trusted_setup: &TrustedSetup) -> Self {
-        Self {
-            g1_monomial: trusted_setup
-                .g1_monomial
-                .iter()
-                .map(|g1_point| format!("0x{}", hex::encode(g1_point.0)))
-                .collect::<Vec<_>>(),
-            g1_lagrange: trusted_setup
-                .g1_lagrange
-                .iter()
-                .map(|g1_point| format!("0x{}", hex::encode(g1_point.0)))
-                .collect::<Vec<_>>(),
-            g2_monomial: trusted_setup
-                .g2_monomial
-                .iter()
-                .map(|g2_point| format!("0x{}", hex::encode(g2_point.0)))
-                .collect::<Vec<_>>(),
-        }
     }
 }
 
@@ -175,4 +153,21 @@ fn strip_prefix(s: &str) -> &str {
     } else {
         s
     }
+}
+
+/// Loads the trusted setup from JSON.
+///
+/// ## Note:
+/// Currently we load both c-kzg and rust-eth-kzg trusted setup structs, because c-kzg is still being
+/// used for 4844. Longer term we're planning to switch all KZG operations to the rust-eth-kzg
+/// crate, and we'll be able to maintain a single trusted setup struct.
+pub(crate) fn load_trusted_setup(
+    trusted_setup: &[u8],
+) -> Result<(TrustedSetup, PeerDASTrustedSetup), Error> {
+    let ckzg_trusted_setup: TrustedSetup = serde_json::from_slice(trusted_setup)
+        .map_err(|e| Error::TrustedSetupError(format!("{e:?}")))?;
+    let trusted_setup_json = std::str::from_utf8(trusted_setup)
+        .map_err(|e| Error::TrustedSetupError(format!("{e:?}")))?;
+    let rkzg_trusted_setup = PeerDASTrustedSetup::from_json(trusted_setup_json);
+    Ok((ckzg_trusted_setup, rkzg_trusted_setup))
 }

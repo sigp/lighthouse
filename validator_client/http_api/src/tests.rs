@@ -13,15 +13,15 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use eth2::{
+    Error as ApiError,
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
-    Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
 use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
@@ -29,7 +29,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::graffiti::GraffitiString;
 use validator_store::ValidatorStore;
 use zeroize::Zeroizing;
@@ -45,6 +45,7 @@ struct ApiTester {
     validator_store: Arc<LighthouseValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     slot_clock: TestingSlotClock,
+    spec: Arc<ChainSpec>,
     _validator_dir: TempDir,
     _secrets_dir: TempDir,
     _test_runtime: TestRuntime,
@@ -117,7 +118,7 @@ impl ApiTester {
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec: E::default_spec().into(),
+            spec: spec.clone(),
             config: HttpConfig {
                 enabled: true,
                 listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
@@ -152,6 +153,7 @@ impl ApiTester {
             validator_store,
             url,
             slot_clock,
+            spec,
             _validator_dir: validator_dir,
             _secrets_dir: secrets_dir,
             _test_runtime: test_runtime,
@@ -206,13 +208,24 @@ impl ApiTester {
     }
 
     pub async fn test_get_lighthouse_spec(self) -> Self {
-        let result = self
-            .client
-            .get_lighthouse_spec::<ConfigAndPresetFulu>()
-            .await
-            .map(|res| ConfigAndPreset::Fulu(res.data))
-            .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
+        let result = if self.spec.is_gloas_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetGloas>()
+                .await
+                .map(|res| ConfigAndPreset::Gloas(res.data))
+        } else if self.spec.is_fulu_scheduled() {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetFulu>()
+                .await
+                .map(|res| ConfigAndPreset::Fulu(res.data))
+        } else {
+            self.client
+                .get_lighthouse_spec::<ConfigAndPresetElectra>()
+                .await
+                .map(|res| ConfigAndPreset::Electra(res.data))
+        }
+        .unwrap();
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&self.spec);
 
         assert_eq!(result, expected);
 
@@ -322,9 +335,11 @@ impl ApiTester {
 
         // Ensure the server lists all of these newly created validators.
         for validator in &response {
-            assert!(server_vals
-                .iter()
-                .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey));
+            assert!(
+                server_vals
+                    .iter()
+                    .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey)
+            );
         }
 
         /*
@@ -548,16 +563,17 @@ impl ApiTester {
             enabled
         );
 
-        assert!(self
-            .client
-            .get_lighthouse_validators()
-            .await
-            .unwrap()
-            .data
-            .into_iter()
-            .find(|v| v.voting_pubkey == validator.voting_pubkey)
-            .map(|v| v.enabled == enabled)
-            .unwrap());
+        assert!(
+            self.client
+                .get_lighthouse_validators()
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|v| v.voting_pubkey == validator.voting_pubkey)
+                .map(|v| v.enabled == enabled)
+                .unwrap()
+        );
 
         // Check the server via an individual request.
         assert_eq!(

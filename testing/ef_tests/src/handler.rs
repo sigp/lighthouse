@@ -1,6 +1,6 @@
 use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name::TypeName;
-use crate::{type_name, FeatureName};
+use crate::{FeatureName, type_name};
 use context_deserialize::ContextDeserialize;
 use derivative::Derivative;
 use std::fs::{self, DirEntry};
@@ -22,7 +22,7 @@ pub trait Handler {
     // Add forks here to exclude them from EF spec testing. Helpful for adding future or
     // unspecified forks.
     fn disabled_forks(&self) -> Vec<ForkName> {
-        vec![]
+        vec![ForkName::Gloas]
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
@@ -93,7 +93,6 @@ pub trait Handler {
             .filter_map(as_directory)
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
-
                 let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
                 (path, case)
             })

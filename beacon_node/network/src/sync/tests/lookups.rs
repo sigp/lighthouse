@@ -1,12 +1,12 @@
+use crate::NetworkMessage;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 use crate::sync::block_lookups::{
     BlockLookupSummary, PARENT_DEPTH_TOLERANCE, SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS,
 };
 use crate::sync::{
-    manager::{BlockProcessType, BlockProcessingResult, SyncManager},
     SyncMessage,
+    manager::{BlockProcessType, BlockProcessingResult, SyncManager},
 };
-use crate::NetworkMessage;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,36 +15,36 @@ use super::*;
 use crate::sync::block_lookups::common::ResponseType;
 use beacon_chain::observed_data_sidecars::Observe;
 use beacon_chain::{
+    AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
+    PayloadVerificationOutcome, PayloadVerificationStatus,
     blob_verification::GossipVerifiedBlob,
     block_verification_types::{AsBlock, BlockImportData},
     data_availability_checker::Availability,
     test_utils::{
-        generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
-        BeaconChainHarness, EphemeralHarnessType, NumBlobs,
+        BeaconChainHarness, EphemeralHarnessType, NumBlobs, generate_rand_block_and_blobs,
+        generate_rand_block_and_data_columns, test_spec,
     },
     validator_monitor::timestamp_now,
-    AvailabilityPendingExecutedBlock, AvailabilityProcessingStatus, BlockError,
-    PayloadVerificationOutcome, PayloadVerificationStatus,
 };
 use beacon_processor::WorkEvent;
 use lighthouse_network::discovery::CombinedKey;
 use lighthouse_network::{
+    NetworkConfig, NetworkGlobals, PeerId,
     rpc::{RPCError, RequestType, RpcErrorResponse},
     service::api_types::{
         AppRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
         SingleLookupReqId, SyncRequestId,
     },
     types::SyncState,
-    NetworkConfig, NetworkGlobals, PeerId,
 };
 use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    data_column_sidecar::ColumnIndex,
-    test_utils::{SeedableRng, TestRandom, XorShiftRng},
     BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
     Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    data_column_sidecar::ColumnIndex,
+    test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 
 const D: Duration = Duration::new(0, 0);
@@ -104,6 +104,7 @@ impl TestRig {
         let spec = chain.spec.clone();
 
         // deterministic seed
+        let rng_08 = <rand_chacha_03::ChaCha20Rng as rand_08::SeedableRng>::from_seed([0u8; 32]);
         let rng = ChaCha20Rng::from_seed([0u8; 32]);
 
         init_tracing();
@@ -114,6 +115,7 @@ impl TestRig {
             network_rx,
             network_rx_queue: vec![],
             sync_rx,
+            rng_08,
             rng,
             network_globals: beacon_processor.network_globals.clone(),
             sync_manager: SyncManager::new(
@@ -348,7 +350,7 @@ impl TestRig {
     }
 
     fn determinstic_key(&mut self) -> CombinedKey {
-        k256::ecdsa::SigningKey::random(&mut self.rng).into()
+        k256::ecdsa::SigningKey::random(&mut self.rng_08).into()
     }
 
     pub fn new_connected_peers_for_peerdas(&mut self) {
@@ -1920,7 +1922,7 @@ fn custody_lookup_happy_path() {
     let id = r.expect_block_lookup_request(block.canonical_root());
     r.complete_valid_block_request(id, block.into(), true);
     // for each slot we download `samples_per_slot` columns
-    let sample_column_count = spec.samples_per_slot * spec.data_columns_per_group();
+    let sample_column_count = spec.samples_per_slot * spec.data_columns_per_group::<E>();
     let custody_ids =
         r.expect_only_data_columns_by_root_requests(block_root, sample_column_count as usize);
     r.complete_valid_custody_request(custody_ids, data_columns, false);
@@ -2301,7 +2303,7 @@ mod deneb_only {
                 block,
                 self.unknown_parent_blobs
                     .take()
-                    .map(|vec| RuntimeVariableList::from_vec(vec, max_len)),
+                    .map(|vec| RuntimeVariableList::new(vec, max_len).unwrap()),
             )
             .unwrap();
             self.rig.parent_block_processed(

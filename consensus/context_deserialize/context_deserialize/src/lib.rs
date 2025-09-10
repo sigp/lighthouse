@@ -1,8 +1,8 @@
-pub mod impls;
-pub mod milhouse;
-pub mod ssz_impls;
+mod impls;
 
-extern crate serde;
+#[cfg(feature = "derive")]
+pub use context_deserialize_derive::context_deserialize;
+
 use serde::de::Deserializer;
 
 /// General-purpose deserialization trait that accepts extra context `C`.

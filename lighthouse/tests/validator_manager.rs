@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::*;
 use validator_manager::{
     create_validators::CreateConfig,
@@ -367,7 +367,7 @@ pub fn validator_move_misc_flags_1() {
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
                 dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Specific(vec![
-                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
                 ]),
                 builder_proposals: Some(false),
                 builder_boost_factor: None,
@@ -399,7 +399,7 @@ pub fn validator_move_misc_flags_2() {
                 dest_vc_url: SensitiveUrl::parse("http://localhost:2").unwrap(),
                 dest_vc_token_path: PathBuf::from("./2.json"),
                 validators: Validators::Specific(vec![
-                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap()
+                    PublicKeyBytes::from_str(EXAMPLE_PUBKEY_0).unwrap(),
                 ]),
                 builder_proposals: Some(false),
                 builder_boost_factor: Some(100),

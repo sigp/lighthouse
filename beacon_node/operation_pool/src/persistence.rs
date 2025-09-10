@@ -1,8 +1,8 @@
+use crate::OpPoolError;
+use crate::OperationPool;
 use crate::attestation_storage::AttestationMap;
 use crate::bls_to_execution_changes::{BlsToExecutionChanges, ReceivedPreCapella};
 use crate::sync_aggregate_id::SyncAggregateId;
-use crate::OpPoolError;
-use crate::OperationPool;
 use derivative::Derivative;
 use parking_lot::RwLock;
 use ssz::{Decode, Encode};

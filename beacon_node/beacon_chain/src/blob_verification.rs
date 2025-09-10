@@ -5,16 +5,16 @@ use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
-    BlockSlashInfo,
+    BlockSlashInfo, cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache,
+    process_block_slash_info,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
-use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
-use crate::{metrics, BeaconChainError};
+use crate::observed_data_sidecars::{ObservationStrategy, Observe};
+use crate::{BeaconChainError, metrics};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use ssz_derive::{Decode, Encode};
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, instrument};
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
@@ -96,7 +96,7 @@ pub enum GossipBlobError {
     /// ## Peer scoring
     ///
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
-    BlobParentUnknown { parent_root: Hash256 },
+    ParentUnknown { parent_root: Hash256 },
 
     /// Invalid kzg commitment inclusion proof
     /// ## Peer scoring
@@ -304,6 +304,14 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
             seen_timestamp: Duration::from_secs(0),
         }
     }
+    /// Mark a blob as KZG verified. Caller must ONLY use this on blob sidecars constructed
+    /// from EL blobs.
+    pub fn from_execution_verified(blob: Arc<BlobSidecar<E>>, seen_timestamp: Duration) -> Self {
+        Self {
+            blob,
+            seen_timestamp,
+        }
+    }
 }
 
 /// Complete kzg verification for a `BlobSidecar`.
@@ -366,6 +374,7 @@ impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
+#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_blob_list<'a, E: EthSpec, I>(
     blob_iter: I,
     kzg: &'a Kzg,
@@ -465,7 +474,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     // We have already verified that the blob is past finalization, so we can
     // just check fork choice for the block's parent.
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
-        return Err(GossipBlobError::BlobParentUnknown {
+        return Err(GossipBlobError::ParentUnknown {
             parent_root: block_parent_root,
         });
     };
@@ -594,21 +603,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     })
 }
 
-impl<T: BeaconChainTypes> GossipVerifiedBlob<T, DoNotObserve> {
-    pub fn observe(
-        self,
-        chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlob<T, Observe>, GossipBlobError> {
-        observe_gossip_blob(&self.blob.blob, chain)?;
-        Ok(GossipVerifiedBlob {
-            block_root: self.block_root,
-            blob: self.blob,
-            _phantom: PhantomData,
-        })
-    }
-}
-
-fn observe_gossip_blob<T: BeaconChainTypes>(
+pub fn observe_gossip_blob<T: BeaconChainTypes>(
     blob_sidecar: &BlobSidecar<T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipBlobError> {

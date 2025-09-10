@@ -1,22 +1,23 @@
 use crate::{
     build_block_contents,
     version::{
-        add_consensus_block_value_header, add_consensus_version_header,
+        ResponseIncludesVersion, add_consensus_block_value_header, add_consensus_version_header,
         add_execution_payload_blinded_header, add_execution_payload_value_header,
         add_ssz_content_type_header, beacon_response, inconsistent_fork_rejection,
-        ResponseIncludesVersion,
     },
 };
 use beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, ProduceBlockVerification,
 };
 use eth2::types::{self as api_types, ProduceBlockV3Metadata, SkipRandaoVerification};
+use lighthouse_tracing::{SPAN_PRODUCE_BLOCK_V2, SPAN_PRODUCE_BLOCK_V3};
 use ssz::Encode;
 use std::sync::Arc;
+use tracing::instrument;
 use types::{payload::BlockProductionVersion, *};
 use warp::{
-    hyper::{Body, Response},
     Reply,
+    hyper::{Body, Response},
 };
 
 /// If default boost factor is provided in validator/blocks v3 request, we will skip the calculation
@@ -41,6 +42,11 @@ pub fn get_randao_verification(
     Ok(randao_verification)
 }
 
+#[instrument(
+    name = SPAN_PRODUCE_BLOCK_V3,
+    skip_all,
+    fields(%slot)
+)]
 pub async fn produce_block_v3<T: BeaconChainTypes>(
     accept_header: Option<api_types::Accept>,
     chain: Arc<BeaconChain<T>>,
@@ -156,6 +162,11 @@ pub async fn produce_blinded_block_v2<T: BeaconChainTypes>(
     build_response_v2(chain, block_response_type, accept_header)
 }
 
+#[instrument(
+    name = SPAN_PRODUCE_BLOCK_V2,
+    skip_all,
+    fields(%slot)
+)]
 pub async fn produce_block_v2<T: BeaconChainTypes>(
     accept_header: Option<api_types::Accept>,
     chain: Arc<BeaconChain<T>>,
