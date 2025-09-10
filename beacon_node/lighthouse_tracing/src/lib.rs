@@ -3,7 +3,9 @@
 //! TODO: These span identifiers will be used to implement selective tracing export (to be implemented),
 //! where only the listed root spans and their descendants will be exported to the tracing backend.
 
-/// Root span name for publish_block
+/// Root span names for block production and publishing
+pub const SPAN_PRODUCE_BLOCK_V2: &str = "produce_block_v2";
+pub const SPAN_PRODUCE_BLOCK_V3: &str = "produce_block_v3";
 pub const SPAN_PUBLISH_BLOCK: &str = "publish_block";
 
 /// Data Availability checker span identifiers
@@ -42,11 +44,14 @@ pub const SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE: &str = "handle_light_client_
 /// Only these spans and their descendants will be processed to reduce noise from
 /// uninstrumented code paths. New root spans must be added to this list to be traced.
 pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
-    SPAN_SYNCING_CHAIN,
+    SPAN_PRODUCE_BLOCK_V2,
+    SPAN_PRODUCE_BLOCK_V3,
+    SPAN_PUBLISH_BLOCK,
     SPAN_PENDING_COMPONENTS,
     SPAN_PROCESS_GOSSIP_DATA_COLUMN,
     SPAN_PROCESS_GOSSIP_BLOB,
     SPAN_PROCESS_GOSSIP_BLOCK,
+    SPAN_SYNCING_CHAIN,
     SPAN_OUTGOING_RANGE_REQUEST,
     SPAN_SINGLE_BLOCK_LOOKUP,
     SPAN_PROCESS_RPC_BLOCK,
