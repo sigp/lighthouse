@@ -222,6 +222,8 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
+        verify_data_column_sidecar(&column_sidecar)?;
+
         // Check if the data column is already in the DA checker cache. This happens when data columns
         // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
         // it has already passed the gossip checks, even though this particular instance hasn't been
@@ -238,24 +240,6 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
                 observe_gossip_data_column(&column_sidecar, chain)?;
             }
             return Err(GossipDataColumnError::PriorKnownUnpublished);
-        }
-
-        let cells_len = column_sidecar.column.len();
-        let commitments_len = column_sidecar.kzg_commitments.len();
-        let proofs_len = column_sidecar.kzg_proofs.len();
-
-        if cells_len != commitments_len {
-            return Err(GossipDataColumnError::InconsistentCommitmentsLength {
-                cells_len,
-                commitments_len,
-            });
-        }
-
-        if cells_len != proofs_len {
-            return Err(GossipDataColumnError::InconsistentProofsLength {
-                cells_len,
-                proofs_len,
-            });
         }
 
         Ok(Self {
