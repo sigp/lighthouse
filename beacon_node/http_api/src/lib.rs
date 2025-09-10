@@ -54,10 +54,11 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
+use lighthouse_network::{Enr, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
 use lighthouse_version::version_with_platform;
 use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use network_utils::enr_ext::EnrExt;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 pub use publish_blocks::{
