@@ -4,7 +4,6 @@
 //! queries and manages access to the discovery routing table.
 
 pub(crate) mod enr;
-pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 use crate::service::TARGET_SUBNET_PEERS;
@@ -12,8 +11,8 @@ use crate::{ClearDialError, metrics};
 use crate::{Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{Discv5, enr::NodeId};
 pub use enr::{CombinedKey, Eth2Enr, build_enr, load_enr_from_disk, use_or_load_enr};
-pub use enr_ext::{CombinedKeyExt, EnrExt, peer_id_to_node_id};
 pub use libp2p::identity::{Keypair, PublicKey};
+use network_utils::enr_ext::{CombinedKeyExt, EnrExt, peer_id_to_node_id};
 
 use alloy_rlp::bytes::Bytes;
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
@@ -33,6 +32,7 @@ pub use libp2p::{
 };
 use logging::crit;
 use lru::LruCache;
+use network_utils::discovery_metrics;
 use ssz::Encode;
 use std::num::NonZeroUsize;
 use std::{
@@ -687,7 +687,10 @@ impl<E: EthSpec> Discovery<E> {
                 min_ttl,
                 retries,
             });
-            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+            metrics::set_gauge(
+                &discovery_metrics::DISCOVERY_QUEUE,
+                self.queued_queries.len() as i64,
+            );
         }
     }
 
@@ -722,7 +725,10 @@ impl<E: EthSpec> Discovery<E> {
             }
         }
         // Update the queue metric
-        metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+        metrics::set_gauge(
+            &discovery_metrics::DISCOVERY_QUEUE,
+            self.queued_queries.len() as i64,
+        );
         processed
     }
 
@@ -1233,7 +1239,7 @@ mod tests {
         let spec = Arc::new(ChainSpec::default());
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
-        config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
+        config.set_listening_addr(network_utils::listen_addr::ListenAddress::unused_v4_ports());
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let next_fork_digest = [0; 4];

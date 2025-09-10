@@ -1,0 +1,17 @@
+[package]
+name = "network_utils"
+version = "0.1.0"
+edition = { workspace = true }
+
+[dependencies]
+discv5 = { workspace = true }
+libp2p-identity = "0.2"
+lru_cache = { workspace = true }
+metrics = { workspace = true }
+multiaddr = "0.18.2"
+parking_lot = { workspace = true }
+serde = { workspace = true }
+tiny-keccak = { version = "2", features = ["keccak"] }
+
+[dev-dependencies]
+hex = { workspace = true }
