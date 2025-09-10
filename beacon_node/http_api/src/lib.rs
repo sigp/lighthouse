@@ -1640,16 +1640,27 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp_utils::json::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
+                  blinded_block_json: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let blinded_block =
+                        SignedBlindedBeaconBlock::<T::EthSpec>::context_deserialize(
+                            &blinded_block_json,
+                            consensus_version,
+                        )
+                        .map(Arc::new)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         blinded_block,
                         chain,

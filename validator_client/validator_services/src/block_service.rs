@@ -497,6 +497,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                 beacon_node
                     .post_beacon_blocks_v2_ssz(signed_block, None)
                     .await
+                    .map(|_| ())
                     .or_else(|e| {
                         handle_block_post_error(e, signed_block.signed_block().message().slot())
                     })?
@@ -506,10 +507,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
                     &validator_metrics::BLOCK_SERVICE_TIMES,
                     &[validator_metrics::BLINDED_BEACON_BLOCK_HTTP_POST],
                 );
+
                 beacon_node
                     .post_beacon_blinded_blocks_v2_ssz(signed_block, None)
                     .await
-                    .or_else(|e| handle_block_post_error(e, signed_block.message().slot()))?
+                    .map(|_| ())
+                    .or_else(|e| handle_block_post_error(e, signed_block.message().slot()))?;
             }
         }
         Ok::<_, BlockError>(())

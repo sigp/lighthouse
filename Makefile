@@ -193,11 +193,11 @@ test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
 
-# Run the tests in the `beacon_chain` crate for all known forks.
-test-http-api: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
+# Run the tests in the `http_api` crate for recent forks.
+test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
 test-http-api-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p http_api
+	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
 
 
 # Run the tests in the `operation_pool` crate for all known forks.
