@@ -4,6 +4,7 @@ mod common;
 
 use crate::common::spec_with_all_forks_enabled;
 use common::{Protocol, build_tracing_subscriber};
+use libp2p::PeerId;
 use lighthouse_network::rpc::{RequestType, methods::*};
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
@@ -1793,8 +1794,6 @@ fn test_request_too_large_blobs_by_range() {
 
 #[test]
 fn test_request_too_large_data_columns_by_range() {
-    let spec = Arc::new(E::default_spec());
-
     test_request_too_large(
         AppRequestId::Sync(SyncRequestId::DataColumnsByRange(
             DataColumnsByRangeRequestId {
@@ -1806,13 +1805,14 @@ fn test_request_too_large_data_columns_by_range() {
                         batch_id: Epoch::new(1),
                     },
                 },
+                peer: PeerId::random(),
             },
         )),
         RequestType::DataColumnsByRange(DataColumnsByRangeRequest {
             start_slot: 0,
             count: 0,
             // exceeds the max request defined in the spec.
-            columns: vec![0; spec.number_of_columns as usize + 1],
+            columns: vec![0; E::number_of_columns() + 1],
         }),
         None,
     );
