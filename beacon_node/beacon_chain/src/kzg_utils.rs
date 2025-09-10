@@ -174,7 +174,7 @@ pub fn blobs_to_data_column_sidecars<E: EthSpec>(
     let kzg_commitments_inclusion_proof = block.message().body().kzg_commitments_merkle_proof()?;
     let signed_block_header = block.signed_block_header();
 
-    if cell_proofs.len() != E::number_of_columns() {
+    if cell_proofs.len() != blobs.len() * E::number_of_columns() {
         return Err(DataColumnSidecarError::InvalidCellProofLength {
             expected: blobs.len() * E::number_of_columns(),
             actual: cell_proofs.len(),
