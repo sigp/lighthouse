@@ -26,7 +26,7 @@ you can run them locally and avoid CI failures:
 
 - `$ make cargo-fmt`: (fast) runs a Rust code formatting check.
 - `$ make lint`: (fast) runs a Rust code linter.
-- `$ make test`: (medium) runs unit tests across the whole project.
+- `$ make test`: (medium) runs unit tests across the whole project using nextest.
 - `$ make test-ef`: (medium) runs the Ethereum Foundation test vectors.
 - `$ make test-full`: (slow) runs the full test suite (including all previous
   commands). This is approximately everything
@@ -36,88 +36,39 @@ _The lighthouse test suite is quite extensive, running the whole suite may take 
 
 ## Testing
 
-As with most other Rust projects, Lighthouse uses `cargo test` for unit and
-integration tests. For example, to test the `ssz` crate run:
+Lighthouse uses `cargo nextest` for unit and integration tests. Nextest provides better parallelization and is used by CI. For example, to test the `safe_arith` crate run:
 
 ```bash
-$ cd consensus/ssz
-$ cargo test
-    Finished test [unoptimized + debuginfo] target(s) in 7.69s
-     Running unittests (target/debug/deps/ssz-61fc26760142b3c4)
-
-running 27 tests
-test decode::impls::tests::awkward_fixed_length_portion ... ok
-test decode::impls::tests::invalid_h256 ... ok
-<snip>
-test encode::tests::test_encode_length ... ok
-test encode::impls::tests::vec_of_vec_of_u8 ... ok
-test encode::tests::test_encode_length_above_max_debug_panics - should panic ... ok
-
-test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-     Running tests/tests.rs (target/debug/deps/tests-f8fb1f9ccb197bf4)
-
-running 20 tests
-test round_trip::bool ... ok
-test round_trip::first_offset_skips_byte ... ok
-test round_trip::fixed_len_excess_bytes ... ok
-<snip>
-test round_trip::vec_u16 ... ok
-test round_trip::vec_of_vec_u16 ... ok
-
-test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-   Doc-tests ssz
-
-running 3 tests
-test src/decode.rs - decode::SszDecoder (line 258) ... ok
-test src/encode.rs - encode::SszEncoder (line 57) ... ok
-test src/lib.rs - (line 10) ... ok
-
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s$ cargo test -p eth2_ssz
+$ cd consensus/safe_arith
+$ cargo nextest run
+    Finished test [unoptimized + debuginfo] target(s) in 0.43s
+    ------------
+     Nextest run ID: 01234567-89ab-cdef-0123-456789abcdef
+     Starting 8 tests across 1 binary
+        PASS [   0.001s] safe_arith tests::test_safe_add_u64
+        PASS [   0.001s] safe_arith tests::test_safe_mul_u64
+        <snip>
+    ------------
+     Summary [ 0.012s] 8 tests run: 8 passed, 0 skipped
 ```
 
-Alternatively, since `lighthouse` is a cargo workspace you can use `-p eth2_ssz` where
-`eth2_ssz` is the package name as defined  `/consensus/ssz/Cargo.toml`
+Alternatively, since `lighthouse` is a cargo workspace you can use `-p safe_arith` where
+`safe_arith` is the package name as defined in `/consensus/safe_arith/Cargo.toml`:
 
 ```bash
-$ head -2 consensus/ssz/Cargo.toml
+$ head -2 consensus/safe_arith/Cargo.toml
 [package]
-name = "eth2_ssz"
-$ cargo test -p eth2_ssz
-    Finished test [unoptimized + debuginfo] target(s) in 7.69s
-     Running unittests (target/debug/deps/ssz-61fc26760142b3c4)
-
-running 27 tests
-test decode::impls::tests::awkward_fixed_length_portion ... ok
-test decode::impls::tests::invalid_h256 ... ok
-<snip>
-test encode::tests::test_encode_length ... ok
-test encode::impls::tests::vec_of_vec_of_u8 ... ok
-test encode::tests::test_encode_length_above_max_debug_panics - should panic ... ok
-
-test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-     Running tests/tests.rs (target/debug/deps/tests-f8fb1f9ccb197bf4)
-
-running 20 tests
-test round_trip::bool ... ok
-test round_trip::first_offset_skips_byte ... ok
-test round_trip::fixed_len_excess_bytes ... ok
-<snip>
-test round_trip::vec_u16 ... ok
-test round_trip::vec_of_vec_u16 ... ok
-
-test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-   Doc-tests ssz
-
-running 3 tests
-test src/decode.rs - decode::SszDecoder (line 258) ... ok
-test src/encode.rs - encode::SszEncoder (line 57) ... ok
-test src/lib.rs - (line 10) ... ok
-
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s$ cargo test -p eth2_ssz
+name = "safe_arith"
+$ cargo nextest run -p safe_arith
+    Finished test [unoptimized + debuginfo] target(s) in 0.43s
+    ------------
+     Nextest run ID: 01234567-89ab-cdef-0123-456789abcdef
+     Starting 8 tests across 1 binary
+        PASS [   0.001s] safe_arith tests::test_safe_add_u64
+        PASS [   0.001s] safe_arith tests::test_safe_mul_u64
+        <snip>
+    ------------
+     Summary [ 0.012s] 8 tests run: 8 passed, 0 skipped
 ```
 
 ### test_logger
@@ -129,7 +80,7 @@ testing the logs are displayed. This can be very helpful while debugging tests.
 Example:
 
 ```
-$ cargo test -p beacon_chain validator_pubkey_cache::test::basic_operation --features 'logging/test_logger'
+$ cargo nextest run -p beacon_chain -E 'test(validator_pubkey_cache::test::basic_operation)' --features 'logging/test_logger'
     Finished test [unoptimized + debuginfo] target(s) in 0.20s
      Running unittests (target/debug/deps/beacon_chain-975363824f1143bc)
 

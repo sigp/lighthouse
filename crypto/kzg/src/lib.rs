@@ -3,6 +3,7 @@ mod kzg_proof;
 pub mod trusted_setup;
 
 use rust_eth_kzg::{CellIndex, DASContext};
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 pub use crate::{
@@ -16,13 +17,23 @@ pub use c_kzg::{
     BYTES_PER_FIELD_ELEMENT, BYTES_PER_PROOF, FIELD_ELEMENTS_PER_BLOB,
 };
 
+use crate::trusted_setup::load_trusted_setup;
+use rayon::prelude::*;
 pub use rust_eth_kzg::{
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
+use tracing::{instrument, Span};
 
-// Note: `spec.number_of_columns` is a config and should match `CELLS_PER_EXT_BLOB` - however this
-// is a constant in the KZG library - be aware that overriding `number_of_columns` will break KZG
+/// Disables the fixed-base multi-scalar multiplication optimization for computing
+/// cell KZG proofs, because `rust-eth-kzg` already handles the precomputation.
+///
+/// Details about `precompute` parameter can be found here:
+/// <https://github.com/ethereum/c-kzg-4844/pull/545/files>
+pub const NO_PRECOMPUTE: u64 = 0;
+
+// Note: Both `NUMBER_OF_COLUMNS` and `CELLS_PER_EXT_BLOB` are preset values - however this
+// is a constant in the KZG library - be aware that overriding `NUMBER_OF_COLUMNS` will break KZG
 // operations.
 pub type CellsAndKzgProofs = ([Cell; CELLS_PER_EXT_BLOB], [KzgProof; CELLS_PER_EXT_BLOB]);
 
@@ -30,6 +41,8 @@ pub type KzgBlobRef<'a> = &'a [u8; BYTES_PER_BLOB];
 
 #[derive(Debug)]
 pub enum Error {
+    /// An error from initialising the trusted setup.
+    TrustedSetupError(String),
     /// An error from the underlying kzg library.
     Kzg(c_kzg::Error),
     /// A prover/verifier error from the rust-eth-kzg library.
@@ -58,52 +71,30 @@ pub struct Kzg {
 }
 
 impl Kzg {
-    pub fn new_from_trusted_setup_no_precomp(trusted_setup: TrustedSetup) -> Result<Self, Error> {
-        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-
-        let context = DASContext::new(&peerdas_trusted_setup, rust_eth_kzg::UsePrecomp::No);
+    pub fn new_from_trusted_setup_no_precomp(trusted_setup: &[u8]) -> Result<Self, Error> {
+        let (ckzg_trusted_setup, rkzg_trusted_setup) = load_trusted_setup(trusted_setup)?;
+        let context = DASContext::new(&rkzg_trusted_setup, rust_eth_kzg::UsePrecomp::No);
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
-                &trusted_setup.g1_points(),
-                &trusted_setup.g2_points(),
+                &ckzg_trusted_setup.g1_monomial(),
+                &ckzg_trusted_setup.g1_lagrange(),
+                &ckzg_trusted_setup.g2_monomial(),
+                NO_PRECOMPUTE,
             )?,
             context,
         })
     }
 
     /// Load the kzg trusted setup parameters from a vec of G1 and G2 points.
-    pub fn new_from_trusted_setup(trusted_setup: TrustedSetup) -> Result<Self, Error> {
-        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
-
-        let context = DASContext::new(
-            &peerdas_trusted_setup,
-            rust_eth_kzg::UsePrecomp::Yes {
-                width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
-            },
-        );
-
-        Ok(Self {
-            trusted_setup: KzgSettings::load_trusted_setup(
-                &trusted_setup.g1_points(),
-                &trusted_setup.g2_points(),
-            )?,
-            context,
-        })
-    }
-
-    pub fn new_from_trusted_setup_das_enabled(trusted_setup: TrustedSetup) -> Result<Self, Error> {
-        // Initialize the trusted setup using default parameters
-        //
-        // Note: One can also use `from_json` to initialize it from the consensus-specs
-        // json string.
-        let peerdas_trusted_setup = PeerDASTrustedSetup::from(&trusted_setup);
+    pub fn new_from_trusted_setup(trusted_setup: &[u8]) -> Result<Self, Error> {
+        let (ckzg_trusted_setup, rkzg_trusted_setup) = load_trusted_setup(trusted_setup)?;
 
         // It's not recommended to change the config parameter for precomputation as storage
         // grows exponentially, but the speedup is exponential - after a while the speedup
         // starts to become sublinear.
         let context = DASContext::new(
-            &peerdas_trusted_setup,
+            &rkzg_trusted_setup,
             rust_eth_kzg::UsePrecomp::Yes {
                 width: rust_eth_kzg::constants::RECOMMENDED_PRECOMP_WIDTH,
             },
@@ -111,8 +102,10 @@ impl Kzg {
 
         Ok(Self {
             trusted_setup: KzgSettings::load_trusted_setup(
-                &trusted_setup.g1_points(),
-                &trusted_setup.g2_points(),
+                &ckzg_trusted_setup.g1_monomial(),
+                &ckzg_trusted_setup.g1_lagrange(),
+                &ckzg_trusted_setup.g2_monomial(),
+                NO_PRECOMPUTE,
             )?,
             context,
         })
@@ -128,7 +121,8 @@ impl Kzg {
         blob: &Blob,
         kzg_commitment: KzgCommitment,
     ) -> Result<KzgProof, Error> {
-        c_kzg::KzgProof::compute_blob_kzg_proof(blob, &kzg_commitment.into(), &self.trusted_setup)
+        self.trusted_setup
+            .compute_blob_kzg_proof(blob, &kzg_commitment.into())
             .map(|proof| KzgProof(proof.to_bytes().into_inner()))
             .map_err(Into::into)
     }
@@ -140,11 +134,10 @@ impl Kzg {
         kzg_commitment: KzgCommitment,
         kzg_proof: KzgProof,
     ) -> Result<(), Error> {
-        if !c_kzg::KzgProof::verify_blob_kzg_proof(
+        if !self.trusted_setup.verify_blob_kzg_proof(
             blob,
             &kzg_commitment.into(),
             &kzg_proof.into(),
-            &self.trusted_setup,
         )? {
             Err(Error::KzgVerificationFailed)
         } else {
@@ -172,11 +165,10 @@ impl Kzg {
             .map(|proof| Bytes48::from(*proof))
             .collect::<Vec<_>>();
 
-        if !c_kzg::KzgProof::verify_blob_kzg_proof_batch(
+        if !self.trusted_setup.verify_blob_kzg_proof_batch(
             blobs,
             &commitments_bytes,
             &proofs_bytes,
-            &self.trusted_setup,
         )? {
             Err(Error::KzgVerificationFailed)
         } else {
@@ -186,7 +178,8 @@ impl Kzg {
 
     /// Converts a blob to a kzg commitment.
     pub fn blob_to_kzg_commitment(&self, blob: &Blob) -> Result<KzgCommitment, Error> {
-        c_kzg::KzgCommitment::blob_to_kzg_commitment(blob, &self.trusted_setup)
+        self.trusted_setup
+            .blob_to_kzg_commitment(blob)
             .map(|commitment| KzgCommitment(commitment.to_bytes().into_inner()))
             .map_err(Into::into)
     }
@@ -197,7 +190,8 @@ impl Kzg {
         blob: &Blob,
         z: &Bytes32,
     ) -> Result<(KzgProof, Bytes32), Error> {
-        c_kzg::KzgProof::compute_kzg_proof(blob, z, &self.trusted_setup)
+        self.trusted_setup
+            .compute_kzg_proof(blob, z)
             .map(|(proof, y)| (KzgProof(proof.to_bytes().into_inner()), y))
             .map_err(Into::into)
     }
@@ -210,14 +204,9 @@ impl Kzg {
         y: &Bytes32,
         kzg_proof: KzgProof,
     ) -> Result<bool, Error> {
-        c_kzg::KzgProof::verify_kzg_proof(
-            &kzg_commitment.into(),
-            z,
-            y,
-            &kzg_proof.into(),
-            &self.trusted_setup,
-        )
-        .map_err(Into::into)
+        self.trusted_setup
+            .verify_kzg_proof(&kzg_commitment.into(), z, y, &kzg_proof.into())
+            .map_err(Into::into)
     }
 
     /// Computes the cells and associated proofs for a given `blob`.
@@ -243,31 +232,87 @@ impl Kzg {
     }
 
     /// Verifies a batch of cell-proof-commitment triplets.
+    #[instrument(skip_all, level = "debug", fields(cells = cells.len()))]
     pub fn verify_cell_proof_batch(
         &self,
         cells: &[CellRef<'_>],
         kzg_proofs: &[Bytes48],
-        columns: Vec<CellIndex>,
+        indices: Vec<CellIndex>,
         kzg_commitments: &[Bytes48],
-    ) -> Result<(), Error> {
-        let proofs: Vec<_> = kzg_proofs.iter().map(|proof| proof.as_ref()).collect();
-        let commitments: Vec<_> = kzg_commitments
-            .iter()
-            .map(|commitment| commitment.as_ref())
-            .collect();
-        let verification_result = self.context().verify_cell_kzg_proof_batch(
-            commitments.to_vec(),
-            columns,
-            cells.to_vec(),
-            proofs.to_vec(),
-        );
+    ) -> Result<(), (Option<u64>, Error)> {
+        let mut column_groups: HashMap<u64, Vec<(CellRef, Bytes48, Bytes48)>> = HashMap::new();
 
-        // Modify the result so it matches roughly what the previous method was doing.
-        match verification_result {
-            Ok(_) => Ok(()),
-            Err(e) if e.invalid_proof() => Err(Error::KzgVerificationFailed),
-            Err(e) => Err(Error::PeerDASKZG(e)),
+        let expected_len = cells.len();
+
+        // This check is already made in `validate_data_columns`. However we add it here so that ef consensus spec tests pass
+        // and to avoid any potential footguns in the future. Note that by catching the error here and not in `validate_data_columns`
+        // the error becomes non-attributable.
+        if kzg_proofs.len() != expected_len
+            || indices.len() != expected_len
+            || kzg_commitments.len() != expected_len
+        {
+            return Err((
+                None,
+                Error::InconsistentArrayLength("Invalid data column".to_string()),
+            ));
         }
+
+        for (((cell, proof), &index), commitment) in cells
+            .iter()
+            .zip(kzg_proofs.iter())
+            .zip(indices.iter())
+            .zip(kzg_commitments.iter())
+        {
+            column_groups
+                .entry(index)
+                .or_default()
+                .push((cell, *proof, *commitment));
+        }
+
+        let span = Span::current();
+        column_groups
+            .into_par_iter()
+            .map(|(column_index, column_data)| {
+                let mut cells = Vec::new();
+                let mut proofs = Vec::new();
+                let mut commitments = Vec::new();
+
+                for (cell, proof, commitment) in &column_data {
+                    cells.push(*cell);
+                    proofs.push(proof.as_ref());
+                    commitments.push(commitment.as_ref());
+                }
+
+                // Create per-chunk tracing span for visualizing parallel processing.
+                // This is safe from span explosion as we have at most 128 chunks,
+                // i.e. the number of column indices.
+                let _span = tracing::debug_span!(
+                    parent: span.clone(),
+                    "verify_cell_proof_chunk",
+                    cells = cells.len(),
+                    column_index,
+                    verification_result = tracing::field::Empty,
+                )
+                .entered();
+
+                let verification_result = self.context().verify_cell_kzg_proof_batch(
+                    commitments,
+                    &vec![column_index; cells.len()], // All column_data here is from the same index
+                    cells,
+                    proofs,
+                );
+
+                match verification_result {
+                    Ok(_) => Ok(()),
+                    Err(e) if e.is_proof_invalid() => {
+                        Err((Some(column_index), Error::KzgVerificationFailed))
+                    }
+                    Err(e) => Err((Some(column_index), Error::PeerDASKZG(e))),
+                }
+            })
+            .collect::<Result<Vec<()>, (Option<u64>, Error)>>()?;
+
+        Ok(())
     }
 
     pub fn recover_cells_and_compute_kzg_proofs(

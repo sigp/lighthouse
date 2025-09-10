@@ -41,7 +41,7 @@ impl<E: EthSpec> MockBeaconNode<E> {
 
     pub fn mock_config_spec(&mut self, spec: &ChainSpec) {
         let path_pattern = Regex::new(r"^/eth/v1/config/spec$").unwrap();
-        let config_and_preset = ConfigAndPreset::from_chain_spec::<E>(spec, None);
+        let config_and_preset = ConfigAndPreset::from_chain_spec::<E>(spec);
         let data = GenericResponse::from(config_and_preset);
         self.server
             .mock("GET", Matcher::Regex(path_pattern.to_string()))

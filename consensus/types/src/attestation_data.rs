@@ -1,7 +1,7 @@
 use crate::slot_data::SlotData;
 use crate::test_utils::TestRandom;
 use crate::{Checkpoint, ForkName, Hash256, SignedRoot, Slot};
-use context_deserialize_derive::context_deserialize;
+use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -9,8 +9,8 @@ use tree_hash_derive::TreeHash;
 /// The data upon which an attestation is based.
 ///
 /// Spec v0.12.1
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    arbitrary::Arbitrary,
     Debug,
     Clone,
     PartialEq,

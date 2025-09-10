@@ -1,5 +1,5 @@
 use crate::errors::BeaconChainError;
-use crate::{metrics, BeaconChainTypes, BeaconStore};
+use crate::{BeaconChainTypes, BeaconStore, metrics};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use ssz::Decode;
@@ -40,6 +40,10 @@ pub struct LightClientServerCache<T: BeaconChainTypes> {
     latest_written_current_sync_committee: RwLock<Option<Arc<SyncCommittee<T::EthSpec>>>>,
     /// Caches state proofs by block root
     prev_block_cache: Mutex<lru::LruCache<Hash256, LightClientCachedData<T::EthSpec>>>,
+    /// Tracks the latest broadcasted finality update
+    latest_broadcasted_finality_update: RwLock<Option<LightClientFinalityUpdate<T::EthSpec>>>,
+    /// Tracks the latest broadcasted optimistic update
+    latest_broadcasted_optimistic_update: RwLock<Option<LightClientOptimisticUpdate<T::EthSpec>>>,
 }
 
 impl<T: BeaconChainTypes> LightClientServerCache<T> {
@@ -49,6 +53,8 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
             latest_optimistic_update: None.into(),
             latest_light_client_update: None.into(),
             latest_written_current_sync_committee: None.into(),
+            latest_broadcasted_finality_update: None.into(),
+            latest_broadcasted_optimistic_update: None.into(),
             prev_block_cache: lru::LruCache::new(PREV_BLOCK_CACHE_SIZE).into(),
         }
     }
@@ -217,10 +223,9 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
     ) -> Result<(), BeaconChainError> {
         if let Some(latest_sync_committee) =
             self.latest_written_current_sync_committee.read().clone()
+            && latest_sync_committee == cached_parts.current_sync_committee
         {
-            if latest_sync_committee == cached_parts.current_sync_committee {
-                return Ok(());
-            }
+            return Ok(());
         };
 
         if finalized_period + 1 >= sync_committee_period {
@@ -334,8 +339,87 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         Ok(new_value)
     }
 
+    /// Checks if we've already broadcasted the latest finality update.
+    /// If we haven't, update the `latest_broadcasted_finality_update` cache
+    /// and return the latest finality update for broadcasting, else return `None`.
+    pub fn should_broadcast_latest_finality_update(
+        &self,
+    ) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
+        if let Some(latest_finality_update) = self.get_latest_finality_update() {
+            let latest_broadcasted_finality_update = self.get_latest_broadcasted_finality_update();
+            match latest_broadcasted_finality_update {
+                Some(latest_broadcasted_finality_update) => {
+                    if latest_broadcasted_finality_update != latest_finality_update {
+                        self.set_latest_broadcasted_finality_update(latest_finality_update.clone());
+                        return Some(latest_finality_update);
+                    }
+                }
+                None => {
+                    self.set_latest_broadcasted_finality_update(latest_finality_update.clone());
+                    return Some(latest_finality_update);
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn get_latest_finality_update(&self) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
         self.latest_finality_update.read().clone()
+    }
+
+    pub fn get_latest_broadcasted_optimistic_update(
+        &self,
+    ) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
+        self.latest_broadcasted_optimistic_update.read().clone()
+    }
+
+    pub fn get_latest_broadcasted_finality_update(
+        &self,
+    ) -> Option<LightClientFinalityUpdate<T::EthSpec>> {
+        self.latest_broadcasted_finality_update.read().clone()
+    }
+
+    pub fn set_latest_broadcasted_optimistic_update(
+        &self,
+        optimistic_update: LightClientOptimisticUpdate<T::EthSpec>,
+    ) {
+        *self.latest_broadcasted_optimistic_update.write() = Some(optimistic_update.clone());
+    }
+
+    pub fn set_latest_broadcasted_finality_update(
+        &self,
+        finality_update: LightClientFinalityUpdate<T::EthSpec>,
+    ) {
+        *self.latest_broadcasted_finality_update.write() = Some(finality_update.clone());
+    }
+
+    /// Checks if we've already broadcasted the latest optimistic update.
+    /// If we haven't, update the `latest_broadcasted_optimistic_update` cache
+    /// and return the latest optimistic update for broadcasting, else return `None`.
+    pub fn should_broadcast_latest_optimistic_update(
+        &self,
+    ) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
+        if let Some(latest_optimistic_update) = self.get_latest_optimistic_update() {
+            let latest_broadcasted_optimistic_update =
+                self.get_latest_broadcasted_optimistic_update();
+            match latest_broadcasted_optimistic_update {
+                Some(latest_broadcasted_optimistic_update) => {
+                    if latest_broadcasted_optimistic_update != latest_optimistic_update {
+                        self.set_latest_broadcasted_optimistic_update(
+                            latest_optimistic_update.clone(),
+                        );
+                        return Some(latest_optimistic_update);
+                    }
+                }
+                None => {
+                    self.set_latest_broadcasted_optimistic_update(latest_optimistic_update.clone());
+                    return Some(latest_optimistic_update);
+                }
+            }
+        }
+
+        None
     }
 
     pub fn get_latest_optimistic_update(&self) -> Option<LightClientOptimisticUpdate<T::EthSpec>> {
@@ -374,15 +458,15 @@ impl<T: BeaconChainTypes> LightClientServerCache<T> {
         let Some(current_sync_committee_branch) = store.get_sync_committee_branch(block_root)?
         else {
             return Err(BeaconChainError::LightClientBootstrapError(format!(
-                "Sync committee branch for block root {:?} not found",
+                "Sync committee branch for block root {:?} not found. This typically occurs when the block is not a finalized checkpoint. Light client bootstrap is only supported for finalized checkpoint block roots.",
                 block_root
             )));
         };
 
         if sync_committee_period > finalized_period {
-            return Err(BeaconChainError::LightClientBootstrapError(
-                format!("The blocks sync committee period {sync_committee_period} is greater than the current finalized period {finalized_period}"),
-            ));
+            return Err(BeaconChainError::LightClientBootstrapError(format!(
+                "The blocks sync committee period {sync_committee_period} is greater than the current finalized period {finalized_period}"
+            )));
         }
 
         let Some(current_sync_committee) = store.get_sync_committee(sync_committee_period)? else {

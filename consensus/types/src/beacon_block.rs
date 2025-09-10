@@ -16,7 +16,7 @@ use self::indexed_attestation::IndexedAttestationBase;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             Debug,
@@ -28,14 +28,17 @@ use self::indexed_attestation::IndexedAttestationBase;
             TreeHash,
             TestRandom,
             Derivative,
-            arbitrary::Arbitrary
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")),
         serde(
             bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
             deny_unknown_fields
         ),
-        arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
+        )
     ),
     ref_attributes(
         derive(Debug, PartialEq, TreeHash),
@@ -44,13 +47,15 @@ use self::indexed_attestation::IndexedAttestationBase;
     map_ref_into(BeaconBlockBodyRef, BeaconBlock),
     map_ref_mut_into(BeaconBlockBodyRefMut)
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
 )]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
-#[arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload<E>> {
@@ -77,6 +82,8 @@ pub struct BeaconBlock<E: EthSpec, Payload: AbstractExecPayload<E> = FullPayload
     pub body: BeaconBlockBodyElectra<E, Payload>,
     #[superstruct(only(Fulu), partial_getter(rename = "body_fulu"))]
     pub body: BeaconBlockBodyFulu<E, Payload>,
+    #[superstruct(only(Gloas), partial_getter(rename = "body_gloas"))]
+    pub body: BeaconBlockBodyGloas<E, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
@@ -129,8 +136,9 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlock<E, Payload> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconBlockFulu::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Fulu)
+        BeaconBlockGloas::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Gloas)
+            .or_else(|_| BeaconBlockFulu::from_ssz_bytes(bytes).map(BeaconBlock::Fulu))
             .or_else(|_| BeaconBlockElectra::from_ssz_bytes(bytes).map(BeaconBlock::Electra))
             .or_else(|_| BeaconBlockDeneb::from_ssz_bytes(bytes).map(BeaconBlock::Deneb))
             .or_else(|_| BeaconBlockCapella::from_ssz_bytes(bytes).map(BeaconBlock::Capella))
@@ -230,6 +238,7 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockRef<'a, E, Payl
             BeaconBlockRef::Deneb { .. } => ForkName::Deneb,
             BeaconBlockRef::Electra { .. } => ForkName::Electra,
             BeaconBlockRef::Fulu { .. } => ForkName::Fulu,
+            BeaconBlockRef::Gloas { .. } => ForkName::Gloas,
         }
     }
 
@@ -414,7 +423,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockAlta
     /// Returns an empty Altair block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockAltair {
-            slot: spec.genesis_slot,
+            slot: spec
+                .altair_fork_epoch
+                .expect("altair enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -447,7 +459,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockAltair<E, Payload> 
             sync_committee_bits: BitVector::default(),
         };
         BeaconBlockAltair {
-            slot: spec.genesis_slot,
+            slot: spec
+                .altair_fork_epoch
+                .expect("altair enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -475,7 +490,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockBell
     /// Returns an empty Bellatrix block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockBellatrix {
-            slot: spec.genesis_slot,
+            slot: spec
+                .bellatrix_fork_epoch
+                .expect("bellatrix enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -503,7 +521,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockCape
     /// Returns an empty Capella block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockCapella {
-            slot: spec.genesis_slot,
+            slot: spec
+                .capella_fork_epoch
+                .expect("capella enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -532,7 +553,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockDene
     /// Returns an empty Deneb block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockDeneb {
-            slot: spec.genesis_slot,
+            slot: spec
+                .deneb_fork_epoch
+                .expect("deneb enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -562,7 +586,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockElec
     /// Returns an empty Electra block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockElectra {
-            slot: spec.genesis_slot,
+            slot: spec
+                .electra_fork_epoch
+                .expect("electra enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -593,7 +620,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockFulu
     /// Returns an empty Fulu block to be used during genesis.
     fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockFulu {
-            slot: spec.genesis_slot,
+            slot: spec
+                .fulu_fork_epoch
+                .expect("fulu enabled")
+                .start_slot(E::slots_per_epoch()),
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
@@ -612,6 +642,37 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockFulu
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
                 execution_payload: Payload::Fulu::default(),
+                bls_to_execution_changes: VariableList::empty(),
+                blob_kzg_commitments: VariableList::empty(),
+                execution_requests: ExecutionRequests::default(),
+            },
+        }
+    }
+}
+
+impl<E: EthSpec, Payload: AbstractExecPayload<E>> EmptyBlock for BeaconBlockGloas<E, Payload> {
+    /// Returns an empty Gloas block to be used during genesis.
+    fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockGloas {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyGloas {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                execution_payload: Payload::Gloas::default(),
                 bls_to_execution_changes: VariableList::empty(),
                 blob_kzg_commitments: VariableList::empty(),
                 execution_requests: ExecutionRequests::default(),
@@ -702,6 +763,7 @@ impl_from!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |bod
 impl_from!(BeaconBlockDeneb, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyDeneb<_, _>| body.into());
 impl_from!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyElectra<_, _>| body.into());
 impl_from!(BeaconBlockFulu, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyFulu<_, _>| body.into());
+impl_from!(BeaconBlockGloas, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyGloas<_, _>| body.into());
 
 // We can clone blocks with payloads to blocks without payloads, without cloning the payload.
 macro_rules! impl_clone_as_blinded {
@@ -736,6 +798,7 @@ impl_clone_as_blinded!(BeaconBlockCapella, <E, FullPayload<E>>, <E, BlindedPaylo
 impl_clone_as_blinded!(BeaconBlockDeneb, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockElectra, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 impl_clone_as_blinded!(BeaconBlockFulu, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockGloas, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
 
 // A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
 // execution payload.
@@ -801,7 +864,7 @@ impl fmt::Display for BlockImportSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::{test_ssz_tree_hash_pair_with, SeedableRng, XorShiftRng};
+    use crate::test_utils::{SeedableRng, XorShiftRng, test_ssz_tree_hash_pair_with};
     use ssz::Encode;
 
     type BeaconBlock = super::BeaconBlock<MainnetEthSpec>;
@@ -925,6 +988,26 @@ mod tests {
     }
 
     #[test]
+    fn roundtrip_gloas_block() {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let spec = &ForkName::Gloas.make_genesis_spec(MainnetEthSpec::default_spec());
+
+        let inner_block = BeaconBlockGloas {
+            slot: Slot::random_for_test(rng),
+            proposer_index: u64::random_for_test(rng),
+            parent_root: Hash256::random_for_test(rng),
+            state_root: Hash256::random_for_test(rng),
+            body: BeaconBlockBodyGloas::random_for_test(rng),
+        };
+
+        let block = BeaconBlock::Gloas(inner_block.clone());
+
+        test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
+            BeaconBlock::from_ssz_bytes(bytes, spec)
+        });
+    }
+
+    #[test]
     fn decode_base_and_altair() {
         type E = MainnetEthSpec;
         let mut spec = E::default_spec();
@@ -945,12 +1028,15 @@ mod tests {
         let electra_slot = electra_epoch.start_slot(E::slots_per_epoch());
         let fulu_epoch = electra_epoch + 1;
         let fulu_slot = fulu_epoch.start_slot(E::slots_per_epoch());
+        let gloas_epoch = fulu_epoch + 1;
+        let gloas_slot = gloas_epoch.start_slot(E::slots_per_epoch());
 
         spec.altair_fork_epoch = Some(altair_epoch);
         spec.capella_fork_epoch = Some(capella_epoch);
         spec.deneb_fork_epoch = Some(deneb_epoch);
         spec.electra_fork_epoch = Some(electra_epoch);
         spec.fulu_fork_epoch = Some(fulu_epoch);
+        spec.gloas_fork_epoch = Some(gloas_epoch);
 
         // BeaconBlockBase
         {
@@ -1068,22 +1154,37 @@ mod tests {
                 slot: fulu_slot,
                 ..<_>::random_for_test(rng)
             });
-            // It's invalid to have a Fulu block with a epoch lower than the fork epoch.
-            let _bad_block = {
-                let mut bad = good_block.clone();
-                *bad.slot_mut() = electra_slot;
-                bad
-            };
 
             assert_eq!(
                 BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
                     .expect("good fulu block can be decoded"),
                 good_block
             );
-            // TODO(fulu): Uncomment once Fulu has features since without features
-            // and with an Electra slot it decodes successfully to Electra.
+        }
+
+        // BeaconBlockGloas
+        {
+            let good_block = BeaconBlock::Gloas(BeaconBlockGloas {
+                slot: gloas_slot,
+                ..<_>::random_for_test(rng)
+            });
+            // It's invalid to have a Fulu block with a epoch lower than the fork epoch.
+            let _bad_block = {
+                let mut bad = good_block.clone();
+                *bad.slot_mut() = fulu_slot;
+                bad
+            };
+
+            assert_eq!(
+                BeaconBlock::from_ssz_bytes(&good_block.as_ssz_bytes(), &spec)
+                    .expect("good gloas block can be decoded"),
+                good_block
+            );
+
+            // TODO(gloas): Uncomment once Gloas has features since without features
+            // and with a Fulu slot it decodes successfully to Fulu.
             //BeaconBlock::from_ssz_bytes(&bad_block.as_ssz_bytes(), &spec)
-            //    .expect_err("bad fulu block cannot be decoded");
+            //    .expect_err("bad gloas block cannot be decoded");
         }
     }
 }

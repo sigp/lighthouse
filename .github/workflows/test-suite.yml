@@ -81,7 +81,7 @@ jobs:
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     # Set Java version to 21. (required since Web3Signer 24.12.0).
     - uses: actions/setup-java@v4
       with:
@@ -102,9 +102,10 @@ jobs:
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
-      run: make nextest-release
+      run: make test-release
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   release-tests-windows:
     name: release-tests-windows
@@ -112,7 +113,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "windows", "CI"]') || 'windows-2019'  }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -133,9 +134,10 @@ jobs:
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
-      run: make nextest-release
+      run: make test-release
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   beacon-chain-tests:
     name: beacon-chain-tests
@@ -146,7 +148,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -158,6 +160,30 @@ jobs:
       run: make test-beacon-chain
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
+      run: sccache --show-stats
+  http-api-tests:
+    name: http-api-tests
+    needs: [check-labels]
+    if: needs.check-labels.outputs.skip_ci != 'true'
+    # Use self-hosted runners only on the sigp repo.
+    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v5
+    - name: Get latest version of stable Rust
+      if: env.SELF_HOSTED_RUNNERS == 'false'
+      uses: moonrepo/setup-rust@v1
+      with:
+          channel: stable
+          cache-target: release
+          bins: cargo-nextest
+    - name: Run http_api tests for all recent forks
+      run: make test-http-api
+    - name: Show cache stats
+      if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   op-pool-tests:
     name: op-pool-tests
@@ -167,7 +193,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -184,7 +210,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -212,7 +238,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -230,7 +256,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -243,9 +269,10 @@ jobs:
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in debug
-      run: make nextest-debug
+      run: make test-debug
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   state-transition-vectors-ubuntu:
     name: state-transition-vectors-ubuntu
@@ -253,7 +280,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -270,7 +297,7 @@ jobs:
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -279,9 +306,10 @@ jobs:
           cache-target: release
           bins: cargo-nextest
     - name: Run consensus-spec-tests with blst and fake_crypto
-      run: make nextest-ef
+      run: make test-ef
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
+      continue-on-error: true
       run: sccache --show-stats
   basic-simulator-ubuntu:
     name: basic-simulator-ubuntu
@@ -289,7 +317,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -310,7 +338,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -331,7 +359,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "small"]') || 'ubuntu-latest'  }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
@@ -352,7 +380,7 @@ jobs:
     env:
       CARGO_INCREMENTAL: 1
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -382,7 +410,7 @@ jobs:
     name: check-msrv
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Install Rust at Minimum Supported Rust Version (MSRV)
       run: |
         metadata=$(cargo metadata --no-deps --format-version 1)
@@ -396,7 +424,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of nightly Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -424,7 +452,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Install dependencies
       run: sudo apt update && sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
     - name: Use Rust beta
@@ -437,7 +465,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -451,7 +479,7 @@ jobs:
     if: needs.check-labels.outputs.skip_ci != 'true'
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -475,6 +503,7 @@ jobs:
       'op-pool-tests',
       'network-tests',
       'slasher-tests',
+      'http-api-tests',
       'debug-tests-ubuntu',
       'state-transition-vectors-ubuntu',
       'ef-tests-ubuntu',
@@ -490,6 +519,6 @@ jobs:
       'cargo-sort',
     ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Check that success job is dependent on all others
         run: ./scripts/ci/check-success-job.sh ./.github/workflows/test-suite.yml test-suite-success

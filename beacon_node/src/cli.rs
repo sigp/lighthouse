@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use clap::{builder::ArgPredicate, crate_version, Arg, ArgAction, ArgGroup, Command};
-use clap_utils::{get_color_style, FLAG_HEADER};
+use clap::{Arg, ArgAction, ArgGroup, Command, builder::ArgPredicate, crate_version};
+use clap_utils::{FLAG_HEADER, get_color_style};
 use strum::VariantNames;
 
 #[allow(clippy::large_stack_frames)]
@@ -75,15 +75,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
                 .help("Advertises a false CGC for testing PeerDAS. Do NOT use in production.")
-                .hide(true)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("enable-sampling")
-                .long("enable-sampling")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .help("Enable peer sampling on data columns. Disabled by default.")
                 .hide(true)
                 .display_order(0)
         )
@@ -245,7 +236,6 @@ pub fn cli_app() -> Command {
                 .long("network-load")
                 .value_name("INTEGER")
                 .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].")
-                .default_value("3")
                 .hide(true)
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -703,53 +693,32 @@ pub fn cli_app() -> Command {
          * Eth1 Integration
          */
         .arg(
-            Arg::new("eth1")
-                .long("eth1")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("dummy-eth1")
-                .long("dummy-eth1")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("eth1")
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
             Arg::new("eth1-purge-cache")
                 .long("eth1-purge-cache")
                 .value_name("PURGE-CACHE")
-                .help("Purges the eth1 block and deposit caches")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("eth1-blocks-per-log-query")
                 .long("eth1-blocks-per-log-query")
                 .value_name("BLOCKS")
-                .help("Specifies the number of blocks that a deposit log query should span. \
-                    This will reduce the size of responses from the Eth1 endpoint.")
-                .default_value("1000")
+                .help("DEPRECATED")
                 .action(ArgAction::Set)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("eth1-cache-follow-distance")
                 .long("eth1-cache-follow-distance")
                 .value_name("BLOCKS")
-                .help("Specifies the distance between the Eth1 chain head and the last block which \
-                       should be imported into the cache. Setting this value lower can help \
-                       compensate for irregular Proof-of-Work block times, but setting it too low \
-                       can make the node vulnerable to re-orgs.")
+                .help("DEPRECATED")
                 .action(ArgAction::Set)
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("slots-per-restore-point")
@@ -818,11 +787,23 @@ pub fn cli_app() -> Command {
             Arg::new("hdiff-buffer-cache-size")
                 .long("hdiff-buffer-cache-size")
                 .value_name("SIZE")
-                .help("Number of hierarchical diff (hdiff) buffers to cache in memory. Each buffer \
-                       is around the size of a BeaconState so you should be cautious about setting \
-                       this value too high. This flag is irrelevant for most nodes, which run with \
-                       state pruning enabled.")
+                .help("Number of cold hierarchical diff (hdiff) buffers to cache in memory. Each \
+                       buffer is around the size of a BeaconState so you should be cautious about \
+                       setting this value too high. This flag is irrelevant for most nodes, which \
+                       run with state pruning enabled.")
                 .default_value("16")
+                .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("hot-hdiff-buffer-cache-size")
+                .long("hot-hdiff-buffer-cache-size")
+                .value_name("SIZE")
+                .help("Number of hot hierarchical diff (hdiff) buffers to cache in memory. Each \
+                       buffer is around the size of a BeaconState so you should be cautious about \
+                       setting this value too high. Setting this value higher can reduce the time \
+                       taken to store new states on disk at the cost of higher memory usage.")
+                .default_value("1")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -831,7 +812,7 @@ pub fn cli_app() -> Command {
                 .long("state-cache-size")
                 .value_name("STATE_CACHE_SIZE")
                 .help("Specifies the size of the state cache")
-                .default_value("32")
+                .default_value("128")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
@@ -925,6 +906,14 @@ pub fn cli_app() -> Command {
                 .help("Unsigned integer to multiply the default execution timeouts by.")
                 .default_value("1")
                 .action(ArgAction::Set)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-get-blobs")
+                .long("disable-get-blobs")
+                .help("Disables the getBlobs optimisation to fetch blobs from the EL mempool")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(
@@ -1501,13 +1490,12 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("disable-deposit-contract-sync")
                 .long("disable-deposit-contract-sync")
-                .help("Explicitly disables syncing of deposit logs from the execution node. \
-                      This overrides any previous option that depends on it. \
-                      Useful if you intend to run a non-validating beacon node.")
+                .help("DEPRECATED")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .conflicts_with("staking")
                 .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("disable-optimistic-finalized-sync")
@@ -1655,7 +1643,7 @@ pub fn cli_app() -> Command {
         .arg(
             Arg::new("delay-data-column-publishing")
                 .long("delay-data-column-publishing")
-                .value_name("SECONDS") 
+                .value_name("SECONDS")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
                 .help("TESTING ONLY: Artificially delay data column publishing by the specified number of seconds. \

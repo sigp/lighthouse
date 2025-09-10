@@ -118,10 +118,10 @@ pub mod attesting_indices_electra {
                 .iter()
                 .enumerate()
                 .filter_map(|(i, &index)| {
-                    if let Ok(aggregation_bit_index) = committee_offset.safe_add(i) {
-                        if aggregation_bits.get(aggregation_bit_index).unwrap_or(false) {
-                            return Some(index as u64);
-                        }
+                    if let Ok(aggregation_bit_index) = committee_offset.safe_add(i)
+                        && aggregation_bits.get(aggregation_bit_index).unwrap_or(false)
+                    {
+                        return Some(index as u64);
                     }
                     None
                 })

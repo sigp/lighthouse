@@ -1,10 +1,10 @@
 [package]
 name = "lighthouse"
-version = "7.1.0-beta.0"
+version = "7.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
-rust-version = "1.83.0"
+rust-version = "1.88.0"
 
 # Prevent cargo-udeps from flagging the dummy package `target_check`, which exists only
 # to assert properties of the compilation target.
@@ -35,9 +35,8 @@ beacon-node-leveldb = ["store/leveldb"]
 beacon-node-redb = ["store/redb"]
 # Supports console subscriber for debugging
 console-subscriber = ["console-subscriber/default"]
-
-# Deprecated. This is now enabled by default on non windows targets.
-jemalloc = []
+# Force the use of the system memory allocator rather than jemalloc.
+sysmalloc = ["malloc_utils/sysmalloc"]
 
 [dependencies]
 account_manager = { "path" = "../account_manager" }
@@ -54,10 +53,14 @@ environment = { workspace = true }
 eth2_network_config = { workspace = true }
 ethereum_hashing = { workspace = true }
 futures = { workspace = true }
+lighthouse_tracing = { workspace = true }
 lighthouse_version = { workspace = true }
 logging = { workspace = true }
-malloc_utils = { workspace = true }
 metrics = { workspace = true }
+network_utils = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -65,9 +68,9 @@ slasher = { workspace = true }
 store = { workspace = true }
 task_executor = { workspace = true }
 tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true }
 types = { workspace = true }
-unused_port = { workspace = true }
 validator_client = { workspace = true }
 validator_manager = { path = "../validator_manager" }
 
@@ -75,12 +78,11 @@ validator_manager = { path = "../validator_manager" }
 malloc_utils = { workspace = true, features = ["jemalloc"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-malloc_utils = { workspace = true }
+malloc_utils = { workspace = true, features = [] }
 
 [dev-dependencies]
 beacon_node_fallback = { workspace = true }
 beacon_processor = { workspace = true }
-eth1 = { workspace = true }
 eth2 = { workspace = true }
 initialized_validators = { workspace = true }
 lighthouse_network = { workspace = true }

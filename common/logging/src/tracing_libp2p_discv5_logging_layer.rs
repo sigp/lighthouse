@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
-use tracing_subscriber::{layer::Context, Layer};
+use tracing_subscriber::{Layer, layer::Context};
 
 pub struct Libp2pDiscv5TracingLayer {
     pub libp2p_non_blocking_writer: NonBlocking,
@@ -65,11 +65,11 @@ pub fn create_libp2p_discv5_tracing_layer(
         // Ensure that `tracing_log_path` only contains directories.
         for p in tracing_log_path.clone().iter() {
             tracing_log_path = tracing_log_path.join(p);
-            if let Ok(metadata) = tracing_log_path.metadata() {
-                if !metadata.is_dir() {
-                    tracing_log_path.pop();
-                    break;
-                }
+            if let Ok(metadata) = tracing_log_path.metadata()
+                && !metadata.is_dir()
+            {
+                tracing_log_path.pop();
+                break;
             }
         }
 

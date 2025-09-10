@@ -1,7 +1,7 @@
 use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
 use operation_pool::{
-    AttMaxCover, MaxCover, RewardCache, SplitAttestation, PROPOSER_REWARD_DENOMINATOR,
+    AttMaxCover, MaxCover, PROPOSER_REWARD_DENOMINATOR, RewardCache, SplitAttestation,
 };
 use state_processing::{
     common::get_attesting_indices_from_state,

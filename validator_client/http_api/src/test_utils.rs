@@ -7,25 +7,26 @@ use account_utils::{
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
 use eth2::{
+    Error as ApiError,
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
-    Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
-use initialized_validators::key_cache::{KeyCache, CACHE_FILENAME};
+use initialized_validators::key_cache::{CACHE_FILENAME, KeyCache};
 use initialized_validators::{InitializedValidators, OnDecryptFailure};
 use lighthouse_validator_store::{Config as ValidatorStoreConfig, LighthouseValidatorStore};
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
+use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::test_utils::TestRuntime;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use tokio::sync::oneshot;
+use types::ChainSpec;
 use validator_services::block_service::BlockService;
 use zeroize::Zeroizing;
 
@@ -61,6 +62,7 @@ pub struct ApiTester {
     pub _server_shutdown: oneshot::Sender<()>,
     pub validator_dir: TempDir,
     pub secrets_dir: TempDir,
+    pub spec: Arc<ChainSpec>,
 }
 
 impl ApiTester {
@@ -69,6 +71,19 @@ impl ApiTester {
     }
 
     pub async fn new_with_http_config(http_config: HttpConfig) -> Self {
+        let slot_clock =
+            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
+        let genesis_validators_root = Hash256::repeat_byte(42);
+        let spec = Arc::new(E::default_spec());
+        Self::new_with_options(http_config, slot_clock, genesis_validators_root, spec).await
+    }
+
+    pub async fn new_with_options(
+        http_config: HttpConfig,
+        slot_clock: TestingSlotClock,
+        genesis_validators_root: Hash256,
+        spec: Arc<ChainSpec>,
+    ) -> Self {
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
         let token_path = tempdir().unwrap().path().join(PK_FILENAME);
@@ -91,20 +106,15 @@ impl ApiTester {
             ..Default::default()
         };
 
-        let spec = Arc::new(E::default_spec());
-
         let slashing_db_path = validator_dir.path().join(SLASHING_PROTECTION_FILENAME);
         let slashing_protection = SlashingDatabase::open_or_create(&slashing_db_path).unwrap();
-
-        let slot_clock =
-            TestingSlotClock::new(Slot::new(0), Duration::from_secs(0), Duration::from_secs(1));
 
         let test_runtime = TestRuntime::default();
 
         let validator_store = Arc::new(LighthouseValidatorStore::new(
             initialized_validators,
             slashing_protection,
-            Hash256::repeat_byte(42),
+            genesis_validators_root,
             spec.clone(),
             Some(Arc::new(DoppelgangerService::default())),
             slot_clock.clone(),
@@ -127,7 +137,7 @@ impl ApiTester {
             validator_store: Some(validator_store.clone()),
             graffiti_file: None,
             graffiti_flag: Some(Graffiti::default()),
-            spec,
+            spec: spec.clone(),
             config: http_config,
             sse_logging_components: None,
             slot_clock,
@@ -161,6 +171,7 @@ impl ApiTester {
             _server_shutdown: shutdown_tx,
             validator_dir,
             secrets_dir,
+            spec,
         }
     }
 
@@ -173,6 +184,7 @@ impl ApiTester {
             allow_keystore_export: true,
             store_passwords_in_secrets_dir: false,
             http_token_path: tempdir().unwrap().path().join(PK_FILENAME),
+            bn_long_timeouts: false,
         }
     }
 
@@ -244,11 +256,11 @@ impl ApiTester {
     pub async fn test_get_lighthouse_spec(self) -> Self {
         let result = self
             .client
-            .get_lighthouse_spec::<ConfigAndPresetFulu>()
+            .get_lighthouse_spec::<ConfigAndPresetGloas>()
             .await
-            .map(|res| ConfigAndPreset::Fulu(res.data))
+            .map(|res| ConfigAndPreset::Gloas(res.data))
             .unwrap();
-        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec(), None);
+        let expected = ConfigAndPreset::from_chain_spec::<E>(&E::default_spec());
 
         assert_eq!(result, expected);
 
@@ -358,9 +370,11 @@ impl ApiTester {
 
         // Ensure the server lists all of these newly created validators.
         for validator in &response {
-            assert!(server_vals
-                .iter()
-                .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey));
+            assert!(
+                server_vals
+                    .iter()
+                    .any(|server_val| server_val.voting_pubkey == validator.voting_pubkey)
+            );
         }
 
         /*
@@ -557,16 +571,17 @@ impl ApiTester {
             enabled
         );
 
-        assert!(self
-            .client
-            .get_lighthouse_validators()
-            .await
-            .unwrap()
-            .data
-            .into_iter()
-            .find(|v| v.voting_pubkey == validator.voting_pubkey)
-            .map(|v| v.enabled == enabled)
-            .unwrap());
+        assert!(
+            self.client
+                .get_lighthouse_validators()
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|v| v.voting_pubkey == validator.voting_pubkey)
+                .map(|v| v.enabled == enabled)
+                .unwrap()
+        );
 
         // Check the server via an individual request.
         assert_eq!(

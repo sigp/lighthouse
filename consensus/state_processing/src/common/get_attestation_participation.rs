@@ -1,13 +1,13 @@
 use integer_sqrt::IntegerSquareRoot;
 use smallvec::SmallVec;
+use types::{AttestationData, BeaconState, ChainSpec, EthSpec};
 use types::{
+    BeaconStateError as Error,
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
-    BeaconStateError as Error,
 };
-use types::{AttestationData, BeaconState, ChainSpec, EthSpec};
 
 /// Get the participation flags for a valid attestation.
 ///

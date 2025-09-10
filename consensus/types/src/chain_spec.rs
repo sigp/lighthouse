@@ -1,7 +1,9 @@
-use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
+use crate::application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 use crate::blob_sidecar::BlobIdentifier;
 use crate::data_column_sidecar::DataColumnsByRootIdentifier;
 use crate::*;
+use derivative::Derivative;
+use ethereum_hashing::hash;
 use int_to_bytes::int_to_bytes4;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -32,7 +34,8 @@ pub enum Domain {
 /// Lighthouse's internal configuration struct.
 ///
 /// Contains a mixture of "preset" and "config" values w.r.t to the EF definitions.
-#[derive(arbitrary::Arbitrary, PartialEq, Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
      * Config name
@@ -198,13 +201,19 @@ pub struct ChainSpec {
     pub fulu_fork_version: [u8; 4],
     /// The Fulu fork epoch is optional, with `None` representing "Fulu never happens".
     pub fulu_fork_epoch: Option<Epoch>,
-    pub number_of_columns: u64,
     pub number_of_custody_groups: u64,
     pub data_column_sidecar_subnet_count: u64,
     pub samples_per_slot: u64,
     pub custody_requirement: u64,
     pub validator_custody_requirement: u64,
     pub balance_per_additional_custody_group: u64,
+
+    /*
+     * Gloas hard fork params
+     */
+    pub gloas_fork_version: [u8; 4],
+    /// The Gloas fork epoch is optional, with `None` representing "Gloas never happens".
+    pub gloas_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -245,7 +254,12 @@ pub struct ChainSpec {
     /*
      * Networking Fulu
      */
-    blob_schedule: BlobSchedule,
+    pub(crate) blob_schedule: BlobSchedule,
+    min_epochs_for_data_column_sidecars_requests: u64,
+
+    /*
+     * Networking Gloas
+     */
 
     /*
      * Networking Derived
@@ -282,25 +296,13 @@ impl ChainSpec {
         genesis_validators_root: Hash256,
     ) -> EnrForkId {
         EnrForkId {
-            fork_digest: self.fork_digest::<E>(slot, genesis_validators_root),
+            fork_digest: self
+                .compute_fork_digest(genesis_validators_root, slot.epoch(E::slots_per_epoch())),
             next_fork_version: self.next_fork_version::<E>(slot),
             next_fork_epoch: self
-                .next_fork_epoch::<E>(slot)
-                .map(|(_, e)| e)
+                .next_digest_epoch(slot.epoch(E::slots_per_epoch()))
                 .unwrap_or(self.far_future_epoch),
         }
-    }
-
-    /// Returns the `ForkDigest` for the given slot.
-    ///
-    /// If `self.altair_fork_epoch == None`, then this function returns the genesis fork digest
-    /// otherwise, returns the fork digest based on the slot.
-    pub fn fork_digest<E: EthSpec>(&self, slot: Slot, genesis_validators_root: Hash256) -> [u8; 4] {
-        let fork_name = self.fork_name_at_slot::<E>(slot);
-        Self::compute_fork_digest(
-            self.fork_version_for_name(fork_name),
-            genesis_validators_root,
-        )
     }
 
     /// Returns the `next_fork_version`.
@@ -330,25 +332,26 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.fulu_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Fulu,
-            _ => match self.electra_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Electra,
-                _ => match self.deneb_fork_epoch {
-                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Deneb,
-                    _ => match self.capella_fork_epoch {
-                        Some(fork_epoch) if epoch >= fork_epoch => ForkName::Capella,
-                        _ => match self.bellatrix_fork_epoch {
-                            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
-                            _ => match self.altair_fork_epoch {
-                                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                                _ => ForkName::Base,
-                            },
-                        },
-                    },
-                },
-            },
+        let forks = [
+            (self.gloas_fork_epoch, ForkName::Gloas),
+            (self.fulu_fork_epoch, ForkName::Fulu),
+            (self.electra_fork_epoch, ForkName::Electra),
+            (self.deneb_fork_epoch, ForkName::Deneb),
+            (self.capella_fork_epoch, ForkName::Capella),
+            (self.bellatrix_fork_epoch, ForkName::Bellatrix),
+            (self.altair_fork_epoch, ForkName::Altair),
+        ];
+
+        // Find the first fork where `epoch` is >= `fork_epoch`.
+        for (fork_epoch_opt, fork_name) in forks.iter() {
+            if let Some(fork_epoch) = fork_epoch_opt
+                && epoch >= *fork_epoch
+            {
+                return *fork_name;
+            }
         }
+
+        ForkName::Base
     }
 
     /// Returns the fork version for a named fork.
@@ -361,7 +364,13 @@ impl ChainSpec {
             ForkName::Deneb => self.deneb_fork_version,
             ForkName::Electra => self.electra_fork_version,
             ForkName::Fulu => self.fulu_fork_version,
+            ForkName::Gloas => self.gloas_fork_version,
         }
+    }
+
+    // This is `compute_fork_version` in the spec
+    pub fn fork_version_for_epoch(&self, epoch: Epoch) -> [u8; 4] {
+        self.fork_version_for_name(self.fork_name_at_epoch(epoch))
     }
 
     /// For a given fork name, return the epoch at which it activates.
@@ -374,6 +383,7 @@ impl ChainSpec {
             ForkName::Deneb => self.deneb_fork_epoch,
             ForkName::Electra => self.electra_fork_epoch,
             ForkName::Fulu => self.fulu_fork_epoch,
+            ForkName::Gloas => self.gloas_fork_epoch,
         }
     }
 
@@ -446,10 +456,21 @@ impl ChainSpec {
             .is_some_and(|fulu_fork_epoch| block_epoch >= fulu_fork_epoch)
     }
 
-    /// Returns true if `FULU_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    /// Returns true if PeerDAS is scheduled. Alias for [`Self::is_fulu_scheduled`]
     pub fn is_peer_das_scheduled(&self) -> bool {
+        self.is_fulu_scheduled()
+    }
+
+    /// Returns true if `FULU_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_fulu_scheduled(&self) -> bool {
         self.fulu_fork_epoch
             .is_some_and(|fulu_fork_epoch| fulu_fork_epoch != self.far_future_epoch)
+    }
+
+    /// Returns true if `GLOAS_FORK_EPOCH` is set and is not set to `FAR_FUTURE_EPOCH`.
+    pub fn is_gloas_scheduled(&self) -> bool {
+        self.gloas_fork_epoch
+            .is_some_and(|gloas_fork_epoch| gloas_fork_epoch != self.far_future_epoch)
     }
 
     /// Returns a full `Fork` struct for a given epoch.
@@ -555,18 +576,69 @@ impl ChainSpec {
     ///
     /// This is a digest primarily used for domain separation on the p2p layer.
     /// 4-bytes suffices for practical separation of forks/chains.
-    pub fn compute_fork_digest(
-        current_version: [u8; 4],
-        genesis_validators_root: Hash256,
-    ) -> [u8; 4] {
-        let mut result = [0; 4];
-        let root = Self::compute_fork_data_root(current_version, genesis_validators_root);
-        result.copy_from_slice(
+    pub fn compute_fork_digest(&self, genesis_validators_root: Hash256, epoch: Epoch) -> [u8; 4] {
+        let fork_version = self.fork_version_for_epoch(epoch);
+        let mut base_digest = [0u8; 4];
+        let root = Self::compute_fork_data_root(fork_version, genesis_validators_root);
+        base_digest.copy_from_slice(
             root.as_slice()
                 .get(0..4)
                 .expect("root hash is at least 4 bytes"),
         );
-        result
+
+        let Some(blob_parameters) = self.get_blob_parameters(epoch) else {
+            return base_digest;
+        };
+
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => {
+                // Concatenate epoch and max_blobs_per_block as u64 bytes
+                let mut input = Vec::with_capacity(16);
+                input.extend_from_slice(&blob_parameters.epoch.as_u64().to_le_bytes());
+                input.extend_from_slice(&blob_parameters.max_blobs_per_block.to_le_bytes());
+
+                // Hash the concatenated bytes
+                let hash = hash(&input);
+
+                // XOR the base digest with the first 4 bytes of the hash
+                let mut masked_digest = [0u8; 4];
+                for (i, (a, b)) in base_digest.iter().zip(hash.iter()).enumerate() {
+                    if let Some(x) = masked_digest.get_mut(i) {
+                        *x = a ^ b;
+                    }
+                }
+                masked_digest
+            }
+            _ => base_digest,
+        }
+    }
+
+    pub fn all_digest_epochs(&self) -> impl std::iter::Iterator<Item = Epoch> {
+        let mut relevant_epochs = ForkName::list_all_fork_epochs(self)
+            .into_iter()
+            .filter_map(|(_, epoch)| epoch)
+            .collect::<std::collections::HashSet<_>>();
+
+        if self.is_fulu_scheduled() {
+            for blob_parameters in &self.blob_schedule {
+                relevant_epochs.insert(blob_parameters.epoch);
+            }
+        }
+        let mut vec = relevant_epochs.into_iter().collect::<Vec<_>>();
+        vec.sort();
+        vec.into_iter()
+    }
+
+    pub fn next_digest_epoch(&self, epoch: Epoch) -> Option<Epoch> {
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => self
+                .all_digest_epochs()
+                .find(|digest_epoch| *digest_epoch > epoch),
+            _ => self
+                .fork_name_at_epoch(epoch)
+                .next_fork()
+                .and_then(|fork_name| self.fork_epoch(fork_name)),
+        }
     }
 
     /// Compute a domain by applying the given `fork_version`.
@@ -625,17 +697,6 @@ impl ChainSpec {
         }
     }
 
-    /// Returns the highest possible value for max_request_blocks based on enabled forks.
-    ///
-    /// This is useful for upper bounds in testing.
-    pub fn max_request_blocks_upper_bound(&self) -> usize {
-        if self.deneb_fork_epoch.is_some() {
-            self.max_request_blocks_deneb as usize
-        } else {
-            self.max_request_blocks as usize
-        }
-    }
-
     pub fn max_request_blob_sidecars(&self, fork_name: ForkName) -> usize {
         if fork_name.electra_enabled() {
             self.max_request_blob_sidecars_electra as usize
@@ -668,6 +729,24 @@ impl ChainSpec {
                 Some(electra_epoch) if epoch >= electra_epoch => self.max_blobs_per_block_electra,
                 _ => self.max_blobs_per_block,
             },
+        }
+    }
+
+    /// Return the blob parameters at a given epoch.
+    fn get_blob_parameters(&self, epoch: Epoch) -> Option<BlobParameters> {
+        match self.fulu_fork_epoch {
+            Some(fulu_epoch) if epoch >= fulu_epoch => self
+                .blob_schedule
+                .blob_parameters_for_epoch(epoch)
+                .or_else(|| {
+                    Some(BlobParameters {
+                        epoch: self
+                            .electra_fork_epoch
+                            .expect("electra fork epoch must be set if fulu epoch is set"),
+                        max_blobs_per_block: self.max_blobs_per_block_electra,
+                    })
+                }),
+            _ => None,
         }
     }
 
@@ -713,24 +792,44 @@ impl ChainSpec {
     }
 
     /// Returns the number of data columns per custody group.
-    pub fn data_columns_per_group(&self) -> u64 {
-        self.number_of_columns
+    pub fn data_columns_per_group<E: EthSpec>(&self) -> u64 {
+        (E::number_of_columns() as u64)
             .safe_div(self.number_of_custody_groups)
             .expect("Custody group count must be greater than 0")
     }
 
     /// Returns the number of column sidecars to sample per slot.
-    pub fn sampling_size(&self, custody_group_count: u64) -> Result<u64, String> {
-        let columns_per_custody_group = self
-            .number_of_columns
-            .safe_div(self.number_of_custody_groups)
-            .map_err(|_| "number_of_custody_groups must be greater than 0")?;
+    pub fn sampling_size_columns<E: EthSpec>(
+        &self,
+        custody_group_count: u64,
+    ) -> Result<usize, String> {
+        let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
+        let columns_per_custody_group = self.data_columns_per_group::<E>();
 
-        let custody_column_count = columns_per_custody_group
-            .safe_mul(custody_group_count)
+        let sampling_size_columns = columns_per_custody_group
+            .safe_mul(sampling_size_groups)
             .map_err(|_| "Computing sampling size should not overflow")?;
 
-        Ok(std::cmp::max(custody_column_count, self.samples_per_slot))
+        Ok(sampling_size_columns as usize)
+    }
+
+    /// Returns the number of custody groups to sample per slot.
+    pub fn sampling_size_custody_groups(&self, custody_group_count: u64) -> Result<u64, String> {
+        Ok(std::cmp::max(custody_group_count, self.samples_per_slot))
+    }
+
+    /// Returns the min epoch for blob / data column sidecar requests based on the current epoch.
+    /// Switch to use the column sidecar config once the `blob_retention_epoch` has passed Fulu fork epoch.
+    pub fn min_epoch_data_availability_boundary(&self, current_epoch: Epoch) -> Option<Epoch> {
+        let fork_epoch = self.deneb_fork_epoch?;
+        let blob_retention_epoch =
+            current_epoch.saturating_sub(self.min_epochs_for_blob_sidecars_requests);
+        match self.fulu_fork_epoch {
+            Some(fulu_fork_epoch) if blob_retention_epoch > fulu_fork_epoch => Some(
+                current_epoch.saturating_sub(self.min_epochs_for_data_column_sidecars_requests),
+            ),
+            _ => Some(std::cmp::max(fork_epoch, blob_retention_epoch)),
+        }
     }
 
     pub fn all_data_column_sidecar_subnets(&self) -> impl Iterator<Item = DataColumnSubnetId> {
@@ -967,10 +1066,15 @@ impl ChainSpec {
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
-            number_of_columns: 128,
             samples_per_slot: 8,
             validator_custody_requirement: 8,
             balance_per_additional_custody_group: 32000000000,
+
+            /*
+             * Gloas hard fork params
+             */
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
+            gloas_fork_epoch: None,
 
             /*
              * Network specific
@@ -1007,7 +1111,6 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
-            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Networking Electra specific
@@ -1020,6 +1123,9 @@ impl ChainSpec {
              * Networking Fulu specific
              */
             blob_schedule: BlobSchedule::default(),
+            min_epochs_for_data_column_sidecars_requests:
+                default_min_epochs_for_data_column_sidecars_requests(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -1093,6 +1199,9 @@ impl ChainSpec {
             // Fulu
             fulu_fork_version: [0x06, 0x00, 0x00, 0x01],
             fulu_fork_epoch: None,
+            // Gloas
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x00],
+            gloas_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -1303,10 +1412,15 @@ impl ChainSpec {
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
-            number_of_columns: 128,
             samples_per_slot: 8,
             validator_custody_requirement: 8,
             balance_per_additional_custody_group: 32000000000,
+
+            /*
+             * Gloas hard fork params
+             */
+            gloas_fork_version: [0x07, 0x00, 0x00, 0x64],
+            gloas_fork_epoch: None,
 
             /*
              * Network specific
@@ -1343,7 +1457,6 @@ impl ChainSpec {
             max_blocks_by_root_request: default_max_blocks_by_root_request(),
             max_blocks_by_root_request_deneb: default_max_blocks_by_root_request_deneb(),
             max_blobs_by_root_request: default_max_blobs_by_root_request(),
-            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Networking Electra specific
@@ -1356,6 +1469,9 @@ impl ChainSpec {
              * Networking Fulu specific
              */
             blob_schedule: BlobSchedule::default(),
+            min_epochs_for_data_column_sidecars_requests:
+                default_min_epochs_for_data_column_sidecars_requests(),
+            max_data_columns_by_root_request: default_data_columns_by_root_request(),
 
             /*
              * Application specific
@@ -1376,72 +1492,116 @@ impl Default for ChainSpec {
     }
 }
 
-#[derive(arbitrary::Arbitrary, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "UPPERCASE")]
-pub struct BPOFork {
-    epoch: Epoch,
+pub struct BlobParameters {
+    pub epoch: Epoch,
     #[serde(with = "serde_utils::quoted_u64")]
-    max_blobs_per_block: u64,
+    pub max_blobs_per_block: u64,
 }
 
-// A wrapper around a vector of BPOFork to ensure that the vector is reverse
+// A wrapper around a vector of BlobParameters to ensure that the vector is reverse
 // sorted by epoch.
-#[derive(arbitrary::Arbitrary, Serialize, Debug, PartialEq, Clone)]
-pub struct BlobSchedule(Vec<BPOFork>);
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Derivative, Clone)]
+#[derivative(PartialEq)]
+pub struct BlobSchedule {
+    schedule: Vec<BlobParameters>,
+    // This is a hack to prevent the blob schedule being serialized on the /eth/v1/config/spec
+    // endpoint prior to the Fulu fork being scheduled.
+    //
+    // We can remove this once Fulu is live on mainnet.
+    #[derivative(PartialEq = "ignore")]
+    skip_serializing: bool,
+}
 
 impl<'de> Deserialize<'de> for BlobSchedule {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let vec = Vec::<BPOFork>::deserialize(deserializer)?;
+        let vec = Vec::<BlobParameters>::deserialize(deserializer)?;
         Ok(BlobSchedule::new(vec))
     }
 }
 
 impl BlobSchedule {
-    pub fn new(mut vec: Vec<BPOFork>) -> Self {
+    pub fn new(mut vec: Vec<BlobParameters>) -> Self {
         // reverse sort by epoch
         vec.sort_by(|a, b| b.epoch.cmp(&a.epoch));
-        Self(vec)
+        Self {
+            schedule: vec,
+            skip_serializing: false,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.schedule.is_empty()
+    }
+
+    pub fn skip_serializing(&self) -> bool {
+        self.skip_serializing
+    }
+
+    pub fn set_skip_serializing(&mut self) {
+        self.skip_serializing = true;
     }
 
     pub fn max_blobs_for_epoch(&self, epoch: Epoch) -> Option<u64> {
-        self.0
+        self.schedule
             .iter()
             .find(|entry| epoch >= entry.epoch)
             .map(|entry| entry.max_blobs_per_block)
     }
 
-    pub const fn default() -> Self {
-        // TODO(EIP-7892): think about what the default should be
-        Self(vec![])
+    pub fn blob_parameters_for_epoch(&self, epoch: Epoch) -> Option<BlobParameters> {
+        self.schedule
+            .iter()
+            .find(|entry| epoch >= entry.epoch)
+            .cloned()
     }
 
-    pub fn as_vec(&self) -> &Vec<BPOFork> {
-        &self.0
+    pub const fn default() -> Self {
+        // TODO(EIP-7892): think about what the default should be
+        Self {
+            schedule: vec![],
+            skip_serializing: false,
+        }
+    }
+
+    pub fn as_vec(&self) -> &Vec<BlobParameters> {
+        &self.schedule
+    }
+}
+
+impl Serialize for BlobSchedule {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut schedule = self.schedule.clone();
+        // reversing the list to get an ascending order
+        schedule.reverse();
+        schedule.serialize(serializer)
     }
 }
 
 impl<'a> IntoIterator for &'a BlobSchedule {
-    type Item = &'a BPOFork;
-    type IntoIter = std::slice::Iter<'a, BPOFork>;
+    type Item = &'a BlobParameters;
+    type IntoIter = std::slice::Iter<'a, BlobParameters>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.iter()
+        self.schedule.iter()
     }
 }
 
 impl IntoIterator for BlobSchedule {
-    type Item = BPOFork;
-    type IntoIter = std::vec::IntoIter<BPOFork>;
+    type Item = BlobParameters;
+    type IntoIter = std::vec::IntoIter<BlobParameters>;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+        self.schedule.into_iter()
     }
 }
 
@@ -1522,6 +1682,14 @@ pub struct Config {
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub fulu_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
+    #[serde(default = "default_gloas_fork_version")]
+    #[serde(with = "serde_utils::bytes_4_hex")]
+    gloas_fork_version: [u8; 4],
+    #[serde(default)]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -1630,9 +1798,6 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     max_request_blob_sidecars_electra: u64,
 
-    #[serde(default = "default_number_of_columns")]
-    #[serde(with = "serde_utils::quoted_u64")]
-    number_of_columns: u64,
     #[serde(default = "default_number_of_custody_groups")]
     #[serde(with = "serde_utils::quoted_u64")]
     number_of_custody_groups: u64,
@@ -1646,14 +1811,17 @@ pub struct Config {
     #[serde(with = "serde_utils::quoted_u64")]
     custody_requirement: u64,
     #[serde(default = "BlobSchedule::default")]
-    #[serde(skip_serializing_if = "BlobSchedule::is_empty")]
-    blob_schedule: BlobSchedule,
+    #[serde(skip_serializing_if = "BlobSchedule::skip_serializing")]
+    pub blob_schedule: BlobSchedule,
     #[serde(default = "default_validator_custody_requirement")]
     #[serde(with = "serde_utils::quoted_u64")]
     validator_custody_requirement: u64,
     #[serde(default = "default_balance_per_additional_custody_group")]
     #[serde(with = "serde_utils::quoted_u64")]
     balance_per_additional_custody_group: u64,
+    #[serde(default = "default_min_epochs_for_data_column_sidecars_requests")]
+    #[serde(with = "serde_utils::quoted_u64")]
+    min_epochs_for_data_column_sidecars_requests: u64,
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
@@ -1662,7 +1830,6 @@ fn default_bellatrix_fork_version() -> [u8; 4] {
 }
 
 fn default_capella_fork_version() -> [u8; 4] {
-    // TODO: determine if the bellatrix example should be copied like this
     [0xff, 0xff, 0xff, 0xff]
 }
 
@@ -1677,6 +1844,11 @@ fn default_electra_fork_version() -> [u8; 4] {
 }
 
 fn default_fulu_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_gloas_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -1807,10 +1979,6 @@ const fn default_data_column_sidecar_subnet_count() -> u64 {
     128
 }
 
-const fn default_number_of_columns() -> u64 {
-    128
-}
-
 const fn default_number_of_custody_groups() -> u64 {
     128
 }
@@ -1827,12 +1995,17 @@ const fn default_balance_per_additional_custody_group() -> u64 {
     32000000000
 }
 
+const fn default_min_epochs_for_data_column_sidecars_requests() -> u64 {
+    4096
+}
+
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
-    RuntimeVariableList::<Hash256>::from_vec(
+    RuntimeVariableList::<Hash256>::new(
         vec![Hash256::zero(); max_request_blocks],
         max_request_blocks,
     )
+    .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
     .as_ssz_bytes()
     .len()
 }
@@ -1844,30 +2017,28 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
         index: 0,
     };
 
-    RuntimeVariableList::<BlobIdentifier>::from_vec(
+    RuntimeVariableList::<BlobIdentifier>::new(
         vec![empty_blob_identifier; max_request_blob_sidecars],
         max_request_blob_sidecars,
     )
+    .expect("creating a RuntimeVariableList of size `max_request_blob_sidecars` should succeed")
     .as_ssz_bytes()
     .len()
 }
 
-fn max_data_columns_by_root_request_common(
-    max_request_blocks: u64,
-    number_of_columns: u64,
-) -> usize {
+fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
-    let number_of_columns = number_of_columns as usize;
 
     let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        columns: RuntimeVariableList::from_vec(vec![0; number_of_columns], number_of_columns),
+        columns: VariableList::from(vec![0; E::number_of_columns()]),
     };
 
-    RuntimeVariableList::<DataColumnsByRootIdentifier>::from_vec(
+    RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
         vec![empty_data_columns_by_root_id; max_request_blocks],
         max_request_blocks,
     )
+    .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
     .as_ssz_bytes()
     .len()
 }
@@ -1885,10 +2056,7 @@ fn default_max_blobs_by_root_request() -> usize {
 }
 
 fn default_data_columns_by_root_request() -> usize {
-    max_data_columns_by_root_request_common(
-        default_max_request_blocks_deneb(),
-        default_number_of_columns(),
-    )
+    max_data_columns_by_root_request_common::<MainnetEthSpec>(default_max_request_blocks_deneb())
 }
 
 impl Default for Config {
@@ -1919,10 +2087,10 @@ where
     D: Deserializer<'de>,
 {
     let decoded: Option<MaybeQuoted<Epoch>> = serde::de::Deserialize::deserialize(deserializer)?;
-    if let Some(fork_epoch) = decoded {
-        if fork_epoch.value != Epoch::max_value() {
-            return Ok(Some(fork_epoch));
-        }
+    if let Some(fork_epoch) = decoded
+        && fork_epoch.value != Epoch::max_value()
+    {
+        return Ok(Some(fork_epoch));
     }
     Ok(None)
 }
@@ -1984,6 +2152,11 @@ impl Config {
                 .fulu_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
+            gloas_fork_version: spec.gloas_fork_version,
+            gloas_fork_epoch: spec
+                .gloas_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -2030,7 +2203,6 @@ impl Config {
             blob_sidecar_subnet_count_electra: spec.blob_sidecar_subnet_count_electra,
             max_request_blob_sidecars_electra: spec.max_request_blob_sidecars_electra,
 
-            number_of_columns: spec.number_of_columns,
             number_of_custody_groups: spec.number_of_custody_groups,
             data_column_sidecar_subnet_count: spec.data_column_sidecar_subnet_count,
             samples_per_slot: spec.samples_per_slot,
@@ -2038,6 +2210,8 @@ impl Config {
             blob_schedule: spec.blob_schedule.clone(),
             validator_custody_requirement: spec.validator_custody_requirement,
             balance_per_additional_custody_group: spec.balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests: spec
+                .min_epochs_for_data_column_sidecars_requests,
         }
     }
 
@@ -2072,6 +2246,8 @@ impl Config {
             electra_fork_version,
             fulu_fork_epoch,
             fulu_fork_version,
+            gloas_fork_version,
+            gloas_fork_epoch,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2111,7 +2287,6 @@ impl Config {
             max_blobs_per_block_electra,
             blob_sidecar_subnet_count_electra,
             max_request_blob_sidecars_electra,
-            number_of_columns,
             number_of_custody_groups,
             data_column_sidecar_subnet_count,
             samples_per_slot,
@@ -2119,6 +2294,7 @@ impl Config {
             ref blob_schedule,
             validator_custody_requirement,
             balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests,
         } = self;
 
         if preset_base != E::spec_name().to_string().as_str() {
@@ -2143,6 +2319,8 @@ impl Config {
             electra_fork_version,
             fulu_fork_epoch: fulu_fork_epoch.map(|q| q.value),
             fulu_fork_version,
+            gloas_fork_version,
+            gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2192,12 +2370,10 @@ impl Config {
                 max_request_blocks_deneb,
             ),
             max_blobs_by_root_request: max_blobs_by_root_request_common(max_request_blob_sidecars),
-            max_data_columns_by_root_request: max_data_columns_by_root_request_common(
+            max_data_columns_by_root_request: max_data_columns_by_root_request_common::<E>(
                 max_request_blocks_deneb,
-                number_of_columns,
             ),
 
-            number_of_columns,
             number_of_custody_groups,
             data_column_sidecar_subnet_count,
             samples_per_slot,
@@ -2205,6 +2381,7 @@ impl Config {
             blob_schedule: blob_schedule.clone(),
             validator_custody_requirement,
             balance_per_additional_custody_group,
+            min_epochs_for_data_column_sidecars_requests,
 
             ..chain_spec.clone()
         })
@@ -2343,6 +2520,7 @@ mod tests {
 mod yaml_tests {
     use super::*;
     use paste::paste;
+    use std::sync::Arc;
     use tempfile::NamedTempFile;
 
     #[test]
@@ -2430,6 +2608,8 @@ mod yaml_tests {
         ELECTRA_FORK_EPOCH: 128
         FULU_FORK_VERSION: 0x70355025
         FULU_FORK_EPOCH: 256
+        GLOAS_FORK_VERSION: 0x80355025
+        GLOAS_FORK_EPOCH: 512
         BLOB_SCHEDULE:
           - EPOCH: 512
             MAX_BLOBS_PER_BLOCK: 12
@@ -2490,23 +2670,23 @@ mod yaml_tests {
         assert_eq!(
             config.blob_schedule.as_vec(),
             &vec![
-                BPOFork {
+                BlobParameters {
                     epoch: Epoch::new(1584),
                     max_blobs_per_block: 20
                 },
-                BPOFork {
+                BlobParameters {
                     epoch: Epoch::new(1280),
                     max_blobs_per_block: 9
                 },
-                BPOFork {
+                BlobParameters {
                     epoch: Epoch::new(1024),
                     max_blobs_per_block: 18
                 },
-                BPOFork {
+                BlobParameters {
                     epoch: Epoch::new(768),
                     max_blobs_per_block: 15
                 },
-                BPOFork {
+                BlobParameters {
                     epoch: Epoch::new(512),
                     max_blobs_per_block: 12
                 },
@@ -2523,6 +2703,101 @@ mod yaml_tests {
             default_max_blobs_per_block_electra()
         );
         assert_eq!(spec.max_blobs_per_block_within_fork(ForkName::Fulu), 20);
+
+        // Check that serialization is in ascending order
+        let yaml = serde_yaml::to_string(&spec.blob_schedule).expect("should serialize");
+
+        // Deserialize back to Vec<BlobParameters> to check order
+        let deserialized: Vec<BlobParameters> =
+            serde_yaml::from_str(&yaml).expect("should deserialize");
+
+        // Should be in ascending order by epoch
+        assert!(
+            deserialized.iter().map(|bp| bp.epoch.as_u64()).is_sorted(),
+            "BlobSchedule should serialize in ascending order by epoch"
+        );
+    }
+
+    #[test]
+    fn blob_schedule_fork_digest() {
+        let spec_contents = r#"
+        PRESET_BASE: 'mainnet'
+        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
+        MIN_GENESIS_TIME: 1748264340
+        GENESIS_FORK_VERSION: 0x10355025
+        GENESIS_DELAY: 60
+        SECONDS_PER_SLOT: 12
+        SECONDS_PER_ETH1_BLOCK: 12
+        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+        SHARD_COMMITTEE_PERIOD: 256
+        ETH1_FOLLOW_DISTANCE: 2048
+        INACTIVITY_SCORE_BIAS: 4
+        INACTIVITY_SCORE_RECOVERY_RATE: 16
+        EJECTION_BALANCE: 16000000000
+        MIN_PER_EPOCH_CHURN_LIMIT: 4
+        CHURN_LIMIT_QUOTIENT: 65536
+        MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT: 8
+        PROPOSER_SCORE_BOOST: 40
+        REORG_HEAD_WEIGHT_THRESHOLD: 20
+        REORG_PARENT_WEIGHT_THRESHOLD: 160
+        REORG_MAX_EPOCHS_SINCE_FINALIZATION: 2
+        DEPOSIT_CHAIN_ID: 7042643276
+        DEPOSIT_NETWORK_ID: 7042643276
+        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+
+        ALTAIR_FORK_VERSION: 0x20355025
+        ALTAIR_FORK_EPOCH: 0
+        BELLATRIX_FORK_VERSION: 0x30355025
+        BELLATRIX_FORK_EPOCH: 0
+        CAPELLA_FORK_VERSION: 0x40355025
+        CAPELLA_FORK_EPOCH: 0
+        DENEB_FORK_VERSION: 0x50355025
+        DENEB_FORK_EPOCH: 0
+        ELECTRA_FORK_VERSION: 0x60000000
+        ELECTRA_FORK_EPOCH: 9
+        FULU_FORK_VERSION: 0x06000000
+        FULU_FORK_EPOCH: 100
+        BLOB_SCHEDULE:
+          - EPOCH: 9
+            MAX_BLOBS_PER_BLOCK: 9
+          - EPOCH: 100
+            MAX_BLOBS_PER_BLOCK: 100
+          - EPOCH: 150
+            MAX_BLOBS_PER_BLOCK: 175
+          - EPOCH: 200
+            MAX_BLOBS_PER_BLOCK: 200
+          - EPOCH: 250
+            MAX_BLOBS_PER_BLOCK: 275
+          - EPOCH: 300
+            MAX_BLOBS_PER_BLOCK: 300
+        "#;
+        let config: Config =
+            serde_yaml::from_str(spec_contents).expect("error while deserializing");
+        let spec =
+            ChainSpec::from_config::<MainnetEthSpec>(&config).expect("error while creating spec");
+
+        let genesis_validators_root = Hash256::from_slice(&[0; 32]);
+
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(100));
+        assert_eq!(digest, [0xdf, 0x67, 0x55, 0x7b]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(101));
+        assert_eq!(digest, [0xdf, 0x67, 0x55, 0x7b]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(150));
+        assert_eq!(digest, [0x8a, 0xb3, 0x8b, 0x59]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(199));
+        assert_eq!(digest, [0x8a, 0xb3, 0x8b, 0x59]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(200));
+        assert_eq!(digest, [0xd9, 0xb8, 0x14, 0x38]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(201));
+        assert_eq!(digest, [0xd9, 0xb8, 0x14, 0x38]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(250));
+        assert_eq!(digest, [0x4e, 0xf3, 0x2a, 0x62]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(299));
+        assert_eq!(digest, [0x4e, 0xf3, 0x2a, 0x62]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(300));
+        assert_eq!(digest, [0xca, 0x10, 0x0d, 0x64]);
+        let digest = spec.compute_fork_digest(genesis_validators_root, Epoch::new(301));
+        assert_eq!(digest, [0xca, 0x10, 0x0d, 0x64]);
     }
 
     #[test]
@@ -2580,7 +2855,6 @@ mod yaml_tests {
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
         CUSTODY_REQUIREMENT: 1
         DATA_COLUMN_SIDECAR_SUBNET_COUNT: 128
-        NUMBER_OF_COLUMNS: 128
         SAMPLES_PER_SLOT: 8
         "#;
 
@@ -2641,5 +2915,66 @@ mod yaml_tests {
         // Should not overflow even with a 10x increase in max
         let _ = spec.max_message_size();
         let _ = spec.max_compressed_len();
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_deneb() {
+        type E = MainnetEthSpec;
+        let spec = Arc::new(ForkName::Deneb.make_genesis_spec(E::default_spec()));
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+
+        // `min_epochs_for_data_sidecar_requests` cannot be earlier than Deneb fork epoch.
+        assert_eq!(
+            spec.deneb_fork_epoch,
+            spec.min_epoch_data_availability_boundary(Epoch::new(blob_retention_epochs / 2))
+        );
+
+        let current_epoch = Epoch::new(blob_retention_epochs * 2);
+        let expected_min_blob_epoch = current_epoch - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_min_blob_epoch),
+            spec.min_epoch_data_availability_boundary(current_epoch)
+        );
+    }
+
+    #[test]
+    fn min_epochs_for_data_sidecar_requests_fulu() {
+        type E = MainnetEthSpec;
+        let spec = {
+            let mut spec = ForkName::Deneb.make_genesis_spec(E::default_spec());
+            // 4096 * 2 = 8192
+            spec.fulu_fork_epoch = Some(Epoch::new(spec.min_epochs_for_blob_sidecars_requests * 2));
+            // set a different value for testing purpose, 4096 / 2 = 2048
+            spec.min_epochs_for_data_column_sidecars_requests =
+                spec.min_epochs_for_blob_sidecars_requests / 2;
+            Arc::new(spec)
+        };
+        let blob_retention_epochs = spec.min_epochs_for_blob_sidecars_requests;
+        let data_column_retention_epochs = spec.min_epochs_for_data_column_sidecars_requests;
+
+        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch still uses `min_epochs_for_blob_sidecars_requests`
+        let fulu_fork_epoch = spec.fulu_fork_epoch.unwrap();
+        let expected_blob_retention_epoch = fulu_fork_epoch - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_blob_retention_epoch),
+            spec.min_epoch_data_availability_boundary(fulu_fork_epoch)
+        );
+
+        // `min_epochs_for_data_sidecar_requests` at fulu fork epoch + min_epochs_for_blob_sidecars_request
+        let blob_retention_epoch_after_fulu = fulu_fork_epoch + blob_retention_epochs;
+        let expected_blob_retention_epoch = blob_retention_epoch_after_fulu - blob_retention_epochs;
+        assert_eq!(
+            Some(expected_blob_retention_epoch),
+            spec.min_epoch_data_availability_boundary(blob_retention_epoch_after_fulu)
+        );
+
+        // After the final blob retention epoch, `min_epochs_for_data_sidecar_requests` should be calculated
+        // using `min_epochs_for_data_column_sidecars_request`
+        let current_epoch = blob_retention_epoch_after_fulu + 1;
+        let expected_data_column_retention_epoch = current_epoch - data_column_retention_epochs;
+        assert_eq!(
+            Some(expected_data_column_retention_epoch),
+            spec.min_epoch_data_availability_boundary(current_epoch)
+        );
     }
 }

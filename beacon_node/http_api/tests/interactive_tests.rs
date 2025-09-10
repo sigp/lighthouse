@@ -1,10 +1,10 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
 use beacon_chain::{
+    ChainConfig,
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
     test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
-    ChainConfig,
 };
-use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
+use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::ProduceBlockV3Response;
 use eth2::types::{DepositContractData, StateId};
 use execution_layer::{ForkchoiceState, PayloadAttributes};
@@ -73,6 +73,7 @@ async fn state_by_root_pruned_from_fork_choice() {
         })),
         None,
         Default::default(),
+        false,
     )
     .await;
 
@@ -429,6 +430,7 @@ pub async fn proposer_boost_re_org_test(
                 )
         })),
         Default::default(),
+        false,
     )
     .await;
     let harness = &tester.harness;
@@ -666,6 +668,7 @@ pub async fn proposer_boost_re_org_test(
 
     // Check the fork choice updates that were sent.
     let forkchoice_updates = forkchoice_updates.lock();
+
     let block_a_exec_hash = block_a
         .0
         .message()
@@ -923,14 +926,16 @@ async fn queue_attestations_from_http() {
         .unwrap();
     tester
         .ctx
-        .beacon_processor_reprocess_send
+        .beacon_processor_send
         .as_ref()
         .unwrap()
-        .send(ReprocessQueueMessage::BlockImported {
-            block_root,
-            parent_root,
+        .try_send(WorkEvent {
+            drop_during_sync: false,
+            work: Work::Reprocess(ReprocessQueueMessage::BlockImported {
+                block_root,
+                parent_root,
+            }),
         })
-        .await
         .unwrap();
 
     attestation_future.await.unwrap();

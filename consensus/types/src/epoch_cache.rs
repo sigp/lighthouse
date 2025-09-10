@@ -8,12 +8,14 @@ use std::sync::Arc;
 /// to as the "decision block". This cache is very similar to the `BeaconProposerCache` in that
 /// beacon proposers are determined at exactly the same time as the values in this cache, so
 /// the keys for the two caches are identical.
-#[derive(Debug, PartialEq, Eq, Clone, Default, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct EpochCache {
     inner: Option<Arc<Inner>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct Inner {
     /// Unique identifier for this cache, which can be used to check its validity before use
     /// with any `BeaconState`.
@@ -30,7 +32,8 @@ struct Inner {
     effective_balance_increment: u64,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub struct EpochCacheKey {
     pub epoch: Epoch,
     pub decision_block_root: Hash256,

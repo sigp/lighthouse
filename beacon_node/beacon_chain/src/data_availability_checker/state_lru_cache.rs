@@ -1,15 +1,15 @@
 use crate::block_verification_types::AsBlock;
 use crate::{
+    AvailabilityPendingExecutedBlock, BeaconChainTypes, BeaconStore, PayloadVerificationOutcome,
     block_verification_types::BlockImportData,
     data_availability_checker::{AvailabilityCheckError, STATE_LRU_CAPACITY_NON_ZERO},
-    eth1_finalization_cache::Eth1FinalizationData,
-    AvailabilityPendingExecutedBlock, BeaconChainTypes, BeaconStore, PayloadVerificationOutcome,
 };
 use lru::LruCache;
 use parking_lot::RwLock;
 use state_processing::BlockReplayer;
 use std::sync::Arc;
 use store::OnDiskConsensusContext;
+use tracing::{Span, debug_span, instrument};
 use types::beacon_block_body::KzgCommitments;
 use types::{BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
@@ -21,7 +21,6 @@ pub struct DietAvailabilityPendingExecutedBlock<E: EthSpec> {
     block: Arc<SignedBeaconBlock<E>>,
     state_root: Hash256,
     parent_block: SignedBeaconBlock<E, BlindedPayload<E>>,
-    parent_eth1_finalization_data: Eth1FinalizationData,
     consensus_context: OnDiskConsensusContext<E>,
     payload_verification_outcome: PayloadVerificationOutcome,
 }
@@ -97,7 +96,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
             block: executed_block.block,
             state_root,
             parent_block: executed_block.import_data.parent_block,
-            parent_eth1_finalization_data: executed_block.import_data.parent_eth1_finalization_data,
             consensus_context: OnDiskConsensusContext::from_consensus_context(
                 executed_block.import_data.consensus_context,
             ),
@@ -109,12 +107,15 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
     /// This method will first check the cache and if the state is not found
     /// it will reconstruct the state by loading the parent state from disk and
     /// replaying the block.
+    #[instrument(skip_all, parent = _span, level = "debug")]
     pub fn recover_pending_executed_block(
         &self,
         diet_executed_block: DietAvailabilityPendingExecutedBlock<T::EthSpec>,
+        _span: &Span,
     ) -> Result<AvailabilityPendingExecutedBlock<T::EthSpec>, AvailabilityCheckError> {
-        let state = if let Some(state) = self.states.write().pop(&diet_executed_block.state_root) {
-            state
+        // Keep the state in the cache to prevent reconstruction in race conditions
+        let state = if let Some(state) = self.states.write().get(&diet_executed_block.state_root) {
+            state.clone()
         } else {
             self.reconstruct_state(&diet_executed_block)?
         };
@@ -125,7 +126,6 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                 block_root,
                 state,
                 parent_block: diet_executed_block.parent_block,
-                parent_eth1_finalization_data: diet_executed_block.parent_eth1_finalization_data,
                 consensus_context: diet_executed_block
                     .consensus_context
                     .into_consensus_context(),
@@ -136,6 +136,7 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
 
     /// Reconstruct the state by loading the parent state from disk and replaying
     /// the block.
+    #[instrument(skip_all, level = "debug")]
     fn reconstruct_state(
         &self,
         diet_executed_block: &DietAvailabilityPendingExecutedBlock<T::EthSpec>,
@@ -168,8 +169,11 @@ impl<T: BeaconChainTypes> StateLRUCache<T> {
                 .state_root_iter(state_roots.into_iter())
                 .minimal_block_root_verification();
 
+        let block_replayer = debug_span!("reconstruct_state_apply_blocks").in_scope(|| {
+            block_replayer.apply_blocks(vec![diet_executed_block.block.clone_as_blinded()], None)
+        });
+
         block_replayer
-            .apply_blocks(vec![diet_executed_block.block.clone_as_blinded()], None)
             .map(|block_replayer| block_replayer.into_state())
             .and_then(|mut state| {
                 state
@@ -212,7 +216,6 @@ impl<E: EthSpec> From<AvailabilityPendingExecutedBlock<E>>
             block: value.block,
             state_root: value.import_data.state.canonical_root().unwrap(),
             parent_block: value.import_data.parent_block,
-            parent_eth1_finalization_data: value.import_data.parent_eth1_finalization_data,
             consensus_context: OnDiskConsensusContext::from_consensus_context(
                 value.import_data.consensus_context,
             ),
