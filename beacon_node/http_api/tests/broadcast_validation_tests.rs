@@ -837,7 +837,11 @@ pub async fn blinded_gossip_invalid() {
     }
 }
 
-/// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
+/// Process a blinded block that is invalid, but valid on gossip.
+///
+/// Due to the checks conducted by the "relay" (mock-builder) when `broadcast_to_bn` is set (post
+/// Fulu), we can't always assert that we get a 202 status for this block -- post Fulu the relay
+/// detects it as invalid and the BN returns an error.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 pub async fn blinded_gossip_partial_pass() {
     /* this test targets gossip-level validation */
