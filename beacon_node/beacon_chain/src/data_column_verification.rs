@@ -215,6 +215,40 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         )
     }
 
+    /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for block production ONLY.
+    /// When publishing a block constructed locally, the EL will have already verified the cell proofs.
+    /// When publishing a block constructed externally, there will be no columns here.
+    pub fn new_for_block_publishing(
+        column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, GossipDataColumnError> {
+        verify_data_column_sidecar(&column_sidecar)?;
+
+        // Check if the data column is already in the DA checker cache. This happens when data columns
+        // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
+        // it has already passed the gossip checks, even though this particular instance hasn't been
+        // seen / published on the gossip network yet (passed the `verify_is_unknown_sidecar` check above).
+        // In this case, we should accept it for gossip propagation.
+        verify_is_unknown_sidecar(chain, &column_sidecar)?;
+
+        if chain
+            .data_availability_checker
+            .is_data_column_cached(&column_sidecar.block_root(), &column_sidecar)
+        {
+            // Observe this data column so we don't process it again.
+            if O::observe() {
+                observe_gossip_data_column(&column_sidecar, chain)?;
+            }
+            return Err(GossipDataColumnError::PriorKnownUnpublished);
+        }
+
+        Ok(Self {
+            block_root: column_sidecar.block_root(),
+            data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
+            _phantom: Default::default(),
+        })
+    }
+
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
     pub fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
         Self {
@@ -447,12 +481,12 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
-    verify_is_first_sidecar(chain, &data_column)?;
+    verify_is_unknown_sidecar(chain, &data_column)?;
 
     // Check if the data column is already in the DA checker cache. This happens when data columns
     // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
     // it has already passed the gossip checks, even though this particular instance hasn't been
-    // seen / published on the gossip network yet (passed the `verify_is_first_sidecar` check above).
+    // seen / published on the gossip network yet (passed the `verify_is_unknown_sidecar` check above).
     // In this case, we should accept it for gossip propagation.
     if chain
         .data_availability_checker
@@ -526,22 +560,22 @@ fn verify_data_column_sidecar<E: EthSpec>(
     Ok(())
 }
 
-// Verify that this is the first column sidecar received for the tuple:
-// (block_header.slot, block_header.proposer_index, column_sidecar.index)
-fn verify_is_first_sidecar<T: BeaconChainTypes>(
+/// Verify that `column_sidecar` is not yet known, i.e. this is the first time `column_sidecar` has been received for the tuple:
+/// `(block_header.slot, block_header.proposer_index, column_sidecar.index)`
+fn verify_is_unknown_sidecar<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    data_column: &DataColumnSidecar<T::EthSpec>,
+    column_sidecar: &DataColumnSidecar<T::EthSpec>,
 ) -> Result<(), GossipDataColumnError> {
     if chain
         .observed_column_sidecars
         .read()
-        .proposer_is_known(data_column)
+        .proposer_is_known(column_sidecar)
         .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipDataColumnError::PriorKnown {
-            proposer: data_column.block_proposer_index(),
-            slot: data_column.slot(),
-            index: data_column.index,
+            proposer: column_sidecar.block_proposer_index(),
+            slot: column_sidecar.slot(),
+            index: column_sidecar.index,
         });
     }
     Ok(())
