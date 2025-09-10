@@ -10,6 +10,9 @@ use beacon_node::{
 };
 use beacon_processor::BeaconProcessorConfig;
 use lighthouse_network::PeerId;
+use network_utils::unused_port::{
+    unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
+};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -22,7 +25,6 @@ use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
-use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
