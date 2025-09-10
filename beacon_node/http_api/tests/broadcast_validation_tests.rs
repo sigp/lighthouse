@@ -85,13 +85,18 @@ pub async fn gossip_invalid() {
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
 
-    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-    // block.
     let pre_finalized_block_root = Hash256::zero();
-    assert_server_message_error(
-        error_response,
-        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-    );
+    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
+        format!(
+            "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+        )
+    } else {
+        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
+        // block.
+        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
+    };
+
+    assert_server_message_error(error_response, expected_error_msg);
 }
 
 /// This test checks that a block that is valid from a gossip perspective is accepted when using `broadcast_validation=gossip`.
@@ -276,13 +281,19 @@ pub async fn consensus_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-    // block.
+
     let pre_finalized_block_root = Hash256::zero();
-    assert_server_message_error(
-        error_response,
-        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-    );
+    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
+        format!(
+            "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+        )
+    } else {
+        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
+        // block.
+        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
+    };
+
+    assert_server_message_error(error_response, expected_error_msg);
 }
 
 /// This test checks that a block that is only valid from a gossip perspective is rejected when using `broadcast_validation=consensus`.
@@ -507,13 +518,19 @@ pub async fn equivocation_invalid() {
 
     /* mandated by Beacon API spec */
     assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-    // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
-    // block.
+
     let pre_finalized_block_root = Hash256::zero();
-    assert_server_message_error(
-        error_response,
-        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-    );
+    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
+        format!(
+            "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+        )
+    } else {
+        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
+        // block.
+        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
+    };
+
+    assert_server_message_error(error_response, expected_error_msg);
 }
 
 /// This test checks that a block that is valid from both a gossip and consensus perspective is rejected when using `broadcast_validation=consensus_and_equivocation`.
