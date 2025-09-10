@@ -240,6 +240,24 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
             return Err(GossipDataColumnError::PriorKnownUnpublished);
         }
 
+        let cells_len = column_sidecar.column.len();
+        let commitments_len = column_sidecar.kzg_commitments.len();
+        let proofs_len = column_sidecar.kzg_proofs.len();
+
+        if cells_len != commitments_len {
+            return Err(GossipDataColumnError::InconsistentCommitmentsLength {
+                cells_len,
+                commitments_len,
+            });
+        }
+
+        if cells_len != proofs_len {
+            return Err(GossipDataColumnError::InconsistentProofsLength {
+                cells_len,
+                proofs_len,
+            });
+        }
+
         Ok(Self {
             block_root: column_sidecar.block_root(),
             data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
