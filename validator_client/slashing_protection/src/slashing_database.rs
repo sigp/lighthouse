@@ -611,6 +611,7 @@ impl SlashingDatabase {
         block_header: &BeaconBlockHeader,
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
+        #[allow(clippy::disallowed_methods)]
         self.preliminary_check_block_signing_root(
             validator_pubkey,
             block_header.slot,
@@ -716,6 +717,7 @@ impl SlashingDatabase {
         domain: Hash256,
     ) -> Result<Safe, NotSafe> {
         let attestation_signing_root = attestation.signing_root(domain).into();
+        #[allow(clippy::disallowed_methods)]
         self.preliminary_check_attestation_signing_root(
             validator_pubkey,
             attestation.source.epoch,
