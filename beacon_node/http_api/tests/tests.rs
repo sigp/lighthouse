@@ -26,8 +26,9 @@ use http_api::{
     BlockId, StateId,
     test_utils::{ApiServer, create_api_server},
 };
-use lighthouse_network::{Enr, EnrExt, PeerId, types::SyncState};
+use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
+use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
