@@ -840,7 +840,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    GossipBlobError::BlobParentUnknown { parent_root } => {
+                    GossipBlobError::ParentUnknown { parent_root } => {
                         debug!(
                             action = "requesting parent",
                             block_root = %root,

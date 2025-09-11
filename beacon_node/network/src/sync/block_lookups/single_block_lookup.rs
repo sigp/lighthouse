@@ -7,6 +7,7 @@ use crate::sync::network_context::{
 use beacon_chain::{BeaconChainTypes, BlockProcessStatus};
 use derivative::Derivative;
 use lighthouse_network::service::api_types::Id;
+use lighthouse_tracing::SPAN_SINGLE_BLOCK_LOOKUP;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::Hash256;
 use strum::IntoStaticStr;
+use tracing::{Span, debug_span};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
 
@@ -70,6 +72,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     block_root: Hash256,
     awaiting_parent: Option<Hash256>,
     created: Instant,
+    pub(crate) span: Span,
 }
 
 #[derive(Debug)]
@@ -89,6 +92,12 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         id: Id,
         awaiting_parent: Option<Hash256>,
     ) -> Self {
+        let lookup_span = debug_span!(
+            SPAN_SINGLE_BLOCK_LOOKUP,
+            block_root = %requested_block_root,
+            id = id,
+        );
+
         Self {
             id,
             block_request_state: BlockRequestState::new(requested_block_root),
@@ -97,6 +106,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             block_root: requested_block_root,
             awaiting_parent,
             created: Instant::now(),
+            span: lookup_span,
         }
     }
 
@@ -192,6 +202,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         &mut self,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupResult, LookupRequestError> {
+        let _guard = self.span.clone().entered();
         // TODO: Check what's necessary to download, specially for blobs
         self.continue_request::<BlockRequestState<T::EthSpec>>(cx, 0)?;
 
@@ -257,6 +268,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
         // that can make progress so it must be dropped. Consider the lookup completed.
         // This case can happen if we receive the components from gossip during a retry.
         if self.all_components_processed() {
+            self.span = Span::none();
             Ok(LookupResult::Completed)
         } else {
             Ok(LookupResult::Pending)

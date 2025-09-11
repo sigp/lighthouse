@@ -1,4 +1,5 @@
 use std::{
+    fmt::{self, Debug},
     ops::{Deref, Index, IndexMut},
     slice::SliceIndex,
 };
@@ -45,13 +46,19 @@ use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, TreeHashType};
 /// assert!(long.push(6).is_err());
 ///
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derive(Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
 #[serde(transparent)]
 pub struct RuntimeVariableList<T> {
     vec: Vec<T>,
     #[serde(skip)]
     max_len: usize,
+}
+
+impl<T: Debug> Debug for RuntimeVariableList<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} (max_len={})", self.vec, self.max_len)
+    }
 }
 
 impl<T> RuntimeVariableList<T> {

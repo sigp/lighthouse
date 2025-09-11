@@ -18,6 +18,7 @@ fork_choice = { workspace = true }
 futures = { workspace = true }
 hex = { workspace = true }
 logging = { workspace = true }
+network_utils = { workspace = true }
 reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde_json = { workspace = true }
@@ -25,4 +26,3 @@ task_executor = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }
 types = { workspace = true }
-unused_port = { workspace = true }

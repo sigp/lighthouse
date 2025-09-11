@@ -102,7 +102,7 @@ jobs:
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
-      run: make nextest-release
+      run: make test-release
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       continue-on-error: true
@@ -134,7 +134,7 @@ jobs:
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
-      run: make nextest-release
+      run: make test-release
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       continue-on-error: true
@@ -269,7 +269,7 @@ jobs:
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in debug
-      run: make nextest-debug
+      run: make test-debug
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       continue-on-error: true
@@ -306,7 +306,7 @@ jobs:
           cache-target: release
           bins: cargo-nextest
     - name: Run consensus-spec-tests with blst and fake_crypto
-      run: make nextest-ef
+      run: make test-ef
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       continue-on-error: true
