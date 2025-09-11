@@ -13,8 +13,8 @@ use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
 use http_api::TlsConfig;
-use lighthouse_network::ListenAddress;
 use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
+use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -1011,7 +1011,7 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp6_port)
+                .then(network_utils::unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port);
 
@@ -1030,18 +1030,18 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
             let disc_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(tcp_port);
 
             let quic_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
-            ListenAddress::V6(lighthouse_network::ListenAddr {
+            ListenAddress::V6(network_utils::listen_addr::ListenAddr {
                 addr: ipv6,
                 quic_port,
                 disc_port,
@@ -1053,25 +1053,25 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp4_port)
+                .then(network_utils::unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             // use zero ports if required. If not, use the specific discovery port. If none given, use
             // the tcp port.
             let disc_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(tcp_port);
             // use zero ports if required. If not, use the specific quic port. If none given, use
             // the tcp port + 1.
             let quic_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
-            ListenAddress::V4(lighthouse_network::ListenAddr {
+            ListenAddress::V4(network_utils::listen_addr::ListenAddr {
                 addr: ipv4,
                 disc_port,
                 quic_port,
@@ -1083,16 +1083,16 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
             let port6 = maybe_port6.unwrap_or(port);
 
             let ipv4_tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp4_port)
+                .then(network_utils::unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             let ipv4_disc_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(ipv4_tcp_port);
             let ipv4_quic_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if ipv4_tcp_port == 0 {
@@ -1103,16 +1103,16 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // Defaults to 9000 when required
             let ipv6_tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp6_port)
+                .then(network_utils::unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port6);
             let ipv6_disc_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc6_port)
                 .unwrap_or(ipv6_tcp_port);
             let ipv6_quic_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic6_port)
                 .unwrap_or(if ipv6_tcp_port == 0 {
@@ -1122,13 +1122,13 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
                 });
 
             ListenAddress::DualStack(
-                lighthouse_network::ListenAddr {
+                network_utils::listen_addr::ListenAddr {
                     addr: ipv4,
                     disc_port: ipv4_disc_port,
                     quic_port: ipv4_quic_port,
                     tcp_port: ipv4_tcp_port,
                 },
-                lighthouse_network::ListenAddr {
+                network_utils::listen_addr::ListenAddr {
                     addr: ipv6,
                     disc_port: ipv6_disc_port,
                     quic_port: ipv6_quic_port,

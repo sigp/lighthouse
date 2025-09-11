@@ -1,10 +1,9 @@
+use crate::discovery::CombinedKey;
 use crate::discovery::enr::PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY;
-use crate::discovery::{CombinedKey, peer_id_to_node_id};
-use crate::{
-    Enr, EnrExt, Gossipsub, PeerId, SyncInfo, metrics, multiaddr::Multiaddr, types::Subnet,
-};
+use crate::{Enr, Gossipsub, PeerId, SyncInfo, metrics, multiaddr::Multiaddr, types::Subnet};
 use itertools::Itertools;
 use logging::crit;
+use network_utils::enr_ext::{EnrExt, peer_id_to_node_id};
 use peer_info::{ConnectionDirection, PeerConnectionStatus, PeerInfo};
 use score::{PeerAction, ReportSource, Score, ScoreState};
 use std::net::IpAddr;
