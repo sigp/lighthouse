@@ -1739,7 +1739,7 @@ fn test_active_requests() {
 
 #[test]
 fn test_request_too_large_blocks_by_range() {
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     test_request_too_large(
         AppRequestId::Sync(SyncRequestId::BlocksByRange(BlocksByRangeRequestId {
@@ -1766,7 +1766,7 @@ fn test_request_too_large_blocks_by_range() {
 
 #[test]
 fn test_request_too_large_blobs_by_range() {
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     let max_request_blobs_count = spec.max_request_blob_sidecars(ForkName::Base) as u64
         / spec.max_blobs_per_block_within_fork(ForkName::Base);
@@ -1825,10 +1825,10 @@ fn test_request_too_large(
 ) {
     // Set up the logging.
     let log_level = "debug";
-    let enable_logging = false;
+    let enable_logging = true;
     build_tracing_subscriber(log_level, enable_logging);
     let rt = Arc::new(Runtime::new().unwrap());
-    let spec = Arc::new(E::default_spec());
+    let spec = Arc::new(spec_with_all_forks_enabled());
 
     rt.block_on(async {
         let (mut sender, mut receiver) = common::build_node_pair(
@@ -1874,8 +1874,9 @@ fn test_request_too_large(
                             unreachable!();
                         }
                     }
-                    NetworkEvent::RPCFailed { .. } => {
+                    NetworkEvent::RPCFailed { error, .. } => {
                         // This variant should be unreachable, as the receiver doesn't respond with an error when a request exceeds the limit.
+                        println!("{:?}", error);
                         unreachable!();
                     }
                     NetworkEvent::PeerDisconnected(peer_id) => {
