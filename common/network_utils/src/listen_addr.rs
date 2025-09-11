@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use libp2p::{Multiaddr, multiaddr::Protocol};
+use multiaddr::{Multiaddr, Protocol};
 use serde::{Deserialize, Serialize};
 
 /// A listening address composed by an Ip, an UDP port and a TCP port.
@@ -84,23 +84,21 @@ impl ListenAddress {
             .chain(v6_tcp_multiaddr)
     }
 
-    #[cfg(test)]
     pub fn unused_v4_ports() -> Self {
         ListenAddress::V4(ListenAddr {
             addr: Ipv4Addr::UNSPECIFIED,
-            disc_port: unused_port::unused_udp4_port().unwrap(),
-            quic_port: unused_port::unused_udp4_port().unwrap(),
-            tcp_port: unused_port::unused_tcp4_port().unwrap(),
+            disc_port: crate::unused_port::unused_udp4_port().unwrap(),
+            quic_port: crate::unused_port::unused_udp4_port().unwrap(),
+            tcp_port: crate::unused_port::unused_tcp4_port().unwrap(),
         })
     }
 
-    #[cfg(test)]
     pub fn unused_v6_ports() -> Self {
         ListenAddress::V6(ListenAddr {
             addr: Ipv6Addr::UNSPECIFIED,
-            disc_port: unused_port::unused_udp6_port().unwrap(),
-            quic_port: unused_port::unused_udp6_port().unwrap(),
-            tcp_port: unused_port::unused_tcp6_port().unwrap(),
+            disc_port: crate::unused_port::unused_udp6_port().unwrap(),
+            quic_port: crate::unused_port::unused_udp6_port().unwrap(),
+            tcp_port: crate::unused_port::unused_tcp6_port().unwrap(),
         })
     }
 }
