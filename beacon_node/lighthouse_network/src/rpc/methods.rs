@@ -30,14 +30,22 @@ pub const MAX_ERROR_LEN: u64 = 256;
 pub struct ErrorType(pub VariableList<u8, MaxErrorLen>);
 
 impl From<String> for ErrorType {
+    // This will panic if `string.as_bytes()` exceeds `MaxErrorLen`.
     fn from(s: String) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+        Self(
+            VariableList::try_from(s.as_bytes().to_vec())
+                .expect("length should not exceed MaxErrorLen"),
+        )
     }
 }
 
 impl From<&str> for ErrorType {
+    // This will panic if `string.as_bytes()` exceeds `MaxErrorLen`.
     fn from(s: &str) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+        Self(
+            VariableList::try_from(s.as_bytes().to_vec())
+                .expect("length should not exceed MaxErrorLen"),
+        )
     }
 }
 

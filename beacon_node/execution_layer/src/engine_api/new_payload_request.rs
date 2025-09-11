@@ -337,7 +337,7 @@ mod test {
         *beacon_block
             .body_mut()
             .blob_kzg_commitments_mut()
-            .expect("should get commitments") = commitments.into();
+            .expect("should get commitments") = commitments.try_into().unwrap();
 
         let new_payload_request = NewPayloadRequest::try_from(beacon_block.to_ref())
             .expect("should create new payload request");

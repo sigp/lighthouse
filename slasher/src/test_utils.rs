@@ -17,7 +17,7 @@ pub fn indexed_att_electra(
     target_root: u64,
 ) -> IndexedAttestation<E> {
     IndexedAttestation::Electra(IndexedAttestationElectra {
-        attesting_indices: attesting_indices.as_ref().to_vec().into(),
+        attesting_indices: attesting_indices.as_ref().to_vec().try_into().unwrap(),
         data: AttestationData {
             slot: Slot::new(0),
             index: 0,
@@ -42,7 +42,7 @@ pub fn indexed_att(
     target_root: u64,
 ) -> IndexedAttestation<E> {
     IndexedAttestation::Base(IndexedAttestationBase {
-        attesting_indices: attesting_indices.as_ref().to_vec().into(),
+        attesting_indices: attesting_indices.as_ref().to_vec().try_into().unwrap(),
         data: AttestationData {
             slot: Slot::new(0),
             index: 0,

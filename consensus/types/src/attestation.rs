@@ -622,19 +622,26 @@ pub struct SingleAttestation {
 }
 
 impl SingleAttestation {
-    pub fn to_indexed<E: EthSpec>(&self, fork_name: ForkName) -> IndexedAttestation<E> {
+    pub fn to_indexed<E: EthSpec>(
+        &self,
+        fork_name: ForkName,
+    ) -> Result<IndexedAttestation<E>, Error> {
         if fork_name.electra_enabled() {
-            IndexedAttestation::Electra(IndexedAttestationElectra {
-                attesting_indices: vec![self.attester_index].into(),
+            Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
+                attesting_indices: vec![self.attester_index]
+                    .try_into()
+                    .map_err(Error::SszTypesError)?,
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-            })
+            }))
         } else {
-            IndexedAttestation::Base(IndexedAttestationBase {
-                attesting_indices: vec![self.attester_index].into(),
+            Ok(IndexedAttestation::Base(IndexedAttestationBase {
+                attesting_indices: vec![self.attester_index]
+                    .try_into()
+                    .map_err(Error::SszTypesError)?,
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-            })
+            }))
         }
     }
 }

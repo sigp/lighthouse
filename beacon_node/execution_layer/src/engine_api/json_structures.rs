@@ -1,7 +1,8 @@
 use super::*;
 use alloy_rlp::RlpEncodable;
 use serde::{Deserialize, Serialize};
-use ssz::Decode;
+use ssz::{Decode, TryFromIter};
+use ssz_types::{FixedVector, VariableList, typenum::Unsigned};
 use strum::EnumString;
 use superstruct::superstruct;
 use types::beacon_block_body::KzgCommitments;
@@ -9,7 +10,7 @@ use types::blob_sidecar::BlobsList;
 use types::execution_requests::{
     ConsolidationRequests, DepositRequests, RequestType, WithdrawalRequests,
 };
-use types::{Blob, FixedVector, KzgProof, Unsigned};
+use types::{Blob, KzgProof};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -147,12 +148,7 @@ impl<E: EthSpec> From<ExecutionPayloadCapella<E>> for JsonExecutionPayloadCapell
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals),
         }
     }
 }
@@ -173,12 +169,7 @@ impl<E: EthSpec> From<ExecutionPayloadDeneb<E>> for JsonExecutionPayloadDeneb<E>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
         }
@@ -202,12 +193,7 @@ impl<E: EthSpec> From<ExecutionPayloadElectra<E>> for JsonExecutionPayloadElectr
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
         }
@@ -231,12 +217,7 @@ impl<E: EthSpec> From<ExecutionPayloadFulu<E>> for JsonExecutionPayloadFulu<E> {
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
         }
@@ -260,12 +241,7 @@ impl<E: EthSpec> From<ExecutionPayloadGloas<E>> for JsonExecutionPayloadGloas<E>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_to_json(payload.withdrawals),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
         }
@@ -322,12 +298,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadCapella<E>> for ExecutionPayloadCapell
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals),
         }
     }
 }
@@ -349,12 +320,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadDeneb<E>> for ExecutionPayloadDeneb<E>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
         }
@@ -378,12 +344,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadElectra<E>> for ExecutionPayloadElectr
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
         }
@@ -407,12 +368,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadFulu<E>> for ExecutionPayloadFulu<E> {
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
         }
@@ -436,12 +392,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadGloas<E>> for ExecutionPayloadGloas<E>
             base_fee_per_gas: payload.base_fee_per_gas,
             block_hash: payload.block_hash,
             transactions: payload.transactions,
-            withdrawals: payload
-                .withdrawals
-                .into_iter()
-                .map(Into::into)
-                .collect::<Vec<_>>()
-                .into(),
+            withdrawals: withdrawals_from_json(payload.withdrawals),
             blob_gas_used: payload.blob_gas_used,
             excess_blob_gas: payload.excess_blob_gas,
         }
@@ -673,6 +624,25 @@ impl From<JsonWithdrawal> for Withdrawal {
         }
     }
 }
+
+// Helper functions to convert between `VariableList<Withdrawal>` and `VariableList<JsonWithdrawal>`.
+// The `expect` is required to enable `from` impls between `ExecutionPayload` and `JsonExecutionPayload`.
+fn withdrawals_to_json<N>(list: VariableList<Withdrawal, N>) -> VariableList<JsonWithdrawal, N>
+where
+    N: Unsigned,
+{
+    VariableList::try_from_iter(list.into_iter().map(Into::into))
+        .expect("conversion to JSON should preserve withdrawals length")
+}
+
+fn withdrawals_from_json<N>(list: VariableList<JsonWithdrawal, N>) -> VariableList<Withdrawal, N>
+where
+    N: Unsigned,
+{
+    VariableList::try_from_iter(list.into_iter().map(Into::into))
+        .expect("conversion from JSON should preserve withdrawals length")
+}
+
 #[derive(Debug, PartialEq, Clone, RlpEncodable)]
 pub struct EncodableJsonWithdrawal<'a> {
     pub index: u64,
@@ -980,14 +950,7 @@ impl<E: EthSpec> From<JsonExecutionPayloadBodyV1<E>> for ExecutionPayloadBodyV1<
     fn from(value: JsonExecutionPayloadBodyV1<E>) -> Self {
         Self {
             transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|json_withdrawals| {
-                Withdrawals::<E>::from(
-                    json_withdrawals
-                        .into_iter()
-                        .map(Into::into)
-                        .collect::<Vec<_>>(),
-                )
-            }),
+            withdrawals: value.withdrawals.map(withdrawals_from_json),
         }
     }
 }
@@ -996,9 +959,7 @@ impl<E: EthSpec> From<ExecutionPayloadBodyV1<E>> for JsonExecutionPayloadBodyV1<
     fn from(value: ExecutionPayloadBodyV1<E>) -> Self {
         Self {
             transactions: value.transactions,
-            withdrawals: value.withdrawals.map(|withdrawals| {
-                VariableList::from(withdrawals.into_iter().map(Into::into).collect::<Vec<_>>())
-            }),
+            withdrawals: value.withdrawals.map(withdrawals_to_json),
         }
     }
 }

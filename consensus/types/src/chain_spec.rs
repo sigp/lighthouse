@@ -2031,7 +2031,8 @@ fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) 
 
     let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        columns: VariableList::from(vec![0; E::number_of_columns()]),
+        columns: VariableList::try_from(vec![0; E::number_of_columns()])
+            .expect("VariableList::try_from should succeed"),
     };
 
     RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(

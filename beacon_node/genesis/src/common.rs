@@ -37,10 +37,17 @@ pub fn genesis_deposits(
         proofs.push(proof);
     }
 
-    Ok(deposit_data
+    deposit_data
         .into_iter()
         .zip(proofs)
-        .map(|(data, proof)| (data, proof.into()))
-        .map(|(data, proof)| Deposit { proof, data })
-        .collect())
+        .map(|(data, proof)| {
+            let converted_proof = proof
+                .try_into()
+                .map_err(|e| format!("Error converting proof: {:?}", e))?;
+            Ok(Deposit {
+                proof: converted_proof,
+                data,
+            })
+        })
+        .collect()
 }
