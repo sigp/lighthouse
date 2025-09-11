@@ -1,5 +1,5 @@
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
-use crate::sync::range_sync::ResponsiblePeers;
+use crate::sync::range_sync::BatchPeers;
 use beacon_chain::{
     block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
 };
@@ -146,9 +146,9 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     }
 
     /// Returns the peers that we requested the blocks, blobs and columns for this component.
-    pub fn responsible_peers(&self) -> ResponsiblePeers {
-        ResponsiblePeers {
-            block_blob: self.block_peer,
+    pub fn responsible_peers(&self) -> BatchPeers {
+        BatchPeers {
+            block_and_blob: self.block_peer,
             data_columns: match &self.block_data_request {
                 RangeBlockDataRequest::NoData | RangeBlockDataRequest::Blobs(_) => HashMap::new(),
                 RangeBlockDataRequest::DataColumns {
@@ -224,7 +224,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
 
                 Ok(())
             }
-            _ => Err("Invalid initialization".to_string()),
+            _ => Err("Invalid state: expected DataColumnsFromRoot".to_string()),
         }
     }
 

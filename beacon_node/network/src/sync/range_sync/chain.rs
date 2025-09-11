@@ -5,7 +5,7 @@ use crate::network_beacon_processor::ChainSegmentProcessId;
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::manager::FaultyComponent;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
-use crate::sync::range_sync::batch::ResponsiblePeers;
+use crate::sync::range_sync::batch::BatchPeers;
 use crate::sync::{BatchOperationOutcome, BatchProcessResult, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
@@ -225,10 +225,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn on_block_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
+        batch_peers: BatchPeers,
         batch_id: BatchId,
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
-        responsible_peers: ResponsiblePeers,
     ) -> ProcessingResult {
         let _guard = self.span.clone().entered();
         // check if we have this batch
@@ -255,8 +255,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // A stream termination has been sent. This batch has ended. Process a completed batch.
         // Remove the request from the peer's active batches
 
-        // TODO(das): should use peer group here https://github.com/sigp/lighthouse/issues/6258
-        let received = batch.download_completed(blocks, responsible_peers.clone())?;
+        let received = batch.download_completed(blocks, batch_peers.clone())?;
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
             / EPOCHS_PER_BATCH;
@@ -265,7 +264,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             blocks = received,
             batch_state = self.visualize_batch_state(),
             %awaiting_batches,
-            ?responsible_peers,
+            ?batch_peers,
             "Batch downloaded"
         );
 
@@ -548,7 +547,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 penalty,
                 faulty_component,
             } => {
-                let Some(responsible_peers) = batch.responsible_peers() else {
+                let Some(batch_peers) = batch.processing_peers() else {
                     crit!(
                         current_state = ?batch.state(),
                         "Inconsistent state, batch must have been in processing state"
@@ -561,10 +560,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // Penalize the peer appropriately.
                 match faulty_component {
                     Some(FaultyComponent::Blocks) | Some(FaultyComponent::Blobs) => {
-                        network.report_peer(responsible_peers.block_blob, *penalty, "faulty_batch");
+                        network.report_peer(batch_peers.block_and_blob, *penalty, "faulty_batch");
                     }
                     Some(FaultyComponent::Columns(faulty_columns)) => {
-                        for (peer, columns) in responsible_peers.data_columns.iter() {
+                        for (peer, columns) in batch_peers.data_columns.iter() {
                             for faulty_column in faulty_columns {
                                 if columns.contains(faulty_column) {
                                     network.report_peer(*peer, *penalty, "faulty_batch");
@@ -879,10 +878,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T>,
+        batch_peers: BatchPeers,
         batch_id: BatchId,
         request_id: Id,
         err: RpcResponseError,
-        responsible_peers: ResponsiblePeers,
     ) -> ProcessingResult {
         let _guard = self.span.clone().entered();
         let batch_state = self.visualize_batch_state();
@@ -934,7 +933,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 debug!(
                     batch_epoch = %batch_id,
                     batch_state = ?batch.state(),
-                    ?responsible_peers,
+                    ?batch_peers,
                     %request_id,
                     ?batch_state,
                     "Batch not expecting block"
@@ -945,12 +944,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 batch_epoch = %batch_id,
                 batch_state = ?batch.state(),
                 error = ?err,
-                ?responsible_peers,
+                ?batch_peers,
                 %request_id,
                 "Batch download error"
             );
             if let BatchOperationOutcome::Failed { blacklist } =
-                batch.download_failed(Some(responsible_peers.block_blob))?
+                batch.download_failed(Some(batch_peers.block_and_blob))?
             {
                 return Err(RemoveChain::ChainFailed {
                     blacklist,
@@ -961,7 +960,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         } else {
             debug!(
                 batch_epoch = %batch_id,
-                ?responsible_peers,
+                ?batch_peers,
                 %request_id,
                 batch_state,
                 "Batch not found"
@@ -1078,7 +1077,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 },
             }
         } else {
-            debug!(?self.to_be_downloaded, ?self.processing_target,"Did not get batch");
+            debug!(?self.to_be_downloaded, ?self.processing_target, "Did not get batch");
         }
 
         Ok(KeepChain)
@@ -1144,6 +1143,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T>,
     ) -> Result<KeepChain, RemoveChain> {
         let _guard = self.span.clone().entered();
+        debug!("Resuming chain");
+        // attempt to download any batches stuck in the `AwaitingDownload` state because of
+        // a lack of peers earlier
+        self.attempt_send_awaiting_download_batches(network, "resume")?;
         // Request more batches if needed.
         self.request_batches(network)?;
         // If there is any batch ready for processing, send it.
@@ -1188,28 +1191,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         while let Some(batch_id) = self.include_next_batch(network) {
             // send the batch
             self.send_batch(network, batch_id)?;
-        }
-
-        // Force requesting the `processing_batch` to progress sync if required
-        if !self.batches.contains_key(&self.processing_target) {
-            debug!(?self.processing_target,"Forcing requesting processing_target to progress sync");
-            if !self.good_peers_on_sampling_subnets(self.processing_target, network) {
-                debug!(
-                    src = "request_batches_processing",
-                    "Waiting for peers to be available on sampling column subnets"
-                );
-                return Ok(KeepChain);
-            }
-
-            if let Entry::Vacant(entry) = self.batches.entry(self.processing_target) {
-                let batch_type = network.batch_type(self.processing_target);
-                let processing_batch =
-                    BatchInfo::new(&self.processing_target, EPOCHS_PER_BATCH, batch_type);
-                entry.insert(processing_batch);
-                self.send_batch(network, self.processing_target)?;
-            } else {
-                self.attempt_send_awaiting_download_batches(network, "request_batches_processing")?;
-            }
         }
 
         // No more batches, simply stop

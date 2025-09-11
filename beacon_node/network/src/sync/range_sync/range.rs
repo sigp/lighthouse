@@ -46,7 +46,7 @@ use crate::metrics;
 use crate::status::ToStatusMessage;
 use crate::sync::BatchProcessResult;
 use crate::sync::network_context::{RpcResponseError, SyncNetworkContext};
-use crate::sync::range_sync::ResponsiblePeers;
+use crate::sync::range_sync::BatchPeers;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
@@ -204,7 +204,7 @@ where
     pub fn blocks_by_range_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        responsible_peers: ResponsiblePeers,
+        batch_peers: BatchPeers,
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
@@ -212,7 +212,7 @@ where
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
-            chain.on_block_response(network, batch_id, request_id, blocks, responsible_peers)
+            chain.on_block_response(network, batch_peers, batch_id, request_id, blocks)
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some((removed_chain, remove_reason)) = removed_chain {
@@ -296,7 +296,7 @@ where
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        responsible_peers: ResponsiblePeers,
+        batch_peers: BatchPeers,
         batch_id: BatchId,
         chain_id: ChainId,
         request_id: Id,
@@ -304,7 +304,7 @@ where
     ) {
         // check that this request is pending
         match self.chains.call_by_id(chain_id, |chain| {
-            chain.inject_error(network, batch_id, request_id, err, responsible_peers)
+            chain.inject_error(network, batch_peers, batch_id, request_id, err)
         }) {
             Ok((removed_chain, sync_type)) => {
                 if let Some((removed_chain, remove_reason)) = removed_chain {

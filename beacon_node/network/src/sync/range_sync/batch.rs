@@ -131,8 +131,10 @@ impl<E: EthSpec, B: BatchConfig> fmt::Display for BatchInfo<E, B> {
 ///
 /// This is used for penalizing in case of invalid batches.
 #[derive(Debug, Clone)]
-pub struct ResponsiblePeers {
-    pub block_blob: PeerId,
+pub struct BatchPeers {
+    /// Note: we send the blob request to the same peer as the block request
+    /// Hence, block and blob peers would be the same.
+    pub block_and_blob: PeerId,
     pub data_columns: HashMap<PeerId, Vec<ColumnIndex>>,
 }
 
@@ -144,9 +146,9 @@ pub enum BatchState<E: EthSpec> {
     /// The batch is being downloaded.
     Downloading(Id),
     /// The batch has been completely downloaded and is ready for processing.
-    AwaitingProcessing(ResponsiblePeers, Vec<RpcBlock<E>>, Instant),
+    AwaitingProcessing(BatchPeers, Vec<RpcBlock<E>>, Instant),
     /// The batch is being processed.
-    Processing(Attempt, ResponsiblePeers),
+    Processing(Attempt, BatchPeers),
     /// The batch was successfully processed and is waiting to be validated.
     ///
     /// It is not sufficient to process a batch successfully to consider it correct. This is
@@ -223,7 +225,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     }
 
     /// Returns the peers that are currently responsible for progressing the state of the batch.
-    pub fn processing_peers(&self) -> Option<&ResponsiblePeers> {
+    pub fn processing_peers(&self) -> Option<&BatchPeers> {
         match &self.state {
             BatchState::AwaitingDownload
             | BatchState::Failed
@@ -287,7 +289,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
     pub fn download_completed(
         &mut self,
         blocks: Vec<RpcBlock<E>>,
-        responsible_peers: ResponsiblePeers,
+        responsible_peers: BatchPeers,
     ) -> Result<usize /* Received blocks */, WrongState> {
         match self.state.poison() {
             BatchState::Downloading(_) => {
@@ -364,7 +366,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(responsible_peers, blocks, start_instant) => {
                 self.state = BatchState::Processing(
-                    Attempt::new::<B, E>(responsible_peers.block_blob, &blocks),
+                    Attempt::new::<B, E>(responsible_peers.block_and_blob, &blocks),
                     responsible_peers,
                 );
                 Ok((blocks, start_instant.elapsed()))
@@ -377,17 +379,6 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
                     self.state
                 )))
             }
-        }
-    }
-
-    pub fn responsible_peers(&self) -> Option<&ResponsiblePeers> {
-        match &self.state {
-            BatchState::AwaitingDownload
-            | BatchState::Failed
-            | BatchState::Poisoned
-            | BatchState::Downloading(_)
-            | BatchState::AwaitingValidation(_) => None,
-            BatchState::AwaitingProcessing(r, _, _) | BatchState::Processing(_, r) => Some(r),
         }
     }
 
@@ -486,19 +477,23 @@ impl Attempt {
 impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BatchState::Processing(Attempt { peer_id, hash: _ }, responsible_peers) => {
-                write!(f, "Processing({}) {:?}", peer_id, responsible_peers)
+            BatchState::Processing(Attempt { peer_id, hash: _ }, batch_peers) => {
+                write!(
+                    f,
+                    "Processing({}) {}",
+                    peer_id, batch_peers.block_and_blob
+                )
             }
             BatchState::AwaitingValidation(Attempt { peer_id, hash: _ }) => {
                 write!(f, "AwaitingValidation({})", peer_id)
             }
             BatchState::AwaitingDownload => f.write_str("AwaitingDownload"),
             BatchState::Failed => f.write_str("Failed"),
-            BatchState::AwaitingProcessing(responsible_peers, blocks, _) => {
+            BatchState::AwaitingProcessing(batch_peers, blocks, _) => {
                 write!(
                     f,
-                    "AwaitingProcessing({:?}, {:?} blocks)",
-                    responsible_peers,
+                    "AwaitingProcessing({}, {:?} blocks)",
+                    batch_peers.block_and_blob,
                     blocks.len()
                 )
             }

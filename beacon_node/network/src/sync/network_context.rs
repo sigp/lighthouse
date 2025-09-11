@@ -18,7 +18,7 @@ use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::requests::{
     BlobsByRootSingleBlockRequest, DataColumnsByRootRangeRequestItems,
 };
-use crate::sync::range_sync::ResponsiblePeers;
+use crate::sync::range_sync::BatchPeers;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
@@ -950,7 +950,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) -> Option<(
         Result<Vec<RpcBlock<T::EthSpec>>, RpcResponseError>,
-        ResponsiblePeers,
+        BatchPeers,
     )> {
         let Entry::Occupied(mut entry) = self.components_by_range_requests.entry(id) else {
             metrics::inc_counter_vec(&metrics::SYNC_UNKNOWN_NETWORK_REQUESTS, &["range_blocks"]);

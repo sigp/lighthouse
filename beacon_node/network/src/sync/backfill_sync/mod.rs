@@ -16,7 +16,7 @@ use crate::sync::network_context::{
 };
 use crate::sync::range_sync::{
     BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
-    ResponsiblePeers,
+    BatchPeers,
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -383,7 +383,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         batch_id: BatchId,
         request_id: Id,
         blocks: Vec<RpcBlock<T::EthSpec>>,
-        responsible_peers: ResponsiblePeers,
+        batch_peers: BatchPeers,
     ) -> Result<ProcessResult, BackFillError> {
         // check if we have this batch
         let Some(batch) = self.batches.get_mut(&batch_id) else {
@@ -402,7 +402,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             return Ok(ProcessResult::Successful);
         }
 
-        match batch.download_completed(blocks, responsible_peers) {
+        match batch.download_completed(blocks, batch_peers) {
             Ok(received) => {
                 let awaiting_batches =
                     self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
@@ -558,7 +558,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         };
 
-        let Some(responsible_peers) = batch.processing_peers() else {
+        let Some(batch_peers) = batch.processing_peers() else {
             self.fail_sync(BackFillError::BatchInvalidState(
                 batch_id,
                 String::from("Peer does not exist"),
@@ -570,7 +570,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             ?result,
             %batch,
             batch_epoch = %batch_id,
-            ?responsible_peers,
+            ?batch_peers,
             // client = %network.client_type(peer),
             "Backfill batch processed"
         );
@@ -616,7 +616,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 penalty,
                 faulty_component,
             } => {
-                let Some(responsible_peers) = batch.responsible_peers() else {
+                let Some(batch_peers) = batch.processing_peers() else {
                     error!(?batch_id, "Responsible peers not found for a failed batch");
                     return self
                         .fail_sync(BackFillError::BatchProcessingFailed(batch_id))
@@ -625,11 +625,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 // Penalize the peer appropriately.
                 match faulty_component {
                     Some(FaultyComponent::Blocks) | Some(FaultyComponent::Blobs) => {
-                        network.report_peer(responsible_peers.block_blob, *penalty, "faulty_batch");
+                        network.report_peer(batch_peers.block_and_blob, *penalty, "faulty_batch");
                     }
                     // todo(pawan): clean this up
                     Some(FaultyComponent::Columns(faulty_columns)) => {
-                        for (peer, columns) in responsible_peers.data_columns.iter() {
+                        for (peer, columns) in batch_peers.data_columns.iter() {
                             for faulty_column in faulty_columns {
                                 if columns.contains(faulty_column) {
                                     network.report_peer(*peer, *penalty, "faulty_batch");

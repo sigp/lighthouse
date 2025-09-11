@@ -9,7 +9,7 @@ mod sync_type;
 
 pub use batch::{
     BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
-    ByRangeRequestType, ResponsiblePeers,
+    ByRangeRequestType, BatchPeers,
 };
 pub use chain::{BatchId, ChainId, EPOCHS_PER_BATCH};
 #[cfg(test)]
