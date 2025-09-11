@@ -75,7 +75,9 @@ use crate::{
     kzg_utils, metrics, AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore,
     BeaconSnapshot, CachedHead,
 };
-use eth2::types::{EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes};
+use eth2::types::{
+    EventKind, SseBlobSidecar, SseBlock, SseExtendedPayloadAttributes, SseInclusionList,
+};
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer,
     FailedCondition, PayloadAttributes, PayloadStatus,
@@ -2395,7 +2397,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         GossipVerifiedInclusionList::verify(inclusion_list, self).inspect(|v| {
             metrics::inc_counter(&metrics::INCLUSION_LIST_PROCESSING_SUCCESSES);
             if let Some(event_handler) = self.event_handler.as_ref() {
-                event_handler.register(EventKind::InclusionList(Box::new(v.signed_il.clone())));
+                event_handler.register(EventKind::InclusionList(SseInclusionList {
+                    version: ForkName::Eip7805,
+                    data: v.signed_il.clone(),
+                }));
             }
         })
     }

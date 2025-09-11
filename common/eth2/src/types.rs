@@ -984,6 +984,13 @@ pub struct SseHead {
     pub execution_optimistic: bool,
 }
 
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[serde(bound = "E: EthSpec")]
+pub struct SseInclusionList<E: EthSpec> {
+    pub version: ForkName,
+    pub data: SignedInclusionList<E>,
+}
+
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct BlockGossip {
     pub slot: Slot,
@@ -1130,7 +1137,7 @@ pub enum EventKind<E: EthSpec> {
     AttesterSlashing(Box<AttesterSlashing<E>>),
     BlsToExecutionChange(Box<SignedBlsToExecutionChange>),
     BlockGossip(Box<BlockGossip>),
-    InclusionList(Box<SignedInclusionList<E>>),
+    InclusionList(SseInclusionList<E>),
 }
 
 impl<E: EthSpec> EventKind<E> {
