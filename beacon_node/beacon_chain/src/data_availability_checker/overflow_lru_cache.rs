@@ -666,11 +666,13 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             None
         };
 
-        debug!(
-            component = "block",
-            status = pending_components.status_str(num_expected_columns_opt),
-            "Component added to data availability checker"
-        );
+        pending_components.span.in_scope(|| {
+            debug!(
+                component = "block",
+                status = pending_components.status_str(num_expected_columns_opt),
+                "Component added to data availability checker"
+            );
+        });
 
         self.check_availability_and_cache_components(
             block_root,
