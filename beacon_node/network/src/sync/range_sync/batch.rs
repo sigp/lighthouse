@@ -486,11 +486,7 @@ impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BatchState::Processing(Attempt { peer_id, hash: _ }, batch_peers) => {
-                write!(
-                    f,
-                    "Processing({}) {}",
-                    peer_id, batch_peers.block_and_blob
-                )
+                write!(f, "Processing({}) {}", peer_id, batch_peers.block_and_blob)
             }
             BatchState::AwaitingValidation(Attempt { peer_id, hash: _ }) => {
                 write!(f, "AwaitingValidation({})", peer_id)
