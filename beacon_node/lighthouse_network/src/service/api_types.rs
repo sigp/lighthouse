@@ -10,6 +10,12 @@ use types::{
 pub type Id = u32;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RangeRequestType {
+    ForwardSync,
+    BackfillSync,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct SingleLookupReqId {
     pub lookup_id: Id,
     pub req_id: Id,
@@ -109,6 +115,13 @@ impl RangeRequestId {
                 chain_id: _,
                 batch_id,
             } => *batch_id,
+        }
+    }
+
+    pub fn batch_type(&self) -> RangeRequestType {
+        match &self {
+            RangeRequestId::BackfillSync { .. } => RangeRequestType::BackfillSync,
+            RangeRequestId::RangeSync { .. } => RangeRequestType::ForwardSync,
         }
     }
 }

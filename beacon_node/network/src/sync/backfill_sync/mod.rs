@@ -15,12 +15,12 @@ use crate::sync::network_context::{
     RangeRequestId, RpcRequestSendError, RpcResponseError, SyncNetworkContext,
 };
 use crate::sync::range_sync::{
-    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
-    BatchPeers,
+    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchPeers, BatchProcessingResult,
+    BatchState,
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use lighthouse_network::service::api_types::Id;
+use lighthouse_network::service::api_types::{Id, RangeRequestType};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
@@ -1114,7 +1114,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 self.include_next_batch(network)
             }
             Entry::Vacant(entry) => {
-                let batch_type = network.batch_type(batch_id);
+                let batch_type = network.batch_type(batch_id, RangeRequestType::BackfillSync);
                 entry.insert(BatchInfo::new(
                     &batch_id,
                     BACKFILL_EPOCHS_PER_BATCH,

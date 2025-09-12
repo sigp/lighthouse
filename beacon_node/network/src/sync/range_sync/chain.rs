@@ -9,7 +9,7 @@ use crate::sync::range_sync::batch::BatchPeers;
 use crate::sync::{BatchOperationOutcome, BatchProcessResult, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
-use lighthouse_network::service::api_types::Id;
+use lighthouse_network::service::api_types::{Id, RangeRequestType};
 use lighthouse_network::{PeerAction, PeerId};
 use lighthouse_tracing::SPAN_SYNCING_CHAIN;
 use logging::crit;
@@ -1025,7 +1025,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .cloned()
                 .collect::<HashSet<_>>();
 
-            match network.block_components_by_range_request_without_components(
+            match network.block_components_by_range_request(
                 batch_type,
                 request,
                 RangeRequestId::RangeSync {
@@ -1173,7 +1173,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
 
             if let Entry::Vacant(entry) = self.batches.entry(epoch) {
-                let batch_type = network.batch_type(epoch);
+                let batch_type = network.batch_type(epoch, RangeRequestType::ForwardSync);
                 let optimistic_batch = BatchInfo::new(&epoch, EPOCHS_PER_BATCH, batch_type);
                 entry.insert(optimistic_batch);
                 self.send_batch(network, epoch)?;
@@ -1270,7 +1270,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 self.include_next_batch(network)
             }
             Entry::Vacant(entry) => {
-                let batch_type = network.batch_type(next_batch_id);
+                let batch_type = network.batch_type(next_batch_id, RangeRequestType::ForwardSync);
                 entry.insert(BatchInfo::new(&next_batch_id, EPOCHS_PER_BATCH, batch_type));
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
                 Some(next_batch_id)

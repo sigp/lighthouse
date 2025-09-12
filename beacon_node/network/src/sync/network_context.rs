@@ -29,7 +29,7 @@ pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
     CustodyId, CustodyRequester, DataColumnsByRangeRequestId, DataColumnsByRootRequestId,
-    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    DataColumnsByRootRequester, Id, RangeRequestType, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use lighthouse_tracing::SPAN_OUTGOING_RANGE_REQUEST;
@@ -768,6 +768,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .transpose()?;
 
         let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
+
+        let data_column_by_root_range_request =
+            // with this variant, we request columns by root after we receive
+            // a successful blocks by range response.
+            if matches!(batch_type, ByRangeRequestType::BlocksAndColumnsSeparate) {
+                Some(HashSet::from_iter(
+                    self.chain.sampling_columns_for_epoch(epoch).iter().copied(),
+                ))
+            } else {
+                None
+            };
         let info = RangeBlockComponentsRequest::new(
             blocks_req_id,
             blobs_req_id,
@@ -777,108 +788,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.chain.sampling_columns_for_epoch(epoch).to_vec(),
                 )
             }),
-            // We are requesting data columns by range here
-            None,
-            range_request_span,
-        );
-        self.components_by_range_requests.insert(id, info);
-
-        Ok(id.id)
-    }
-
-    /// A blocks by range request sent by the range sync algorithm
-    ///
-    /// This function is used when we want to request data columns by root instead of range.
-    /// Pre-fulu, it works similar to `Self::block_components_by_range_request`.
-    pub fn block_components_by_range_request_without_components(
-        &mut self,
-        batch_type: ByRangeRequestType,
-        request: BlocksByRangeRequest,
-        requester: RangeRequestId,
-        peers: &HashSet<PeerId>,
-        peers_to_deprioritize: &HashSet<PeerId>,
-    ) -> Result<Id, RpcRequestSendError> {
-        let range_request_span = debug_span!(
-            parent: None,
-            SPAN_OUTGOING_RANGE_REQUEST,
-            range_req_id = %requester,
-            peers = peers.len()
-        );
-        let _guard = range_request_span.clone().entered();
-        let active_request_count_by_peer = self.active_request_count_by_peer();
-
-        let Some(block_peer) = peers
-            .iter()
-            .map(|peer| {
-                (
-                    // If contains -> 1 (order after), not contains -> 0 (order first)
-                    peers_to_deprioritize.contains(peer),
-                    // Prefer peers with less overall requests
-                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
-                    // Random factor to break ties, otherwise the PeerID breaks ties
-                    rand::random::<u32>(),
-                    peer,
-                )
-            })
-            .min()
-            .map(|(_, _, _, peer)| *peer)
-        else {
-            // Backfill and forward sync handle this condition gracefully.
-            // - Backfill sync: will pause waiting for more peers to join
-            // - Forward sync: can never happen as the chain is dropped when removing the last peer.
-            return Err(RpcRequestSendError::NoPeer(NoPeerError::BlockPeer));
-        };
-
-        // Create the overall components_by_range request ID before its individual components
-        let id = ComponentsByRangeRequestId {
-            id: self.next_id(),
-            requester,
-        };
-
-        let blocks_req_id = self.send_blocks_by_range_request(
-            block_peer,
-            request.clone(),
-            id,
-            new_range_request_span!(
-                self,
-                "outgoing_blocks_by_range",
-                range_request_span.clone(),
-                block_peer
-            ),
-        )?;
-
-        let blobs_req_id = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
-            Some(self.send_blobs_by_range_request(
-                block_peer,
-                BlobsByRangeRequest {
-                    start_slot: *request.start_slot(),
-                    count: *request.count(),
-                },
-                id,
-                new_range_request_span!(
-                    self,
-                    "outgoing_blobs_by_range",
-                    range_request_span.clone(),
-                    block_peer
-                ),
-            )?)
-        } else {
-            None
-        };
-
-        let epoch = Slot::new(*request.start_slot()).epoch(T::EthSpec::slots_per_epoch());
-        let info = RangeBlockComponentsRequest::new(
-            blocks_req_id,
-            blobs_req_id,
-            None,
-            // request data columns by root only if this batch requires requesting columns
-            if matches!(batch_type, ByRangeRequestType::BlocksAndColumns) {
-                Some(HashSet::from_iter(
-                    self.chain.sampling_columns_for_epoch(epoch).iter().copied(),
-                ))
-            } else {
-                None
-            },
+            data_column_by_root_range_request,
             range_request_span,
         );
         self.components_by_range_requests.insert(id, info);
@@ -1618,7 +1528,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Check whether a batch for this epoch (and only this epoch) should request just blocks or
     /// blocks and blobs.
-    pub fn batch_type(&self, epoch: types::Epoch) -> ByRangeRequestType {
+    pub fn batch_type(
+        &self,
+        epoch: types::Epoch,
+        request_type: RangeRequestType,
+    ) -> ByRangeRequestType {
         // Induces a compile time panic if this doesn't hold true.
         #[allow(clippy::assertions_on_constants)]
         const _: () = assert!(
@@ -1632,7 +1546,14 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .data_availability_checker
             .data_columns_required_for_epoch(epoch)
         {
-            ByRangeRequestType::BlocksAndColumns
+            match request_type {
+                // Currently, we download blocks and columns separately when we forward sync as
+                // requesting columns by root is less ambiguous when there are multiple heads.
+                // For backfill, since there is just one chain, it makes more sense to download
+                // blocks and columns together.
+                RangeRequestType::BackfillSync => ByRangeRequestType::BlocksAndColumns,
+                RangeRequestType::ForwardSync => ByRangeRequestType::BlocksAndColumnsSeparate,
+            }
         } else if self
             .chain
             .data_availability_checker
@@ -1775,7 +1696,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let batch_epoch = id.batch_id();
         // Return early if no columns are required for this epoch
         if !matches!(
-            self.batch_type(batch_epoch),
+            self.batch_type(batch_epoch, id.parent_request_id.requester.batch_type()),
             ByRangeRequestType::BlocksAndColumns
         ) {
             return Ok(());
@@ -1828,7 +1749,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .network_globals()
                 .peers
                 .read()
-                .good_custody_subnet_peer_range_sync(subnet_id, batch_epoch).choose(&mut rand::rng())
+                .good_custody_subnet_peer_range_sync(subnet_id, batch_epoch)
+                .choose(&mut rand::rng())
             {
                 peer_to_columns
                     .entry(*custody_peer)

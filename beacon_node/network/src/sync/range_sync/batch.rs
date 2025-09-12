@@ -21,7 +21,15 @@ const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 #[derive(Debug, Copy, Clone, Display)]
 #[strum(serialize_all = "snake_case")]
 pub enum ByRangeRequestType {
+    /// This variant requests the blocks and columns
+    /// simaltaneously and then tries to couple the
+    /// responses.
     BlocksAndColumns,
+    /// This variant requests the blocks first using
+    /// a byrange request and then requests the data columns
+    /// for the received blocks using the `DataColumnsByRoot`
+    /// root request.
+    BlocksAndColumnsSeparate,
     BlocksAndBlobs,
     Blocks,
 }
