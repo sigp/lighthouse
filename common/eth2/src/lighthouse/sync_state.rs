@@ -76,6 +76,10 @@ impl PartialEq for SyncState {
                     SyncState::BackFillSyncing { .. },
                     SyncState::BackFillSyncing { .. }
                 )
+                | (
+                    SyncState::CustodyBackFillSyncing { .. },
+                    SyncState::CustodyBackFillSyncing { .. }
+                )
         )
     }
 }
@@ -109,7 +113,12 @@ impl SyncState {
     ///
     /// NOTE: We consider the node synced if it is fetching old historical blocks.
     pub fn is_synced(&self) -> bool {
-        matches!(self, SyncState::Synced | SyncState::BackFillSyncing { .. })
+        matches!(
+            self,
+            SyncState::Synced
+                | SyncState::BackFillSyncing { .. }
+                | SyncState::CustodyBackFillSyncing { .. }
+        )
     }
 
     /// Returns true if the node is *stalled*, i.e. has no synced peers.

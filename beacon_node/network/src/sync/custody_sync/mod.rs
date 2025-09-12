@@ -166,6 +166,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     return Ok(SyncStart::NotSyncing);
                 }
             }
+            CustodyBackFillState::Syncing => {}
             _ => return Ok(SyncStart::NotSyncing),
         }
 
@@ -191,7 +192,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         &mut self,
         network: &mut SyncNetworkContext<T>,
     ) -> Result<SyncStart, CustodyBackfillError> {
-        info!(backfill_state = ?self.state(), "custody backfill satat");
         match self.state() {
             CustodyBackFillState::Syncing => {
                 if self.check_completed() {
@@ -433,7 +433,6 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<ProcessResult, CustodyBackfillError> {
-        info!(?batch_id, "Processing batch");
         if self.state() != CustodyBackFillState::Syncing || self.current_processing_batch.is_some()
         {
             return Ok(ProcessResult::Successful);
