@@ -58,9 +58,10 @@ use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
-    BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
-    CustodySyncByRangeRequestId, DataColumnsByRangeRequestId, DataColumnsByRootRequestId,
-    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, ColumnsByRangeParentRequestId,
+    ComponentsByRangeRequestId, CustodyRequester, CustodySyncByRangeRequestId,
+    DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
+    SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{CustodyBackFillState, NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
@@ -1316,7 +1317,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_blocks_by_range_response(id, peer_id, block) {
             self.on_range_components_response(
-                id.parent_request_id,
+                ColumnsByRangeParentRequestId::ComponentsByRange(id.parent_request_id),
                 peer_id,
                 RangeBlockComponent::Block(id, resp),
             );
@@ -1331,7 +1332,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
             self.on_range_components_response(
-                id.parent_request_id,
+                ColumnsByRangeParentRequestId::ComponentsByRange(id.parent_request_id),
                 peer_id,
                 RangeBlockComponent::Blob(id, resp),
             );
@@ -1358,7 +1359,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn on_custody_sync_data_columns_by_range_response(
         &mut self,
-        id: CustodySyncByRangeRequestId,
+        id: DataColumnsByRangeRequestId,
         peer_id: PeerId,
         data_columns: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
@@ -1387,80 +1388,88 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// blobs.
     fn on_range_components_response(
         &mut self,
-        range_request_id: ComponentsByRangeRequestId,
+        range_request_id: ColumnsByRangeParentRequestId,
         peer_id: PeerId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
-        if let Some(resp) = self
-            .network
-            .range_block_component_response(range_request_id, range_block_component)
-        {
-            match resp {
-                Ok(blocks) => {
-                    match range_request_id.requester {
-                        RangeRequestId::RangeSync { chain_id, batch_id } => {
-                            self.range_sync.blocks_by_range_response(
-                                &mut self.network,
-                                peer_id,
-                                chain_id,
-                                batch_id,
-                                range_request_id.id,
-                                blocks,
-                            );
-                            self.update_sync_state();
-                        }
-                        RangeRequestId::BackfillSync { batch_id } => {
-                            match self.backfill_sync.on_block_response(
-                                &mut self.network,
-                                batch_id,
-                                &peer_id,
-                                range_request_id.id,
-                                blocks,
-                            ) {
-                                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                                Ok(ProcessResult::Successful) => {}
-                                Err(_error) => {
-                                    // The backfill sync has failed, errors are reported
-                                    // within.
+        match range_request_id {
+            ColumnsByRangeParentRequestId::ComponentsByRange(range_request_id) => {
+                if let Some(resp) = self
+                    .network
+                    .range_block_component_response(range_request_id, range_block_component)
+                {
+                    match resp {
+                        Ok(blocks) => {
+                            match range_request_id.requester {
+                                RangeRequestId::RangeSync { chain_id, batch_id } => {
+                                    self.range_sync.blocks_by_range_response(
+                                        &mut self.network,
+                                        peer_id,
+                                        chain_id,
+                                        batch_id,
+                                        range_request_id.id,
+                                        blocks,
+                                    );
                                     self.update_sync_state();
+                                }
+                                RangeRequestId::BackfillSync { batch_id } => {
+                                    match self.backfill_sync.on_block_response(
+                                        &mut self.network,
+                                        batch_id,
+                                        &peer_id,
+                                        range_request_id.id,
+                                        blocks,
+                                    ) {
+                                        Ok(ProcessResult::SyncCompleted) => {
+                                            self.update_sync_state()
+                                        }
+                                        Ok(ProcessResult::Successful) => {}
+                                        Err(_error) => {
+                                            // The backfill sync has failed, errors are reported
+                                            // within.
+                                            self.update_sync_state();
+                                        }
+                                    }
                                 }
                             }
                         }
+                        Err(e) => match range_request_id.requester {
+                            RangeRequestId::RangeSync { chain_id, batch_id } => {
+                                self.range_sync.inject_error(
+                                    &mut self.network,
+                                    peer_id,
+                                    batch_id,
+                                    chain_id,
+                                    range_request_id.id,
+                                    e,
+                                );
+                                self.update_sync_state();
+                            }
+                            RangeRequestId::BackfillSync { batch_id } => {
+                                match self.backfill_sync.inject_error(
+                                    &mut self.network,
+                                    batch_id,
+                                    &peer_id,
+                                    range_request_id.id,
+                                    e,
+                                ) {
+                                    Ok(_) => {}
+                                    Err(_) => self.update_sync_state(),
+                                }
+                            }
+                        },
                     }
                 }
-                Err(e) => match range_request_id.requester {
-                    RangeRequestId::RangeSync { chain_id, batch_id } => {
-                        self.range_sync.inject_error(
-                            &mut self.network,
-                            peer_id,
-                            batch_id,
-                            chain_id,
-                            range_request_id.id,
-                            e,
-                        );
-                        self.update_sync_state();
-                    }
-                    RangeRequestId::BackfillSync { batch_id } => {
-                        match self.backfill_sync.inject_error(
-                            &mut self.network,
-                            batch_id,
-                            &peer_id,
-                            range_request_id.id,
-                            e,
-                        ) {
-                            Ok(_) => {}
-                            Err(_) => self.update_sync_state(),
-                        }
-                    }
-                },
             }
+            // TODO(custody-backfill) refactor
+            ColumnsByRangeParentRequestId::CustodyBackfillSync(_) => todo!(),
         }
     }
 
     /// Handles receiving a response for a custody range sync request that has columns.
     fn on_custody_sync_data_columns_batch_response(
         &mut self,
-        custody_sync_request_id: CustodySyncByRangeRequestId,
+        custody_sync_request_id: DataColumnsByRangeRequestId,
         peer_id: PeerId,
         data_columns: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
     ) {
