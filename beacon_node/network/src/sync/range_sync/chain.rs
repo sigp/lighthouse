@@ -137,7 +137,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             start_epoch = %start_epoch,
             target_head_slot = %target_head_slot,
             target_head_root = %target_head_root,
-            chain_type = %chain_type,
+            chain_type = ?chain_type,
         )
     )]
     pub fn new(
