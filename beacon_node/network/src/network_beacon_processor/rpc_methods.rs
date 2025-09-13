@@ -411,12 +411,19 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         request: DataColumnsByRootRequest<T::EthSpec>,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        // block known, block has data, we custody the requested index, and the column is found in the store
         let mut sent_data_columns = 0;
+        // requested a block root not found in our caches or the store
         let mut requested_unknown_block_root = 0;
+        // requested a known block, but it has 0 blobs
         let mut requested_block_without_data = 0;
+        // requested known block with data that we custod, but columns not in store missing_columns
         let mut requested_missing_columns = 0;
+        // requested known block, columns not found in store, but block is not imported yet
         let mut requested_pending_block = 0;
+        // requested columns not found in store, and their epoch is outside the PeerDAS da_window
         let mut requested_outside_da_check = 0;
+        // requested column index we don't custody at the block's epoch
         let mut requested_we_dont_custody = 0;
         let mut requested_indices_we_dont_custody = HashSet::new();
 
