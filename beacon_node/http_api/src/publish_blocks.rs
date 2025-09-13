@@ -28,9 +28,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
-    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BeaconStateError, BlobSidecar, BlobsList, BlockImportSource,
+    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload, ForkName, FullPayload,
+    FullPayloadBellatrix, FullPayloadRef, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::http::StatusCode;
 use warp::{Rejection, Reply, reply::Response};
@@ -109,6 +109,16 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     let block = unverified_block.inner_block();
 
     debug!(slot = %block.slot(), "Signed block received in HTTP API");
+
+    // When the proposer receives their block
+    // Generate execution proofs for locally built blocks
+    if is_locally_built_block && chain.config.generate_execution_proofs {
+        info!(
+            execution_block_hash = ?block.message().body().execution_payload().ok().map(|p| p.block_hash()),
+            "spawn_proof_generation_task_with_block called from publish_block (Phase 1)"
+        );
+        spawn_proof_generation_task_with_block(&chain, block.message(), network_tx.clone());
+    }
 
     /* actually publish a block */
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -876,5 +886,189 @@ pub fn into_full_block_and_blobs<T: BeaconChainTypes>(
 
             Ok((Arc::new(signed_block), Some((proofs, blobs))))
         }
+    }
+}
+
+/// Spawn a background task to generate and store execution proofs using a block reference
+/// This converts the BeaconBlockRef to ExecutionPayload before spawning the proof generation task
+fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    block: BeaconBlockRef<'_, T::EthSpec, FullPayload<T::EthSpec>>,
+    network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+) {
+    let chain_clone = chain.clone();
+
+    // Extract the beacon block root
+    let block_root = block.tree_hash_root();
+
+    // Extract the concrete ExecutionPayload from the BeaconBlock
+    let payload = match extract_execution_payload(block) {
+        Ok(payload) => payload,
+        Err(e) => {
+            warn!(
+                "Failed to extract execution payload for proof generation: {:?}",
+                e
+            );
+            return;
+        }
+    };
+
+    // Spawn the proof generation task in the background
+    // WARNING: No resource limits or task counting is performed here.
+    // TODO: We maybe want to keep track of what blocks we are already creating proofs
+    // TODO: for
+    // TODO: Implement a task queue with concurrency limits and resource monitoring.
+    chain.task_executor.spawn(
+        async move {
+            if let Err(e) =
+                generate_and_store_execution_proofs_from_block(&chain_clone, block_root, &payload, &network_tx)
+                    .await
+            {
+                warn!("Failed to generate execution proofs: {:?}", e);
+            }
+        },
+        "execution_proof_generation",
+    );
+}
+
+fn extract_execution_payload<E: EthSpec>(
+    block: BeaconBlockRef<'_, E, FullPayload<E>>,
+) -> Result<ExecutionPayload<E>, BeaconStateError> {
+    let payload_ref = block.body().execution_payload()?;
+    Ok(match payload_ref {
+        FullPayloadRef::Bellatrix(payload) => {
+            ExecutionPayload::Bellatrix(payload.execution_payload.clone())
+        }
+        FullPayloadRef::Capella(payload) => {
+            ExecutionPayload::Capella(payload.execution_payload.clone())
+        }
+        FullPayloadRef::Deneb(payload) => {
+            ExecutionPayload::Deneb(payload.execution_payload.clone())
+        }
+        FullPayloadRef::Electra(payload) => {
+            ExecutionPayload::Electra(payload.execution_payload.clone())
+        }
+        FullPayloadRef::Fulu(payload) => ExecutionPayload::Fulu(payload.execution_payload.clone()),
+        FullPayloadRef::Gloas(payload) => {
+            ExecutionPayload::Gloas(payload.execution_payload.clone())
+        }
+    })
+}
+
+/// Generate and store execution proofs from a block.
+///
+/// Proofs are stored using the DA checker
+///
+/// TODO: This simulates receiving proofs that would normally come from zkVMs or other proof generators
+async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
+    chain: &Arc<BeaconChain<T>>,
+    block_root: Hash256,
+    payload: &ExecutionPayload<T::EthSpec>,
+    network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
+) -> Result<(), beacon_chain::BlockProductionError> {
+    // TODO: The caller should check in the da checker, if we have already saved the proof for this payload
+    // TODO: or we could do it here.
+
+    let execution_block_hash = payload.block_hash();
+
+    info!(
+        execution_block_hash = ?execution_block_hash,
+        block_root = ?block_root,
+        "Starting execution proof generation"
+    );
+
+    // Simulate execution witness data (in production, this would come from EL)
+    let witness = format!("dummy_witness_for_block_{:?}", execution_block_hash).into_bytes();
+
+    // Get configured subnets for proof generation
+    let proof_subnets = get_configured_proof_subnets(chain);
+
+    debug!(
+        execution_block_hash = ?execution_block_hash,
+        subnet_count = proof_subnets.len(),
+        subnets = ?proof_subnets,
+        "Generating proofs for configured subnets"
+    );
+
+    // Generate and store a proof for each subnet
+    for subnet_id in proof_subnets {
+        let proof_id = match types::ExecutionProofSubnetId::new(subnet_id) {
+            Ok(id) => id,
+            Err(e) => {
+                debug!(subnet_id, error = %e, "Invalid subnet ID, skipping");
+                continue;
+            }
+        };
+
+        // Generate proof using the execution_proof_generation module
+        let proof = beacon_chain::execution_proof_generation::generate_proof(
+            block_root, payload, &witness, proof_id,
+        )
+        .await;
+
+        let verified_proof = match beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof::<
+            T,
+        >::new(Arc::new(proof.clone()), proof_id, chain)
+        {
+            Ok(verified) => verified,
+            Err(e) => {
+                warn!(
+                    execution_block_hash = ?execution_block_hash,
+                    subnet_id,
+                    error = ?e,
+                    "Failed to verify locally generated execution proof"
+                );
+                continue; // Skip this proof and continue with next subnet
+            }
+        };
+
+        // Store in local DA checker and enqueue for broadcast (locally generated)
+        match chain
+            .data_availability_checker
+            .put_gossip_verified_execution_proofs(block_root, std::iter::once(verified_proof))
+        {
+            Ok(_) => {
+                debug!(
+                    execution_block_hash = ?execution_block_hash,
+                    subnet_id,
+                    "Generated and stored execution proof locally"
+                );
+                // Publish locally generated proof to the network via gossip
+                let pubsub_message = PubsubMessage::ExecutionProofMessage(Box::new((proof_id, Arc::new(proof.clone()))));
+                if let Err(e) = crate::publish_pubsub_message(network_tx, pubsub_message) {
+                    warn!(
+                        execution_block_hash = ?execution_block_hash,
+                        subnet_id,
+                        error = ?e,
+                        "Failed to publish execution proof to gossip network"
+                    );
+                }
+            }
+            Err(e) => {
+                warn!(
+                    execution_block_hash = ?execution_block_hash,
+                    subnet_id,
+                    error = ?e,
+                    "Failed to store generated execution proof"
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Get configured proof subnets for this node
+fn get_configured_proof_subnets<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>) -> Vec<u64> {
+    // TODO: For now, the node will generate proofs for all available subnets.
+    // TODO: In the future, they should be able to configure this for proofs
+    // TODO: they can generate for. Mainly for altruistic nodes that want to
+    // TODO: seed the network.
+    // TODO(question): Check if there are any assumptions on the proof being deterministic
+    // TODO: ie whether its okay that two nodes generate two valid proofs for the same payload.
+    if chain.config.generate_execution_proofs {
+        (0..types::execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS).collect()
+    } else {
+        vec![]
     }
 }
