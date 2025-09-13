@@ -116,7 +116,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     if is_locally_built_block && chain.config.generate_execution_proofs {
         info!(
             execution_block_hash = ?block.message().body().execution_payload().ok().map(|p| p.block_hash()),
-            "spawn_proof_generation_task_with_publishing called from publish_block (Phase 1)"
+            "spawn_proof_generation_task_with_publishing called from publish_block"
         );
 
         let network_tx_clone = network_tx.clone();
@@ -126,7 +126,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 warn!(
                     subnet_id = *proof_id,
                     error = ?e,
-                    "Failed to publish execution proof to gossip network (Phase 1)"
+                    "Failed to publish execution proof to gossip network"
                 );
             }
         };
