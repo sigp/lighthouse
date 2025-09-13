@@ -4,8 +4,7 @@ use beacon_chain::{
 use lighthouse_network::{
     PeerAction, PeerId,
     service::api_types::{
-        BlobsByRangeRequestId, BlocksByRangeRequestId, CustodySyncByRangeRequestId,
-        DataColumnsByRangeRequestId,
+        BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     },
 };
 use std::{
@@ -62,17 +61,18 @@ enum RangeBlockDataRequest<E: EthSpec> {
 
 pub struct RangeDataColumnBatchRequest<E: EthSpec> {
     requests: HashMap<
-        CustodySyncByRangeRequestId,
-        ByRangeRequest<CustodySyncByRangeRequestId, DataColumnSidecarList<E>>,
+        DataColumnsByRangeRequestId,
+        ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
     >,
     /// The column indices corresponding to the request
-    column_peers: HashMap<CustodySyncByRangeRequestId, Vec<ColumnIndex>>,
+    column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
     expected_custody_columns: HashSet<ColumnIndex>,
     attempt: usize,
 }
 
 impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
-    pub fn new(by_range_requests: Vec<(CustodySyncByRangeRequestId, Vec<ColumnIndex>)>) -> Self {
+    // TODO(custody-sync) check block headers here
+    pub fn new(by_range_requests: Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>) -> Self {
         let requests = by_range_requests
             .clone()
             .into_iter()
@@ -96,7 +96,7 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
 
     pub fn add_custody_columns(
         &mut self,
-        req_id: CustodySyncByRangeRequestId,
+        req_id: DataColumnsByRangeRequestId,
         columns: Vec<Arc<DataColumnSidecar<E>>>,
     ) -> Result<(), String> {
         let req = self
@@ -628,8 +628,8 @@ mod tests {
     use lighthouse_network::{
         PeerAction, PeerId,
         service::api_types::{
-            BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-            DataColumnsByRangeRequestId, Id, RangeRequestId,
+            BlobsByRangeRequestId, BlocksByRangeRequestId, ColumnsByRangeParentRequestId,
+            ComponentsByRangeRequestId, DataColumnsByRangeRequestId, Id, RangeRequestId,
         },
     };
     use rand::SeedableRng;
@@ -663,7 +663,7 @@ mod tests {
 
     fn columns_id(
         id: Id,
-        parent_request_id: ComponentsByRangeRequestId,
+        parent_request_id: ColumnsByRangeParentRequestId,
     ) -> DataColumnsByRangeRequestId {
         DataColumnsByRangeRequestId {
             id,
@@ -760,7 +760,15 @@ mod tests {
         let columns_req_id = expects_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
@@ -819,7 +827,15 @@ mod tests {
         let columns_req_id = batched_column_requests
             .iter()
             .enumerate()
-            .map(|(i, columns)| (columns_id(i as Id, components_id), columns.clone()))
+            .map(|(i, columns)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    columns.clone(),
+                )
+            })
             .collect::<Vec<_>>();
 
         let mut info = RangeBlockComponentsRequest::<E>::new(
@@ -900,7 +916,15 @@ mod tests {
         let columns_req_id = expected_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
@@ -980,7 +1004,15 @@ mod tests {
         let columns_req_id = expected_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
@@ -1016,7 +1048,10 @@ mod tests {
         assert!(result.is_err());
 
         // AND: We retry with a new peer for the failed column
-        let new_columns_req_id = columns_id(10 as Id, components_id);
+        let new_columns_req_id = columns_id(
+            10 as Id,
+            ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+        );
         let failed_column_requests = vec![(new_columns_req_id, vec![2])];
         info.reinsert_failed_column_requests(failed_column_requests)
             .unwrap();
@@ -1062,7 +1097,15 @@ mod tests {
         let columns_req_id = expected_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,

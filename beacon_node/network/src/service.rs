@@ -754,6 +754,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     );
                 }
 
+                self.beacon_chain
+                    .sync_service_send
+                    .send(SyncServiceMessage::EarliestCustodyEpochFinalized);
+
                 if self
                     .network_globals
                     .config

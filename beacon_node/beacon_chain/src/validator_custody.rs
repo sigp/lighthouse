@@ -387,6 +387,10 @@ impl<E: EthSpec> CustodyContext<E> {
             .write()
             .backfill_validator_custody_requirements(effective_epoch);
     }
+
+    pub fn is_custody_backfill_required(&self) -> bool {
+        todo!()
+    }
 }
 
 /// The custody count changed because of a change in the

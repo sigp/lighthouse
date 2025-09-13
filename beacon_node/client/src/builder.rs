@@ -36,6 +36,7 @@ use rand::SeedableRng;
 use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
 use slasher_service::SlasherService;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -43,7 +44,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use types::data_column_custody_group::get_custody_groups_ordered;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
@@ -503,7 +504,8 @@ where
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
-        init_custody_context(beacon_chain, &network_globals)?;
+        init_custody_context(beacon_chain.clone(), &network_globals)?;
+        // TODO(custody-sync) on restart we can check if custody sync should be started.
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);

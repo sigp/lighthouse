@@ -204,9 +204,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         match self.state.poison() {
             CustodyBatchState::Processing(attempt) => {
                 self.state = match procesing_result {
-                    BatchProcessingResult::Success => {
-                        CustodyBatchState::AwaitingValidation(attempt)
-                    }
+                    BatchProcessingResult::Success => CustodyBatchState::Validated,
                     BatchProcessingResult::FaultyFailure => {
                         // register the failed attempt
                         self.failed_processing_attempts.push(attempt);
@@ -242,10 +240,10 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         match &self.state {
             CustodyBatchState::AwaitingDownload
             | CustodyBatchState::Failed
+            | CustodyBatchState::Validated
             | CustodyBatchState::Downloading(..) => None,
             CustodyBatchState::AwaitingProcessing(peer_id, _, _)
-            | CustodyBatchState::Processing(Attempt { peer_id, .. })
-            | CustodyBatchState::AwaitingValidation(Attempt { peer_id, .. }) => Some(peer_id),
+            | CustodyBatchState::Processing(Attempt { peer_id, .. }) => Some(peer_id),
             CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
         }
     }
@@ -254,6 +252,7 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         &self.state
     }
 
+    // TODO(custody-sync) we should use this somewhere
     pub fn attempts(&self) -> &[Attempt] {
         &self.failed_processing_attempts
     }
@@ -282,32 +281,6 @@ impl<E: EthSpec> CustodyBatchInfo<E> {
         }
         false
     }
-
-    #[must_use = "Batch may have failed"]
-    pub fn validation_failed(&mut self) -> Result<BatchOperationOutcome, WrongState> {
-        match self.state.poison() {
-            CustodyBatchState::AwaitingValidation(attempt) => {
-                self.failed_processing_attempts.push(attempt);
-
-                // check if the batch can be downloaded again
-                self.state =
-                    if self.failed_processing_attempts.len() >= MAX_BATCH_PROCESSING_ATTEMPTS {
-                        CustodyBatchState::Failed
-                    } else {
-                        CustodyBatchState::AwaitingDownload
-                    };
-                Ok(self.outcome())
-            }
-            CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
-            other => {
-                self.state = other;
-                Err(WrongState(format!(
-                    "Validation failed for batch in wrong state: {:?}",
-                    self.state
-                )))
-            }
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -321,8 +294,8 @@ pub enum CustodyBatchState<E: EthSpec> {
     AwaitingProcessing(PeerId, DataColumnSidecarList<E>, Instant),
     /// The batch is being processed.
     Processing(Attempt),
-    /// The batch was successfully processed and is waiting to be validated.
-    AwaitingValidation(Attempt),
+    /// The batch was successfully validated.
+    Validated,
     /// Intermediate state for inner state handling.
     Poisoned,
     /// The batch has maxed out the allowed attempts for either downloading or processing. It

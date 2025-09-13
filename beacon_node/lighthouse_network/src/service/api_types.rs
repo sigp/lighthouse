@@ -30,8 +30,6 @@ pub enum SyncRequestId {
     BlobsByRange(BlobsByRangeRequestId),
     /// Data columns by range request
     DataColumnsByRange(DataColumnsByRangeRequestId),
-    /// Custody sync Data column by range request
-    CustodySyncDataColumnsByRange(CustodySyncByRangeRequestId),
 }
 
 /// Request ID for data_columns_by_root requests. Block lookups do not issue this request directly.
@@ -69,13 +67,19 @@ pub struct BlobsByRangeRequestId {
 pub struct DataColumnsByRangeRequestId {
     /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
     pub id: Id,
-    /// The Id of the overall By Range request for block components.
-    pub parent_request_id: ComponentsByRangeRequestId,
+    /// The Id of the overall By Range request for either a components by range request or a custody backfill request.
+    pub parent_request_id: ColumnsByRangeParentRequestId,
     /// The peer id associated with the request.
     ///
     /// This is useful to penalize the peer at a later point if it returned data columns that
     /// did not match with the verified block.
     pub peer: PeerId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum ColumnsByRangeParentRequestId {
+    ComponentsByRange(ComponentsByRangeRequestId),
+    CustodyBackfillSync(CustodySyncBatchRequestId),
 }
 
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
@@ -87,19 +91,6 @@ pub struct ComponentsByRangeRequestId {
     pub id: Id,
     /// What sync component is issuing a components by range request and expecting data back
     pub requester: RangeRequestId,
-}
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodySyncByRangeRequestId {
-    /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
-    pub id: Id,
-    /// The Id of the "parent request".
-    pub parent_request_id: CustodySyncBatchRequestId,
-    /// The peer id associated with the request.
-    ///
-    /// This is useful to penalize the peer at a later point if it returned data columns that
-    /// did not match with the verified block.
-    pub peer: PeerId,
 }
 
 // A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
@@ -237,6 +228,12 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
     }
 }
 
+impl Display for ColumnsByRangeParentRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
 macro_rules! impl_display {
     ($structname: ty, $format: literal, $($field:ident),*) => {
         impl Display for $structname {
@@ -257,7 +254,6 @@ impl_display!(ComponentsByRangeRequestId, "{}/{}", id, requester);
 impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
 impl_display!(CustodyId, "{}", requester);
-impl_display!(CustodySyncByRangeRequestId, "{}/{}", id, parent_request_id);
 
 impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -304,13 +300,15 @@ mod tests {
     fn display_id_data_columns_by_range() {
         let id = DataColumnsByRangeRequestId {
             id: 123,
-            parent_request_id: ComponentsByRangeRequestId {
-                id: 122,
-                requester: RangeRequestId::RangeSync {
-                    chain_id: 54,
-                    batch_id: Epoch::new(0),
+            parent_request_id: ColumnsByRangeParentRequestId::ComponentsByRange(
+                ComponentsByRangeRequestId {
+                    id: 122,
+                    requester: RangeRequestId::RangeSync {
+                        chain_id: 54,
+                        batch_id: Epoch::new(0),
+                    },
                 },
-            },
+            ),
             peer: PeerId::random(),
         };
         assert_eq!(format!("{id}"), "123/122/RangeSync/0/54");
