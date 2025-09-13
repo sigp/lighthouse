@@ -341,12 +341,8 @@ define_hardcoded_nets!(
         HOLESKY_GENESIS_STATE_SOURCE
     ),
     (
-        // Network name (must be unique among all networks).
-        hoodi,
-        // The name of the directory in the `eth2_network_config/built_in_network_configs`
-        // directory where the configuration files are located for this network.
-        "hoodi",
-        // Describes how the genesis state can be obtained.
-        HOODI_GENESIS_STATE_SOURCE
+        scorpion,
+        "scorpion",
+        GenesisStateSource::Unknown
     )
 );
