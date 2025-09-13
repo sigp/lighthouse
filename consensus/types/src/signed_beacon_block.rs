@@ -332,6 +332,10 @@ impl<E: EthSpec, Payload: AbstractExecPayload<E>> SignedBeaconBlock<E, Payload> 
             .unwrap_or(0)
     }
 
+    pub fn has_data(&self) -> bool {
+        self.num_expected_blobs() > 0
+    }
+
     /// Used for displaying commitments in logs.
     pub fn commitments_formatted(&self) -> String {
         let Ok(commitments) = self.message().body().blob_kzg_commitments() else {

@@ -93,6 +93,14 @@ pub static BEACON_PROCESSOR_GET_BLOCK_ROOTS_TIME: LazyLock<Result<HistogramVec>>
             &["source"],
         )
     });
+pub static BEACON_RPC_COLUMNS_BY_ROOT_RESPONSE_OUTCOME: LazyLock<Result<IntCounterVec>> =
+    LazyLock::new(|| {
+        try_create_int_counter_vec(
+            "beacon_rpc_columns_by_root_response_outcome",
+            "Total number of outcomes per requested (block_root, index) in a RPC data_columns_by_root response",
+            &["outcome"],
+        )
+    });
 
 /*
  * Gossip processor
