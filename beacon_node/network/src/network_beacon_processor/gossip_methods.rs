@@ -4,9 +4,12 @@ use crate::{
     service::NetworkMessage,
     sync::SyncMessage,
 };
+use lighthouse_network::PubsubMessage;
+use tokio::sync::mpsc::UnboundedSender;
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::execution_proof_network;
 use beacon_chain::execution_proof_verification::{
     GossipExecutionProofError, GossipVerifiedExecutionProof,
 };
@@ -40,8 +43,8 @@ use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
-    Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, ExecutionProof, ExecutionProofSubnetId, Hash256,
+    Attestation, AttestationData, AttestationRef, AttesterSlashing, BeaconBlockRef, BeaconStateError, BlobSidecar, DataColumnSidecar,
+    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionPayload, ExecutionProof, ExecutionProofSubnetId, FullPayload, FullPayloadRef, Hash256,
     IndexedAttestation, LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
     SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
@@ -1450,7 +1453,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
                 None
             }
-            Ok(_) => Some(verified_block),
+            Ok(_) => {
+                // Generate execution proofs for gossip blocks if node is
+                // "altruistic". 
+                // TODO: For now, execution proofs don't have validator signatures
+                // so anyone can create and submit proofs. 
+                if self.chain.config.generate_execution_proofs {
+                    if let Ok(execution_payload) = verified_block.block.message().body().execution_payload() {
+                        info!(
+                            execution_block_hash = ?execution_payload.block_hash(),
+                            block_root = ?verified_block.block_root,
+                            "spawn_proof_generation_task_with_publishing called from gossip_block (Phase 2)"
+                        );
+
+                        let network_tx_clone = self.network_tx.clone();
+                        let publish_fn = move |proof_id: types::ExecutionProofSubnetId, proof: types::ExecutionProof| {
+                            let pubsub_message = PubsubMessage::ExecutionProofMessage(Box::new((proof_id, Arc::new(proof))));
+                            if let Err(e) = network_tx_clone.send(crate::service::NetworkMessage::Publish { messages: vec![pubsub_message] }) {
+                                warn!(
+                                    subnet_id = *proof_id,
+                                    error = ?e,
+                                    "Failed to publish execution proof to gossip network (Phase 2)"
+                                );
+                            }
+                        };
+
+                        execution_proof_network::spawn_proof_generation_task_with_publishing(
+                            &self.chain,
+                            verified_block.block.message(),
+                            verified_block.block_root,
+                            publish_fn,
+                            "gossip_execution_proof_generation"
+                        );
+                    }
+                }
+
+                Some(verified_block)
+            }
             Err(e) => {
                 error!(
                     error = ?e,
@@ -3355,3 +3394,4 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 }
+
