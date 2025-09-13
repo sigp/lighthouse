@@ -28,9 +28,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BeaconStateError, BlobSidecar, BlobsList, BlockImportSource,
-    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload, ForkName, FullPayload,
-    FullPayloadBellatrix, FullPayloadRef, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BeaconStateError, BlobSidecar, BlobsList,
+    BlockImportSource, DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash,
+    ExecutionPayload, ForkName, FullPayload, FullPayloadBellatrix, FullPayloadRef, Hash256,
+    KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::http::StatusCode;
 use warp::{Rejection, Reply, reply::Response};
@@ -920,9 +921,13 @@ fn spawn_proof_generation_task_with_block<T: BeaconChainTypes>(
     // TODO: Implement a task queue with concurrency limits and resource monitoring.
     chain.task_executor.spawn(
         async move {
-            if let Err(e) =
-                generate_and_store_execution_proofs_from_block(&chain_clone, block_root, &payload, &network_tx)
-                    .await
+            if let Err(e) = generate_and_store_execution_proofs_from_block(
+                &chain_clone,
+                block_root,
+                &payload,
+                &network_tx,
+            )
+            .await
             {
                 warn!("Failed to generate execution proofs: {:?}", e);
             }
@@ -1006,21 +1011,23 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
         )
         .await;
 
-        let verified_proof = match beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof::<
-            T,
-        >::new(Arc::new(proof.clone()), proof_id, chain)
-        {
-            Ok(verified) => verified,
-            Err(e) => {
-                warn!(
-                    execution_block_hash = ?execution_block_hash,
-                    subnet_id,
-                    error = ?e,
-                    "Failed to verify locally generated execution proof"
-                );
-                continue; // Skip this proof and continue with next subnet
-            }
-        };
+        let verified_proof =
+            match beacon_chain::execution_proof_verification::GossipVerifiedExecutionProof::<T>::new(
+                Arc::new(proof.clone()),
+                proof_id,
+                chain,
+            ) {
+                Ok(verified) => verified,
+                Err(e) => {
+                    warn!(
+                        execution_block_hash = ?execution_block_hash,
+                        subnet_id,
+                        error = ?e,
+                        "Failed to verify locally generated execution proof"
+                    );
+                    continue; // Skip this proof and continue with next subnet
+                }
+            };
 
         // Store in local DA checker and enqueue for broadcast (locally generated)
         match chain
@@ -1034,7 +1041,10 @@ async fn generate_and_store_execution_proofs_from_block<T: BeaconChainTypes>(
                     "Generated and stored execution proof locally"
                 );
                 // Publish locally generated proof to the network via gossip
-                let pubsub_message = PubsubMessage::ExecutionProofMessage(Box::new((proof_id, Arc::new(proof.clone()))));
+                let pubsub_message = PubsubMessage::ExecutionProofMessage(Box::new((
+                    proof_id,
+                    Arc::new(proof.clone()),
+                )));
                 if let Err(e) = crate::publish_pubsub_message(network_tx, pubsub_message) {
                     warn!(
                         execution_block_hash = ?execution_block_hash,
