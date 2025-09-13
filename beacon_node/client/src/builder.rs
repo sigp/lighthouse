@@ -505,7 +505,7 @@ where
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         init_custody_context(beacon_chain.clone(), &network_globals)?;
-        // init_custody_backfill(beacon_chain);
+        // TODO(custody-sync) on restart we can check if custody sync should be started.
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
@@ -806,61 +806,6 @@ where
             http_metrics_listen_addr,
         })
     }
-}
-
-fn init_custody_backfill<T: BeaconChainTypes>(beacon_chain: Arc<BeaconChain<T>>) {
-    // Check if we need to trigger custody backfill on startup
-    if let Some(earliest_available_data_column_slot) = beacon_chain
-        .store
-        .get_data_column_custody_info()
-        .ok()
-        .flatten()
-        .and_then(|custody_info| custody_info.earliest_data_column_slot)
-        && let Some(da_boundary) = beacon_chain.get_column_da_boundary()
-    {
-        let earliest_available_data_column_epoch =
-            earliest_available_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
-        info!(
-            ?earliest_available_data_column_epoch,
-            ?da_boundary,
-            "CHECK THIS"
-        );
-        if earliest_available_data_column_epoch > da_boundary {
-            let earliest_available_column_indices = beacon_chain
-                .data_availability_checker
-                .custody_context()
-                .custody_columns_for_epoch(
-                    Some(earliest_available_data_column_epoch + 1),
-                    &beacon_chain.spec,
-                );
-            let previous_epoch_column_indices = beacon_chain
-                .data_availability_checker
-                .custody_context()
-                .custody_columns_for_epoch(
-                    Some(earliest_available_data_column_epoch - 1),
-                    &beacon_chain.spec,
-                );
-            // Compare the columns we have custodied from after earliest available epoch to
-            // the columns we have custodied before the earliest available epoch
-            let missing_columns = previous_epoch_column_indices
-                .iter()
-                .filter(|col| !earliest_available_column_indices.contains(col))
-                .cloned()
-                .collect::<HashSet<_>>();
-
-            if !missing_columns.is_empty() {
-                if let Err(e) =
-                    beacon_chain
-                        .sync_service_send
-                        .send(SyncServiceMessage::CustodyCountChanged {
-                            columns: missing_columns,
-                        })
-                {
-                    error!(error=?e, "Unable to trigger custody backfill on startup");
-                }
-            }
-        }
-    };
 }
 
 fn init_custody_context<T: BeaconChainTypes>(
