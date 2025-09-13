@@ -29,6 +29,15 @@ use types::{
 ///
 /// The blobs are all gossip and kzg verified.
 /// The block has completed all verifications except the availability check.
+///
+/// There are currently three distinct hardfork eras that one should take note of:
+///     - Pre-Deneb: No availability requirements (Block is immediately available)
+///     - Post-Deneb, Pre-PeerDAS: Blobs are needed, but columns are not for the availability check
+///     - Post-PeerDAS: Columns are needed, but blobs are not for the availability check
+///
+/// Note: from this, one can immediately see that `verified_blobs` and `verified_data_columns`
+/// are mutually exclusive. i.e. If we are verifying columns to determine a block's availability
+/// we are ignoring the `verified_blobs` field.
 pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
@@ -835,11 +844,13 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             None
         };
 
-        debug!(
-            component = "block",
-            status = pending_components.status_str(num_expected_columns_opt),
-            "Component added to data availability checker"
-        );
+        pending_components.span.in_scope(|| {
+            debug!(
+                component = "block",
+                status = pending_components.status_str(num_expected_columns_opt),
+                "Component added to data availability checker"
+            );
+        });
 
         self.check_availability_and_cache_components(
             block_root,

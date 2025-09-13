@@ -15,6 +15,7 @@ hex = { workspace = true }
 lighthouse_network = { workspace = true }
 log = { workspace = true }
 logging = { workspace = true }
+network_utils = { workspace = true }
 serde = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

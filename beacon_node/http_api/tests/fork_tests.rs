@@ -425,6 +425,7 @@ async fn bls_to_execution_changes_update_all_around_capella_fork() {
         })),
         None,
         Default::default(),
+        true,
     )
     .await;
     let harness = &tester.harness;

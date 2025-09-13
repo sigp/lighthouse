@@ -37,6 +37,7 @@ members = [
     "common/malloc_utils",
     "common/metrics",
     "common/monitoring_api",
+    "common/network_utils",
     "common/oneshot_broadcast",
     "common/pretty_reqwest_error",
     "common/sensitive_url",
@@ -45,7 +46,6 @@ members = [
     "common/target_check",
     "common/task_executor",
     "common/test_random_derive",
-    "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
     "common/workspace_members",
@@ -194,6 +194,7 @@ mockall_double = "0.3"
 mockito = "1.5.0"
 monitoring_api = { path = "common/monitoring_api" }
 network = { path = "beacon_node/network" }
+network_utils = { path = "common/network_utils" }
 node_test_rig = { path = "testing/node_test_rig" }
 num_cpus = "1"
 once_cell = "1.17.1"
@@ -265,7 +266,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tree_hash = "0.10.0"
 tree_hash_derive = "0.10.0"
 types = { path = "consensus/types" }
-unused_port = { path = "common/unused_port" }
 url = "2"
 uuid = { version = "0.8", features = ["serde", "v4"] }
 validator_client = { path = "validator_client" }

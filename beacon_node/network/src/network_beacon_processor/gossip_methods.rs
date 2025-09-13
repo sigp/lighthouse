@@ -617,7 +617,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
+        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
     )]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
@@ -847,7 +847,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    GossipBlobError::BlobParentUnknown { parent_root } => {
+                    GossipBlobError::ParentUnknown { parent_root } => {
                         debug!(
                             action = "requesting parent",
                             block_root = %root,
@@ -1071,6 +1071,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
                             QueuedColumnReconstruction {
                                 block_root,
+                                slot: *slot,
                                 process_fn: Box::pin(async move {
                                     cloned_self
                                         .attempt_data_column_reconstruction(block_root, true)

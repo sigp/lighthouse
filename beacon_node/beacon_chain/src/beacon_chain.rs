@@ -1437,6 +1437,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns `None` when the state is not found in the database or there is an error skipping
     /// to a future state.
+    #[instrument(level = "debug", skip_all)]
     pub fn state_at_slot(
         &self,
         slot: Slot,
@@ -4503,6 +4504,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// If configured, wait for the fork choice run at the start of the slot to complete.
+    #[instrument(level = "debug", skip_all)]
     fn wait_for_fork_choice_before_block_production(
         self: &Arc<Self>,
         slot: Slot,
@@ -4565,10 +4567,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Load the parent state from disk.
         let chain = self.clone();
+        let span = Span::current();
         let (state, state_root_opt) = self
             .task_executor
             .spawn_blocking_handle(
-                move || chain.load_state_for_block_production(slot),
+                move || {
+                    let _guard =
+                        debug_span!(parent: span, "load_state_for_block_production").entered();
+                    chain.load_state_for_block_production(slot)
+                },
                 "load_state_for_block_production",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
@@ -4655,6 +4662,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Fetch the beacon state to use for producing a block if a 1-slot proposer re-org is viable.
     ///
     /// This function will return `None` if proposer re-orgs are disabled.
+    #[instrument(skip_all, level = "debug")]
     fn get_state_for_re_org(
         &self,
         slot: Slot,
@@ -5109,6 +5117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// equal to the root of `state`. Providing this value will serve as an optimization to avoid
     /// performing a tree hash in some scenarios.
     #[allow(clippy::too_many_arguments)]
+    #[instrument(level = "debug", skip_all)]
     pub async fn produce_block_on_state(
         self: &Arc<Self>,
         state: BeaconState<T::EthSpec>,
@@ -5128,10 +5137,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .graffiti_calculator
             .get_graffiti(validator_graffiti)
             .await;
+        let span = Span::current();
         let mut partial_beacon_block = self
             .task_executor
             .spawn_blocking_handle(
                 move || {
+                    let _guard =
+                        debug_span!(parent: span, "produce_partial_beacon_block").entered();
                     chain.produce_partial_beacon_block(
                         state,
                         state_root_opt,
@@ -5167,10 +5179,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             match block_contents_type {
                 BlockProposalContentsType::Full(block_contents) => {
                     let chain = self.clone();
+                    let span = Span::current();
                     let beacon_block_response = self
                         .task_executor
                         .spawn_blocking_handle(
                             move || {
+                                let _guard =
+                                    debug_span!(parent: span, "complete_partial_beacon_block")
+                                        .entered();
                                 chain.complete_partial_beacon_block(
                                     partial_beacon_block,
                                     Some(block_contents),
@@ -5187,10 +5203,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
                 BlockProposalContentsType::Blinded(block_contents) => {
                     let chain = self.clone();
+                    let span = Span::current();
                     let beacon_block_response = self
                         .task_executor
                         .spawn_blocking_handle(
                             move || {
+                                let _guard =
+                                    debug_span!(parent: span, "complete_partial_beacon_block")
+                                        .entered();
                                 chain.complete_partial_beacon_block(
                                     partial_beacon_block,
                                     Some(block_contents),
@@ -5208,10 +5228,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         } else {
             let chain = self.clone();
+            let span = Span::current();
             let beacon_block_response = self
                 .task_executor
                 .spawn_blocking_handle(
                     move || {
+                        let _guard =
+                            debug_span!(parent: span, "complete_partial_beacon_block").entered();
                         chain.complete_partial_beacon_block(
                             partial_beacon_block,
                             None,
@@ -5313,51 +5336,54 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Iterate through the naive aggregation pool and ensure all the attestations from there
         // are included in the operation pool.
-        let unagg_import_timer =
-            metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
-        for attestation in self.naive_aggregation_pool.read().iter() {
-            let import = |attestation: &Attestation<T::EthSpec>| {
-                let attesting_indices =
-                    get_attesting_indices_from_state(&state, attestation.to_ref())?;
-                self.op_pool
-                    .insert_attestation(attestation.clone(), attesting_indices)
-            };
-            if let Err(e) = import(attestation) {
-                // Don't stop block production if there's an error, just create a log.
-                error!(
-                    reason = ?e,
-                    "Attestation did not transfer to op pool"
-                );
+        {
+            let _guard = debug_span!("import_naive_aggregation_pool").entered();
+            let _unagg_import_timer =
+                metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
+            for attestation in self.naive_aggregation_pool.read().iter() {
+                let import = |attestation: &Attestation<T::EthSpec>| {
+                    let attesting_indices =
+                        get_attesting_indices_from_state(&state, attestation.to_ref())?;
+                    self.op_pool
+                        .insert_attestation(attestation.clone(), attesting_indices)
+                };
+                if let Err(e) = import(attestation) {
+                    // Don't stop block production if there's an error, just create a log.
+                    error!(
+                        reason = ?e,
+                        "Attestation did not transfer to op pool"
+                    );
+                }
             }
-        }
-        drop(unagg_import_timer);
-
-        let attestation_packing_timer =
-            metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
-
-        // Epoch cache and total balance cache are required for op pool packing.
-        state.build_total_active_balance_cache(&self.spec)?;
-        initialize_epoch_cache(&mut state, &self.spec)?;
-
-        let mut prev_filter_cache = HashMap::new();
-        let prev_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
-        };
-        let mut curr_filter_cache = HashMap::new();
-        let curr_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
         };
 
-        let mut attestations = self
-            .op_pool
-            .get_attestations(
-                &state,
-                prev_attestation_filter,
-                curr_attestation_filter,
-                &self.spec,
-            )
-            .map_err(BlockProductionError::OpPoolError)?;
-        drop(attestation_packing_timer);
+        let mut attestations = {
+            let _guard = debug_span!("pack_attestations").entered();
+            let _attestation_packing_timer =
+                metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
+
+            // Epoch cache and total balance cache are required for op pool packing.
+            state.build_total_active_balance_cache(&self.spec)?;
+            initialize_epoch_cache(&mut state, &self.spec)?;
+
+            let mut prev_filter_cache = HashMap::new();
+            let prev_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
+                self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
+            };
+            let mut curr_filter_cache = HashMap::new();
+            let curr_attestation_filter = |att: &CompactAttestationRef<T::EthSpec>| {
+                self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
+            };
+
+            self.op_pool
+                .get_attestations(
+                    &state,
+                    prev_attestation_filter,
+                    curr_attestation_filter,
+                    &self.spec,
+                )
+                .map_err(BlockProductionError::OpPoolError)?
+        };
 
         // If paranoid mode is enabled re-check the signatures of every included message.
         // This will be a lot slower but guards against bugs in block production and can be
