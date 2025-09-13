@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tracing::{debug, error, trace, warn};
-use types::{DataColumnSubnetId, EthSpec, SubnetId, SyncSubnetId};
+use types::{DataColumnSubnetId, EthSpec, ExecutionProofSubnetId, SubnetId, SyncSubnetId};
 
 pub use libp2p::core::Multiaddr;
 pub use libp2p::identity::Keypair;
@@ -42,6 +42,7 @@ struct PeerSubnetInfo<E: EthSpec> {
     attestation_subnets: HashSet<SubnetId>,
     sync_committees: HashSet<SyncSubnetId>,
     custody_subnets: HashSet<DataColumnSubnetId>,
+    execution_proof_subnets: HashSet<ExecutionProofSubnetId>,
 }
 
 pub mod config;
@@ -1066,6 +1067,7 @@ impl<E: EthSpec> PeerManager<E> {
                 attestation_subnets: HashSet::new(),
                 sync_committees: HashSet::new(),
                 custody_subnets: HashSet::new(),
+                execution_proof_subnets: HashSet::new(),
             };
 
             // Populate subnet information from long-lived subnets
@@ -1080,8 +1082,9 @@ impl<E: EthSpec> PeerManager<E> {
                     Subnet::DataColumn(id) => {
                         peer_info.custody_subnets.insert(id);
                     }
-                    // Execution proof subnets don't need special pruning logic yet
-                    Subnet::ExecutionProof(_) => {}
+                    Subnet::ExecutionProof(id) => {
+                        peer_info.execution_proof_subnets.insert(id);
+                    }
                 }
             }
 
