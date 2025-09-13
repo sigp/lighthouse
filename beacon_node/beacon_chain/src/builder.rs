@@ -38,13 +38,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
-use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, info};
 use types::{
     BeaconBlock, BeaconState, BlobSidecarList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec,
     FixedBytesExtended, Hash256, Signature, SignedBeaconBlock, Slot,
 };
-use types::{ExecutionProof, ExecutionProofSubnetId};
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
 /// functionality and only exists to satisfy the type system.
@@ -104,8 +102,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
     rng: Option<Box<dyn RngCore + Send>>,
-    /// Optional channel to publish locally generated execution proofs.
-    execution_proof_publish_tx: Option<UnboundedSender<(ExecutionProofSubnetId, ExecutionProof)>>,
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>
@@ -145,17 +141,7 @@ where
             validator_monitor_config: None,
             import_all_data_columns: false,
             rng: None,
-            execution_proof_publish_tx: None,
         }
-    }
-
-    /// Sets the channel used to publish locally generated execution proofs.
-    pub fn execution_proof_publish_tx(
-        mut self,
-        tx: UnboundedSender<(ExecutionProofSubnetId, ExecutionProof)>,
-    ) -> Self {
-        self.execution_proof_publish_tx = Some(tx);
-        self
     }
 
     /// Override the default spec (as defined by `E`).
@@ -1046,7 +1032,6 @@ where
             ),
             kzg: self.kzg.clone(),
             rng: Arc::new(Mutex::new(rng)),
-            execution_proof_publish_tx: self.execution_proof_publish_tx,
         };
 
         let head = beacon_chain.head_snapshot();
