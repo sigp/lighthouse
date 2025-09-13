@@ -1550,8 +1550,10 @@ fn test_parent_lookup_too_deep_grow_ancestor() {
 }
 
 // Regression test for https://github.com/sigp/lighthouse/pull/7118
+// 8042 UPDATE: block was previously added to the failed_chains cache, now it's inserted into the
+// ignored chains cache. The regression test still applies as the chaild lookup is not created
 #[test]
-fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
+fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
     // GIVEN: A parent chain longer than PARENT_DEPTH_TOLERANCE.
     let mut rig = TestRig::test_setup();
     let mut blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE + 1);
@@ -1693,15 +1695,14 @@ fn test_lookup_add_peers_to_parent() {
 }
 
 #[test]
-fn test_skip_creating_failed_parent_lookup() {
+fn test_skip_creating_ignored_parent_lookup() {
     let mut rig = TestRig::test_setup();
     let (_, block, parent_root, _) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
     rig.insert_ignored_chain(parent_root);
     rig.trigger_unknown_parent_block(peer_id, block.into());
-    // Expect single penalty for peer, despite dropping two lookups
     rig.expect_no_penalty_for(peer_id);
-    // Both current and parent lookup should be rejected
+    // Both current and parent lookup should not be created
     rig.expect_no_active_lookups();
 }
 
