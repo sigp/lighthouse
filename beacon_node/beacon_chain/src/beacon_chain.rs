@@ -125,7 +125,6 @@ use store::{
     KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
-use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
@@ -133,7 +132,6 @@ use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
 use types::payload::BlockProductionVersion;
 use types::*;
-use types::{ExecutionProof, ExecutionProofSubnetId};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -492,9 +490,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
-    /// Channel for locally generated execution proofs to be published by the network task.
-    pub execution_proof_publish_tx:
-        Option<UnboundedSender<(ExecutionProofSubnetId, ExecutionProof)>>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {

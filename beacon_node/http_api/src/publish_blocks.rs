@@ -4,6 +4,7 @@ use std::future::Future;
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::execution_proof_network;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -28,9 +29,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
-    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BeaconStateError, BlobSidecar, BlobsList,
+    BlockImportSource, DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash,
+    ExecutionPayload, ForkName, FullPayload, FullPayloadBellatrix, FullPayloadRef, Hash256,
+    KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::http::StatusCode;
 use warp::{Rejection, Reply, reply::Response};
@@ -109,6 +111,34 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     let block = unverified_block.inner_block();
 
     debug!(slot = %block.slot(), "Signed block received in HTTP API");
+
+    // Generate execution proofs for locally built blocks
+    if is_locally_built_block && chain.config.generate_execution_proofs {
+        info!(
+            execution_block_hash = ?block.message().body().execution_payload().ok().map(|p| p.block_hash()),
+            "spawn_proof_generation_task_with_publishing called from publish_block"
+        );
+
+        let network_tx_clone = network_tx.clone();
+        let publish_fn = move |proof_id: types::ExecutionProofSubnetId, proof: types::ExecutionProof| {
+            let pubsub_message = PubsubMessage::ExecutionProofMessage(Box::new((proof_id, Arc::new(proof))));
+            if let Err(e) = crate::publish_pubsub_message(&network_tx_clone, pubsub_message) {
+                warn!(
+                    subnet_id = *proof_id,
+                    error = ?e,
+                    "Failed to publish execution proof to gossip network"
+                );
+            }
+        };
+
+        execution_proof_network::spawn_proof_generation_task_with_publishing(
+            &chain,
+            block.message(),
+            block.canonical_root(),
+            publish_fn,
+            "http_api_execution_proof_generation"
+        );
+    }
 
     /* actually publish a block */
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -878,3 +908,4 @@ pub fn into_full_block_and_blobs<T: BeaconChainTypes>(
         }
     }
 }
+
