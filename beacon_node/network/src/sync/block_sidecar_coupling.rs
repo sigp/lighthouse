@@ -4,8 +4,7 @@ use beacon_chain::{
 use lighthouse_network::{
     PeerAction, PeerId,
     service::api_types::{
-        BlobsByRangeRequestId, BlocksByRangeRequestId, CustodySyncByRangeRequestId,
-        DataColumnsByRangeRequestId,
+        BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     },
 };
 use std::{

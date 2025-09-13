@@ -752,11 +752,12 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     )))?;
                     return Ok(ProcessResult::Successful);
                 }
-                CustodyBatchState::AwaitingValidation(_) => {
+                CustodyBatchState::AwaitingValidation(attempt) => {
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
                     crit!(
                         batch = ?self.processing_target,
+                        ?attempt,
                         "Custody Sync encountered a robust batch awaiting validation"
                     );
 
@@ -1083,7 +1084,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         self.last_batch_downloaded = false;
         self.current_processing_batch = None;
 
-        error!(?error, "Backfill sync failed");
+        error!(?error, "Custody Backfill sync failed");
 
         Err(error)
     }

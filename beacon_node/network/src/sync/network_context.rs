@@ -26,8 +26,8 @@ pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ColumnsByRangeParentRequestId,
     ComponentsByRangeRequestId, CustodyId, CustodyRequester, CustodySyncBatchRequestId,
-    CustodySyncByRangeRequestId, DataColumnsByRangeRequestId, DataColumnsByRootRequestId,
-    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
+    DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
+    SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use lighthouse_tracing::{SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST, SPAN_OUTGOING_RANGE_REQUEST};
@@ -1709,11 +1709,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 columns_by_range_peers_to_request
                     .keys()
                     .map(|peer_id| {
-                        self.send_data_columns_by_range_request(
+                        self.send_custody_sync_data_columns_by_range_request(
                             *peer_id,
                             request.clone(),
                             ColumnsByRangeParentRequestId::CustodyBackfillSync(id),
-                            Span::none(), // TODO(custody-backfill) ADD SPAN
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()
@@ -1802,7 +1801,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: RequestType::DataColumnsByRange(request.clone()),
-            app_request_id: AppRequestId::Sync(SyncRequestId::CustodySyncDataColumnsByRange(id)),
+            app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
         })
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
