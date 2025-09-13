@@ -2,8 +2,8 @@ use crate::{BeaconChain, BeaconChainTypes, BlockProductionError};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 use types::{
-    BeaconBlockRef, BeaconStateError, ExecutionPayload, ExecutionProofSubnetId,
-    ExecPayload, FullPayload, FullPayloadRef, Hash256,
+    BeaconBlockRef, BeaconStateError, ExecPayload, ExecutionPayload, ExecutionProofSubnetId,
+    FullPayload, FullPayloadRef, Hash256,
 };
 
 /// Spawn a background task to generate and store execution proofs with publishing via callback
@@ -14,8 +14,7 @@ pub fn spawn_proof_generation_task_with_publishing<T, F>(
     block_root: Hash256,
     publish_fn: F,
     task_name: &'static str,
-)
-where
+) where
     T: BeaconChainTypes,
     F: Fn(ExecutionProofSubnetId, types::ExecutionProof) + Send + 'static,
 {
