@@ -9,7 +9,7 @@ use types::{DataColumnSidecarList, Epoch, EthSpec};
 use lighthouse_network::PeerId;
 use lighthouse_network::rpc::methods::DataColumnsByRangeRequest;
 use lighthouse_network::service::api_types::Id;
-use std::hash::{DefaultHasher, Hash};
+use std::hash::Hash;
 use std::ops::Sub;
 use std::time::Duration;
 use strum::Display;
@@ -44,7 +44,7 @@ pub struct Attempt<D: Hash> {
 }
 
 impl<D: Hash> Attempt<D> {
-    fn new<B: BatchConfig, E: EthSpec>(peer_id: PeerId, data: &D) -> Self {
+    fn new<B: BatchConfig>(peer_id: PeerId, data: &D) -> Self {
         let hash = B::batch_attempt_hash(data);
         Attempt {
             peer_id,
@@ -121,8 +121,9 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig, D: Hash> {
     marker: std::marker::PhantomData<(E, B)>,
 }
 
-
-impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> std::fmt::Display for BatchInfo<E, B, D> {
+impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> std::fmt::Display
+    for BatchInfo<E, B, D>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -217,7 +218,8 @@ impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> BatchInfo<E, B, D> {
                 // register the attempt and check if the batch can be tried again
                 self.failed_download_attempts.push(peer);
 
-                self.state = if self.failed_download_attempts.len() >= B::max_batch_download_attempts() as usize
+                self.state = if self.failed_download_attempts.len()
+                    >= B::max_batch_download_attempts() as usize
                 {
                     BatchState::Failed
                 } else {
@@ -267,7 +269,8 @@ impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> BatchInfo<E, B, D> {
                         self.failed_processing_attempts.push(attempt);
 
                         // check if the batch can be downloaded again
-                        if self.failed_processing_attempts.len() >= B::max_batch_processing_attempts() as usize
+                        if self.failed_processing_attempts.len()
+                            >= B::max_batch_processing_attempts() as usize
                         {
                             BatchState::Failed
                         } else {
@@ -300,7 +303,8 @@ impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> BatchInfo<E, B, D> {
                 self.failed_processing_attempts.push(attempt);
 
                 // check if the batch can be downloaded again
-                self.state = if self.failed_processing_attempts.len() >= B::max_batch_processing_attempts() as usize
+                self.state = if self.failed_processing_attempts.len()
+                    >= B::max_batch_processing_attempts() as usize
                 {
                     BatchState::Failed
                 } else {
@@ -372,7 +376,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, Vec<RpcBlock<E>>> {
     pub fn start_processing(&mut self) -> Result<(Vec<RpcBlock<E>>, Duration), WrongState> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, blocks, start_instant) => {
-                self.state = BatchState::Processing(Attempt::new::<B, E>(peer, &blocks));
+                self.state = BatchState::Processing(Attempt::new::<B>(peer, &blocks));
                 Ok((blocks, start_instant.elapsed()))
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
@@ -454,7 +458,7 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, DataColumnSidecarList<E>> {
     pub fn start_processing(&mut self) -> Result<(DataColumnSidecarList<E>, Duration), WrongState> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, data_columns, start_instant) => {
-                self.state = BatchState::Processing(Attempt::new::<B, E>(peer, &data_columns));
+                self.state = BatchState::Processing(Attempt::new::<B>(peer, &data_columns));
                 Ok((data_columns, start_instant.elapsed()))
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),

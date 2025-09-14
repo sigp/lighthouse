@@ -13,6 +13,5 @@ mod range_sync;
 #[cfg(test)]
 mod tests;
 
-pub use batch::BatchOperationOutcome;
 pub use manager::{BatchProcessResult, SyncMessage};
 pub use range_sync::ChainId;

@@ -1,6 +1,7 @@
 use super::RangeSyncType;
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::batch::BatchId;
 use crate::sync::batch::{
     BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
 };
@@ -19,7 +20,6 @@ use std::marker::PhantomData;
 use strum::IntoStaticStr;
 use tracing::{Span, debug, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
-use crate::sync::batch::BatchId;
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -39,6 +39,10 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// Should be checked, since a failed chain must be removed. A chain that requested being removed
 /// and continued is now in an inconsistent state.
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
+
+type RpcBlocks<E> = Vec<RpcBlock<E>>;
+type RangeSyncBatchInfo<E> = BatchInfo<E, RangeSyncBatchConfig<E>, RpcBlocks<E>>;
+type RangeSyncBatches<E> = BTreeMap<BatchId, RangeSyncBatchInfo<E>>;
 
 #[derive(Debug)]
 pub struct RangeSyncBatchConfig<E: EthSpec> {
@@ -108,10 +112,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     pub target_head_root: Hash256,
 
     /// Sorted map of batches undergoing some kind of processing.
-    batches: BTreeMap<
-        BatchId,
-        BatchInfo<T::EthSpec, RangeSyncBatchConfig<T::EthSpec>, Vec<RpcBlock<T::EthSpec>>>,
-    >,
+    batches: RangeSyncBatches<T::EthSpec>,
 
     /// The peers that agree on the `target_head_slot` and `target_head_root` as a canonical chain
     /// and thus available to download this chain from, as well as the batches we are currently
@@ -1228,7 +1229,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
         // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BatchInfo<T::EthSpec, RangeSyncBatchConfig<T::EthSpec>, Vec<RpcBlock<T::EthSpec>>>| {
+        let in_buffer = |batch: &RangeSyncBatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
                 BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)

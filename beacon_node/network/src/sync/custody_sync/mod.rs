@@ -18,9 +18,9 @@ use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 use crate::sync::{
     backfill_sync::{ProcessResult, SyncStart},
     batch::{BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState},
+    batch::{BatchId, ByRangeRequestType},
     manager::CustodyBatchProcessResult,
     network_context::{RpcResponseError, SyncNetworkContext},
-    batch::{ByRangeRequestType, BatchId}
 };
 
 /// The maximum number of batches to queue before requesting more.
@@ -34,12 +34,16 @@ const BACKFILL_BATCH_BUFFER_SIZE: u8 = 20;
 /// bandwidth to do so.
 pub const CUSTODY_BACKFILL_EPOCHS_PER_BATCH: u64 = 1;
 
+type CustodyBackFillBatchInfo<E> =
+    BatchInfo<E, CustodyBackFillBatchConfig<E>, DataColumnSidecarList<E>>;
+type CustodyBackFillBatches<E> = BTreeMap<BatchId, CustodyBackFillBatchInfo<E>>;
+
 #[derive(Debug)]
-pub struct CustodyBackFillSyncBatchConfig<E: EthSpec> {
+pub struct CustodyBackFillBatchConfig<E: EthSpec> {
     marker: PhantomData<E>,
 }
 
-impl<E: EthSpec> BatchConfig for CustodyBackFillSyncBatchConfig<E> {
+impl<E: EthSpec> BatchConfig for CustodyBackFillBatchConfig<E> {
     fn max_batch_download_attempts() -> u8 {
         5
     }
@@ -88,14 +92,7 @@ pub struct CustodySync<T: BeaconChainTypes> {
     last_batch_downloaded: bool,
 
     /// Sorted map of batches undergoing some kind of processing.
-    batches: BTreeMap<
-        BatchId,
-        BatchInfo<
-            T::EthSpec,
-            CustodyBackFillSyncBatchConfig<T::EthSpec>,
-            DataColumnSidecarList<T::EthSpec>,
-        >,
-    >,
+    batches: CustodyBackFillBatches<T::EthSpec>,
 
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
@@ -398,11 +395,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         // Only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
         // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BatchInfo<
-            T::EthSpec,
-            CustodyBackFillSyncBatchConfig<T::EthSpec>,
-            DataColumnSidecarList<T::EthSpec>,
-        >| {
+        let in_buffer = |batch: &CustodyBackFillBatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
                 BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
