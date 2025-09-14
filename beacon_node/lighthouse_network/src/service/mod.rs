@@ -1,5 +1,4 @@
 use self::gossip_cache::GossipCache;
-use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::config::{GossipsubConfigParams, NetworkLoad, gossipsub_config};
 use crate::discovery::{
@@ -33,6 +32,7 @@ use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
 use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
+use network_utils::enr_ext::EnrExt;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;

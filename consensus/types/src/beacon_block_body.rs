@@ -318,29 +318,17 @@ impl<'a, E: EthSpec, Payload: AbstractExecPayload<E>> BeaconBlockBodyRef<'a, E, 
     }
 
     pub fn attestations_len(&self) -> usize {
-        match self {
-            Self::Base(body) => body.attestations.len(),
-            Self::Altair(body) => body.attestations.len(),
-            Self::Bellatrix(body) => body.attestations.len(),
-            Self::Capella(body) => body.attestations.len(),
-            Self::Deneb(body) => body.attestations.len(),
-            Self::Electra(body) => body.attestations.len(),
-            Self::Fulu(body) => body.attestations.len(),
-            Self::Gloas(body) => body.attestations.len(),
-        }
+        map_beacon_block_body_ref!(&'a _, self, |inner, cons| {
+            cons(inner);
+            inner.attestations.len()
+        })
     }
 
     pub fn attester_slashings_len(&self) -> usize {
-        match self {
-            Self::Base(body) => body.attester_slashings.len(),
-            Self::Altair(body) => body.attester_slashings.len(),
-            Self::Bellatrix(body) => body.attester_slashings.len(),
-            Self::Capella(body) => body.attester_slashings.len(),
-            Self::Deneb(body) => body.attester_slashings.len(),
-            Self::Electra(body) => body.attester_slashings.len(),
-            Self::Fulu(body) => body.attester_slashings.len(),
-            Self::Gloas(body) => body.attester_slashings.len(),
-        }
+        map_beacon_block_body_ref!(&'a _, self, |inner, cons| {
+            cons(inner);
+            inner.attester_slashings.len()
+        })
     }
 
     pub fn attestations(&self) -> Box<dyn Iterator<Item = AttestationRef<'a, E>> + 'a> {

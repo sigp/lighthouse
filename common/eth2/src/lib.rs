@@ -504,7 +504,7 @@ impl BeaconNodeHttpClient {
             .post(url)
             .timeout(timeout.unwrap_or(self.timeouts.default));
         let response = builder.json(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -524,7 +524,7 @@ impl BeaconNodeHttpClient {
             .json(body)
             .send()
             .await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function that includes octet-stream content type header.
@@ -541,7 +541,7 @@ impl BeaconNodeHttpClient {
             HeaderValue::from_static("application/octet-stream"),
         );
         let response = builder.headers(headers).json(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -566,7 +566,7 @@ impl BeaconNodeHttpClient {
             HeaderValue::from_static("application/octet-stream"),
         );
         let response = builder.headers(headers).body(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// `GET beacon/genesis`
@@ -1263,16 +1263,17 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version(
-            self.post_beacon_blocks_v2_path(validation_level)?,
-            block_contents,
-            Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version(
+                self.post_beacon_blocks_v2_path(validation_level)?,
+                block_contents,
+                Some(self.timeouts.proposal),
+                block_contents.signed_block().message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blocks`
@@ -1280,16 +1281,17 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version_and_ssz_body(
-            self.post_beacon_blocks_v2_path(validation_level)?,
-            block_contents.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version_and_ssz_body(
+                self.post_beacon_blocks_v2_path(validation_level)?,
+                block_contents.as_ssz_bytes(),
+                Some(self.timeouts.proposal),
+                block_contents.signed_block().message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blinded_blocks`
@@ -1297,16 +1299,17 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version(
-            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            signed_block,
-            Some(self.timeouts.proposal),
-            signed_block.message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version(
+                self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+                signed_block,
+                Some(self.timeouts.proposal),
+                signed_block.message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blinded_blocks`
@@ -1314,16 +1317,17 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version_and_ssz_body(
-            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            signed_block.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            signed_block.message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version_and_ssz_body(
+                self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+                signed_block.as_ssz_bytes(),
+                Some(self.timeouts.proposal),
+                signed_block.message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// Path for `v2/beacon/blocks`
@@ -2907,6 +2911,23 @@ pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
     if status == StatusCode::OK {
+        Ok(response)
+    } else if let Ok(message) = response.json().await {
+        match message {
+            ResponseError::Message(message) => Err(Error::ServerMessage(message)),
+            ResponseError::Indexed(indexed) => Err(Error::ServerIndexedMessage(indexed)),
+        }
+    } else {
+        Err(Error::StatusCode(status))
+    }
+}
+
+/// Returns `Ok(response)` if the response is a success (2xx) response. Otherwise, creates an
+/// appropriate error message.
+pub async fn success_or_error(response: Response) -> Result<Response, Error> {
+    let status = response.status();
+
+    if status.is_success() {
         Ok(response)
     } else if let Ok(message) = response.json().await {
         match message {
