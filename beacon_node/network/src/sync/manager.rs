@@ -1347,7 +1347,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        info!(?id, "weird");
         if let Some(resp) = self
             .network
             .on_data_columns_by_range_response(id, peer_id, data_column)

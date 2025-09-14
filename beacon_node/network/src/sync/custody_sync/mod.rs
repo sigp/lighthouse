@@ -1,32 +1,30 @@
 use std::{
     collections::{BTreeMap, HashSet, btree_map::Entry},
+    marker::PhantomData,
     sync::Arc,
 };
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
-    NetworkGlobals, PeerAction, PeerId,
-    service::api_types::{ColumnsByRangeParentRequestId, CustodySyncBatchRequestId},
+    NetworkGlobals, PeerId, service::api_types::ColumnsByRangeParentRequestId,
     types::CustodyBackFillState,
 };
 use lighthouse_tracing::SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST;
 use logging::crit;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use tracing::{debug, error, info, info_span, warn};
-
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
 use crate::sync::{
     backfill_sync::{ProcessResult, SyncStart},
-    custody_sync::batch::{CustodyBatchInfo, CustodyBatchState},
+    batch::{BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState},
+    batch::{BatchId, ByRangeRequestType},
     manager::CustodyBatchProcessResult,
     network_context::{RpcResponseError, SyncNetworkContext},
-    range_sync::{BatchId, BatchOperationOutcome, BatchProcessingResult},
 };
 
 /// The maximum number of batches to queue before requesting more.
 const BACKFILL_BATCH_BUFFER_SIZE: u8 = 20;
-
-mod batch;
 
 /// Columns are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// columns per batch are requested _at most_. A batch may request less columns to account for
@@ -35,6 +33,29 @@ mod batch;
 /// case the responder will fill the response up to the max request size, assuming they have the
 /// bandwidth to do so.
 pub const CUSTODY_BACKFILL_EPOCHS_PER_BATCH: u64 = 1;
+
+type CustodyBackFillBatchInfo<E> =
+    BatchInfo<E, CustodyBackFillBatchConfig<E>, DataColumnSidecarList<E>>;
+type CustodyBackFillBatches<E> = BTreeMap<BatchId, CustodyBackFillBatchInfo<E>>;
+
+#[derive(Debug)]
+pub struct CustodyBackFillBatchConfig<E: EthSpec> {
+    marker: PhantomData<E>,
+}
+
+impl<E: EthSpec> BatchConfig for CustodyBackFillBatchConfig<E> {
+    fn max_batch_download_attempts() -> u8 {
+        5
+    }
+    fn max_batch_processing_attempts() -> u8 {
+        5
+    }
+    fn batch_attempt_hash<D: Hash>(data: &D) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        hasher.finish()
+    }
+}
 
 /// The ways a custody backfill sync can fail.
 // The info in the enum variants is displayed in logging, clippy thinks it's dead code.
@@ -71,7 +92,7 @@ pub struct CustodySync<T: BeaconChainTypes> {
     last_batch_downloaded: bool,
 
     /// Sorted map of batches undergoing some kind of processing.
-    batches: BTreeMap<BatchId, CustodyBatchInfo<T::EthSpec>>,
+    batches: CustodyBackFillBatches<T::EthSpec>,
 
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
@@ -342,7 +363,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 // In principle there should only ever be on of these, and we could terminate the
                 // loop early, however the processing is negligible and we continue the search
                 // for robustness to handle potential future modification
-                if matches!(batch.state(), CustodyBatchState::AwaitingDownload) {
+                if matches!(batch.state(), BatchState::AwaitingDownload) {
                     Some(*batch_id)
                 } else {
                     None
@@ -374,10 +395,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         // Only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
         // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &CustodyBatchInfo<T::EthSpec>| {
+        let in_buffer = |batch: &CustodyBackFillBatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
-                CustodyBatchState::Downloading(..) | CustodyBatchState::AwaitingProcessing(..)
+                BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
             )
         };
         if self
@@ -405,10 +426,10 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 self.include_next_batch()
             }
             Entry::Vacant(entry) => {
-                entry.insert(CustodyBatchInfo::new(
+                entry.insert(BatchInfo::new(
                     &batch_id,
                     CUSTODY_BACKFILL_EPOCHS_PER_BATCH,
-                    self.columns.clone(),
+                    ByRangeRequestType::Columns(self.columns.clone()),
                 ));
                 if self.would_complete(batch_id) {
                     self.last_batch_downloaded = true;
@@ -511,7 +532,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                 // sending an error /timeout) if the peer is removed for other
                 // reasons. Check that this column belongs to the expected peer, and that the
                 // request_id matches
-                if !batch.is_expecting_data_column(&custody_sync_request_id.id) {
+                if !batch.is_expecting_request_id(&custody_sync_request_id.id) {
                     return Ok(ProcessResult::Successful);
                 }
 
@@ -599,7 +620,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
 
         debug!(
             ?result,
-            %batch,
+            // %batch,
             batch_epoch = %batch_id,
             %peer,
             client = %network.client_type(peer),
@@ -719,20 +740,18 @@ impl<T: BeaconChainTypes> CustodySync<T> {
         if let Some(batch) = self.batches.get(&self.processing_target) {
             let state = batch.state();
             match state {
-                CustodyBatchState::AwaitingProcessing(..) => {
+                BatchState::AwaitingProcessing(..) => {
                     return self.process_batch(network, self.processing_target);
                 }
-                CustodyBatchState::Downloading(..) => {
+                BatchState::Downloading(..) => {
                     // Batch is not ready, nothing to process
                 }
-                CustodyBatchState::Validated => {
-                    // Batch is completed
-                    // TODO(custody-sync) we could prbobly remove the batch    
+                BatchState::AwaitingValidation(..) => {
+                    // This isn't a possible scenario
+                    // TODO(custody-sync) we could prbobly remove the batch
                 }
-                CustodyBatchState::Poisoned => unreachable!("Poisoned batch"),
-                CustodyBatchState::Failed
-                | CustodyBatchState::AwaitingDownload
-                | CustodyBatchState::Processing(_) => {
+                BatchState::Poisoned => unreachable!("Poisoned batch"),
+                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Columns should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -760,10 +779,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
     ///
     /// If a previous batch has been validated and it had been re-processed, penalize the original
     /// peer.
-    fn advance_custody_sync(
-        &mut self,
-        validating_epoch: Epoch,
-    ) {
+    fn advance_custody_sync(&mut self, validating_epoch: Epoch) {
         let Some(column_da_boundary) = self.get_column_da_boundary() else {
             return;
         };
@@ -784,14 +800,12 @@ impl<T: BeaconChainTypes> CustodySync<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                CustodyBatchState::Downloading(..) | CustodyBatchState::Validated => {}
-                CustodyBatchState::Failed
-                | CustodyBatchState::Poisoned
-                | CustodyBatchState::AwaitingDownload => {
+                BatchState::Downloading(..) | BatchState::AwaitingValidation(..) => {}
+                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
                     crit!("batch indicates inconsistent data columns while advancing custody sync")
                 }
-                CustodyBatchState::AwaitingProcessing(..) => {}
-                CustodyBatchState::Processing(_) => {
+                BatchState::AwaitingProcessing(..) => {}
+                BatchState::Processing(_) => {
                     debug!(batch = %id, %batch, "Advancing custody sync while processing a batch");
                     if let Some(processing_id) = self.current_processing_batch
                         && id >= processing_id
@@ -1056,7 +1070,7 @@ impl<T: BeaconChainTypes> CustodySync<T> {
                     // A batch could be retried without the peer failing the request (disconnecting/
                     // sending an error /timeout) if the peer is removed from the chain for other
                     // reasons. Check that this data column belongs to the expected peer
-                    if !batch.is_expecting_data_column(&request.id) {
+                    if !batch.is_expecting_request_id(&request.id) {
                         return Ok(());
                     }
                     debug!(batch_epoch = %request.epoch, error = ?err, "Batch download failed");

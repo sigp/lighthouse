@@ -754,7 +754,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     );
                 }
 
-                self.beacon_chain
+                // TODO(custody-sync) delete this (this skips waiting for finalization)
+                let _ = self
+                    .beacon_chain
                     .sync_service_send
                     .send(SyncServiceMessage::EarliestCustodyEpochFinalized);
 
