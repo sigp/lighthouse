@@ -5,7 +5,7 @@ mod backfill_sync;
 mod batch;
 mod block_lookups;
 mod block_sidecar_coupling;
-mod custody_sync;
+mod custody_backfill_sync;
 pub mod manager;
 mod network_context;
 mod peer_sync_info;

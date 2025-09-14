@@ -46,7 +46,7 @@ use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
-use crate::sync::custody_sync::CustodySync;
+use crate::sync::custody_backfill_sync::CustodyBackFillSync;
 use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::timestamp_now;
@@ -269,7 +269,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     backfill_sync: BackFillSync<T>,
 
     /// Custody syncing.
-    custody_sync: CustodySync<T>,
+    custody_backfill_sync: CustodyBackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
     /// debounce duplicated `UnknownBlockHashFromAttestation` for the same root peer tuple. A peer
@@ -335,7 +335,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             ),
             range_sync: RangeSync::new(beacon_chain.clone()),
             backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals.clone()),
-            custody_sync: CustodySync::new(beacon_chain.clone(), network_globals),
+            custody_backfill_sync: CustodyBackFillSync::new(beacon_chain.clone(), network_globals),
             block_lookups: BlockLookups::new(),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
@@ -603,7 +603,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // inform the backfill sync that a new synced peer has joined us.
                 if new_state.is_synced() {
                     self.backfill_sync.fully_synced_peer_joined();
-                    self.custody_sync.fully_synced_peer_joined();
+                    self.custody_backfill_sync.fully_synced_peer_joined();
                 }
             }
             is_connected
@@ -684,7 +684,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         // If backfill is complete, check if we have a pending custody backfill to complete
                         let anchor_info = self.chain.store.get_anchor_info();
                         if anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
-                            match self.custody_sync.resume_pending_sync(&mut self.network) {
+                            match self
+                                .custody_backfill_sync
+                                .resume_pending_sync(&mut self.network)
+                            {
                                 Ok(SyncStart::Syncing {
                                     completed,
                                     remaining,
@@ -711,7 +714,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // custody sync
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
-                    self.custody_sync.pause();
+                    self.custody_backfill_sync.pause();
 
                     SyncState::SyncingFinalized {
                         start_slot,
@@ -723,7 +726,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // custody sync
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
-                    self.custody_sync.pause();
+                    self.custody_backfill_sync.pause();
 
                     SyncState::SyncingHead {
                         start_slot,
@@ -952,7 +955,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             },
             SyncMessage::CustodyBatchProcessed { result } => {
-                match self.custody_sync.on_batch_process_result(
+                match self.custody_backfill_sync.on_batch_process_result(
                     &mut self.network,
                     result.batch_id(),
                     &result,
@@ -969,7 +972,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn start_custody_sync(&mut self) {
+    fn start_custody_backfill_sync(&mut self) {
         let sync_state = {
             let head = self.chain.best_slot();
             let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
@@ -994,15 +997,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncState::Synced => {
                 let anchor_info = self.chain.store.get_anchor_info();
                 if !anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
-                    if let Err(e) = self.custody_sync.set_status_to_pending() {
+                    if let Err(e) = self.custody_backfill_sync.set_status_to_pending() {
                         tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
                     }
                     return;
                 }
                 // TODO(custody-sync) we shouldnt need this hack, fix it
                 // We need to set the state to Paused before calling start();
-                self.custody_sync.set_state(CustodyBackFillState::Paused);
-                match self.custody_sync.start(&mut self.network) {
+                self.custody_backfill_sync
+                    .set_state(CustodyBackFillState::Paused);
+                match self.custody_backfill_sync.start(&mut self.network) {
                     Ok(SyncStart::Syncing {
                         completed,
                         remaining,
@@ -1016,7 +1020,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             _ => {
-                if let Err(e) = self.custody_sync.set_status_to_pending() {
+                if let Err(e) = self.custody_backfill_sync.set_status_to_pending() {
                     tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
                 }
             }
@@ -1027,12 +1031,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match sync_service_message {
             SyncServiceMessage::CustodyCountChanged { columns } => {
                 // Wait for the current epoch to finalize before starting custody sync
-                if let Err(e) = self.custody_sync.wait_for_finalization(columns) {
+                if let Err(e) = self.custody_backfill_sync.wait_for_finalization(columns) {
                     tracing::warn!(error = ?e, "Failed to set custody backfill state to awaiting finalization");
                 }
             }
             SyncServiceMessage::EarliestCustodyEpochFinalized => {
-                self.start_custody_sync();
+                self.start_custody_backfill_sync();
             }
         }
     }
@@ -1481,7 +1485,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         {
             match resp {
                 Ok(data_columns) => {
-                    match self.custody_sync.on_data_column_response(
+                    match self.custody_backfill_sync.on_data_column_response(
                         &mut self.network,
                         custody_sync_request_id.parent_request_id,
                         &peer_id,
@@ -1497,7 +1501,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Err(e) => {
-                    match self.custody_sync.inject_error(
+                    match self.custody_backfill_sync.inject_error(
                         &mut self.network,
                         custody_sync_request_id.parent_request_id,
                         &peer_id,

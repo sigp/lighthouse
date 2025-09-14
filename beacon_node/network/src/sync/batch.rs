@@ -2,17 +2,17 @@ use beacon_chain::block_verification_types::RpcBlock;
 use derivative::Derivative;
 use lighthouse_network::PeerId;
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
+use lighthouse_network::rpc::methods::DataColumnsByRangeRequest;
 use lighthouse_network::service::api_types::Id;
 use std::collections::HashSet;
-use std::marker::PhantomData;
-use std::time::Instant;
-use types::{DataColumnSidecarList, Epoch, EthSpec};
-use lighthouse_network::rpc::methods::DataColumnsByRangeRequest;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::ops::Sub;
 use std::time::Duration;
+use std::time::Instant;
 use strum::Display;
 use types::Slot;
+use types::{DataColumnSidecarList, Epoch, EthSpec};
 
 pub type BatchId = Epoch;
 

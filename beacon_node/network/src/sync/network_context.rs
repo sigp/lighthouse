@@ -25,7 +25,7 @@ use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, Req
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ColumnsByRangeParentRequestId,
-    ComponentsByRangeRequestId, CustodyId, CustodyRequester, CustodySyncBatchRequestId,
+    ComponentsByRangeRequestId, CustodyBackFillBatchRequestId, CustodyId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
     SingleLookupReqId, SyncRequestId,
 };
@@ -221,7 +221,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// A batch of data columns by range request for custody sync
     custody_sync_data_column_batch_requests:
-        FnvHashMap<CustodySyncBatchRequestId, RangeDataColumnBatchRequest<T::EthSpec>>,
+        FnvHashMap<CustodyBackFillBatchRequestId, RangeDataColumnBatchRequest<T::EthSpec>>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -1699,7 +1699,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         // Create the overall `custody_by_range` request id
-        let id = CustodySyncBatchRequestId {
+        let id = CustodyBackFillBatchRequestId {
             id: self.next_id(),
             epoch,
         };
@@ -1806,7 +1806,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
 
         debug!(
-            method = "CustodySync::DataColumnsByRange",
+            method = "CustodyBackFillSync::DataColumnsByRange",
             slots = request.count,
             epoch = %Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
             columns = ?request.columns,

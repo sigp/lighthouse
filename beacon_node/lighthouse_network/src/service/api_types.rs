@@ -79,7 +79,7 @@ pub struct DataColumnsByRangeRequestId {
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ColumnsByRangeParentRequestId {
     ComponentsByRange(ComponentsByRangeRequestId),
-    CustodyBackfillSync(CustodySyncBatchRequestId),
+    CustodyBackfillSync(CustodyBackFillBatchRequestId),
 }
 
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
@@ -96,14 +96,14 @@ pub struct ComponentsByRangeRequestId {
 // A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
 // handle retries and tie all the range requests for the given epoch together.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodySyncBatchRequestId {
+pub struct CustodyBackFillBatchRequestId {
     /// For each `epoch` we may request the same data in a later retry. This Id identifies the
     /// current attempt.
     pub id: Id,
     pub epoch: Epoch,
 }
 
-impl Display for CustodySyncBatchRequestId {
+impl Display for CustodyBackFillBatchRequestId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let id = self.id;
         let epoch = self.epoch;

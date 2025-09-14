@@ -73,7 +73,7 @@ pub enum CustodyBackfillError {
     Paused,
 }
 
-pub struct CustodySync<T: BeaconChainTypes> {
+pub struct CustodyBackFillSync<T: BeaconChainTypes> {
     /// Keeps track of the current progress of the custody backfill.
     /// This only gets refreshed from the beacon chain if we enter a failed state.
     current_start: BatchId,
@@ -112,7 +112,7 @@ pub struct CustodySync<T: BeaconChainTypes> {
     network_globals: Arc<NetworkGlobals<T::EthSpec>>,
 }
 
-impl<T: BeaconChainTypes> CustodySync<T> {
+impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         network_globals: Arc<NetworkGlobals<T::EthSpec>>,
