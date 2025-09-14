@@ -23,9 +23,9 @@ use futures_util::StreamExt;
 use libp2p_identity::PeerId;
 use lighthouse_version;
 use pretty_reqwest_error::PrettyReqwestError;
-use reqwest;
+pub use reqwest;
 use reqwest::{
-    Body, IntoUrl, RequestBuilder, Response,
+    Body, IntoUrl, Method, RequestBuilder, Response,
     header::{HeaderMap, HeaderValue},
 };
 pub use reqwest::{StatusCode, Url};
@@ -239,7 +239,7 @@ impl AsRef<str> for BeaconNodeHttpClient {
 impl BeaconNodeHttpClient {
     pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
         let client = reqwest::ClientBuilder::new()
-            .user_agent(lighthouse_version::user_agent())
+            .user_agent(lighthouse_version::DEFAULT_USER_AGENT)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -2891,6 +2891,14 @@ impl BeaconNodeHttpClient {
         self.post_with_timeout_and_response(path, &selections, self.timeouts.sync_aggregators)
             .await
     }
+
+    pub async fn create_request(&self, method: Method, url: &str) -> Result<Response, Error> {
+        self.client
+            .request(method, url)
+            .send()
+            .await
+            .map_err(Error::from)
+    }
 }
 
 /// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
@@ -2910,12 +2918,12 @@ pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     }
 }
 
-/// A wrapper around `reqwest::ClientBuilder` which adds a user agent for client identification
-pub struct HttpClientBuilderWithUserAgent;
-
-impl HttpClientBuilderWithUserAgent {
-    pub fn new(user_agent: Option<String>) -> reqwest::ClientBuilder {
-        let user_agent = user_agent.unwrap_or(lighthouse_version::user_agent());
-        reqwest::ClientBuilder::new().user_agent(user_agent)
-    }
+/// A helper function to create a `reqwest::Client` with a user agent
+pub fn create_client_with_user_agent<'a>(
+    user_agent: impl Into<Option<&'a str>>,
+) -> reqwest::ClientBuilder {
+    let user_agent = user_agent
+        .into()
+        .unwrap_or(lighthouse_version::DEFAULT_USER_AGENT);
+    reqwest::ClientBuilder::new().user_agent(user_agent)
 }

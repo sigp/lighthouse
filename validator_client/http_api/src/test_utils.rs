@@ -6,6 +6,7 @@ use account_utils::{
 };
 use deposit_contract::decode_eth1_tx_data;
 use doppelganger_service::DoppelgangerService;
+use eth2::reqwest::Method;
 use eth2::{
     Error as ApiError,
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
@@ -456,11 +457,11 @@ impl ApiTester {
 
         // Make a request (simulate Lighthouse client)
         let url = format!("http://{}/", addr);
-        let _client = self.client.create_request(&url).await;
+        let _client = self.client.create_request(Method::GET, &url).await;
 
         // Check captured User-Agent
         let ua = captured.lock().unwrap().clone().unwrap();
-        assert_eq!(ua, lighthouse_version::user_agent());
+        assert_eq!(ua, lighthouse_version::DEFAULT_USER_AGENT);
 
         self
     }

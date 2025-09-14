@@ -47,7 +47,7 @@ impl ValidatorClientHttpClient {
     /// Create a new client pre-initialised with an API token.
     pub fn new(server: SensitiveUrl, secret: String) -> Result<Self, Error> {
         let client = reqwest::ClientBuilder::new()
-            .user_agent(lighthouse_version::user_agent())
+            .user_agent(lighthouse_version::DEFAULT_USER_AGENT)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -64,7 +64,7 @@ impl ValidatorClientHttpClient {
     /// A token can be fetched by using `self.get_auth`, and then reading the token from disk.
     pub fn new_unauthenticated(server: SensitiveUrl) -> Result<Self, Error> {
         let client = reqwest::ClientBuilder::new()
-            .user_agent(lighthouse_version::user_agent())
+            .user_agent(lighthouse_version::DEFAULT_USER_AGENT)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
 
@@ -692,8 +692,17 @@ impl ValidatorClientHttpClient {
         self.delete(url).await
     }
 
-    pub async fn create_request<U: IntoUrl>(&self, url: U) -> Result<Response, Error> {
-        self.client.get(url).send().await.map_err(Error::from)
+    /// Used internally by the `ValidatorClientHttpClient` to create a request.
+    pub async fn create_request<U: IntoUrl>(
+        &self,
+        method: reqwest::Method,
+        url: U,
+    ) -> Result<Response, Error> {
+        self.client
+            .request(method, url)
+            .send()
+            .await
+            .map_err(Error::from)
     }
 }
 

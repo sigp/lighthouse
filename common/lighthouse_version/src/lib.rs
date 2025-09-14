@@ -21,6 +21,9 @@ pub const VERSION: &str = git_version!(
     fallback = "Lighthouse/v7.1.0"
 );
 
+/// Returns `VERSION` used as default User-Agent for HTTP requests.
+pub const DEFAULT_USER_AGENT: &str = VERSION;
+
 /// Returns the first eight characters of the latest commit hash for this build.
 ///
 /// No indication is given if the tree is dirty. This is part of the standard
@@ -46,15 +49,6 @@ pub const COMMIT_PREFIX: &str = git_version!(
 /// `Lighthouse/v1.5.1-67da032+/x86_64-linux`
 pub fn version_with_platform() -> String {
     format!("{}/{}-{}", VERSION, consts::ARCH, consts::OS)
-}
-
-/// Returns `CLIENT_NAME/VERSION` used as default User-Agent for HTTP requests.
-///
-/// ## Example
-///
-/// `Lighthouse/v7.1.0-67da032+`
-pub fn user_agent() -> String {
-    format!("{}", VERSION)
 }
 
 /// Returns semantic versioning information only.
@@ -98,36 +92,6 @@ mod test {
             re.is_match(version()),
             "semantic version doesn't match regex: {}",
             version()
-        );
-    }
-
-    #[test]
-    fn user_agent_formatting() {
-        let ua = user_agent();
-
-        // User agent should match the VERSION format
-        let re = Regex::new(
-            r"^Lighthouse/v[0-9]+\.[0-9]+\.[0-9]+(-(rc|beta).[0-9])?(-[[:xdigit:]]{7})?\+?$",
-        )
-        .unwrap();
-
-        assert!(
-            re.is_match(&ua),
-            "user agent doesn't match expected format: {}",
-            ua
-        );
-
-        // User agent should be equal to VERSION
-        assert_eq!(ua, VERSION, "user_agent() should return VERSION");
-    }
-
-    #[test]
-    fn user_agent_non_empty() {
-        let ua = user_agent();
-        assert!(!ua.is_empty(), "user agent should not be empty");
-        assert!(
-            ua.starts_with("Lighthouse/"),
-            "user agent should start with 'Lighthouse/'"
         );
     }
 }

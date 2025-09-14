@@ -8,6 +8,7 @@ use eth2::{
     Error::ServerMessage,
     StatusCode, Timeouts,
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
+    reqwest::Method,
     reqwest::RequestBuilder,
     types::{
         BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
@@ -35,6 +36,7 @@ use state_processing::per_slot_processing;
 use state_processing::state_advance::partial_state_advance;
 use std::convert::TryInto;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::application_domain::ApplicationDomain;
@@ -43,6 +45,7 @@ use types::{
     MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, SingleAttestation, Slot,
     attestation::AttestationBase,
 };
+use warp::Filter;
 
 type E = MainnetEthSpec;
 
@@ -6733,6 +6736,33 @@ impl ApiTester {
         }
         self
     }
+
+    async fn test_user_agent(self) -> Self {
+        let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+        let captured_filter = captured.clone();
+
+        // Warp route: capture User-Agent header
+        let route = warp::any()
+            .and(warp::header::optional::<String>("user-agent"))
+            .map(move |ua: Option<String>| {
+                *captured_filter.lock().unwrap() = ua;
+                warp::reply()
+            });
+
+        // Start ephemeral server
+        let (addr, server) = warp::serve(route).bind_ephemeral(([127, 0, 0, 1], 0));
+        tokio::spawn(server);
+
+        // Make a request (simulate Lighthouse client)
+        let url = format!("http://{}/", addr);
+        let _client = self.client.create_request(Method::GET, &url).await;
+
+        // Check captured User-Agent
+        let ua = captured.lock().unwrap().clone().unwrap();
+        assert_eq!(ua, lighthouse_version::DEFAULT_USER_AGENT);
+
+        self
+    }
 }
 
 async fn poll_events<S: Stream<Item = Result<EventKind<E>, eth2::Error>> + Unpin, E: EthSpec>(
@@ -7881,4 +7911,9 @@ async fn get_beacon_rewards_blocks_electra() {
         .await
         .test_beacon_block_rewards_electra()
         .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_user_agent() {
+    ApiTester::new().await.test_user_agent().await;
 }

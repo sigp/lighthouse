@@ -7,8 +7,8 @@ use eth2::types::{
 };
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
-    CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, HttpClientBuilderWithUserAgent,
-    JSON_CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error,
+    CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
+    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error,
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};
@@ -74,13 +74,18 @@ impl BuilderHttpClient {
         builder_header_timeout: Option<Duration>,
         disable_ssz: bool,
     ) -> Result<Self, Error> {
-        let user_agent = user_agent.unwrap_or(lighthouse_version::user_agent());
-        let client = HttpClientBuilderWithUserAgent::new(Some(user_agent.clone())).build()?;
+        let user_agent = user_agent
+            .as_deref()
+            .unwrap_or(lighthouse_version::DEFAULT_USER_AGENT);
+        let client = eth2::create_client_with_user_agent(user_agent)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+
         Ok(Self {
             client,
             server,
             timeouts: Timeouts::new(builder_header_timeout),
-            user_agent,
+            user_agent: user_agent.into(),
             disable_ssz,
             ssz_available: Arc::new(false.into()),
         })
