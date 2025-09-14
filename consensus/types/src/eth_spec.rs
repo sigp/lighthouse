@@ -310,6 +310,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
         Self::BytesPerBlob::to_usize()
     }
 
+    /// Returns the `BYTES_PER_CELL` constant for this specification.
+    fn bytes_per_cell() -> usize {
+        Self::BytesPerCell::to_usize()
+    }
+
     /// Returns the `KZG_COMMITMENT_INCLUSION_PROOF_DEPTH` preset for this specification.
     fn kzg_proof_inclusion_proof_depth() -> usize {
         Self::KzgCommitmentInclusionProofDepth::to_usize()
