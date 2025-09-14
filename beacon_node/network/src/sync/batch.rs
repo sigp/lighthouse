@@ -1,14 +1,13 @@
+use beacon_chain::block_verification_types::RpcBlock;
+use derivative::Derivative;
+use lighthouse_network::PeerId;
+use lighthouse_network::rpc::methods::BlocksByRangeRequest;
+use lighthouse_network::service::api_types::Id;
 use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::time::Instant;
-
-use beacon_chain::block_verification_types::RpcBlock;
-use lighthouse_network::rpc::BlocksByRangeRequest;
 use types::{DataColumnSidecarList, Epoch, EthSpec};
-
-use lighthouse_network::PeerId;
 use lighthouse_network::rpc::methods::DataColumnsByRangeRequest;
-use lighthouse_network::service::api_types::Id;
 use std::hash::Hash;
 use std::ops::Sub;
 use std::time::Duration;
@@ -100,7 +99,8 @@ pub trait BatchConfig {
     fn batch_attempt_hash<D: Hash>(data: &D) -> u64;
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 /// A segment of a chain.
 pub struct BatchInfo<E: EthSpec, B: BatchConfig, D: Hash> {
     /// Start slot of the batch.
@@ -118,6 +118,7 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig, D: Hash> {
     /// Whether this batch contains all blocks or all blocks and blobs.
     batch_type: ByRangeRequestType,
     /// Pin the generic
+    #[derivative(Debug = "ignore")]
     marker: std::marker::PhantomData<(E, B)>,
 }
 
