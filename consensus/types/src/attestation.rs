@@ -622,26 +622,23 @@ pub struct SingleAttestation {
 }
 
 impl SingleAttestation {
-    pub fn to_indexed<E: EthSpec>(
-        &self,
-        fork_name: ForkName,
-    ) -> Result<IndexedAttestation<E>, Error> {
+    pub fn to_indexed<E: EthSpec>(&self, fork_name: ForkName) -> IndexedAttestation<E> {
         if fork_name.electra_enabled() {
-            Ok(IndexedAttestation::Electra(IndexedAttestationElectra {
+            IndexedAttestation::Electra(IndexedAttestationElectra {
                 attesting_indices: vec![self.attester_index]
                     .try_into()
-                    .map_err(Error::SszTypesError)?,
+                    .expect("Single index should not exceed MaxValidatorsPerSlot"),
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-            }))
+            })
         } else {
-            Ok(IndexedAttestation::Base(IndexedAttestationBase {
+            IndexedAttestation::Base(IndexedAttestationBase {
                 attesting_indices: vec![self.attester_index]
                     .try_into()
-                    .map_err(Error::SszTypesError)?,
+                    .expect("Single index should not exceed MaxValidatorsPerCommittee"),
                 data: self.data.clone(),
                 signature: self.signature.clone(),
-            }))
+            })
         }
     }
 }

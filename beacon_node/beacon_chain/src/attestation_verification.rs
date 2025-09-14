@@ -63,7 +63,6 @@ use types::{
     Attestation, AttestationData, AttestationRef, BeaconCommittee,
     BeaconStateError::NoCommitteeFound, ChainSpec, CommitteeIndex, Epoch, EthSpec, Hash256,
     IndexedAttestation, SelectionProof, SignedAggregateAndProof, SingleAttestation, Slot, SubnetId,
-    attestation::Error as AttestationError,
 };
 
 pub use batch::{batch_verify_aggregated_attestations, batch_verify_unaggregated_attestations};
@@ -108,18 +107,14 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    InvalidSelectionProof {
-        aggregator_index: u64,
-    },
+    InvalidSelectionProof { aggregator_index: u64 },
     /// The `selection_proof` on the aggregate attestation selects it as a validator, however the
     /// aggregator index is not in the committee for that attestation.
     ///
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    AggregatorNotInCommittee {
-        aggregator_index: u64,
-    },
+    AggregatorNotInCommittee { aggregator_index: u64 },
     /// The `attester_index` for a `SingleAttestation` is not a member of the committee defined
     /// by its `beacon_block_root`, `committee_index` and `slot`.
     ///
@@ -171,9 +166,7 @@ pub enum Error {
     ///
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
-    UnknownHeadBlock {
-        beacon_block_root: Hash256,
-    },
+    UnknownHeadBlock { beacon_block_root: Hash256 },
     /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
     ///
     /// ## Peer scoring
@@ -181,9 +174,7 @@ pub enum Error {
     /// The attestation is not descended from the finalized checkpoint, which is a REJECT according
     /// to the spec. We downscore lightly because this could also happen if we are processing
     /// attestations extremely slowly.
-    HeadBlockFinalized {
-        beacon_block_root: Hash256,
-    },
+    HeadBlockFinalized { beacon_block_root: Hash256 },
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
     ///
     /// ## Peer scoring
@@ -210,10 +201,7 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    NoCommitteeForSlotAndIndex {
-        slot: Slot,
-        index: CommitteeIndex,
-    },
+    NoCommitteeForSlotAndIndex { slot: Slot, index: CommitteeIndex },
     /// The attestation doesn't have only one aggregation bit set.
     ///
     /// ## Peer scoring
@@ -228,20 +216,14 @@ pub enum Error {
     /// It's unclear if this attestation is valid, however we have already observed a
     /// single-participant attestation from this validator for this epoch and should not observe
     /// another.
-    PriorAttestationKnown {
-        validator_index: u64,
-        epoch: Epoch,
-    },
+    PriorAttestationKnown { validator_index: u64, epoch: Epoch },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     ///
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    AttestsToFutureBlock {
-        block: Slot,
-        attestation: Slot,
-    },
+    AttestsToFutureBlock { block: Slot, attestation: Slot },
     /// The attestation was received on an invalid attestation subnet.
     ///
     /// ## Peer scoring
@@ -268,10 +250,7 @@ pub enum Error {
     /// ## Peer scoring
     ///
     /// The peer has sent an invalid message.
-    InvalidTargetEpoch {
-        slot: Slot,
-        epoch: Epoch,
-    },
+    InvalidTargetEpoch { slot: Slot, epoch: Epoch },
     /// The attestation references an invalid target block.
     ///
     /// ## Peer scoring
@@ -288,7 +267,6 @@ pub enum Error {
     /// We were unable to process this attestation due to an internal error. It's unclear if the
     /// attestation is valid.
     BeaconChainError(Box<BeaconChainError>),
-    AttestationError(Box<AttestationError>),
 }
 
 impl From<BeaconChainError> for Error {
@@ -464,10 +442,8 @@ fn process_slash_info<T: BeaconChainTypes>(
                     .spec
                     .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-                match attestation.to_indexed(fork_name) {
-                    Ok(indexed_attestation) => (indexed_attestation, true, err),
-                    Err(e) => return Error::AttestationError(Box::new(e)),
-                }
+                let indexed_attestation = attestation.to_indexed(fork_name);
+                (indexed_attestation, true, err)
             }
             SignatureNotCheckedIndexed(indexed, err) => (indexed, true, err),
             SignatureInvalid(e) => return e,
@@ -956,15 +932,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-        let indexed_attestation = match attestation.to_indexed(fork_name) {
-            Ok(indexed) => indexed,
-            Err(e) => {
-                return Err(SignatureNotCheckedSingle(
-                    attestation,
-                    Error::AttestationError(Box::new(e)),
-                ));
-            }
-        };
+        let indexed_attestation = attestation.to_indexed(fork_name);
 
         let validator_index = match Self::verify_middle_checks(attestation, chain) {
             Ok(t) => t,

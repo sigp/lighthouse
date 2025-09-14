@@ -139,8 +139,8 @@ async fn get_block_from_source<T: EthSpec>(
         let block_root = block_from_source.canonical_root();
         let block_contents = SignedBlockContents {
             signed_block: Arc::new(block_from_source),
-            kzg_proofs: kzg_proofs.into(),
-            blobs: blobs.into(),
+            kzg_proofs: kzg_proofs.try_into().unwrap(),
+            blobs: blobs.try_into().unwrap(),
         };
         let publish_block_req = PublishBlockRequest::BlockContents(block_contents);
 
