@@ -1,10 +1,12 @@
 use super::RangeSyncType;
-use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::batch::{
+    BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+};
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
-use crate::sync::{BatchOperationOutcome, BatchProcessResult, network_context::SyncNetworkContext};
+use crate::sync::{BatchProcessResult, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::service::api_types::Id;
@@ -12,9 +14,12 @@ use lighthouse_network::{PeerAction, PeerId};
 use lighthouse_tracing::SPAN_SYNCING_CHAIN;
 use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use strum::IntoStaticStr;
 use tracing::{Span, debug, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
+use crate::sync::batch::BatchId;
 
 /// Blocks are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// blocks per batch are requested _at most_. A batch may request less blocks to account for
@@ -34,6 +39,25 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// Should be checked, since a failed chain must be removed. A chain that requested being removed
 /// and continued is now in an inconsistent state.
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
+
+#[derive(Debug)]
+pub struct RangeSyncBatchConfig<E: EthSpec> {
+    marker: PhantomData<E>,
+}
+
+impl<E: EthSpec> BatchConfig for RangeSyncBatchConfig<E> {
+    fn max_batch_download_attempts() -> u8 {
+        5 //TODO MAX_BATCH_DOWNLOAD_ATTEMPTS
+    }
+    fn max_batch_processing_attempts() -> u8 {
+        5 // TODO MAX_BATCH_PROCESSING_ATTEMPTS
+    }
+    fn batch_attempt_hash<D: Hash>(data: &D) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        data.hash(&mut hasher);
+        hasher.finish()
+    }
+}
 
 /// Reasons for removing a chain
 #[derive(Debug)]
@@ -55,7 +79,6 @@ pub struct KeepChain;
 
 /// A chain identifier
 pub type ChainId = Id;
-pub type BatchId = Epoch;
 
 #[derive(Debug, Copy, Clone, IntoStaticStr)]
 pub enum SyncingChainType {
@@ -85,7 +108,10 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     pub target_head_root: Hash256,
 
     /// Sorted map of batches undergoing some kind of processing.
-    batches: BTreeMap<BatchId, BatchInfo<T::EthSpec>>,
+    batches: BTreeMap<
+        BatchId,
+        BatchInfo<T::EthSpec, RangeSyncBatchConfig<T::EthSpec>, Vec<RpcBlock<T::EthSpec>>>,
+    >,
 
     /// The peers that agree on the `target_head_slot` and `target_head_root` as a canonical chain
     /// and thus available to download this chain from, as well as the batches we are currently
@@ -243,7 +269,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // request_id matches
                 // TODO(das): removed peer_id matching as the node may request a different peer for data
                 // columns.
-                if !batch.is_expecting_block(&request_id) {
+                if !batch.is_expecting_request_id(&request_id) {
                     return Ok(KeepChain);
                 }
                 batch
@@ -903,7 +929,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            if !batch.is_expecting_block(&request_id) {
+            if !batch.is_expecting_request_id(&request_id) {
                 debug!(
                     batch_epoch = %batch_id,
                     batch_state = ?batch.state(),
@@ -1202,7 +1228,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
         // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BatchInfo<T::EthSpec>| {
+        let in_buffer = |batch: &BatchInfo<T::EthSpec, RangeSyncBatchConfig<T::EthSpec>, Vec<RpcBlock<T::EthSpec>>>| {
             matches!(
                 batch.state(),
                 BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
@@ -1289,7 +1315,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 }
 
-use super::batch::WrongState as WrongBatchState;
+use crate::sync::batch::WrongState as WrongBatchState;
 impl From<WrongBatchState> for RemoveChain {
     fn from(err: WrongBatchState) -> Self {
         RemoveChain::WrongBatchState(err.0)

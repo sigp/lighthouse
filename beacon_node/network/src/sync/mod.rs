@@ -2,6 +2,7 @@
 //!
 //! Stores the various syncing methods for the beacon chain.
 mod backfill_sync;
+mod batch;
 mod block_lookups;
 mod block_sidecar_coupling;
 mod custody_sync;
@@ -12,5 +13,6 @@ mod range_sync;
 #[cfg(test)]
 mod tests;
 
+pub use batch::BatchOperationOutcome;
 pub use manager::{BatchProcessResult, SyncMessage};
-pub use range_sync::{BatchOperationOutcome, ChainId};
+pub use range_sync::ChainId;

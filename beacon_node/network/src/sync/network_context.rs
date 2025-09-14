@@ -6,13 +6,13 @@ pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlock
 use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
-use super::range_sync::ByRangeRequestType;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 #[cfg(test)]
 use crate::network_beacon_processor::TestBeaconChainType;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
+use crate::sync::batch::ByRangeRequestType;
 use crate::sync::block_lookups::SingleLookupId;
 use crate::sync::block_sidecar_coupling::{CouplingError, RangeDataColumnBatchRequest};
 use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
