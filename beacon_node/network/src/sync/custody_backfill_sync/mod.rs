@@ -515,9 +515,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         data_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<ProcessResult, CustodyBackfillError> {
         match custody_sync_request_id {
-            ColumnsByRangeParentRequestId::ComponentsByRange(_) => {
-                todo!()
-            }
             ColumnsByRangeParentRequestId::CustodyBackfillSync(custody_sync_request_id) => {
                 // check if we have this batch
                 let Some(batch) = self.batches.get_mut(&custody_sync_request_id.epoch) else {
@@ -562,6 +559,9 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     }
                 }
             }
+            _ => Err(CustodyBackfillError::InvalidSyncState(
+                "Custody backfill sync received an incorrect response type".to_string(),
+            )),
         }
     }
 
@@ -940,7 +940,12 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .cloned()
                 .collect::<HashSet<_>>();
 
-            let request = batch.to_data_columns_by_range_request();
+            let request = batch.to_data_columns_by_range_request().map_err(
+                |_|
+                CustodyBackfillError::InvalidSyncState(
+                    "Can't convert to data column by range request".to_string(),
+                ),
+            )?;
             let failed_peers = batch.failed_peers();
 
             match network.custody_sync_data_columns_batch_request(

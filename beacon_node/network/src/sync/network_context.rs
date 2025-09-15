@@ -220,7 +220,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
         FnvHashMap<ComponentsByRangeRequestId, RangeBlockComponentsRequest<T::EthSpec>>,
 
     /// A batch of data columns by range request for custody sync
-    custody_sync_data_column_batch_requests:
+    custody_backfill_data_column_batch_requests:
         FnvHashMap<CustodyBackFillBatchRequestId, RangeDataColumnBatchRequest<T::EthSpec>>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
@@ -299,7 +299,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
             custody_by_root_requests: <_>::default(),
             components_by_range_requests: FnvHashMap::default(),
-            custody_sync_data_column_batch_requests: FnvHashMap::default(),
+            custody_backfill_data_column_batch_requests: FnvHashMap::default(),
             network_beacon_processor,
             chain,
             fork_context,
@@ -329,7 +329,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
             components_by_range_requests: _,
-            custody_sync_data_column_batch_requests: _,
+            custody_backfill_data_column_batch_requests: _,
             execution_engine_state: _,
             network_beacon_processor: _,
             chain: _,
@@ -426,7 +426,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             custody_by_root_requests: _,
             // components_by_range_requests is a meta request of various _by_range requests
             components_by_range_requests: _,
-            custody_sync_data_column_batch_requests: _,
+            custody_backfill_data_column_batch_requests: _,
             execution_engine_state: _,
             network_beacon_processor: _,
             chain: _,
@@ -1727,7 +1727,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             ));
         };
 
-        self.custody_sync_data_column_batch_requests
+        self.custody_backfill_data_column_batch_requests
             .insert(id, range_data_column_batch_request);
 
         Ok(id.id)
@@ -1740,11 +1740,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
         match custody_sync_request_id.parent_request_id {
-            // TODO(custody-backfill) this case should be impossible
-            ColumnsByRangeParentRequestId::ComponentsByRange(_) => todo!(),
             ColumnsByRangeParentRequestId::CustodyBackfillSync(custody_sync_batch_request_id) => {
                 let Entry::Occupied(mut entry) = self
-                    .custody_sync_data_column_batch_requests
+                    .custody_backfill_data_column_batch_requests
                     .entry(custody_sync_batch_request_id)
                 else {
                     metrics::inc_counter_vec(
@@ -1781,6 +1779,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 } else {
                     None
                 }
+            }
+            _ => {
+                warn!("Custody backfill sync is using the wrong request type");
+                None
             }
         }
     }
