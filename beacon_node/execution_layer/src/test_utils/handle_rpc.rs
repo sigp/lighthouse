@@ -456,6 +456,39 @@ pub async fn handle_rpc<E: EthSpec>(
                 _ => unreachable!(),
             }
         }
+        ENGINE_GET_BLOBS_V1 | ENGINE_GET_BLOBS_V2 => {
+            let versioned_hashes =
+                get_param::<Vec<Hash256>>(params, 0).map_err(|s| (s, BAD_PARAMS_ERROR_CODE))?;
+            let blobs_and_proofs_vec = ctx
+                .execution_block_generator
+                .read()
+                .get_blob_and_proofs(versioned_hashes);
+
+            // validate method called correctly according to the blob and proof type
+            // as the blob bundle generated are based on the fork
+            if let Some(blob_and_proofs) = blobs_and_proofs_vec.first().as_ref() {
+                match blob_and_proofs {
+                    BlobAndProof::V1(_) => {
+                        if method == ENGINE_GET_BLOBS_V2 {
+                            return Err((
+                                format!("{} called before Fulu fork!", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
+                        }
+                    }
+                    BlobAndProof::V2(_) => {
+                        if method == ENGINE_GET_BLOBS_V1 {
+                            return Err((
+                                format!("{} called after Fulu fork!", method),
+                                FORK_REQUEST_MISMATCH_ERROR_CODE,
+                            ));
+                        }
+                    }
+                }
+            }
+
+            Ok(serde_json::to_value(blobs_and_proofs_vec).unwrap())
+        }
         ENGINE_FORKCHOICE_UPDATED_V1
         | ENGINE_FORKCHOICE_UPDATED_V2
         | ENGINE_FORKCHOICE_UPDATED_V3 => {
