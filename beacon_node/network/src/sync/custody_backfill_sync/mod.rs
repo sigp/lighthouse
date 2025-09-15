@@ -939,12 +939,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .cloned()
                 .collect::<HashSet<_>>();
 
-            let request = batch.to_data_columns_by_range_request().map_err(
-                |_|
+            let request = batch.to_data_columns_by_range_request().map_err(|_| {
                 CustodyBackfillError::InvalidSyncState(
                     "Can't convert to data column by range request".to_string(),
-                ),
-            )?;
+                )
+            })?;
             let failed_peers = batch.failed_peers();
 
             match network.custody_backfill_data_columns_batch_request(

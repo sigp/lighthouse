@@ -1690,12 +1690,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .cloned()
                 .collect();
 
-            Some(self.select_columns_by_range_peers_to_request(
+            self.select_columns_by_range_peers_to_request(
                 &column_indexes,
                 peers,
                 active_request_count_by_peer,
                 peers_to_deprioritize,
-            )?)
+            )?
         };
 
         // Create the overall `custody_by_range` request id
@@ -1705,27 +1705,18 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         let result = columns_by_range_peers_to_request
-            .map(|columns_by_range_peers_to_request| {
-                columns_by_range_peers_to_request
-                    .keys()
-                    .map(|peer_id| {
-                        self.send_custody_backfill_data_columns_by_range_request(
-                            *peer_id,
-                            request.clone(),
-                            ColumnsByRangeParentRequestId::CustodyBackfillSync(id),
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()
+            .iter()
+            .filter_map(|(peer_id, _)| {
+                self.send_data_columns_by_range_request(
+                    *peer_id,
+                    request.clone(),
+                    ColumnsByRangeParentRequestId::CustodyBackfillSync(id),
+                    Span::none(),
+                ).ok()
             })
-            .transpose()?;
+            .collect::<Vec<_>>();
 
-        let range_data_column_batch_request = if let Some(result) = result {
-            RangeDataColumnBatchRequest::new(result)
-        } else {
-            return Err(RpcRequestSendError::InternalError(
-                "Unable to send a custody sync data column by range rpc request".to_string(),
-            ));
-        };
+        let range_data_column_batch_request = RangeDataColumnBatchRequest::new(result);
 
         self.custody_backfill_data_column_batch_requests
             .insert(id, range_data_column_batch_request);
@@ -1740,7 +1731,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
         match custody_backfill_request_id.parent_request_id {
-            ColumnsByRangeParentRequestId::CustodyBackfillSync(custody_backfill_batch_request_id) => {
+            ColumnsByRangeParentRequestId::CustodyBackfillSync(
+                custody_backfill_batch_request_id,
+            ) => {
                 let Entry::Occupied(mut entry) = self
                     .custody_backfill_data_column_batch_requests
                     .entry(custody_backfill_batch_request_id)
@@ -1785,48 +1778,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 None
             }
         }
-    }
-
-    fn send_custody_backfill_data_columns_by_range_request(
-        &mut self,
-        peer_id: PeerId,
-        request: DataColumnsByRangeRequest,
-        parent_request_id: ColumnsByRangeParentRequestId,
-    ) -> Result<(DataColumnsByRangeRequestId, Vec<ColumnIndex>), RpcRequestSendError> {
-        let requested_columns = request.columns.clone();
-        let id = DataColumnsByRangeRequestId {
-            id: self.next_id(),
-            parent_request_id,
-            peer: peer_id,
-        };
-
-        self.send_network_msg(NetworkMessage::SendRequest {
-            peer_id,
-            request: RequestType::DataColumnsByRange(request.clone()),
-            app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRange(id)),
-        })
-        .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
-
-        debug!(
-            method = "CustodyBackFillSync::DataColumnsByRange",
-            slots = request.count,
-            epoch = %Slot::new(request.start_slot).epoch(T::EthSpec::slots_per_epoch()),
-            columns = ?request.columns,
-            peer = %peer_id,
-            %id,
-            "Sync RPC request sent"
-        );
-
-        self.data_columns_by_range_requests.insert(
-            id,
-            peer_id,
-            // false = do not enforce max_requests are returned for *_by_range methods. We don't
-            // know if there are missed blocks.
-            false,
-            DataColumnsByRangeRequestItems::new(request),
-            Span::none(),
-        );
-        Ok((id, requested_columns))
     }
 
     pub(crate) fn register_metrics(&self) {
