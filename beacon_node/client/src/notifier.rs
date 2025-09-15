@@ -119,11 +119,13 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     (_, SyncState::CustodyBackFillSyncing { .. }) => {
                         // We have transitioned to a custody backfill sync. Reset the speedo.
                         let mut speedo = speedo.lock().await;
+                        last_custody_backfill_log_slot = None;
                         speedo.clear();
                     }
                     (SyncState::CustodyBackFillSyncing { .. }, _) => {
                         // We have transitioned from a custody backfill sync, reset the speedo
                         let mut speedo = speedo.lock().await;
+                        last_custody_backfill_log_slot = None;
                         speedo.clear();
                     }
                     (_, _) => {}

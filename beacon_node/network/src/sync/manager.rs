@@ -521,16 +521,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncRequestId::BlobsByRange(req_id) => {
                 self.on_blobs_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
             }
-            SyncRequestId::DataColumnsByRange(req_id) => match req_id.parent_request_id {
-                ColumnsByRangeParentRequestId::ComponentsByRange(_) => self
-                    .on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error)),
-                ColumnsByRangeParentRequestId::CustodyBackfillSync(_) => self
-                    .on_custody_sync_data_columns_by_range_response(
-                        req_id,
-                        peer_id,
-                        RpcEvent::RPCError(error),
-                    ),
-            },
+            SyncRequestId::DataColumnsByRange(req_id) => {
+                self.on_data_columns_by_range_response(req_id, peer_id, RpcEvent::RPCError(error))
+            }
         }
     }
 
@@ -1254,20 +1247,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     RpcEvent::from_chunk(data_column, seen_timestamp),
                 );
             }
-            SyncRequestId::DataColumnsByRange(id) => match id.parent_request_id {
-                ColumnsByRangeParentRequestId::ComponentsByRange(_) => self
-                    .on_data_columns_by_range_response(
-                        id,
-                        peer_id,
-                        RpcEvent::from_chunk(data_column, seen_timestamp),
-                    ),
-                ColumnsByRangeParentRequestId::CustodyBackfillSync(_) => self
-                    .on_custody_sync_data_columns_by_range_response(
-                        id,
-                        peer_id,
-                        RpcEvent::from_chunk(data_column, seen_timestamp),
-                    ),
-            },
+            SyncRequestId::DataColumnsByRange(req_id) => {
+                self.on_data_columns_by_range_response(
+                    req_id,
+                    peer_id,
+                    RpcEvent::from_chunk(data_column, seen_timestamp),
+                );
+            }
             _ => {
                 crit!(%peer_id, "bad request id for data_column");
             }
@@ -1355,25 +1341,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .on_data_columns_by_range_response(id, peer_id, data_column)
         {
-            self.on_range_components_response(
-                id.parent_request_id,
-                peer_id,
-                RangeBlockComponent::CustodyColumns(id, resp),
-            );
-        }
-    }
-
-    fn on_custody_sync_data_columns_by_range_response(
-        &mut self,
-        id: DataColumnsByRangeRequestId,
-        peer_id: PeerId,
-        data_columns: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) {
-        if let Some(resp) =
-            self.network
-                .on_custody_sync_data_columns_by_range_response(id, peer_id, data_columns)
-        {
-            self.on_custody_sync_data_columns_batch_response(id, peer_id, resp)
+            match id.parent_request_id {
+                ColumnsByRangeParentRequestId::ComponentsByRange(_) => {
+                    self.on_range_components_response(
+                        id.parent_request_id,
+                        peer_id,
+                        RangeBlockComponent::CustodyColumns(id, resp),
+                    );
+                }
+                ColumnsByRangeParentRequestId::CustodyBackfillSync(_) => {
+                    self.on_custody_backfill_columns_response(id, peer_id, resp)
+                }
+            }
         }
     }
 
@@ -1473,7 +1452,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     }
 
     /// Handles receiving a response for a custody range sync request that has columns.
-    fn on_custody_sync_data_columns_batch_response(
+    fn on_custody_backfill_columns_response(
         &mut self,
         custody_sync_request_id: DataColumnsByRangeRequestId,
         peer_id: PeerId,

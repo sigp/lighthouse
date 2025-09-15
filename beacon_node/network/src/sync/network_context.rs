@@ -1827,19 +1827,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok((id, requested_columns))
     }
 
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn on_custody_sync_data_columns_by_range_response(
-        &mut self,
-        id: DataColumnsByRangeRequestId,
-        peer_id: PeerId,
-        rpc_event: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
-    ) -> Option<RpcResponseResult<DataColumnSidecarList<T::EthSpec>>> {
-        let resp = self
-            .data_columns_by_range_requests
-            .on_response(id, rpc_event);
-        self.on_rpc_response_result(id, "DataColumnsByRange", resp, peer_id, |d| d.len())
-    }
-
     pub(crate) fn register_metrics(&self) {
         for (id, count) in [
             ("blocks_by_root", self.blocks_by_root_requests.len()),
