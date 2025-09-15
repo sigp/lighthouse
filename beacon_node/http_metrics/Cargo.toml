@@ -13,6 +13,7 @@ lighthouse_version = { workspace = true }
 logging = { workspace = true }
 malloc_utils = { workspace = true }
 metrics = { workspace = true }
+network_utils = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }
 store = { workspace = true }

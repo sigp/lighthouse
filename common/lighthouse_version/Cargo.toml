@@ -7,7 +7,6 @@ edition = { workspace = true }
 
 [dependencies]
 git-version = "0.3.4"
-target_info = "0.1.0"
 
 [dev-dependencies]
 regex = { workspace = true }

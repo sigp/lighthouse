@@ -610,7 +610,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
+        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
     )]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
@@ -840,7 +840,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    GossipBlobError::BlobParentUnknown { parent_root } => {
+                    GossipBlobError::ParentUnknown { parent_root } => {
                         debug!(
                             action = "requesting parent",
                             block_root = %root,
@@ -1032,7 +1032,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
 
-        match result {
+        match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
                     info!(
@@ -1058,11 +1058,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     // another column arrives it either completes availability or pushes
                     // reconstruction back a bit.
                     let cloned_self = Arc::clone(self);
+                    let block_root = *block_root;
                     let send_result = self.beacon_processor_send.try_send(WorkEvent {
                         drop_during_sync: false,
                         work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
                             QueuedColumnReconstruction {
                                 block_root,
+                                slot: *slot,
                                 process_fn: Box::pin(async move {
                                     cloned_self
                                         .attempt_data_column_reconstruction(block_root, true)
@@ -1105,6 +1107,16 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "bad_gossip_data_column_ssz",
                 );
             }
+        }
+
+        // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
+        // imported. A block can become imported both after processing a block or data column. If a
+        // importing a block results in `Imported`, notify. Do not notify of data column errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
         }
     }
 

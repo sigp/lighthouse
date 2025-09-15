@@ -29,7 +29,7 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
-use lighthouse_tracing::SPAN_OUTGOING_RANGE_REQUEST;
+use lighthouse_tracing::{SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST, SPAN_OUTGOING_RANGE_REQUEST};
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -865,10 +865,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // - RPCError(request_id): handled by `Self::on_single_block_response`
         // - Disconnect(peer_id) handled by `Self::peer_disconnected``which converts it to a
         // ` RPCError(request_id)`event handled by the above method
+        let network_request = RequestType::BlocksByRoot(
+            request
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlocksByRoot(request.into_request(&self.fork_context)),
+                request: network_request,
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
@@ -881,6 +886,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "Sync RPC request sent"
         );
 
+        let request_span = debug_span!(
+            parent: Span::current(),
+            SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST,
+            %block_root,
+        );
         self.blocks_by_root_requests.insert(
             id,
             peer_id,
@@ -888,8 +898,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // block and the peer must have it.
             true,
             BlocksByRootRequestItems::new(request),
-            // Not implemented
-            Span::none(),
+            request_span,
         );
 
         Ok(LookupRequestResult::RequestSent(id.req_id))
@@ -959,10 +968,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         // Lookup sync event safety: Refer to `Self::block_lookup_request` `network_send.send` call
+        let network_request = RequestType::BlobsByRoot(
+            request
+                .clone()
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlobsByRoot(request.clone().into_request(&self.fork_context)),
+                request: network_request,
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;

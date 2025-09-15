@@ -1050,7 +1050,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// - `result_state_root == state.canonical_root()`
     /// - `state.slot() <= max_slot`
     /// - `state.get_latest_block_root(result_state_root) == block_root`
-    #[instrument(skip(self, max_slot), level = "debug")]
+    #[instrument(skip_all, fields(?block_root, %max_slot, ?state_root), level = "debug")]
     pub fn get_advanced_hot_state(
         &self,
         block_root: Hash256,
@@ -1122,7 +1122,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// If this function returns `Some(state)` then that `state` will always have
     /// `latest_block_header` matching `block_root` but may not be advanced all the way through to
     /// `max_slot`.
-    #[instrument(skip(self), level = "debug")]
+    #[instrument(skip_all, fields(?block_root, %max_slot), level = "debug")]
     pub fn get_advanced_hot_state_from_cache(
         &self,
         block_root: Hash256,
@@ -2488,7 +2488,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .first()
                     .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
                 {
-                    let blobs = BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize);
+                    let blobs = BlobSidecarList::new(blobs, max_blobs_per_block as usize)?;
                     self.block_cache
                         .lock()
                         .put_blobs(*block_root, blobs.clone());

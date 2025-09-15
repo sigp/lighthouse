@@ -54,10 +54,11 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
+use lighthouse_network::{Enr, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
 use lighthouse_version::version_with_platform;
 use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use network_utils::enr_ext::EnrExt;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 pub use publish_blocks::{
@@ -457,7 +458,7 @@ pub fn serve<T: BeaconChainTypes>(
                 move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
-                        SyncState::SyncingFinalized { .. } => {
+                        SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. } => {
                             let head_slot = chain.canonical_head.cached_head().head_slot();
 
                             let current_slot =
@@ -479,9 +480,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 )))
                             }
                         }
-                        SyncState::SyncingHead { .. }
-                        | SyncState::SyncTransition
-                        | SyncState::BackFillSyncing { .. } => Ok(()),
+                        SyncState::SyncTransition | SyncState::BackFillSyncing { .. } => Ok(()),
                         SyncState::Synced => Ok(()),
                         SyncState::Stalled => Ok(()),
                     }
@@ -1642,16 +1641,27 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp_utils::json::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
+                  blinded_block_json: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let blinded_block =
+                        SignedBlindedBeaconBlock::<T::EthSpec>::context_deserialize(
+                            &blinded_block_json,
+                            consensus_version,
+                        )
+                        .map(Arc::new)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         blinded_block,
                         chain,

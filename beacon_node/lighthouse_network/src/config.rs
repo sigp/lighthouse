@@ -1,4 +1,4 @@
-use crate::listen_addr::{ListenAddr, ListenAddress};
+use crate::peer_manager::config::DEFAULT_TARGET_PEERS;
 use crate::rpc::config::{InboundRateLimiterConfig, OutboundRateLimiterConfig};
 use crate::types::GossipKind;
 use crate::{Enr, PeerIdSerialized};
@@ -7,6 +7,7 @@ use directory::{
 };
 use libp2p::Multiaddr;
 use local_ip_address::local_ipv6;
+use network_utils::listen_addr::{ListenAddr, ListenAddress};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -341,7 +342,7 @@ impl Default for Config {
             enr_udp6_port: None,
             enr_quic6_port: None,
             enr_tcp6_port: None,
-            target_peers: 200,
+            target_peers: DEFAULT_TARGET_PEERS,
             discv5_config,
             boot_nodes_enr: vec![],
             boot_nodes_multiaddr: vec![],
