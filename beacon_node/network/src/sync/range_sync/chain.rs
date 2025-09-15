@@ -131,8 +131,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         name = SPAN_SYNCING_CHAIN,
         parent = None,
         level="debug",
-        skip(id),
-        fields(chain_id = %id)
+        skip_all,
+        fields(
+            chain_id = %id,
+            start_epoch = %start_epoch,
+            target_head_slot = %target_head_slot,
+            target_head_root = %target_head_root,
+            chain_type = ?chain_type,
+        )
     )]
     pub fn new(
         id: Id,
