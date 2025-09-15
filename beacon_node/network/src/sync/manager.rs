@@ -70,7 +70,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
@@ -698,7 +698,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
 
-                    // TODO(custody-sync) this comment seems wrong
                     // Return the sync state if backfilling is not required.
                     sync_state
                 }
@@ -991,7 +990,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 let anchor_info = self.chain.store.get_anchor_info();
                 if !anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
                     if let Err(e) = self.custody_backfill_sync.set_status_to_pending() {
-                        tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
+                        warn!(error = ?e, "Failed to set custody backfill state to pending");
                     }
                     return;
                 }
@@ -1014,7 +1013,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
             _ => {
                 if let Err(e) = self.custody_backfill_sync.set_status_to_pending() {
-                    tracing::warn!(error = ?e, "Failed to set custody backfill state to pending");
+                    warn!(error = ?e, "Failed to set custody backfill state to pending");
                 }
             }
         }
@@ -1025,7 +1024,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncServiceMessage::CustodyCountChanged { columns } => {
                 // Wait for the current epoch to finalize before starting custody sync
                 if let Err(e) = self.custody_backfill_sync.wait_for_finalization(columns) {
-                    tracing::warn!(error = ?e, "Failed to set custody backfill state to awaiting finalization");
+                    warn!(error = ?e, "Failed to set custody backfill state to awaiting finalization");
                 }
             }
             SyncServiceMessage::EarliestCustodyEpochFinalized => {

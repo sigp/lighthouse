@@ -748,7 +748,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 }
                 BatchState::AwaitingValidation(..) => {
                     // This isn't a possible scenario
-                    // TODO(custody-sync) we could prbobly remove the batch
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
                 BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {

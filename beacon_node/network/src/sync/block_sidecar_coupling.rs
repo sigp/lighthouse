@@ -71,7 +71,6 @@ pub struct RangeDataColumnBatchRequest<E: EthSpec> {
 }
 
 impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
-    // TODO(custody-sync) check block headers here
     pub fn new(by_range_requests: Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>) -> Self {
         let requests = by_range_requests
             .clone()
