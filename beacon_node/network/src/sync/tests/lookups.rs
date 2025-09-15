@@ -1084,7 +1084,7 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
-            .put_pending_executed_block(executed_block)
+            .put_executed_block(executed_block)
             .unwrap()
         {
             Availability::Available(_) => panic!("block removed from da_checker, available"),
@@ -1114,21 +1114,15 @@ impl TestRig {
         };
     }
 
-    fn insert_block_to_processing_cache(&mut self, block: Arc<SignedBeaconBlock<E>>) {
+    fn insert_block_to_availability_cache(&mut self, block: Arc<SignedBeaconBlock<E>>) {
         self.harness
             .chain
-            .reqresp_pre_import_cache
-            .write()
-            .insert(block.canonical_root(), block);
+            .data_availability_checker
+            .put_pre_execution_block(block.canonical_root(), block)
+            .unwrap();
     }
 
     fn simulate_block_gossip_processing_becomes_invalid(&mut self, block_root: Hash256) {
-        self.harness
-            .chain
-            .reqresp_pre_import_cache
-            .write()
-            .remove(&block_root);
-
         self.send_sync_message(SyncMessage::GossipBlockProcessResult {
             block_root,
             imported: false,
@@ -1140,11 +1134,6 @@ impl TestRig {
         block: Arc<SignedBeaconBlock<E>>,
     ) {
         let block_root = block.canonical_root();
-        self.harness
-            .chain
-            .reqresp_pre_import_cache
-            .write()
-            .remove(&block_root);
 
         self.insert_block_to_da_checker(block);
 
@@ -1845,7 +1834,7 @@ fn block_in_processing_cache_becomes_invalid() {
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
     let block_root = block.canonical_root();
     let peer_id = r.new_connected_peer();
-    r.insert_block_to_processing_cache(block.clone().into());
+    r.insert_block_to_availability_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
     // Should trigger blob request
     let id = r.expect_blob_lookup_request(block_root);
@@ -1871,7 +1860,7 @@ fn block_in_processing_cache_becomes_valid_imported() {
     let (block, blobs) = r.rand_block_and_blobs(NumBlobs::Number(1));
     let block_root = block.canonical_root();
     let peer_id = r.new_connected_peer();
-    r.insert_block_to_processing_cache(block.clone().into());
+    r.insert_block_to_availability_cache(block.clone().into());
     r.trigger_unknown_block_from_attestation(block_root, peer_id);
     // Should trigger blob request
     let id = r.expect_blob_lookup_request(block_root);
