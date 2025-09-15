@@ -58,7 +58,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
 use std::time::{Duration, Instant};
-use strum::{EnumIter, IntoEnumIterator, IntoStaticStr};
+use strum::IntoStaticStr;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
@@ -627,7 +627,7 @@ impl<E: EthSpec> fmt::Debug for Work<E> {
     }
 }
 
-#[derive(IntoStaticStr, EnumIter, PartialEq, Eq, Debug, Clone, Copy)]
+#[derive(IntoStaticStr, PartialEq, Eq, Debug, Clone, Copy)]
 #[strum(serialize_all = "snake_case")]
 pub enum WorkType {
     GossipAttestation,
@@ -1033,7 +1033,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     .is_some_and(|event| event.drop_during_sync);
 
                 let idle_tx = idle_tx.clone();
-                match work_event {
+                let modified_queue_id = match work_event {
                     // There is no new work event, but we are able to spawn a new worker.
                     //
                     // We don't check the `work.drop_during_sync` here. We assume that if it made
@@ -1414,6 +1414,81 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     }
                 };
 
+                if let Some(modified_queue_id) = modified_queue_id {
+                    let get_queue_len = |work_type| match work_type {
+                        WorkType::GossipAttestation => attestation_queue.len(),
+                        WorkType::GossipAttestationToConvert => attestation_to_convert_queue.len(),
+                        WorkType::UnknownBlockAttestation => unknown_block_attestation_queue.len(),
+                        WorkType::GossipAttestationBatch => 0, // No queue
+                        WorkType::GossipAggregate => aggregate_queue.len(),
+                        WorkType::UnknownBlockAggregate => unknown_block_aggregate_queue.len(),
+                        WorkType::UnknownLightClientOptimisticUpdate => {
+                            unknown_light_client_update_queue.len()
+                        }
+                        WorkType::GossipAggregateBatch => 0, // No queue
+                        WorkType::GossipBlock => gossip_block_queue.len(),
+                        WorkType::GossipBlobSidecar => gossip_blob_queue.len(),
+                        WorkType::GossipDataColumnSidecar => gossip_data_column_queue.len(),
+                        WorkType::DelayedImportBlock => delayed_block_queue.len(),
+                        WorkType::GossipVoluntaryExit => gossip_voluntary_exit_queue.len(),
+                        WorkType::GossipProposerSlashing => gossip_proposer_slashing_queue.len(),
+                        WorkType::GossipAttesterSlashing => gossip_attester_slashing_queue.len(),
+                        WorkType::GossipSyncSignature => sync_message_queue.len(),
+                        WorkType::GossipSyncContribution => sync_contribution_queue.len(),
+                        WorkType::GossipLightClientFinalityUpdate => {
+                            lc_gossip_finality_update_queue.len()
+                        }
+                        WorkType::GossipLightClientOptimisticUpdate => {
+                            lc_gossip_optimistic_update_queue.len()
+                        }
+                        WorkType::RpcBlock => rpc_block_queue.len(),
+                        WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => rpc_blob_queue.len(),
+                        WorkType::RpcCustodyColumn => rpc_custody_column_queue.len(),
+                        WorkType::ColumnReconstruction => column_reconstruction_queue.len(),
+                        WorkType::ChainSegment => chain_segment_queue.len(),
+                        WorkType::ChainSegmentBackfill => backfill_chain_segment.len(),
+                        WorkType::Status => status_queue.len(),
+                        WorkType::BlocksByRangeRequest => blbrange_queue.len(),
+                        WorkType::BlocksByRootsRequest => blbroots_queue.len(),
+                        WorkType::BlobsByRangeRequest => bbrange_queue.len(),
+                        WorkType::BlobsByRootsRequest => bbroots_queue.len(),
+                        WorkType::DataColumnsByRootsRequest => dcbroots_queue.len(),
+                        WorkType::DataColumnsByRangeRequest => dcbrange_queue.len(),
+                        WorkType::GossipBlsToExecutionChange => {
+                            gossip_bls_to_execution_change_queue.len()
+                        }
+                        WorkType::LightClientBootstrapRequest => lc_bootstrap_queue.len(),
+                        WorkType::LightClientOptimisticUpdateRequest => {
+                            lc_rpc_optimistic_update_queue.len()
+                        }
+                        WorkType::LightClientFinalityUpdateRequest => {
+                            lc_rpc_finality_update_queue.len()
+                        }
+                        WorkType::LightClientUpdatesByRangeRequest => lc_update_range_queue.len(),
+                        WorkType::ApiRequestP0 => api_request_p0_queue.len(),
+                        WorkType::ApiRequestP1 => api_request_p1_queue.len(),
+                        WorkType::Reprocess => 0,
+                    };
+
+                    // Update the metric for the length of this work type's queue.
+                    metrics::observe_vec(
+                        &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
+                        &[modified_queue_id.into()],
+                        get_queue_len(modified_queue_id) as f64,
+                    );
+
+                    // If the work was batched from another type of work, also update that work
+                    // event's queue length. There was previously a bug here where those queues
+                    // metrics could go a long time without being updated at all.
+                    if let Some(batched_work_type) = modified_queue_id.batched_from() {
+                        metrics::observe_vec(
+                            &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
+                            &[batched_work_type.into()],
+                            get_queue_len(batched_work_type) as f64,
+                        );
+                    }
+                }
+
                 if aggregate_queue.is_full() && aggregate_debounce.elapsed() {
                     error!(
                         msg = "the system has insufficient resources for load",
@@ -1428,71 +1503,6 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         queue_len = attestation_queue.max_length,
                         "Attestation queue full"
                     )
-                }
-
-                let get_queue_len = |work_type| match work_type {
-                    WorkType::GossipAttestation => attestation_queue.len(),
-                    WorkType::GossipAttestationToConvert => attestation_to_convert_queue.len(),
-                    WorkType::UnknownBlockAttestation => unknown_block_attestation_queue.len(),
-                    WorkType::GossipAttestationBatch => 0, // No queue
-                    WorkType::GossipAggregate => aggregate_queue.len(),
-                    WorkType::UnknownBlockAggregate => unknown_block_aggregate_queue.len(),
-                    WorkType::UnknownLightClientOptimisticUpdate => {
-                        unknown_light_client_update_queue.len()
-                    }
-                    WorkType::GossipAggregateBatch => 0, // No queue
-                    WorkType::GossipBlock => gossip_block_queue.len(),
-                    WorkType::GossipBlobSidecar => gossip_blob_queue.len(),
-                    WorkType::GossipDataColumnSidecar => gossip_data_column_queue.len(),
-                    WorkType::DelayedImportBlock => delayed_block_queue.len(),
-                    WorkType::GossipVoluntaryExit => gossip_voluntary_exit_queue.len(),
-                    WorkType::GossipProposerSlashing => gossip_proposer_slashing_queue.len(),
-                    WorkType::GossipAttesterSlashing => gossip_attester_slashing_queue.len(),
-                    WorkType::GossipSyncSignature => sync_message_queue.len(),
-                    WorkType::GossipSyncContribution => sync_contribution_queue.len(),
-                    WorkType::GossipLightClientFinalityUpdate => {
-                        lc_gossip_finality_update_queue.len()
-                    }
-                    WorkType::GossipLightClientOptimisticUpdate => {
-                        lc_gossip_optimistic_update_queue.len()
-                    }
-                    WorkType::RpcBlock => rpc_block_queue.len(),
-                    WorkType::RpcBlobs | WorkType::IgnoredRpcBlock => rpc_blob_queue.len(),
-                    WorkType::RpcCustodyColumn => rpc_custody_column_queue.len(),
-                    WorkType::ColumnReconstruction => column_reconstruction_queue.len(),
-                    WorkType::ChainSegment => chain_segment_queue.len(),
-                    WorkType::ChainSegmentBackfill => backfill_chain_segment.len(),
-                    WorkType::Status => status_queue.len(),
-                    WorkType::BlocksByRangeRequest => blbrange_queue.len(),
-                    WorkType::BlocksByRootsRequest => blbroots_queue.len(),
-                    WorkType::BlobsByRangeRequest => bbrange_queue.len(),
-                    WorkType::BlobsByRootsRequest => bbroots_queue.len(),
-                    WorkType::DataColumnsByRootsRequest => dcbroots_queue.len(),
-                    WorkType::DataColumnsByRangeRequest => dcbrange_queue.len(),
-                    WorkType::GossipBlsToExecutionChange => {
-                        gossip_bls_to_execution_change_queue.len()
-                    }
-                    WorkType::LightClientBootstrapRequest => lc_bootstrap_queue.len(),
-                    WorkType::LightClientOptimisticUpdateRequest => {
-                        lc_rpc_optimistic_update_queue.len()
-                    }
-                    WorkType::LightClientFinalityUpdateRequest => {
-                        lc_rpc_finality_update_queue.len()
-                    }
-                    WorkType::LightClientUpdatesByRangeRequest => lc_update_range_queue.len(),
-                    WorkType::ApiRequestP0 => api_request_p0_queue.len(),
-                    WorkType::ApiRequestP1 => api_request_p1_queue.len(),
-                    WorkType::Reprocess => 0,
-                };
-
-                // Update metrics for all work events.
-                for work_type in WorkType::iter() {
-                    // Update the metric for the length of this work type's queue.
-                    metrics::observe_vec(
-                        &metrics::BEACON_PROCESSOR_QUEUE_LENGTH,
-                        &[work_type.into()],
-                        get_queue_len(work_type) as f64,
-                    );
                 }
             }
         };
