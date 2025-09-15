@@ -1460,7 +1460,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self
             .network
-            .custody_data_columns_batch_response(custody_sync_request_id, data_columns)
+            .custody_backfill_data_columns_response(custody_sync_request_id, data_columns)
         {
             match resp {
                 Ok(data_columns) => {

@@ -948,7 +948,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             )?;
             let failed_peers = batch.failed_peers();
 
-            match network.custody_sync_data_columns_batch_request(
+            match network.custody_backfill_data_columns_batch_request(
                 request,
                 batch_id,
                 &synced_peers,

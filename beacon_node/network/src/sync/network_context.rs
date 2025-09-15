@@ -1673,7 +1673,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// data column by range requests sent by the custody sync algorithm
-    pub fn custody_sync_data_columns_batch_request(
+    pub fn custody_backfill_data_columns_batch_request(
         &mut self,
         request: DataColumnsByRangeRequest,
         epoch: Epoch,
@@ -1709,7 +1709,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 columns_by_range_peers_to_request
                     .keys()
                     .map(|peer_id| {
-                        self.send_custody_sync_data_columns_by_range_request(
+                        self.send_custody_backfill_data_columns_by_range_request(
                             *peer_id,
                             request.clone(),
                             ColumnsByRangeParentRequestId::CustodyBackfillSync(id),
@@ -1734,16 +1734,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     }
 
     /// Received a data columns by range response from a custody sync request which batches them.
-    pub fn custody_data_columns_batch_response(
+    pub fn custody_backfill_data_columns_response(
         &mut self,
-        custody_sync_request_id: DataColumnsByRangeRequestId,
+        custody_backfill_request_id: DataColumnsByRangeRequestId,
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
-        match custody_sync_request_id.parent_request_id {
-            ColumnsByRangeParentRequestId::CustodyBackfillSync(custody_sync_batch_request_id) => {
+        match custody_backfill_request_id.parent_request_id {
+            ColumnsByRangeParentRequestId::CustodyBackfillSync(custody_backfill_batch_request_id) => {
                 let Entry::Occupied(mut entry) = self
                     .custody_backfill_data_column_batch_requests
-                    .entry(custody_sync_batch_request_id)
+                    .entry(custody_backfill_batch_request_id)
                 else {
                     metrics::inc_counter_vec(
                         &metrics::SYNC_UNKNOWN_NETWORK_REQUESTS,
@@ -1756,7 +1756,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     let request = entry.get_mut();
                     data_columns.and_then(|(data_columns, _)| {
                         request
-                            .add_custody_columns(custody_sync_request_id, data_columns.clone())
+                            .add_custody_columns(custody_backfill_request_id, data_columns.clone())
                             .map_err(|e| {
                                 RpcResponseError::BlockComponentCouplingError(
                                     CouplingError::InternalError(e),
@@ -1787,7 +1787,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
     }
 
-    fn send_custody_sync_data_columns_by_range_request(
+    fn send_custody_backfill_data_columns_by_range_request(
         &mut self,
         peer_id: PeerId,
         request: DataColumnsByRangeRequest,
