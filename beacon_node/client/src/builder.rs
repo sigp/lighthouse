@@ -17,7 +17,7 @@ use beacon_chain::{
     store::{HotColdDB, ItemStore, StoreConfig},
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
-use beacon_processor::rayon_manager::{DEFAULT_LOW_PRIORITY_DIVISOR, RayonManager};
+use beacon_processor::rayon_manager::RayonManager;
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
@@ -681,7 +681,7 @@ where
                     executor: beacon_processor_context.executor.clone(),
                     current_workers: 0,
                     config: beacon_processor_config,
-                    rayon_manager: RayonManager::new(DEFAULT_LOW_PRIORITY_DIVISOR),
+                    rayon_manager: RayonManager::default(),
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,
