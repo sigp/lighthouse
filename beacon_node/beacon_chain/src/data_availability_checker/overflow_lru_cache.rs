@@ -592,9 +592,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
 
     /// Check whether data column reconstruction should be attempted.
     ///
-    /// Potentially trigger reconstruction if:
-    ///  - Our custody requirement is all columns (supernode), and we haven't got all columns
-    ///  - We have >= 50% of columns, but not all columns
+    /// Potentially trigger reconstruction if all the following satisfy:
+    ///  - Our custody requirement is more than 50% of total columns,
+    ///  - We haven't received all required columns
     ///  - Reconstruction hasn't been started for the block
     ///
     /// If reconstruction is required, returns `PendingComponents` which contains the
@@ -609,15 +609,25 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             return ReconstructColumnsDecision::No("block already imported");
         };
 
-        // If we're sampling all columns, it means we must be custodying all columns.
+        let Some(epoch) = pending_components
+            .verified_data_columns
+            .first()
+            .map(|c| c.as_data_column().epoch())
+        else {
+            return ReconstructColumnsDecision::No("not enough columns");
+        };
+
         let total_column_count = T::EthSpec::number_of_columns();
+        let sampling_column_count = self
+            .custody_context
+            .num_of_data_columns_to_sample(epoch, &self.spec);
         let received_column_count = pending_components.verified_data_columns.len();
 
         if pending_components.reconstruction_started {
             return ReconstructColumnsDecision::No("already started");
         }
-        if received_column_count >= total_column_count {
-            return ReconstructColumnsDecision::No("all columns received");
+        if received_column_count >= sampling_column_count {
+            return ReconstructColumnsDecision::No("all sampling columns received");
         }
         if received_column_count < total_column_count / 2 {
             return ReconstructColumnsDecision::No("not enough columns");
