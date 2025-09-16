@@ -5,6 +5,7 @@ use crate::{
     database::{
         interface::{Key, OpenDatabases, Value},
         *,
+        CURRENT_SCHEMA_VERSION
     },
 };
 use derivative::Derivative;
@@ -101,6 +102,13 @@ impl Environment {
             txn,
             _phantom: PhantomData,
         })
+    }
+
+    pub fn upgrade(&self) -> Result<(), Error> {
+        let mut txn = self.begin_rw_txn()?;
+        self.set_schema_version(&mut txn, CURRENT_SCHEMA_VERSION)?;
+        txn.commit()?;
+        Ok(())
     }
 }
 
