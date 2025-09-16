@@ -1808,9 +1808,12 @@ async fn import_duplicate_block_unrealized_justification() {
     };
 
     // Import the second verified block, simulating a block processed via RPC.
-    import_execution_pending_block(chain.clone(), verified_block2)
-        .await
-        .unwrap();
+    assert_eq!(
+        import_execution_pending_block(chain.clone(), verified_block2)
+            .await
+            .unwrap_err(),
+        format!("DuplicateFullyImported({block_root})")
+    );
 
     // Unrealized justification should still be updated.
     let fc3 = chain.canonical_head.fork_choice_read_lock();
