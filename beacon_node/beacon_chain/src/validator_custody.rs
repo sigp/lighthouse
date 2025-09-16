@@ -310,7 +310,9 @@ impl<E: EthSpec> CustodyContext<E> {
     /// Returns whether the node should attempt reconstruction at a given epoch.
     pub fn should_attempt_reconstruction(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
         let min_columns_for_reconstruction = E::number_of_columns() / 2;
-        self.num_of_data_columns_to_sample(epoch, spec) >= min_columns_for_reconstruction
+        // performing reconstruction is not necessary if sampling column count is exactly 50%,
+        // because the node doesn't need the remaining columns.
+        self.num_of_data_columns_to_sample(epoch, spec) > min_columns_for_reconstruction
     }
 
     /// Returns the ordered list of column indices that should be sampled for data availability checking at the given epoch.

@@ -1053,7 +1053,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    if !self
+                    if self
                         .chain
                         .data_availability_checker
                         .custody_context()
