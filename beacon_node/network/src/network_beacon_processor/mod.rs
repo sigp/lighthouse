@@ -835,20 +835,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// The `publish_columns` parameter controls whether reconstructed columns should be published
     /// to the gossip network.
     #[instrument(level = "debug", skip_all, fields(?block_root))]
-    async fn attempt_data_column_reconstruction(
-        self: &Arc<Self>,
-        block_root: Hash256,
-    ) -> Option<AvailabilityProcessingStatus> {
-        // Only supernodes attempt reconstruction
-        if !self
-            .chain
-            .data_availability_checker
-            .custody_context()
-            .current_is_supernode
-        {
-            return None;
-        }
-
+    async fn attempt_data_column_reconstruction(self: &Arc<Self>, block_root: Hash256) {
         let result = self.chain.reconstruct_data_columns(block_root).await;
 
         match result {
@@ -866,21 +853,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
                             result = "imported all custody columns",
-                            block_hash = %block_root,
+                            %block_root,
                             "Block components still missing block after reconstruction"
                         );
                     }
                 }
-
-                Some(availability_processing_status)
             }
             Ok(None) => {
                 // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
                 trace!(
-                    block_hash = %block_root,
+                    %block_root,
                     "Reconstruction not required for block"
                 );
-                None
             }
             Err(e) => {
                 error!(
@@ -888,7 +872,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     error = ?e,
                     "Error during data column reconstruction"
                 );
-                None
             }
         }
     }
