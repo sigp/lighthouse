@@ -130,7 +130,7 @@ pub struct CustodyContext<E: EthSpec> {
     /// and enr values.
     validator_custody_count: AtomicU64,
     /// Is the node run as a supernode based on current cli parameters.
-    pub current_is_supernode: bool,
+    current_is_supernode: bool,
     /// The persisted value for `is_supernode` based on the previous run of this node.
     ///
     /// Note: We require this value because if a user restarts the node with a higher cli custody
@@ -305,6 +305,14 @@ impl<E: EthSpec> CustodyContext<E> {
         let custody_group_count = self.custody_group_count_at_epoch(epoch, spec);
         spec.sampling_size_columns::<E>(custody_group_count)
             .expect("should compute node sampling size from valid chain spec")
+    }
+
+    /// Returns whether the node should attempt reconstruction at a given epoch.
+    pub fn should_attempt_reconstruction(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
+        let min_columns_for_reconstruction = E::number_of_columns() / 2;
+        // performing reconstruction is not necessary if sampling column count is exactly 50%,
+        // because the node doesn't need the remaining columns.
+        self.num_of_data_columns_to_sample(epoch, spec) > min_columns_for_reconstruction
     }
 
     /// Returns the ordered list of column indices that should be sampled for data availability checking at the given epoch.

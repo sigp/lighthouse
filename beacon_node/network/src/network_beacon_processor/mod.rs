@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -825,30 +825,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    /// Attempt to reconstruct all data columns if the following conditions satisfies:
-    /// - Our custody requirement is all columns
-    /// - We have >= 50% of columns, but not all columns
-    ///
-    /// Returns `Some(AvailabilityProcessingStatus)` if reconstruction is successfully performed,
-    /// otherwise returns `None`.
-    ///
-    /// The `publish_columns` parameter controls whether reconstructed columns should be published
-    /// to the gossip network.
-    async fn attempt_data_column_reconstruction(
-        self: &Arc<Self>,
-        block_root: Hash256,
-    ) -> Option<AvailabilityProcessingStatus> {
-        // Only supernodes attempt reconstruction
-        if !self
-            .chain
-            .data_availability_checker
-            .custody_context()
-            .current_is_supernode
-        {
-            return None;
-        }
-
+    /// Attempts to reconstruct all data columns if the conditions checked in
+    /// [`DataAvailabilityCheckerInner::check_and_set_reconstruction_started`] are satisfied.
+    #[instrument(level = "debug", skip_all, fields(?block_root))]
+    async fn attempt_data_column_reconstruction(self: &Arc<Self>, block_root: Hash256) {
         let result = self.chain.reconstruct_data_columns(block_root).await;
+
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
                 self.publish_data_columns_gradually(data_columns_to_publish, block_root);
@@ -864,21 +846,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
                             result = "imported all custody columns",
-                            block_hash = %block_root,
+                            %block_root,
                             "Block components still missing block after reconstruction"
                         );
                     }
                 }
-
-                Some(availability_processing_status)
             }
             Ok(None) => {
                 // reason is tracked via the `KZG_DATA_COLUMN_RECONSTRUCTION_INCOMPLETE_TOTAL` metric
                 trace!(
-                    block_hash = %block_root,
+                    %block_root,
                     "Reconstruction not required for block"
                 );
-                None
             }
             Err(e) => {
                 error!(
@@ -886,7 +865,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     error = ?e,
                     "Error during data column reconstruction"
                 );
-                None
             }
         }
     }
@@ -975,6 +953,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// by some nodes on the network as soon as possible. Our hope is that some columns arrive from
     /// other nodes in the meantime, obviating the need for us to publish them. If no other
     /// publisher exists for a column, it will eventually get published here.
+    #[instrument(level="debug", skip_all, fields(?block_root, data_column_count=data_columns_to_publish.len()))]
     fn publish_data_columns_gradually(
         self: &Arc<Self>,
         mut data_columns_to_publish: DataColumnSidecarList<T::EthSpec>,

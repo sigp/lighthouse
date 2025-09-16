@@ -34,7 +34,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
-use tokio::sync::mpsc::error::TrySendError;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
@@ -1054,36 +1053,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    // Instead of triggering reconstruction immediately, schedule it to be run. If
-                    // another column arrives it either completes availability or pushes
-                    // reconstruction back a bit.
-                    let cloned_self = Arc::clone(self);
-                    let block_root = *block_root;
-                    let send_result = self.beacon_processor_send.try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
-                            QueuedColumnReconstruction {
-                                block_root,
-                                slot: *slot,
-                                process_fn: Box::pin(async move {
-                                    cloned_self
-                                        .attempt_data_column_reconstruction(block_root)
-                                        .await;
-                                }),
-                            },
-                        )),
-                    });
-                    if let Err(TrySendError::Full(WorkEvent {
-                        work:
-                            Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
-                                reconstruction,
-                            )),
-                        ..
-                    })) = send_result
+                    if self
+                        .chain
+                        .data_availability_checker
+                        .custody_context()
+                        .should_attempt_reconstruction(
+                            slot.epoch(T::EthSpec::slots_per_epoch()),
+                            &self.chain.spec,
+                        )
                     {
-                        warn!("Unable to send reconstruction to reprocessing");
-                        // Execute it immediately instead.
-                        reconstruction.process_fn.await;
+                        // Instead of triggering reconstruction immediately, schedule it to be run. If
+                        // another column arrives, it either completes availability or pushes
+                        // reconstruction back a bit.
+                        let cloned_self = Arc::clone(self);
+                        let block_root = *block_root;
+
+                        if self
+                            .beacon_processor_send
+                            .try_send(WorkEvent {
+                                drop_during_sync: false,
+                                work: Work::Reprocess(
+                                    ReprocessQueueMessage::DelayColumnReconstruction(
+                                        QueuedColumnReconstruction {
+                                            block_root,
+                                            slot: *slot,
+                                            process_fn: Box::pin(async move {
+                                                cloned_self
+                                                    .attempt_data_column_reconstruction(block_root)
+                                                    .await;
+                                            }),
+                                        },
+                                    ),
+                                ),
+                            })
+                            .is_err()
+                        {
+                            warn!("Unable to send reconstruction to reprocessing");
+                        }
                     }
                 }
             },

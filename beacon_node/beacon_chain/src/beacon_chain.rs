@@ -3299,10 +3299,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let data_availability_checker = self.data_availability_checker.clone();
 
+        let current_span = Span::current();
         let result = self
             .task_executor
             .spawn_blocking_handle(
-                move || data_availability_checker.reconstruct_data_columns(&block_root),
+                move || {
+                    let _guard = current_span.enter();
+                    data_availability_checker.reconstruct_data_columns(&block_root)
+                },
                 "reconstruct_data_columns",
             )
             .ok_or(BeaconChainError::RuntimeShutdown)?
