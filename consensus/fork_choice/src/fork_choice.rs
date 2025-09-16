@@ -421,6 +421,7 @@ where
     /// execution engine.
     ///
     /// These values are updated each time `Self::get_head` is called.
+    #[instrument(skip_all)]
     pub fn get_forkchoice_update_parameters(&self) -> ForkchoiceUpdateParameters {
         self.forkchoice_update_parameters
     }
@@ -603,6 +604,7 @@ where
     /// The finalized/justified checkpoints are determined from the fork choice store. Therefore,
     /// it's possible that the state corresponding to `get_state(get_block(head_block_root))` will
     /// have *differing* finalized and justified information.
+    #[instrument(skip_all)]
     pub fn cached_fork_choice_view(&self) -> ForkChoiceView {
         ForkChoiceView {
             head_block_root: self.forkchoice_update_parameters.head_root,
@@ -1240,6 +1242,7 @@ where
     }
 
     /// Returns a `ProtoBlock` if the block is known **and** a descendant of the finalized root.
+    #[instrument(skip_all, fields(block_root))]
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
         if self.is_finalized_checkpoint_or_descendant(*block_root) {
             self.proto_array.get_block(block_root)
@@ -1277,6 +1280,7 @@ where
     }
 
     /// Returns the `ProtoBlock` for the finalized checkpoint.
+    #[instrument(skip_all)]
     pub fn get_finalized_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
         let finalized_checkpoint = self.finalized_checkpoint();
         self.get_block(&finalized_checkpoint.root)
