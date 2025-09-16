@@ -80,12 +80,11 @@ where
         event.record(&mut visitor);
 
         let mut span_data = Vec::new();
-        if let Some(scope) = ctx.event_scope(event) {
-            for span in scope.from_root() {
-                if let Some(data) = span.extensions().get::<SpanData>() {
-                    span_data.extend(data.fields.clone());
-                }
-            }
+        if let Some(mut scope) = ctx.event_scope(event)
+            && let Some(span) = scope.next()
+            && let Some(data) = span.extensions().get::<SpanData>()
+        {
+            span_data.extend(data.fields.clone());
         }
 
         // Remove ascii control codes from message.

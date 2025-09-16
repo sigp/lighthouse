@@ -523,6 +523,7 @@ where
     ///
     /// You *must* call `get_head` for the proposal slot prior to calling this function and pass
     /// in the result of `get_head` as `canonical_head`.
+    #[instrument(level = "debug", skip_all)]
     pub fn get_proposer_head(
         &self,
         current_slot: Slot,
