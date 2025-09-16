@@ -59,7 +59,7 @@ mod single_block_lookup;
 /// reaches the maximum depth it will force trigger range sync.
 pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE;
 
-const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
+const IGNORED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
 
 /// Maximum time we allow a lookup to exist before assuming it is stuck and will never make
@@ -131,7 +131,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new() -> Self {
         Self {
             ignored_chains: LRUTimeCache::new(Duration::from_secs(
-                FAILED_CHAINS_CACHE_EXPIRY_SECONDS,
+                IGNORED_CHAINS_CACHE_EXPIRY_SECONDS,
             )),
             single_block_lookups: Default::default(),
         }
@@ -186,7 +186,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.search_parent_of_child(parent_root, block_root, &[peer_id], cx);
         // Only create the child lookup if the parent exists
         if parent_lookup_exists {
-            // `search_parent_of_child` ensures that parent root is not a failed chain
+            // `search_parent_of_child` ensures that the parent lookup exists so we can safely wait for it
             self.new_current_lookup(
                 block_root,
                 Some(block_component),
@@ -332,7 +332,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        // If this block or it's parent is part of a known failed chain, ignore it.
+        // If this block or it's parent is part of a known ignored chain, ignore it.
         if self.ignored_chains.contains(&block_root) {
             debug!(?block_root, "Dropping lookup for block marked ignored");
             return false;

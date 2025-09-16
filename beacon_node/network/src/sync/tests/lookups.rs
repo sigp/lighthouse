@@ -1583,7 +1583,7 @@ fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
     }
 
     // At this point, the chain should have been deemed too deep and pruned.
-    // The tip root should have been inserted into failed chains.
+    // The tip root should have been inserted into ignored chains.
     rig.assert_ignored_chain(tip_root);
     rig.expect_no_penalty_for(peer_id);
 
@@ -1601,7 +1601,8 @@ fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
         }),
     );
 
-    // THEN: The extending block should not create a lookup because the tip was inserted into failed chains.
+    // THEN: The extending block should not create a lookup because the tip was inserted into
+    // ignored chains.
     rig.expect_no_active_lookups();
     rig.expect_no_penalty_for(peer_id);
     rig.expect_empty_network();
