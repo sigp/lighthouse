@@ -145,12 +145,11 @@ impl<E: EthSpec> InteractiveTester<E> {
             tokio::spawn(mock_builder_server);
         }
 
-        // Override the default timeout to 2s to timeouts on CI, as CI seems to require longer
-        // to process. The 1s timeouts for other tasks have been working for a long time, so we'll
-        // keep it as it is, as it may help identify a performance regression.
+        // Use 5s timeouts on CI, as there are several sources of artifical slowness, including
+        // mock-builder.
         let timeouts = Timeouts {
-            default: Duration::from_secs(2),
-            ..Timeouts::set_all(Duration::from_secs(1))
+            default: Duration::from_secs(5),
+            ..Timeouts::set_all(Duration::from_secs(5))
         };
         let client = BeaconNodeHttpClient::new(beacon_url.clone(), timeouts);
 

@@ -82,6 +82,9 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
     (4, 5),
 ];
 
+/// Trigger reconstruction if we are this many seconds into the current slot
+pub const RECONSTRUCTION_DEADLINE: Duration = Duration::from_millis(3000);
+
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
 pub enum ReprocessQueueMessage {
@@ -172,6 +175,7 @@ pub struct QueuedBackfillBatch(pub AsyncFn);
 
 pub struct QueuedColumnReconstruction {
     pub block_root: Hash256,
+    pub slot: Slot,
     pub process_fn: AsyncFn,
 }
 
@@ -749,16 +753,26 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
+                let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
+                if let Some(seconds_from_current_slot) =
+                    self.slot_clock.seconds_from_current_slot_start()
+                    && let Some(current_slot) = self.slot_clock.now()
+                    && seconds_from_current_slot >= RECONSTRUCTION_DEADLINE
+                    && current_slot == request.slot
+                {
+                    // If we are at least `RECONSTRUCTION_DEADLINE` seconds into the current slot,
+                    // and the reconstruction request is for the current slot, process reconstruction immediately.
+                    reconstruction_delay = Duration::from_secs(0);
+                }
                 match self.queued_column_reconstructions.entry(request.block_root) {
                     Entry::Occupied(key) => {
-                        // Push back the reattempted reconstruction
                         self.column_reconstructions_delay_queue
-                            .reset(key.get(), QUEUED_RECONSTRUCTION_DELAY)
+                            .reset(key.get(), reconstruction_delay);
                     }
                     Entry::Vacant(vacant) => {
                         let delay_key = self
                             .column_reconstructions_delay_queue
-                            .insert(request, QUEUED_RECONSTRUCTION_DELAY);
+                            .insert(request, reconstruction_delay);
                         vacant.insert(delay_key);
                     }
                 }
