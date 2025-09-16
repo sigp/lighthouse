@@ -1078,7 +1078,6 @@ fn check_finalized_payload_validity<T: BeaconChainTypes>(
 }
 
 /// Check to ensure that the transition from `old_view` to `new_view` will not revert finality.
-#[instrument(skip_all)]
 fn check_against_finality_reversion(
     old_view: &ForkChoiceView,
     new_view: &ForkChoiceView,
@@ -1133,6 +1132,7 @@ fn perform_debug_logging<T: BeaconChainTypes>(
     }
 }
 
+#[instrument(skip_all)]
 fn spawn_execution_layer_updates<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     forkchoice_update_params: ForkchoiceUpdateParameters,
