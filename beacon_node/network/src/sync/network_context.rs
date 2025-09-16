@@ -1697,14 +1697,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Return early if no columns are required for this epoch
         if !matches!(
             self.batch_type(batch_epoch, id.parent_request_id.requester.batch_type()),
-            ByRangeRequestType::BlocksAndColumns
-        ) {
-            return Ok(());
-        }
-        // Return early if this is a backfill batch, backfill batches are handled by range requests instead of root
-        if matches!(
-            id.parent_request_id.requester,
-            RangeRequestId::BackfillSync { .. }
+            ByRangeRequestType::BlocksAndColumnsSeparate
         ) {
             return Ok(());
         }
