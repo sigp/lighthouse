@@ -48,7 +48,7 @@ use fork_choice::{
 };
 use itertools::process_results;
 use logging::crit;
-use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
 use state_processing::AllCaches;
 use std::sync::Arc;
@@ -77,6 +77,10 @@ impl<T> CanonicalHeadRwLock<T> {
 
     fn read(&self) -> RwLockReadGuard<'_, T> {
         self.0.read()
+    }
+
+    fn upgradable_read(&self) -> RwLockUpgradableReadGuard<'_, T> {
+        self.0.upgradable_read()
     }
 
     fn write(&self) -> RwLockWriteGuard<'_, T> {
@@ -387,6 +391,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<'_, BeaconForkChoice<T>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_READ_LOCK_AQUIRE_TIMES);
         self.fork_choice.read()
+    }
+
+    /// Access an upgradable read-lock for fork choice.
+    pub fn fork_choice_upgradable_read_lock(
+        &self,
+    ) -> RwLockUpgradableReadGuard<'_, BeaconForkChoice<T>> {
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_UPGRADABLE_READ_LOCK_AQUIRE_TIMES);
+        self.fork_choice.upgradable_read()
     }
 
     /// Access a write-lock for fork choice.
