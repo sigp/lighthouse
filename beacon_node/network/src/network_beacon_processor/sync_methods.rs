@@ -383,7 +383,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "RPC custody data columns received"
         );
 
-        let mut result = self
+        let result = self
             .chain
             .process_rpc_custody_columns(custody_columns)
             .await;
