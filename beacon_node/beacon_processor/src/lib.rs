@@ -867,7 +867,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
         let mut rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
         let mut column_reconstruction_queue =
-            FifoQueue::new(queue_lengths.column_reconstruction_queue);
+            LifoQueue::new(queue_lengths.column_reconstruction_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let mut backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
