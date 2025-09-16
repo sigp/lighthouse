@@ -1354,9 +1354,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::RpcCustodyColumn { .. } => {
                                 rpc_custody_column_queue.push(work, work_id)
                             }
-                            Work::ColumnReconstruction(_) => {
-                                column_reconstruction_queue.push(work, work_id)
-                            }
+                            Work::ColumnReconstruction(_) => column_reconstruction_queue.push(work),
                             Work::ChainSegment { .. } => chain_segment_queue.push(work, work_id),
                             Work::ChainSegmentBackfill { .. } => {
                                 backfill_chain_segment.push(work, work_id)
