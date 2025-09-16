@@ -825,15 +825,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    /// Attempt to reconstruct all data columns if the following conditions satisfies:
-    /// - Our custody requirement is all columns
-    /// - We have >= 50% of columns, but not all columns
-    ///
-    /// Returns `Some(AvailabilityProcessingStatus)` if reconstruction is successfully performed,
-    /// otherwise returns `None`.
-    ///
-    /// The `publish_columns` parameter controls whether reconstructed columns should be published
-    /// to the gossip network.
+    /// Attempts to reconstruct all data columns if the conditions checked in
+    /// [`DataAvailabilityCheckerInner::check_and_set_reconstruction_started`] are satisfied.
     #[instrument(level = "debug", skip_all, fields(?block_root))]
     async fn attempt_data_column_reconstruction(self: &Arc<Self>, block_root: Hash256) {
         let result = self.chain.reconstruct_data_columns(block_root).await;
