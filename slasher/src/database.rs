@@ -26,7 +26,7 @@ use types::{
 };
 
 /// Current database schema version, to check compatibility of on-disk DB with software.
-pub const CURRENT_SCHEMA_VERSION: u64 = 3;
+pub const CURRENT_SCHEMA_VERSION: u64 = 4;
 
 /// Metadata about the slashing database itself.
 const METADATA_DB: &str = "metadata";
