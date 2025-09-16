@@ -28,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -834,6 +834,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ///
     /// The `publish_columns` parameter controls whether reconstructed columns should be published
     /// to the gossip network.
+    #[instrument(level = "debug", skip_all, fields(?block_root))]
     async fn attempt_data_column_reconstruction(
         self: &Arc<Self>,
         block_root: Hash256,
@@ -850,6 +851,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         let result = self.chain.reconstruct_data_columns(block_root).await;
+
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
                 if publish_columns {
@@ -978,6 +980,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     /// by some nodes on the network as soon as possible. Our hope is that some columns arrive from
     /// other nodes in the meantime, obviating the need for us to publish them. If no other
     /// publisher exists for a column, it will eventually get published here.
+    #[instrument(level="debug", skip_all, fields(?block_root, data_column_count=data_columns_to_publish.len()))]
     fn publish_data_columns_gradually(
         self: &Arc<Self>,
         mut data_columns_to_publish: DataColumnSidecarList<T::EthSpec>,
