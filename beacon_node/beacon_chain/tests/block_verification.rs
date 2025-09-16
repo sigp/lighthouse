@@ -1730,6 +1730,8 @@ async fn add_altair_block_to_base_chain() {
     ));
 }
 
+// This is a regression test for this bug:
+// https://github.com/sigp/lighthouse/issues/4332#issuecomment-1565092279
 #[tokio::test]
 async fn import_duplicate_block_unrealized_justification() {
     let spec = MainnetEthSpec::default_spec();
@@ -1791,7 +1793,7 @@ async fn import_duplicate_block_unrealized_justification() {
         .await
         .unwrap();
 
-    // Unrealized justification should NOT have updated.
+    // The store's global unrealized justification should update immediately and match the block.
     let unrealized_justification = {
         let fc = chain.canonical_head.fork_choice_read_lock();
         assert_eq!(fc.justified_checkpoint().epoch, 0);
