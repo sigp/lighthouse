@@ -47,6 +47,7 @@ use fork_choice::{
     ResetPayloadStatuses,
 };
 use itertools::process_results;
+use lighthouse_tracing::SPAN_RECOMPUTE_HEAD;
 use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
@@ -57,6 +58,7 @@ use store::{
     Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig, iter::StateRootsIterator,
 };
 use task_executor::{JoinHandle, ShutdownReason};
+use tracing::info_span;
 use tracing::{debug, error, info, instrument, warn};
 use types::*;
 
@@ -383,6 +385,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     ///
     /// This function is **not safe** to be public. See the module-level documentation for more
     /// information about protecting from deadlocks.
+    #[instrument(skip_all)]
     fn cached_head_write_lock(&self) -> RwLockWriteGuard<'_, CachedHead<T::EthSpec>> {
         self.cached_head.write()
     }
@@ -402,6 +405,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     }
 
     /// Access a write-lock for fork choice.
+    #[instrument(skip_all)]
     pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<'_, BeaconForkChoice<T>> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES);
         self.fork_choice.write()
@@ -509,13 +513,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// situation can be rectified. We avoid returning an error here so that calling functions
     /// can't abort block import because an error is returned here.
     pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) {
+        let span = info_span!(
+            SPAN_RECOMPUTE_HEAD,
+            slot = %current_slot
+        );
+
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
         let chain = self.clone();
         match self
             .spawn_blocking_handle(
-                move || chain.recompute_head_at_slot_internal(current_slot),
+                move || {
+                    let _guard = span.enter();
+                    chain.recompute_head_at_slot_internal(current_slot)
+                },
                 "recompute_head_internal",
             )
             .await
@@ -773,6 +785,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Perform updates to caches and other components after the canonical head has been changed.
+    #[instrument(skip_all)]
     fn after_new_head(
         self: &Arc<Self>,
         old_cached_head: &CachedHead<T::EthSpec>,
@@ -911,6 +924,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This function will take a write-lock on `canonical_head.fork_choice`, therefore it would be
     /// unwise to hold any lock on fork choice while calling this function.
+    #[instrument(skip_all)]
     fn after_finalization(
         self: &Arc<Self>,
         new_cached_head: &CachedHead<T::EthSpec>,
@@ -1046,6 +1060,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 ///
 /// This function is called whilst holding a write-lock on the `canonical_head`. To ensure dead-lock
 /// safety, **do not take any other locks inside this function**.
+#[instrument(skip_all)]
 fn check_finalized_payload_validity<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     finalized_proto_block: &ProtoBlock,
@@ -1129,6 +1144,7 @@ fn perform_debug_logging<T: BeaconChainTypes>(
     }
 }
 
+#[instrument(skip_all)]
 fn spawn_execution_layer_updates<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     forkchoice_update_params: ForkchoiceUpdateParameters,
