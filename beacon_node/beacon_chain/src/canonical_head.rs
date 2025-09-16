@@ -397,7 +397,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     pub fn fork_choice_upgradable_read_lock(
         &self,
     ) -> RwLockUpgradableReadGuard<'_, BeaconForkChoice<T>> {
-        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_READ_LOCK_AQUIRE_TIMES);
+        let _timer = metrics::start_timer(&metrics::FORK_CHOICE_UPGRADABLE_READ_LOCK_AQUIRE_TIMES);
         self.fork_choice.upgradable_read()
     }
 
