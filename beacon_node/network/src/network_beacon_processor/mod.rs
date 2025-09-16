@@ -837,7 +837,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     async fn attempt_data_column_reconstruction(
         self: &Arc<Self>,
         block_root: Hash256,
-        publish_columns: bool,
     ) -> Option<AvailabilityProcessingStatus> {
         // Only supernodes attempt reconstruction
         if !self
@@ -852,9 +851,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let result = self.chain.reconstruct_data_columns(block_root).await;
         match result {
             Ok(Some((availability_processing_status, data_columns_to_publish))) => {
-                if publish_columns {
-                    self.publish_data_columns_gradually(data_columns_to_publish, block_root);
-                }
+                self.publish_data_columns_gradually(data_columns_to_publish, block_root);
                 match &availability_processing_status {
                     AvailabilityProcessingStatus::Imported(hash) => {
                         debug!(

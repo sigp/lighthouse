@@ -8,7 +8,7 @@ use eth2::types::{
 use eth2::types::{FullPayloadContents, SignedBlindedBeaconBlock};
 use eth2::{
     CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER,
-    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error,
+    SSZ_CONTENT_TYPE_HEADER, StatusCode, ok_or_error, success_or_error,
 };
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue};
 use reqwest::{IntoUrl, Response};
@@ -249,7 +249,7 @@ impl BuilderHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     async fn post_with_raw_response<T: Serialize, U: IntoUrl>(
@@ -270,7 +270,7 @@ impl BuilderHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// `POST /eth/v1/builder/validators`
