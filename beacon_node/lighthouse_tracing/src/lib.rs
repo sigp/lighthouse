@@ -27,6 +27,9 @@ pub const SPAN_PROCESS_RPC_BLOBS: &str = "process_rpc_blobs";
 pub const SPAN_PROCESS_RPC_CUSTODY_COLUMNS: &str = "process_rpc_custody_columns";
 pub const SPAN_PROCESS_CHAIN_SEGMENT: &str = "process_chain_segment";
 
+/// Fork choice root spans
+pub const SPAN_RECOMPUTE_HEAD: &str = "recompute_head_at_slot";
+
 /// RPC methods root spans
 pub const SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST: &str = "handle_blocks_by_range_request";
 pub const SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST: &str = "handle_blobs_by_range_request";
