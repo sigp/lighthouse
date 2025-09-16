@@ -383,7 +383,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             "RPC custody data columns received"
         );
 
-        let mut result = self
+        let result = self
             .chain
             .process_rpc_custody_columns(custody_columns)
             .await;
@@ -404,17 +404,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         block_hash = %block_root,
                         "Missing components over rpc"
                     );
-                    // Attempt reconstruction here before notifying sync, to avoid sending out more requests
-                    // that we may no longer need.
-                    // We don't publish columns reconstructed from rpc columns to the gossip network,
-                    // as these are likely historic columns.
-                    let publish_columns = false;
-                    if let Some(availability) = self
-                        .attempt_data_column_reconstruction(block_root, publish_columns)
-                        .await
-                    {
-                        result = Ok(availability)
-                    }
                 }
             },
             Err(BlockError::DuplicateFullyImported(_)) => {
