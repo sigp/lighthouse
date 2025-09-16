@@ -181,7 +181,7 @@ impl BeaconProcessorQueueLengths {
             // We don't request more than `PARENT_DEPTH_TOLERANCE` (32) lookups, so we can limit
             // this queue size. With 48 max blobs per block, each column sidecar list could be up to 12MB.
             rpc_custody_column_queue: 64,
-            column_reconstruction_queue: 64,
+            column_reconstruction_queue: 1,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
