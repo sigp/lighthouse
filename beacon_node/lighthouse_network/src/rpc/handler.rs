@@ -894,11 +894,8 @@ where
                 ..
             }) if matches!(error, RPCError::InvalidData(_)) => {
                 // Peer is not complying with the protocol. Notify the application and disconnect.
-                let inbound_substream_id = self.current_inbound_substream_id;
-                self.current_inbound_substream_id.0 += 1;
-
                 self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
-                    id: inbound_substream_id,
+                    id: self.current_inbound_substream_id,
                     proto,
                     error,
                 }));
