@@ -1383,7 +1383,8 @@ pub async fn blinded_equivocation_gossip() {
         // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
         assert_eq!(
             error_response.status(),
-            Some(StatusCode::INTERNAL_SERVER_ERROR)
+            Some(StatusCode::INTERNAL_SERVER_ERROR),
+            "{error_response:?}"
         );
     } else {
         assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
