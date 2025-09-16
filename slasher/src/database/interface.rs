@@ -119,6 +119,21 @@ impl Environment {
             _ => vec![],
         }
     }
+
+    /// Upgrade the database if necessary (only meaningful for Redb).
+    pub fn upgrade(&self) -> Result<(), Error> {
+        match self {
+            #[cfg(feature = "redb")]
+            Self::Redb(env) => env.upgrade(),
+            _ => Ok(())
+        }
+    }
+
+    /// Returns true if this database is using Redb as the backend
+    #[cfg(feature = "redb")]
+    pub fn is_redb(&self) -> bool {
+        matches!(self, Self::Redb(_))
+    }
 }
 
 impl<'env> RwTransaction<'env> {
