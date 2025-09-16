@@ -1611,13 +1611,14 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }
             Work::ChainSegmentBackfill(process_fn) => {
                 if self.config.enable_backfill_rate_limiting {
+                  
                     task_spawner.spawn_blocking_with_rayon(
                         self.rayon_manager.low_priority_threadpool.clone(),
                         process_fn,
                     )
                 } else {
                     // use the global rayon thread pool if backfill rate limiting is disabled.
-                    task_spawner.spawn_blocking(process_fn)
+                    rayon::spawn(process_fn)
                 }
             }
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
