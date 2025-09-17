@@ -1813,7 +1813,14 @@ fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 4));
+}
+#[test]
+fn block_cache_size_zero() {
+    CommandLineTest::new()
+        .flag("block-cache-size", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 0));
 }
 #[test]
 fn state_cache_size_default() {
