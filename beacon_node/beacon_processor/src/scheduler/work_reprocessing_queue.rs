@@ -1006,6 +1006,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BeaconProcessorConfig;
     use logging::create_test_tracing_subscriber;
     use slot_clock::{ManualSlotClock, TestingSlotClock};
     use std::ops::Add;
@@ -1127,5 +1128,98 @@ mod tests {
             Duration::from_secs(0),
             Duration::from_secs(slot_duration),
         )
+    }
+
+    fn test_queue() -> ReprocessQueue<ManualSlotClock> {
+        create_test_tracing_subscriber();
+
+        let config = BeaconProcessorConfig::default();
+        let (ready_work_tx, _) = mpsc::channel::<ReadyWork>(config.max_scheduled_work_queue_len);
+        let (_, reprocess_work_rx) =
+            mpsc::channel::<ReprocessQueueMessage>(config.max_scheduled_work_queue_len);
+        let slot_clock = Arc::new(testing_slot_clock(12));
+
+        ReprocessQueue::new(ready_work_tx, reprocess_work_rx, slot_clock)
+    }
+
+    // This is a regression test for a memory leak in `awaiting_attestations_per_root`.
+    // See: https://github.com/sigp/lighthouse/pull/8065
+    #[tokio::test]
+    async fn prune_awaiting_attestations_per_root() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert an attestation.
+        let att = ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(att));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_attestations_per_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_root
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the attestation.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyAttestation(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry for the block root should be gone.
+        assert!(queue.awaiting_attestations_per_root.is_empty());
+    }
+
+    // This is a regression test for a memory leak in `awaiting_lc_updates_per_parent_root`.
+    // See: https://github.com/sigp/lighthouse/pull/8065
+    #[tokio::test]
+    async fn prune_awaiting_lc_updates_per_parent_root() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let parent_root = Hash256::repeat_byte(0xaf);
+
+        // Insert an attestation.
+        let msg =
+            ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate {
+                parent_root,
+                process_fn: Box::new(|| {}),
+            });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_lc_updates_per_parent_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_lc_updates_per_parent_root
+                .contains_key(&parent_root)
+        );
+
+        // Advance time to expire the update.
+        advance_time(&queue.slot_clock, 2 * QUEUED_LIGHT_CLIENT_UPDATE_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyLightClientUpdate(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry for the block root should be gone.
+        assert!(queue.awaiting_lc_updates_per_parent_root.is_empty());
     }
 }
