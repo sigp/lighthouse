@@ -1712,7 +1712,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     request.clone(),
                     ColumnsByRangeParentRequestId::CustodyBackfillSync(id),
                     Span::none(),
-                ).ok()
+                )
+                .ok()
             })
             .collect::<Vec<_>>();
 
