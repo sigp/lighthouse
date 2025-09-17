@@ -356,6 +356,13 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pre_execution_block(block_root, block)
     }
 
+    /// Removes a pre-execution block from the cache.
+    /// This does NOT remove an existing executed block.
+    pub fn remove_block_on_execution_error(&self, block_root: &Hash256) {
+        self.availability_cache
+            .remove_pre_execution_block(block_root);
+    }
+
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
     /// include the fully available block.
     ///

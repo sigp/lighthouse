@@ -1123,6 +1123,11 @@ impl TestRig {
     }
 
     fn simulate_block_gossip_processing_becomes_invalid(&mut self, block_root: Hash256) {
+        self.harness
+            .chain
+            .data_availability_checker
+            .remove_block_on_execution_error(&block_root);
+
         self.send_sync_message(SyncMessage::GossipBlockProcessResult {
             block_root,
             imported: false,

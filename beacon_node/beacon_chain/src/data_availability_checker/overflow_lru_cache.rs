@@ -704,6 +704,15 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         Ok(())
     }
 
+    /// Removes a pre-execution block from the cache.
+    /// This does NOT remove an existing executed block.
+    pub fn remove_pre_execution_block(&self, block_root: &Hash256) {
+        // The read lock is immediately dropped so we can safely remove the block from the cache.
+        if let Some(BlockProcessStatus::NotValidated(_)) = self.get_cached_block(block_root) {
+            self.critical.write().pop(block_root);
+        }
+    }
+
     /// Check if we have all the blobs for a block. If we do, return the Availability variant that
     /// triggers import of the block.
     pub fn put_executed_block(
@@ -1428,5 +1437,35 @@ mod pending_components_tests {
         cache.merge_block(block_commitments);
 
         assert_cache_consistent(cache, max_len);
+    }
+
+    #[test]
+    fn should_not_insert_pre_execution_block_if_executed_block_exists() {
+        let (pre_execution_block, blobs, random_blobs, max_len) = pre_setup();
+        let (executed_block, blobs, random_blobs) =
+            setup_pending_components(pre_execution_block.clone(), blobs, random_blobs);
+
+        let block_root = pre_execution_block.canonical_root();
+        let max_blobs_per_block = 6; // doesn't matter here
+        let mut pending_component = <PendingComponents<E>>::empty(block_root, max_blobs_per_block);
+
+        let pre_execution_block = Arc::new(pre_execution_block);
+        pending_component.insert_pre_execution_block(pre_execution_block.clone());
+        assert!(
+            matches!(pending_component.block, Some(CachedBlock::PreExecution(_))),
+            "pre execution block inserted"
+        );
+
+        pending_component.insert_executed_block(executed_block);
+        assert!(
+            matches!(pending_component.block, Some(CachedBlock::Executed(_))),
+            "executed block inserted"
+        );
+
+        pending_component.insert_pre_execution_block(pre_execution_block);
+        assert!(
+            matches!(pending_component.block, Some(CachedBlock::Executed(_))),
+            "executed block should remain"
+        );
     }
 }
