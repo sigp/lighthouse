@@ -625,6 +625,8 @@ impl TestRig {
                 .chain(std::iter::once(NOTHING_TO_DO))
                 .collect::<Vec<_>>(),
             timeout,
+            false,
+            false,
         )
         .await
     }
