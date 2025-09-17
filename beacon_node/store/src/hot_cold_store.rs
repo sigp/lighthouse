@@ -656,6 +656,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a full block with execution payload from the store.
+    #[instrument(skip_all)]
     pub fn get_full_block(
         &self,
         block_root: &Hash256,

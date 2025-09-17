@@ -578,6 +578,14 @@ pub static FORK_CHOICE_READ_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = Laz
         exponential_buckets(1e-4, 4.0, 7),
     )
 });
+pub static FORK_CHOICE_UPGRADABLE_READ_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_fork_choice_upgradable_read_lock_aquire_seconds",
+            "Time taken to aquire the fork-choice upgradable read lock",
+            exponential_buckets(1e-4, 4.0, 7),
+        )
+    });
 pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "beacon_fork_choice_write_lock_aquire_seconds",
