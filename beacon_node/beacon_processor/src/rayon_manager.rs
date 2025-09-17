@@ -5,7 +5,7 @@ const LOW_PRIORITY_THREAD_COUNT: usize = 1;
 
 pub struct RayonManager {
     /// Smaller rayon thread pool for lower-priority, compute-intensive tasks.
-    /// By default ~25% of CPUs or a minimum of 2 threads.
+    /// By default limited to one thread.
     pub low_priority_threadpool: Arc<ThreadPool>,
 }
 
