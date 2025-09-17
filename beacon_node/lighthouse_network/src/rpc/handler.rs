@@ -13,7 +13,8 @@ use futures::prelude::*;
 use libp2p::PeerId;
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
-    FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
+    FullyNegotiatedInbound, FullyNegotiatedOutbound, ListenUpgradeError, StreamUpgradeError,
+    SubstreamProtocol,
 };
 use libp2p::swarm::{ConnectionId, Stream};
 use logging::crit;
@@ -887,6 +888,18 @@ where
             }) => self.on_fully_negotiated_outbound(protocol, info),
             ConnectionEvent::DialUpgradeError(DialUpgradeError { info, error }) => {
                 self.on_dial_upgrade_error(info, error)
+            }
+            ConnectionEvent::ListenUpgradeError(ListenUpgradeError {
+                error: (proto, error),
+                ..
+            }) if matches!(error, RPCError::InvalidData(_)) => {
+                // Peer is not complying with the protocol. Notify the application and disconnect.
+                self.events_out.push(HandlerEvent::Err(HandlerErr::Inbound {
+                    id: self.current_inbound_substream_id,
+                    proto,
+                    error,
+                }));
+                self.shutdown(None);
             }
             _ => {
                 // NOTE: ConnectionEvent is a non exhaustive enum so updates should be based on
