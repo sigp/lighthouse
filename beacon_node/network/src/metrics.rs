@@ -484,6 +484,12 @@ pub static SYNC_ACTIVE_NETWORK_REQUESTS: LazyLock<Result<IntGaugeVec>> = LazyLoc
         &["type"],
     )
 });
+pub static SYNC_PENDING_ROOT_RANGE_REQUESTS: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
+    try_create_int_gauge(
+        "sync_pending_root_range_requests",
+        "Current count of pending columns by root requests waiting for peers",
+    )
+});
 pub static SYNC_UNKNOWN_NETWORK_REQUESTS: LazyLock<Result<IntCounterVec>> = LazyLock::new(|| {
     try_create_int_counter_vec(
         "sync_unknwon_network_request",

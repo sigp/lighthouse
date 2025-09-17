@@ -638,6 +638,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             }
         }
 
+        metrics::set_gauge(
+            &metrics::SYNC_PENDING_ROOT_RANGE_REQUESTS,
+            self.pending_column_by_root_range_requests.len() as i64,
+        );
         // Re-insert entries that still need to be retried
         self.pending_column_by_root_range_requests
             .extend(entries_to_keep);
@@ -1801,6 +1805,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
             self.pending_column_by_root_range_requests
                 .insert(id.parent_request_id, data_columns_by_root_request);
+
+            metrics::set_gauge(
+                &metrics::SYNC_PENDING_ROOT_RANGE_REQUESTS,
+                self.pending_column_by_root_range_requests.len() as i64,
+            );
         }
 
         // Insert the requests into the existing block parent request
@@ -2073,6 +2082,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             (
                 "data_columns_by_range",
                 self.data_columns_by_range_requests.len(),
+            ),
+            (
+                "data_columns_by_root_range",
+                self.data_columns_by_root_range_requests.len(),
             ),
             ("custody_by_root", self.custody_by_root_requests.len()),
             (
