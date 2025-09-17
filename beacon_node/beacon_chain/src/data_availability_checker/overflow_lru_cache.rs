@@ -1442,12 +1442,11 @@ mod pending_components_tests {
     #[test]
     fn should_not_insert_pre_execution_block_if_executed_block_exists() {
         let (pre_execution_block, blobs, random_blobs, max_len) = pre_setup();
-        let (executed_block, blobs, random_blobs) =
+        let (executed_block, _blobs, _random_blobs) =
             setup_pending_components(pre_execution_block.clone(), blobs, random_blobs);
 
         let block_root = pre_execution_block.canonical_root();
-        let max_blobs_per_block = 6; // doesn't matter here
-        let mut pending_component = <PendingComponents<E>>::empty(block_root, max_blobs_per_block);
+        let mut pending_component = <PendingComponents<E>>::empty(block_root, max_len);
 
         let pre_execution_block = Arc::new(pre_execution_block);
         pending_component.insert_pre_execution_block(pre_execution_block.clone());
