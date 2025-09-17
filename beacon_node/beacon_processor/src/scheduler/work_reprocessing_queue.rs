@@ -37,7 +37,9 @@ const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
+const ATTESTATIONS_PER_ROOT: &str = "attestations_per_root";
 const LIGHT_CLIENT_UPDATES: &str = "lc_updates";
+const LIGHT_CLIENT_UPDATES_PER_PARENT_ROOT: &str = "lc_updates_per_parent_root";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
 /// This is to account for any slight drift in the system clock.
@@ -829,10 +831,19 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
 
-                    if let Some(queued_atts) = self.awaiting_attestations_per_root.get_mut(&root)
-                        && let Some(index) = queued_atts.iter().position(|&id| id == queued_id)
+                    if let Entry::Occupied(mut queued_atts) =
+                        self.awaiting_attestations_per_root.entry(root)
+                        && let Some(index) =
+                            queued_atts.get().iter().position(|&id| id == queued_id)
                     {
-                        queued_atts.swap_remove(index);
+                        let queued_atts_mut = queued_atts.get_mut();
+                        queued_atts_mut.swap_remove(index);
+
+                        // If the vec is empty after this attestation's removal, we need to delete
+                        // the entry to prevent bloating the hashmap indefinitely.
+                        if queued_atts_mut.is_empty() {
+                            queued_atts.remove_entry();
+                        }
                     }
                 }
             }
@@ -853,13 +864,19 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         error!("Failed to send scheduled light client optimistic update");
                     }
 
-                    if let Some(queued_lc_updates) = self
-                        .awaiting_lc_updates_per_parent_root
-                        .get_mut(&parent_root)
-                        && let Some(index) =
-                            queued_lc_updates.iter().position(|&id| id == queued_id)
+                    if let Entry::Occupied(mut queued_lc_updates) =
+                        self.awaiting_lc_updates_per_parent_root.entry(parent_root)
+                        && let Some(index) = queued_lc_updates
+                            .get()
+                            .iter()
+                            .position(|&id| id == queued_id)
                     {
-                        queued_lc_updates.swap_remove(index);
+                        let queued_lc_updates_mut = queued_lc_updates.get_mut();
+                        queued_lc_updates_mut.swap_remove(index);
+
+                        if queued_lc_updates_mut.is_empty() {
+                            queued_lc_updates.remove_entry();
+                        }
                     }
                 }
             }
@@ -931,8 +948,18 @@ impl<S: SlotClock> ReprocessQueue<S> {
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[ATTESTATIONS_PER_ROOT],
+            self.awaiting_attestations_per_root.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[LIGHT_CLIENT_UPDATES],
             self.lc_updates_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[LIGHT_CLIENT_UPDATES_PER_PARENT_ROOT],
+            self.awaiting_lc_updates_per_parent_root.len() as i64,
         );
     }
 
