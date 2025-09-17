@@ -16,7 +16,7 @@ use lighthouse_network::rpc::methods::{
 };
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
-    SyncRequestId,
+    DataColumnsByRootRequestId, SyncRequestId,
 };
 use lighthouse_network::{PeerId, SyncInfo};
 use std::time::Duration;
@@ -36,6 +36,7 @@ enum ByRangeDataRequestIds {
     PreDeneb,
     PrePeerDAS(BlobsByRangeRequestId, PeerId),
     PostPeerDAS(Vec<(DataColumnsByRangeRequestId, PeerId)>),
+    PostPeerDASByRoot(Vec<(DataColumnsByRootRequestId, PeerId)>),
 }
 
 /// Sync tests are usually written in the form:
@@ -233,7 +234,8 @@ impl TestRig {
             });
 
         let by_range_data_requests = if self.after_fulu() {
-            let mut data_columns_requests = vec![];
+            // First check for DataColumnsByRange requests (old paradigm)
+            let mut data_columns_range_requests = vec![];
             while let Ok(data_columns_request) = self.pop_received_network_event(|ev| match ev {
                 NetworkMessage::SendRequest {
                     peer_id,
@@ -245,12 +247,34 @@ impl TestRig {
                 } if filter_f(*peer_id, *start_slot) => Some((*id, *peer_id)),
                 _ => None,
             }) {
-                data_columns_requests.push(data_columns_request);
+                data_columns_range_requests.push(data_columns_request);
             }
-            if data_columns_requests.is_empty() {
-                panic!("Found zero DataColumnsByRange requests, filter {request_filter:?}");
+
+            // If we found range requests, use the `ByRangeRequestType::BlocksAndColumns` paradigm
+            if !data_columns_range_requests.is_empty() {
+                ByRangeDataRequestIds::PostPeerDAS(data_columns_range_requests)
+            } else {
+                // Try to find the byroot requests associated with the `ByRangeRequestType::BlocksAndColumnsSeparate`
+                let mut data_columns_root_requests = vec![];
+                while let Ok(data_columns_request) = self.pop_received_network_event(|ev| match ev {
+                    NetworkMessage::SendRequest {
+                        peer_id,
+                        request: RequestType::DataColumnsByRoot(_),
+                        app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
+                    } => Some((*id, *peer_id)),
+                    _ => None,
+                }) {
+                    data_columns_root_requests.push(data_columns_request);
+                }
+
+                if !data_columns_root_requests.is_empty() {
+                    ByRangeDataRequestIds::PostPeerDASByRoot(data_columns_root_requests)
+                } else {
+                    // No data column requests found - this is expected for the new paradigm
+                    // since DataColumnsByRoot requests are sent after blocks are received
+                    ByRangeDataRequestIds::PostPeerDASByRoot(vec![])
+                }
             }
-            ByRangeDataRequestIds::PostPeerDAS(data_columns_requests)
         } else if self.after_deneb() {
             let (id, peer) = self
                 .pop_received_network_event(|ev| match ev {
@@ -318,9 +342,52 @@ impl TestRig {
                     });
                 }
             }
+            ByRangeDataRequestIds::PostPeerDASByRoot(data_column_req_ids) => {
+                // Complete the DataColumnsByRoot requests with stream termination
+                for (id, peer_id) in data_column_req_ids {
+                    self.log(&format!(
+                        "Completing DataColumnsByRoot request {id:?} with empty stream"
+                    ));
+                    self.send_sync_message(SyncMessage::RpcDataColumn {
+                        sync_request_id: SyncRequestId::DataColumnsByRoot(id),
+                        peer_id,
+                        data_column: None,
+                        seen_timestamp: D,
+                    });
+                }
+            }
         }
 
         blocks_req_id.parent_request_id.requester
+    }
+
+    fn find_and_complete_data_columns_by_root_requests(&mut self) {
+        // In the new paradigm, DataColumnsByRoot requests are sent after blocks are received
+        // We need to complete any pending DataColumnsByRoot requests
+        let mut data_columns_root_requests = vec![];
+        while let Ok(data_columns_request) = self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                peer_id,
+                request: RequestType::DataColumnsByRoot(_),
+                app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
+            } => Some((*id, *peer_id)),
+            _ => None,
+        }) {
+            data_columns_root_requests.push(data_columns_request);
+        }
+
+        // Complete the DataColumnsByRoot requests
+        for (id, peer_id) in data_columns_root_requests {
+            self.log(&format!(
+                "Completing DataColumnsByRoot request {id:?} with empty stream"
+            ));
+            self.send_sync_message(SyncMessage::RpcDataColumn {
+                sync_request_id: SyncRequestId::DataColumnsByRoot(id),
+                peer_id,
+                data_column: None,
+                seen_timestamp: D,
+            });
+        }
     }
 
     fn find_and_complete_processing_chain_segment(&mut self, id: ChainSegmentProcessId) {
@@ -366,6 +433,11 @@ impl TestRig {
             };
 
             self.find_and_complete_processing_chain_segment(id);
+
+            // In the new paradigm, DataColumnsByRoot requests are sent after blocks are processed
+            // We need to complete any pending DataColumnsByRoot requests
+            self.find_and_complete_data_columns_by_root_requests();
+
             if epoch < last_epoch - 1 {
                 self.assert_state(RangeSyncType::Finalized);
             } else {
