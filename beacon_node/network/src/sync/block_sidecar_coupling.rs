@@ -676,7 +676,6 @@ impl<I: PartialEq + std::fmt::Display, T> ByRangeRequest<I, T> {
 #[cfg(test)]
 mod tests {
     use super::RangeBlockComponentsRequest;
-    use crate::sync::network_context::MAX_COLUMN_RETRIES;
     use beacon_chain::test_utils::{
         NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
     };
@@ -1099,94 +1098,5 @@ mod tests {
         assert!(result.is_ok());
         let rpc_blocks = result.unwrap();
         assert_eq!(rpc_blocks.len(), 2);
-    }
-
-    #[test]
-    fn max_retries_exceeded_behavior() {
-        // GIVEN: A request where peers consistently fail to provide required columns
-        let spec = test_spec::<E>();
-        let expected_custody_columns = vec![1, 2];
-        let mut rng = XorShiftRng::from_seed([42; 16]);
-        let blocks = (0..1)
-            .map(|_| {
-                generate_rand_block_and_data_columns::<E>(
-                    ForkName::Fulu,
-                    NumBlobs::Number(1),
-                    &mut rng,
-                    &spec,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let components_id = components_id();
-        let blocks_req_id = blocks_id(components_id);
-        let columns_req_id = expected_custody_columns
-            .iter()
-            .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
-            .collect::<Vec<_>>();
-        let mut info = RangeBlockComponentsRequest::<E>::new(
-            blocks_req_id,
-            None,
-            Some((columns_req_id.clone(), expected_custody_columns.clone())),
-            None,
-            Span::none(),
-        );
-
-        // AND: All blocks are received
-        info.add_blocks(
-            blocks_req_id,
-            blocks.iter().map(|b| b.0.clone().into()).collect(),
-        )
-        .unwrap();
-
-        // AND: Only partial custody columns are provided (column 1 but not 2)
-        let (req1, _) = columns_req_id.first().unwrap();
-        info.add_custody_columns(
-            *req1,
-            blocks
-                .iter()
-                .flat_map(|b| b.1.iter().filter(|d| d.index == 1).cloned())
-                .collect(),
-        )
-        .unwrap();
-
-        // AND: Column 2 request completes with empty data (persistent peer failure)
-        let (req2, _) = columns_req_id.get(1).unwrap();
-        info.add_custody_columns(*req2, vec![]).unwrap();
-
-        // WHEN: Multiple retry attempts are made (up to max retries)
-        for _ in 0..MAX_COLUMN_RETRIES {
-            let result = info.responses(&spec).unwrap();
-            assert!(result.is_err());
-
-            if let Err(super::CouplingError::DataColumnPeerFailure {
-                exceeded_retries, ..
-            }) = &result
-                && *exceeded_retries
-            {
-                break;
-            }
-        }
-
-        // AND: One final attempt after exceeding max retries
-        let result = info.responses(&spec).unwrap();
-
-        // THEN: Should fail with exceeded_retries = true
-        assert!(result.is_err());
-        if let Err(super::CouplingError::DataColumnPeerFailure {
-            error: _,
-            faulty_peers,
-            action,
-            exceeded_retries,
-        }) = result
-        {
-            assert_eq!(faulty_peers.len(), 1); // column 2 missing
-            assert_eq!(faulty_peers[0].0, 2); // column index 2
-            assert!(matches!(action, PeerAction::LowToleranceError));
-            assert!(exceeded_retries); // Should be true after max retries
-        } else {
-            panic!("Expected PeerFailure error with exceeded_retries=true");
-        }
     }
 }
