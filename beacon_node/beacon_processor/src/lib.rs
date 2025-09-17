@@ -1615,7 +1615,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                     )
                 } else {
                     // use the global rayon thread pool if backfill rate limiting is disabled.
-                    rayon::spawn(process_fn)
+                    task_spawner.spawn_blocking(process_fn)
                 }
             }
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
