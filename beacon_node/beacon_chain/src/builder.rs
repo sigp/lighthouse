@@ -899,6 +899,7 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
+        let complete_blob_backfill = self.chain_config.complete_blob_backfill;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -1013,6 +1014,7 @@ where
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
+                    complete_blob_backfill,
                     slot_clock,
                     self.kzg.clone(),
                     store,
