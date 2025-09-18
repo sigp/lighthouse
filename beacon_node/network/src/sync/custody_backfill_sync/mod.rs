@@ -12,7 +12,7 @@ use lighthouse_network::{
 use lighthouse_tracing::SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST;
 use logging::crit;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use tracing::{debug, error, info, info_span, warn};
+use tracing::{debug, info, info_span, warn};
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
 use crate::sync::{
