@@ -1,13 +1,21 @@
 mod metrics;
+mod rayon_manager;
 pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use std::sync::Weak;
+use std::sync::{Arc, Mutex, Weak};
 use tokio::runtime::{Handle, Runtime};
 use tracing::debug;
 
 pub use tokio::task::JoinHandle;
+
+use crate::rayon_manager::RayonManager;
+
+pub enum RayonPoolType {
+    HighPriority,
+    LowPriority,
+}
 
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -84,6 +92,8 @@ pub struct TaskExecutor {
     // FIXME(sproul): delete?
     #[allow(dead_code)]
     service_name: String,
+
+    pub rayon_manager: Arc<RayonManager>,
 }
 
 impl TaskExecutor {
@@ -105,6 +115,7 @@ impl TaskExecutor {
             exit,
             signal_tx,
             service_name,
+            rayon_manager: Arc::new(RayonManager::default()),
         }
     }
 
@@ -115,6 +126,7 @@ impl TaskExecutor {
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
             service_name,
+            rayon_manager: self.rayon_manager.clone(),
         }
     }
 
@@ -223,6 +235,46 @@ impl TaskExecutor {
     {
         if let Some(task_handle) = self.spawn_blocking_handle(task, name) {
             self.spawn_monitor(task_handle, name)
+        }
+    }
+
+    pub fn spawn_blocking_with_rayon<F, R>(
+        &self,
+        rayon_pool_type: RayonPoolType,
+        task: F,
+        name: &'static str,
+    ) -> Option<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let thread_pool = match rayon_pool_type {
+            RayonPoolType::HighPriority => self.rayon_manager.high_priority_threadpool.clone(),
+            RayonPoolType::LowPriority => self.rayon_manager.low_priority_threadpool.clone(),
+        };
+
+        let result = Arc::new(Mutex::new(None));
+        let result_clone = result.clone();
+       
+        if let Some(task_handle) = self.spawn_blocking_handle(
+            move || {
+                thread_pool.scope(|s| {
+                    s.spawn(|_| {
+                        let r = task();
+                        if let Ok(mut guard) = result_clone.lock() {
+                            *guard = Some(r);
+                        }
+                    })
+                })
+            },
+            name,
+        ) {
+            self.spawn_monitor(task_handle, name);
+        }
+
+        match result.lock() {
+            Ok(mut guard) => guard.take(),
+            Err(_) => None,
         }
     }
 

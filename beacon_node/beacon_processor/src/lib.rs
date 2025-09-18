@@ -48,7 +48,6 @@ use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::TimeLatch;
 use logging::crit;
 use parking_lot::Mutex;
-use rayon::ThreadPool;
 pub use scheduler::work_reprocessing_queue;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -61,7 +60,7 @@ use std::sync::Arc;
 use std::task::Context;
 use std::time::{Duration, Instant};
 use strum::IntoStaticStr;
-use task_executor::TaskExecutor;
+use task_executor::{RayonPoolType, TaskExecutor};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, trace, warn};
@@ -1609,10 +1608,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }
             Work::ChainSegmentBackfill(process_fn) => {
                 if self.config.enable_backfill_rate_limiting {
-                    task_spawner.spawn_blocking_with_rayon(
-                        self.rayon_manager.low_priority_threadpool.clone(),
-                        process_fn,
-                    )
+                    task_spawner.spawn_blocking_with_rayon(RayonPoolType::LowPriority, process_fn)
                 } else {
                     // use the global rayon thread pool if backfill rate limiting is disabled.
                     task_spawner.spawn_blocking(process_fn)
@@ -1681,14 +1677,18 @@ impl TaskSpawner {
     }
 
     /// Spawns a blocking task on a rayon thread pool, dropping the `SendOnDrop` after task completion.
-    fn spawn_blocking_with_rayon<F>(self, thread_pool: Arc<ThreadPool>, task: F)
+    fn spawn_blocking_with_rayon<F>(self, rayon_pool_type: RayonPoolType, task: F)
     where
         F: FnOnce() + Send + 'static,
     {
+        let thread_pool = match rayon_pool_type {
+            RayonPoolType::HighPriority => self.executor.rayon_manager.high_priority_threadpool.clone(),
+            RayonPoolType::LowPriority => self.executor.rayon_manager.low_priority_threadpool.clone(),
+        };
         self.executor.spawn_blocking(
             move || {
                 thread_pool.install(|| {
-                    task();
+                task();
                 });
                 drop(self.send_idle_on_drop)
             },
