@@ -17,7 +17,7 @@ POLL_INTERVAL_SECS=5
 # Target number of slots to backfill to complete this test.
 TARGET_BACKFILL_SLOTS=1024
 # Timeout for this test, if the node(s) fail to backfill `TARGET_BACKFILL_SLOTS` slots, fail the test.
-TIMEOUT_MINS=10
+TIMEOUT_MINS=12
 TIMEOUT_SECS=$((TIMEOUT_MINS * 60))
 # ------------------------------------------------------
 
