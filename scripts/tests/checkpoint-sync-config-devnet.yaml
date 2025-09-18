@@ -2,11 +2,13 @@
 participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    cl_extra_params:: [--disable-backfill-rate-limiting]
     el_type: geth
     el_image: ethpandaops/geth:master
     supernode: true
   - cl_type: lighthouse
     cl_image: lighthouse:local
+    cl_extra_params:: [--disable-backfill-rate-limiting]
     el_type: geth
     el_image: ethpandaops/geth:master
     supernode: false
