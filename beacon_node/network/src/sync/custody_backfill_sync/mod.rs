@@ -924,8 +924,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.last_batch_downloaded = false;
         self.current_processing_batch = None;
 
-        error!(?error, "Custody Backfill sync failed");
-
         Err(error)
     }
 
