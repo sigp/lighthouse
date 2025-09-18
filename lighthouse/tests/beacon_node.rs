@@ -402,7 +402,23 @@ fn complete_blob_backfill_flag() {
     CommandLineTest::new()
         .flag("complete-blob-backfill", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.complete_blob_backfill));
+        .with_config(|config| {
+            assert!(config.chain.complete_blob_backfill);
+            assert!(!config.store.prune_blobs);
+        });
+}
+
+// Even if `--prune-blobs true` is provided, `--complete-blob-backfill` should override it to false.
+#[test]
+fn complete_blob_backfill_and_prune_blobs_true() {
+    CommandLineTest::new()
+        .flag("complete-blob-backfill", None)
+        .flag("prune-blobs", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.complete_blob_backfill);
+            assert!(!config.store.prune_blobs);
+        });
 }
 
 // Tests for Eth1 flags.
