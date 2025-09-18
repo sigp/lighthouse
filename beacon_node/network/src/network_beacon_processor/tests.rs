@@ -17,6 +17,7 @@ use beacon_chain::test_utils::{
     test_spec,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
+use beacon_processor::rayon_manager::RayonManager;
 use beacon_processor::{work_reprocessing_queue::*, *};
 use gossipsub::MessageAcceptance;
 use itertools::Itertools;
@@ -266,6 +267,7 @@ impl TestRig {
             executor,
             current_workers: 0,
             config: beacon_processor_config,
+            rayon_manager: RayonManager::default(),
         }
         .spawn_manager(
             beacon_processor_rx,
@@ -458,10 +460,10 @@ impl TestRig {
             .unwrap();
     }
 
-    pub fn enqueue_backfill_batch(&self) {
+    pub fn enqueue_backfill_batch(&self, epoch: Epoch) {
         self.network_beacon_processor
             .send_chain_segment(
-                ChainSegmentProcessId::BackSyncBatchId(Epoch::default()),
+                ChainSegmentProcessId::BackSyncBatchId(epoch),
                 Vec::default(),
             )
             .unwrap();
@@ -606,7 +608,7 @@ impl TestRig {
     }
 
     pub async fn assert_event_journal(&mut self, expected: &[&str]) {
-        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT)
+        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT, false, false)
             .await
     }
 
@@ -623,6 +625,8 @@ impl TestRig {
                 .chain(std::iter::once(NOTHING_TO_DO))
                 .collect::<Vec<_>>(),
             timeout,
+            false,
+            false,
         )
         .await
     }
@@ -666,11 +670,21 @@ impl TestRig {
         &mut self,
         expected: &[&str],
         timeout: Duration,
+        ignore_worker_freed: bool,
+        ignore_nothing_to_do: bool,
     ) {
         let mut events = Vec::with_capacity(expected.len());
 
         let drain_future = async {
             while let Some(event) = self.work_journal_rx.recv().await {
+                if event == WORKER_FREED && ignore_worker_freed {
+                    continue;
+                }
+
+                if event == NOTHING_TO_DO && ignore_nothing_to_do {
+                    continue;
+                }
+
                 events.push(event);
 
                 // Break as soon as we collect the desired number of events.
@@ -1384,6 +1398,8 @@ async fn requeue_unknown_block_gossip_attestation_without_import() {
             NOTHING_TO_DO,
         ],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
     )
     .await;
 
@@ -1424,6 +1440,8 @@ async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
             NOTHING_TO_DO,
         ],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
     )
     .await;
 
@@ -1558,8 +1576,8 @@ async fn test_backfill_sync_processing() {
     // (not straight forward to manipulate `TestingSlotClock` due to cloning of `SlotClock` in code)
     // and makes the test very slow, hence timing calculation is unit tested separately in
     // `work_reprocessing_queue`.
-    for _ in 0..1 {
-        rig.enqueue_backfill_batch();
+    for i in 0..1 {
+        rig.enqueue_backfill_batch(Epoch::new(i));
         // ensure queued batch is not processed until later
         rig.assert_no_events_for(Duration::from_millis(100)).await;
         // A new batch should be processed within a slot.
@@ -1570,6 +1588,8 @@ async fn test_backfill_sync_processing() {
                 NOTHING_TO_DO,
             ],
             rig.chain.slot_clock.slot_duration(),
+            false,
+            false,
         )
         .await;
     }
@@ -1590,8 +1610,8 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     )
     .await;
 
-    for _ in 0..3 {
-        rig.enqueue_backfill_batch();
+    for i in 0..3 {
+        rig.enqueue_backfill_batch(Epoch::new(i));
     }
 
     // ensure all batches are processed
@@ -1602,6 +1622,8 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
             WorkType::ChainSegmentBackfill.into(),
         ],
         Duration::from_millis(100),
+        true,
+        true,
     )
     .await;
 }
