@@ -1467,10 +1467,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in &hot_db_cache_ops {
             match op {
                 StoreOp::DeleteBlock(block_root) => {
-                    self.state_cache.lock().delete_block_states(&block_root);
+                    self.state_cache.lock().delete_block_states(block_root);
                 }
                 StoreOp::DeleteState(state_root, _) => {
-                    self.state_cache.lock().delete_state(&state_root)
+                    self.state_cache.lock().delete_state(state_root)
                 }
                 _ => (),
             }
