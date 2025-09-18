@@ -981,6 +981,7 @@ dependencies = [
  "metrics",
  "num_cpus",
  "parking_lot 0.12.3",
+ "rayon",
  "serde",
  "slot_clock",
  "strum",

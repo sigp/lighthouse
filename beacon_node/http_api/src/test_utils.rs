@@ -5,6 +5,7 @@ use beacon_chain::{
 };
 use beacon_processor::{
     BeaconProcessor, BeaconProcessorChannels, BeaconProcessorConfig, BeaconProcessorQueueLengths,
+    rayon_manager::RayonManager,
 };
 use directory::DEFAULT_ROOT_DIR;
 use eth2::{BeaconNodeHttpClient, Timeouts};
@@ -247,6 +248,7 @@ pub async fn create_api_server_with_config<T: BeaconChainTypes>(
         executor: test_runtime.task_executor.clone(),
         current_workers: 0,
         config: beacon_processor_config,
+        rayon_manager: RayonManager::default(),
     }
     .spawn_manager(
         beacon_processor_rx,

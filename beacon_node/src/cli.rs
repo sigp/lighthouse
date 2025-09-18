@@ -402,6 +402,16 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("complete-blob-backfill")
+                .long("complete-blob-backfill")
+                .help("Download all blobs back to the Deneb fork epoch. This will likely result in \
+                       the node banning most of its peers.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+                .hide(true)
+        )
+        .arg(
             Arg::new("enable-private-discovery")
                 .long("enable-private-discovery")
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
@@ -769,7 +779,7 @@ pub fn cli_app() -> Command {
                 .long("block-cache-size")
                 .value_name("SIZE")
                 .help("Specifies how many blocks the database should cache in memory")
-                .default_value("5")
+                .default_value("0")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
