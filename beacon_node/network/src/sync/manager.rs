@@ -62,7 +62,7 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
     SingleLookupReqId, SyncRequestId,
 };
-use lighthouse_network::types::{CustodyBackFillState, NetworkGlobals, SyncState};
+use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
@@ -70,7 +70,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 use types::{
     BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
@@ -677,10 +677,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         // If backfill is complete, check if we have a pending custody backfill to complete
                         let anchor_info = self.chain.store.get_anchor_info();
                         if anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
-                            match self
-                                .custody_backfill_sync
-                                .resume_pending_sync(&mut self.network)
-                            {
+                            match self.custody_backfill_sync.start(&mut self.network) {
                                 Ok(SyncStart::Syncing {
                                     completed,
                                     remaining,
@@ -692,7 +689,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 }
                                 Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if custody sync state didn't start.
                                 Err(e) => {
-                                    error!(error = ?e, "Custody backfill sync failed to resume");
+                                    use crate::sync::custody_backfill_sync::CustodyBackfillError;
+
+                                    match &e {
+                                        CustodyBackfillError::BatchDownloadFailed(_)
+                                        | CustodyBackfillError::BatchProcessingFailed(_) => {
+                                            debug!(error=?e, "Custody backfill batch processing or downloading failed");
+                                        }
+                                        CustodyBackfillError::BatchInvalidState(_, reason) => {
+                                            error!(error=?e, reason, "Custody backfill sync failed due to invalid batch state")
+                                        }
+                                        CustodyBackfillError::InvalidSyncState(reason) => {
+                                            error!(error=?e, reason, "Custody backfill sync failed due to invalid sync state")
+                                        }
+                                        CustodyBackfillError::Paused => {}
+                                    }
                                 }
                             }
                         }
@@ -702,11 +713,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     sync_state
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
-                    // If there is a backfill or custody sync in progress pause it.
-                    // custody sync
+                    // Range sync is in progress. If there is a backfill or custody sync in progress pause it.
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
-                    self.custody_backfill_sync.pause();
+                    self.custody_backfill_sync
+                        .pause("Range sync in progress".to_string());
 
                     SyncState::SyncingFinalized {
                         start_slot,
@@ -714,11 +725,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Some((RangeSyncType::Head, start_slot, target_slot)) => {
-                    // If there is a backfill or custody sync in progress pause it.
-                    // custody sync
+                    // Range sync is in progress. If there is a backfill or custody backfill sync
+                    // in progress pause it.
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
-                    self.custody_backfill_sync.pause();
+                    self.custody_backfill_sync
+                        .pause("Range sync in progress".to_string());
 
                     SyncState::SyncingHead {
                         start_slot,
@@ -989,15 +1001,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncState::Synced => {
                 let anchor_info = self.chain.store.get_anchor_info();
                 if !anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
-                    if let Err(e) = self.custody_backfill_sync.set_status_to_pending() {
-                        warn!(error = ?e, "Failed to set custody backfill state to pending");
-                    }
+                    self.custody_backfill_sync.pause(
+                        "Custody backfill sync can't start until backfill sync has completed"
+                            .to_string(),
+                    );
                     return;
                 }
-                // TODO(custody-sync) we shouldnt need this hack, fix it
-                // We need to set the state to Paused before calling start();
-                self.custody_backfill_sync
-                    .set_state(CustodyBackFillState::Paused);
+
                 match self.custody_backfill_sync.start(&mut self.network) {
                     Ok(SyncStart::Syncing {
                         completed,
@@ -1012,9 +1022,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
             _ => {
-                if let Err(e) = self.custody_backfill_sync.set_status_to_pending() {
-                    warn!(error = ?e, "Failed to set custody backfill state to pending");
-                }
+                self.custody_backfill_sync
+                    .pause("Custody backfill failed to start".to_string());
             }
         }
     }
@@ -1023,9 +1032,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match sync_service_message {
             SyncServiceMessage::CustodyCountChanged { columns } => {
                 // Wait for the current epoch to finalize before starting custody sync
-                if let Err(e) = self.custody_backfill_sync.wait_for_finalization(columns) {
-                    warn!(error = ?e, "Failed to set custody backfill state to awaiting finalization");
-                }
+                self.custody_backfill_sync.set_columns(columns);
             }
             SyncServiceMessage::EarliestCustodyEpochFinalized => {
                 self.start_custody_backfill_sync();

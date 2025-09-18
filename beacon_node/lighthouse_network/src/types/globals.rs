@@ -94,7 +94,9 @@ impl<E: EthSpec> NetworkGlobals<E> {
             gossipsub_subscriptions: RwLock::new(HashSet::new()),
             sync_state: RwLock::new(SyncState::Stalled),
             backfill_state: RwLock::new(BackFillState::Paused),
-            custody_sync_state: RwLock::new(CustodyBackFillState::Paused),
+            custody_sync_state: RwLock::new(CustodyBackFillState::Pending(
+                "Custody backfill sync initialized".to_string(),
+            )),
             sampling_subnets: RwLock::new(sampling_subnets),
             config,
             spec,

@@ -46,19 +46,12 @@ pub enum BackFillState {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 /// The state of the custody backfill sync.
 pub enum CustodyBackFillState {
-    /// The sync is waiting for the `earliest_available_data_column_slot`s epoch  to finalize before starting.
-    AwaitingFinalization,
-    /// The sync is partially completed and currently paused.
-    Paused,
     /// We are currently backfilling custody columns.
     Syncing,
     /// A custody backfill sync has completed.
     Completed,
-    /// Too many failed attempts at backfilling. Consider it failed.
-    Failed,
-    /// A custody sync should is set to Pending if the node is undergoing range/backfill syncing.
-    /// It should resume syncing after the node is fully synced.
-    Pending,
+    /// A custody sync should is set to Pending for various reasons.
+    Pending(String),
 }
 
 impl PartialEq for SyncState {

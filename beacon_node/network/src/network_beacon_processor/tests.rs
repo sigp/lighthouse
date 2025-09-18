@@ -1646,8 +1646,13 @@ async fn test_custody_sync_processing_rate_limiting_disabled() {
         enable_backfill_rate_limiting: false,
         ..Default::default()
     };
-    let mut rig =
-        TestRig::new_parametric(SMALL_CHAIN, beacon_processor_config, false, test_spec::<E>()).await;
+    let mut rig = TestRig::new_parametric(
+        SMALL_CHAIN,
+        beacon_processor_config,
+        false,
+        test_spec::<E>(),
+    )
+    .await;
     let slot_count = 4;
 
     let all_custody_columns = rig
