@@ -825,6 +825,14 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.genesis_backfill = true;
     }
 
+    client_config.chain.complete_blob_backfill = cli_args.get_flag("complete-blob-backfill");
+
+    // Ensure `prune_blobs` is false whenever complete-blob-backfill is set. This overrides any
+    // setting of `--prune-blobs true` applied earlier in flag parsing.
+    if client_config.chain.complete_blob_backfill {
+        client_config.store.prune_blobs = false;
+    }
+
     // Backfill sync rate-limiting
     client_config.beacon_processor.enable_backfill_rate_limiting =
         !cli_args.get_flag("disable-backfill-rate-limiting");
