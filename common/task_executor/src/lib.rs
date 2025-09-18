@@ -233,7 +233,7 @@ impl TaskExecutor {
         }
     }
 
-    pub fn spawn_blocking_with_rayon<F, R>(
+    pub fn spawn_blocking_handle_with_rayon<F, R>(
         &self,
         rayon_pool_type: RayonPoolType,
         task: F,

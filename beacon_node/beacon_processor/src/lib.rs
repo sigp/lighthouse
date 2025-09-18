@@ -38,7 +38,6 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
-use crate::rayon_manager::RayonManager;
 use crate::work_reprocessing_queue::{
     QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
 };
@@ -75,7 +74,6 @@ use work_reprocessing_queue::{
 };
 
 mod metrics;
-pub mod rayon_manager;
 pub mod scheduler;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -809,7 +807,6 @@ pub struct BeaconProcessor<E: EthSpec> {
     pub network_globals: Arc<NetworkGlobals<E>>,
     pub executor: TaskExecutor,
     pub current_workers: usize,
-    pub rayon_manager: RayonManager,
     pub config: BeaconProcessorConfig,
 }
 
