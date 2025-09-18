@@ -3,14 +3,17 @@ use crate::{
     Config, Error,
     config::REDB_DATA_FILENAME,
     database::{
+        CURRENT_SCHEMA_VERSION,
         interface::{Key, OpenDatabases, Value},
         *,
-        CURRENT_SCHEMA_VERSION
     },
 };
 use derivative::Derivative;
-use redb::{ReadableTable, TableDefinition};
+use redb::{ReadTransaction, ReadableTable, TableDefinition, WriteTransaction};
 use std::{borrow::Cow, path::PathBuf};
+
+const SCHEMA_TABLE: &str = "schema_verion";
+const SCHEMA_KEY: &[u8] = b"version";
 
 #[derive(Debug)]
 pub struct Environment {
@@ -104,9 +107,44 @@ impl Environment {
         })
     }
 
+    pub fn get_schema_version(&self) -> Result<u64, Error> {
+        let txn: ReadTransaction = self.db.begin_read()?;
+        let table_def: TableDefinition<'_, &[u8], u64> = TableDefinition::new(SCHEMA_TABLE);
+
+        if let Ok(table) = txn.open_table(table_def)
+            && let Some(guard) = table.get(SCHEMA_KEY)?
+        {
+            return Ok(guard.value());
+        }
+
+        Ok(0)
+    }
+
+    pub fn set_schema_version(
+        &self,
+        txn: &mut WriteTransaction,
+        version: u64,
+    ) -> Result<(), Error> {
+        let table_def: TableDefinition<'_, &[u8], u64> = TableDefinition::new(SCHEMA_TABLE);
+        let mut table = txn.open_table(table_def)?;
+        table.insert(SCHEMA_KEY, version)?;
+        Ok(())
+    }
+
     pub fn upgrade(&self) -> Result<(), Error> {
-        let mut txn = self.begin_rw_txn()?;
-        self.set_schema_version(&mut txn, CURRENT_SCHEMA_VERSION)?;
+        let mut txn = self.db.begin_write()?;
+        txn.set_durability(redb::Durability::Eventual);
+
+        let current_version = self.get_schema_version()?;
+
+        if current_version < CURRENT_SCHEMA_VERSION {
+            self.set_schema_version(&mut txn, CURRENT_SCHEMA_VERSION)?;
+        } else if current_version > CURRENT_SCHEMA_VERSION {
+            return Err(Error::IncompatibleSchemaVersion {
+                database_schema_version: current_version,
+                software_schema_version: CURRENT_SCHEMA_VERSION,
+            });
+        }
         txn.commit()?;
         Ok(())
     }

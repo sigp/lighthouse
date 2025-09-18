@@ -17,13 +17,33 @@ impl<E: EthSpec> SlasherDB<E> {
                     software_schema_version: CURRENT_SCHEMA_VERSION,
                 }),
                 (x, y) if x == y => Ok(self),
-                (_, _) => Err(Error::IncompatibleSchemaVersion {
-                    database_schema_version: schema_version,
-                    software_schema_version: CURRENT_SCHEMA_VERSION,
+
+                (from, to) if from + 1 == to && self.is_redb() => {
+                    tracing::info!(
+                        "Detected Redb SlasherDB schema v{} -> upgrading to v{}",
+                        from,
+                        to
+                    );
+                    self.upgrade()?;
+                    Ok(self)
+                }
+
+                (from, to) => Err(Error::IncompatibleSchemaVersion {
+                    database_schema_version: from,
+                    software_schema_version: to,
                 }),
             }
         } else {
+            tracing::info!("No schema version found, assuming fresh DB");
             Ok(self)
         }
+    }
+
+    pub fn is_redb(&self) -> bool {
+        self.env.is_redb()
+    }
+
+    pub fn upgrade(&self) -> Result<(), Error> {
+        self.env.upgrade()
     }
 }

@@ -1,3 +1,4 @@
+use crate::database::CURRENT_SCHEMA_VERSION;
 use crate::{Config, DatabaseBackend, Error};
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -28,7 +29,7 @@ pub enum RwTransaction<'env> {
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::RwTransaction<'env>),
     #[cfg(feature = "redb")]
-    Redb(redb_impl::RwTransaction<'env>),
+    Redb(Box<redb_impl::RwTransaction<'env>>),
     Disabled(PhantomData<&'env ()>),
 }
 
@@ -102,7 +103,10 @@ impl Environment {
             #[cfg(feature = "lmdb")]
             Self::Lmdb(env) => env.begin_rw_txn().map(RwTransaction::Lmdb),
             #[cfg(feature = "redb")]
-            Self::Redb(env) => env.begin_rw_txn().map(RwTransaction::Redb),
+            Self::Redb(env) => env
+                .begin_rw_txn()
+                .map(|txn| RwTransaction::Redb(Box::new(txn))),
+            // Self::Redb(env) => env.begin_rw_txn().map(RwTransaction::Redb),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
@@ -124,15 +128,24 @@ impl Environment {
     pub fn upgrade(&self) -> Result<(), Error> {
         match self {
             #[cfg(feature = "redb")]
-            Self::Redb(env) => env.upgrade(),
-            _ => Ok(())
+            Self::Redb(env) => {
+                tracing::info!(
+                    "Upgrading SlasherDB Redb schema to version {}",
+                    CURRENT_SCHEMA_VERSION
+                );
+                env.upgrade()
+            }
+            _ => Ok(()),
         }
     }
 
     /// Returns true if this database is using Redb as the backend
-    #[cfg(feature = "redb")]
     pub fn is_redb(&self) -> bool {
-        matches!(self, Self::Redb(_))
+        if cfg!(feature = "redb") {
+            matches!(self, Self::Redb(_))
+        } else {
+            false
+        }
     }
 }
 
