@@ -84,10 +84,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if let Some(data_column) =
                     slot_and_column_index_to_data_columns.remove(&(slot, column_index))
                 {
-                    if !self
+                    if self
                         .store
                         .get_data_column(&block_root, &data_column.index)?
-                        .is_none()
+                        .is_some()
                     {
                         tracing::debug!(
                             block_root = ?block_root,

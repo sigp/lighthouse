@@ -498,14 +498,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         data_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = async move {
-            processor
-                .process_historic_data_columns(process_id, data_columns)
-                .await;
-        };
-        let process_fn = Box::pin(process_fn);
+        let process_fn = move || processor.process_historic_data_columns(process_id, data_columns);
 
-        let work = Work::ChainSegmentBackfill(process_fn);
+        let work = Work::ChainSegmentBackfill(Box::new(process_fn));
 
         self.try_send(BeaconWorkEvent {
             drop_during_sync: true,
