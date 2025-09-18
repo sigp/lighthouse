@@ -1463,6 +1463,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Err(e);
         }
 
+        // Delete from the state cache.
+        for op in &hot_db_cache_ops {
+            match op {
+                StoreOp::DeleteBlock(block_root) => {
+                    self.state_cache.lock().delete_block_states(&block_root);
+                }
+                StoreOp::DeleteState(state_root, _) => {
+                    self.state_cache.lock().delete_state(&state_root)
+                }
+                _ => (),
+            }
+        }
+
+        // If the block cache is enabled, also delete from the block cache.
         if let Some(mut guard) = guard {
             for op in hot_db_cache_ops {
                 match op {
@@ -1480,12 +1494,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                     StoreOp::DeleteBlock(block_root) => {
                         guard.delete_block(&block_root);
-                        self.state_cache.lock().delete_block_states(&block_root);
                     }
 
-                    StoreOp::DeleteState(state_root, _) => {
-                        self.state_cache.lock().delete_state(&state_root)
-                    }
+                    StoreOp::DeleteState(_, _) => (),
 
                     StoreOp::DeleteBlobs(_) => (),
 
