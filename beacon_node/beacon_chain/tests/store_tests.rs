@@ -2873,7 +2873,10 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 
     let error = harness
         .chain
-        .import_historical_data_column_batch(Epoch::new(0), data_columns_list)
+        .import_historical_data_column_batch(
+            start_slot.epoch(E::slots_per_epoch()),
+            data_columns_list,
+        )
         .unwrap_err();
 
     assert!(matches!(
