@@ -141,7 +141,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     }
 
     pub fn set_columns(&mut self, columns: HashSet<ColumnIndex>) {
-        info!("Set columns");
         self.columns = columns;
     }
 
