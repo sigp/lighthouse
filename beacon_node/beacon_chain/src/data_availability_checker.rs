@@ -556,6 +556,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
     }
 
+    #[instrument(skip_all, level = "debug")]
     pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
