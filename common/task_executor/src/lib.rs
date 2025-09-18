@@ -8,14 +8,9 @@ use std::sync::{Arc, Mutex, Weak};
 use tokio::runtime::{Handle, Runtime};
 use tracing::{debug, error};
 
-pub use tokio::task::JoinHandle;
-
 use crate::rayon_manager::RayonManager;
-
-pub enum RayonPoolType {
-    HighPriority,
-    LowPriority,
-}
+pub use crate::rayon_manager::RayonPoolType;
+pub use tokio::task::JoinHandle;
 
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -248,10 +243,7 @@ impl TaskExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let thread_pool = match rayon_pool_type {
-            RayonPoolType::HighPriority => self.rayon_manager.high_priority_threadpool.clone(),
-            RayonPoolType::LowPriority => self.rayon_manager.low_priority_threadpool.clone(),
-        };
+        let thread_pool = self.rayon_manager.get_thread_pool(rayon_pool_type);
 
         let result = Arc::new(Mutex::new(None));
         let result_clone = result.clone();

@@ -1681,14 +1681,7 @@ impl TaskSpawner {
     where
         F: FnOnce() + Send + 'static,
     {
-        let thread_pool = match rayon_pool_type {
-            RayonPoolType::HighPriority => {
-                self.executor.rayon_manager.high_priority_threadpool.clone()
-            }
-            RayonPoolType::LowPriority => {
-                self.executor.rayon_manager.low_priority_threadpool.clone()
-            }
-        };
+        let thread_pool = self.executor.rayon_manager.get_thread_pool(rayon_pool_type);
         self.executor.spawn_blocking(
             move || {
                 thread_pool.install(|| {

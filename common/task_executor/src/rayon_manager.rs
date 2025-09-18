@@ -7,20 +7,25 @@ const MINIMUM_LOW_PRIORITY_THREAD_COUNT: usize = 1;
 const DEFAULT_HIGH_PRIORITY_CPU_PERCENTAGE: usize = 80;
 const MINIMUM_HIGH_PRIORITY_THREAD_COUNT: usize = 3;
 
+pub enum RayonPoolType {
+    HighPriority,
+    LowPriority,
+}
+
 pub struct RayonManager {
     /// Smaller rayon thread pool for lower-priority, compute-intensive tasks.
     /// By default ~25% of CPUs or a minimum of 1 thread.
-    pub low_priority_threadpool: Arc<ThreadPool>,
+    low_priority_thread_pool: Arc<ThreadPool>,
     /// Larger rayon thread pool for high-priority, compute-intensive tasks.
     /// By default ~80% of CPUs or a minimum of 3 threads.
-    pub high_priority_threadpool: Arc<ThreadPool>,
+    high_priority_thread_pool: Arc<ThreadPool>,
 }
 
 impl Default for RayonManager {
     fn default() -> Self {
         let low_prio_threads = (num_cpus::get() * DEFAULT_LOW_PRIORITY_CPU_PERCENTAGE / 100)
             .max(MINIMUM_LOW_PRIORITY_THREAD_COUNT);
-        let low_priority_threadpool = Arc::new(
+        let low_priority_thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(low_prio_threads)
                 .build()
@@ -29,15 +34,24 @@ impl Default for RayonManager {
 
         let high_prio_threads = (num_cpus::get() * DEFAULT_HIGH_PRIORITY_CPU_PERCENTAGE / 100)
             .max(MINIMUM_HIGH_PRIORITY_THREAD_COUNT);
-        let high_priority_threadpool = Arc::new(
+        let high_priority_thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(high_prio_threads)
                 .build()
                 .expect("failed to build high-priority rayon pool"),
         );
         Self {
-            low_priority_threadpool,
-            high_priority_threadpool,
+            low_priority_thread_pool,
+            high_priority_thread_pool,
+        }
+    }
+}
+
+impl RayonManager {
+    pub fn get_thread_pool(&self, rayon_pool_type: RayonPoolType) -> Arc<ThreadPool> {
+        match rayon_pool_type {
+            RayonPoolType::HighPriority => self.high_priority_thread_pool.clone(),
+            RayonPoolType::LowPriority => self.low_priority_thread_pool.clone(),
         }
     }
 }
