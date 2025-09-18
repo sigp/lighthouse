@@ -1809,6 +1809,12 @@ fn slots_per_restore_point_flag() {
 }
 
 #[test]
+fn block_cache_size_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 0));
+}
+#[test]
 fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
