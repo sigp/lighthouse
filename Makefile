@@ -249,6 +249,7 @@ lint:
 		-D clippy::fn_to_numeric_cast_any \
 		-D clippy::manual_let_else \
 		-D clippy::large_stack_frames \
+		-D clippy::disallowed_methods \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::upper-case-acronyms \

@@ -285,21 +285,21 @@ impl TestRig {
         );
     }
 
-    fn insert_failed_chain(&mut self, block_root: Hash256) {
-        self.sync_manager.insert_failed_chain(block_root);
+    fn insert_ignored_chain(&mut self, block_root: Hash256) {
+        self.sync_manager.insert_ignored_chain(block_root);
     }
 
-    fn assert_not_failed_chain(&mut self, chain_hash: Hash256) {
-        let failed_chains = self.sync_manager.get_failed_chains();
-        if failed_chains.contains(&chain_hash) {
-            panic!("failed chains contain {chain_hash:?}: {failed_chains:?}");
+    fn assert_not_ignored_chain(&mut self, chain_hash: Hash256) {
+        let chains = self.sync_manager.get_ignored_chains();
+        if chains.contains(&chain_hash) {
+            panic!("ignored chains contain {chain_hash:?}: {chains:?}");
         }
     }
 
-    fn assert_failed_chain(&mut self, chain_hash: Hash256) {
-        let failed_chains = self.sync_manager.get_failed_chains();
-        if !failed_chains.contains(&chain_hash) {
-            panic!("expected failed chains to contain {chain_hash:?}: {failed_chains:?}");
+    fn assert_ignored_chain(&mut self, chain_hash: Hash256) {
+        let chains = self.sync_manager.get_ignored_chains();
+        if !chains.contains(&chain_hash) {
+            panic!("expected ignored chains to contain {chain_hash:?}: {chains:?}");
         }
     }
 
@@ -1021,11 +1021,6 @@ impl TestRig {
         self.log(&format!("Found expected penalty {penalty_msg}"));
     }
 
-    pub fn expect_single_penalty(&mut self, peer_id: PeerId, expect_penalty_msg: &'static str) {
-        self.expect_penalty(peer_id, expect_penalty_msg);
-        self.expect_no_penalty_for(peer_id);
-    }
-
     pub fn block_with_parent_and_blobs(
         &mut self,
         parent_root: Hash256,
@@ -1461,7 +1456,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     // Trigger the request
     rig.trigger_unknown_parent_block(peer_id, block.into());
     for i in 1..=PARENT_FAIL_TOLERANCE {
-        rig.assert_not_failed_chain(block_root);
+        rig.assert_not_ignored_chain(block_root);
         let id = rig.expect_block_parent_request(parent_root);
         if i % 2 != 0 {
             // The request fails. It should be tried again.
@@ -1474,8 +1469,8 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
         }
     }
 
-    rig.assert_not_failed_chain(block_root);
-    rig.assert_not_failed_chain(parent.canonical_root());
+    rig.assert_not_ignored_chain(block_root);
+    rig.assert_not_ignored_chain(parent.canonical_root());
     rig.expect_no_active_lookups_empty_network();
 }
 
@@ -1500,7 +1495,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
     for _ in 0..PROCESSING_FAILURES {
         let id = rig.expect_block_parent_request(parent_root);
         // Blobs are only requested in the previous first iteration as this test only retries blocks
-        rig.assert_not_failed_chain(block_root);
+        rig.assert_not_ignored_chain(block_root);
         // send the right parent but fail processing
         rig.parent_lookup_block_response(id, peer_id, Some(parent.clone().into()));
         rig.parent_block_processed(block_root, BlockError::BlockSlotLimitReached.into());
@@ -1508,7 +1503,7 @@ fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
         rig.expect_penalty(peer_id, "lookup_block_processing_failure");
     }
 
-    rig.assert_not_failed_chain(block_root);
+    rig.assert_not_ignored_chain(block_root);
     rig.expect_no_active_lookups_empty_network();
 }
 
@@ -1551,12 +1546,14 @@ fn test_parent_lookup_too_deep_grow_ancestor() {
     );
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     rig.expect_no_penalty_for(peer_id);
-    rig.assert_failed_chain(chain_hash);
+    rig.assert_ignored_chain(chain_hash);
 }
 
 // Regression test for https://github.com/sigp/lighthouse/pull/7118
+// 8042 UPDATE: block was previously added to the failed_chains cache, now it's inserted into the
+// ignored chains cache. The regression test still applies as the chaild lookup is not created
 #[test]
-fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
+fn test_child_lookup_not_created_for_ignored_chain_parent_after_processing() {
     // GIVEN: A parent chain longer than PARENT_DEPTH_TOLERANCE.
     let mut rig = TestRig::test_setup();
     let mut blocks = rig.rand_blockchain(PARENT_DEPTH_TOLERANCE + 1);
@@ -1586,8 +1583,8 @@ fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
     }
 
     // At this point, the chain should have been deemed too deep and pruned.
-    // The tip root should have been inserted into failed chains.
-    rig.assert_failed_chain(tip_root);
+    // The tip root should have been inserted into ignored chains.
+    rig.assert_ignored_chain(tip_root);
     rig.expect_no_penalty_for(peer_id);
 
     // WHEN: Trigger the extending block that points to the tip.
@@ -1604,10 +1601,10 @@ fn test_child_lookup_not_created_for_failed_chain_parent_after_processing() {
         }),
     );
 
-    // THEN: The extending block should not create a lookup because the tip was inserted into failed chains.
+    // THEN: The extending block should not create a lookup because the tip was inserted into
+    // ignored chains.
     rig.expect_no_active_lookups();
-    // AND: The peer should be penalized for extending a failed chain.
-    rig.expect_single_penalty(peer_id, "failed_chain");
+    rig.expect_no_penalty_for(peer_id);
     rig.expect_empty_network();
 }
 
@@ -1646,7 +1643,7 @@ fn test_parent_lookup_too_deep_grow_tip() {
     );
     // Should not penalize peer, but network is not clear because of the blocks_by_range requests
     rig.expect_no_penalty_for(peer_id);
-    rig.assert_failed_chain(tip.canonical_root());
+    rig.assert_ignored_chain(tip.canonical_root());
 }
 
 #[test]
@@ -1699,15 +1696,14 @@ fn test_lookup_add_peers_to_parent() {
 }
 
 #[test]
-fn test_skip_creating_failed_parent_lookup() {
+fn test_skip_creating_ignored_parent_lookup() {
     let mut rig = TestRig::test_setup();
     let (_, block, parent_root, _) = rig.rand_block_and_parent();
     let peer_id = rig.new_connected_peer();
-    rig.insert_failed_chain(parent_root);
+    rig.insert_ignored_chain(parent_root);
     rig.trigger_unknown_parent_block(peer_id, block.into());
-    // Expect single penalty for peer, despite dropping two lookups
-    rig.expect_single_penalty(peer_id, "failed_chain");
-    // Both current and parent lookup should be rejected
+    rig.expect_no_penalty_for(peer_id);
+    // Both current and parent lookup should not be created
     rig.expect_no_active_lookups();
 }
 
