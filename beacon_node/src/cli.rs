@@ -779,7 +779,7 @@ pub fn cli_app() -> Command {
                 .long("block-cache-size")
                 .value_name("SIZE")
                 .help("Specifies how many blocks the database should cache in memory")
-                .default_value("5")
+                .default_value("0")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
