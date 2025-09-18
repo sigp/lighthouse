@@ -6,9 +6,7 @@ use beacon_chain::data_column_verification::{GossipDataColumnError, observe_goss
 use beacon_chain::fetch_blobs::{
     EngineGetBlobsOutput, FetchEngineBlobError, fetch_and_process_engine_blobs,
 };
-use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, NotifyExecutionLayer,
-};
+use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError};
 use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
@@ -500,33 +498,23 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_id: ChainSegmentProcessId,
         blocks: Vec<RpcBlock<T::EthSpec>>,
     ) -> Result<(), Error<T::EthSpec>> {
-        let is_backfill = matches!(&process_id, ChainSegmentProcessId::BackSyncBatchId { .. });
         debug!(blocks = blocks.len(), id = ?process_id, "Batch sending for process");
-
         let processor = self.clone();
-        let process_fn = async move {
-            let notify_execution_layer = if processor
-                .network_globals
-                .sync_state
-                .read()
-                .is_syncing_finalized()
-            {
-                NotifyExecutionLayer::No
-            } else {
-                NotifyExecutionLayer::Yes
-            };
-            processor
-                .process_chain_segment(process_id, blocks, notify_execution_layer)
-                .await;
-        };
-        let process_fn = Box::pin(process_fn);
 
         // Back-sync batches are dispatched with a different `Work` variant so
         // they can be rate-limited.
-        let work = if is_backfill {
-            Work::ChainSegmentBackfill(process_fn)
-        } else {
-            Work::ChainSegment(process_fn)
+        let work = match process_id {
+            ChainSegmentProcessId::RangeBatchId(_, _) => {
+                let process_fn = async move {
+                    processor.process_chain_segment(process_id, blocks).await;
+                };
+                Work::ChainSegment(Box::pin(process_fn))
+            }
+            ChainSegmentProcessId::BackSyncBatchId(_) => {
+                let process_fn =
+                    move || processor.process_chain_segment_backfill(process_id, blocks);
+                Work::ChainSegmentBackfill(Box::new(process_fn))
+            }
         };
 
         self.try_send(BeaconWorkEvent {

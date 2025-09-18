@@ -173,7 +173,7 @@ pub struct IgnoredRpcBlock {
 }
 
 /// A backfill batch work that has been queued for processing later.
-pub struct QueuedBackfillBatch(pub AsyncFn);
+pub struct QueuedBackfillBatch(pub BlockingFn);
 
 pub struct QueuedColumnReconstruction {
     pub block_root: Hash256,
@@ -1084,7 +1084,7 @@ mod tests {
         // Now queue a backfill sync batch.
         work_reprocessing_tx
             .try_send(ReprocessQueueMessage::BackfillSync(QueuedBackfillBatch(
-                Box::pin(async {}),
+                Box::new(|| {}),
             )))
             .unwrap();
         tokio::task::yield_now().await;

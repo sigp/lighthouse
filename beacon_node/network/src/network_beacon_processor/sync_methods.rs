@@ -19,9 +19,10 @@ use beacon_processor::{
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
 use lighthouse_tracing::{
-    SPAN_PROCESS_CHAIN_SEGMENT, SPAN_PROCESS_RPC_BLOBS, SPAN_PROCESS_RPC_BLOCK,
-    SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
+    SPAN_PROCESS_CHAIN_SEGMENT, SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL, SPAN_PROCESS_RPC_BLOBS,
+    SPAN_PROCESS_RPC_BLOCK, SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
 };
+use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
@@ -434,27 +435,42 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(sync_type = ?sync_type, downloaded_blocks = downloaded_blocks.len())
+        fields(process_id = ?process_id, downloaded_blocks = downloaded_blocks.len())
     )]
     pub async fn process_chain_segment(
         &self,
-        sync_type: ChainSegmentProcessId,
+        process_id: ChainSegmentProcessId,
         downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
-        notify_execution_layer: NotifyExecutionLayer,
     ) {
-        let result = match sync_type {
-            // this a request from the range sync
-            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
-                let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
-                let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
-                let sent_blocks = downloaded_blocks.len();
+        let ChainSegmentProcessId::RangeBatchId(chain_id, epoch) = process_id else {
+            // This is a request from range sync, this should _never_ happen
+            crit!(
+                error = "process_chain_segment called on a variant other than RangeBatchId",
+                "Please notify the devs"
+            );
+            return;
+        };
 
-                match self
-                    .process_blocks(downloaded_blocks.iter(), notify_execution_layer)
-                    .await
-                {
-                    (imported_blocks, Ok(_)) => {
-                        debug!(
+        let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
+        let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
+        let sent_blocks = downloaded_blocks.len();
+        let notify_execution_layer = if self
+            .network_globals
+            .sync_state
+            .read()
+            .is_syncing_finalized()
+        {
+            NotifyExecutionLayer::No
+        } else {
+            NotifyExecutionLayer::Yes
+        };
+
+        let result = match self
+            .process_blocks(downloaded_blocks.iter(), notify_execution_layer)
+            .await
+        {
+            (imported_blocks, Ok(_)) => {
+                debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
                             chain = chain_id,
@@ -462,13 +478,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             processed_blocks = sent_blocks,
                             service= "sync",
                             "Batch processed");
-                        BatchProcessResult::Success {
-                            sent_blocks,
-                            imported_blocks,
-                        }
-                    }
-                    (imported_blocks, Err(e)) => {
-                        debug!(
+                BatchProcessResult::Success {
+                    sent_blocks,
+                    imported_blocks,
+                }
+            }
+            (imported_blocks, Err(e)) => {
+                debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
                             chain = chain_id,
@@ -477,33 +493,61 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             error = %e.message,
                             service = "sync",
                             "Batch processing failed");
-                        match e.peer_action {
-                            Some(penalty) => BatchProcessResult::FaultyFailure {
-                                imported_blocks,
-                                penalty,
-                            },
-                            None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
+                match e.peer_action {
+                    Some(penalty) => BatchProcessResult::FaultyFailure {
+                        imported_blocks,
+                        penalty,
+                    },
+                    None => BatchProcessResult::NonFaultyFailure,
                 }
             }
-            // this a request from the Backfill sync
-            ChainSegmentProcessId::BackSyncBatchId(epoch) => {
-                let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
-                let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
-                let sent_blocks = downloaded_blocks.len();
-                let n_blobs = downloaded_blocks
-                    .iter()
-                    .map(|wrapped| wrapped.n_blobs())
-                    .sum::<usize>();
-                let n_data_columns = downloaded_blocks
-                    .iter()
-                    .map(|wrapped| wrapped.n_data_columns())
-                    .sum::<usize>();
+        };
 
-                match self.process_backfill_blocks(downloaded_blocks) {
-                    (imported_blocks, Ok(_)) => {
-                        debug!(
+        self.send_sync_message(SyncMessage::BatchProcessed {
+            sync_type: process_id,
+            result,
+        });
+    }
+
+    /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
+    /// thread if more blocks are needed to process it.
+    #[instrument(
+        name = SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(downloaded_blocks = downloaded_blocks.len())
+    )]
+    pub fn process_chain_segment_backfill(
+        &self,
+        process_id: ChainSegmentProcessId,
+        downloaded_blocks: Vec<RpcBlock<T::EthSpec>>,
+    ) {
+        let ChainSegmentProcessId::BackSyncBatchId(epoch) = process_id else {
+            // this a request from RangeSync, this should _never_ happen
+            crit!(
+                error =
+                    "process_chain_segment_backfill called on a variant other than BackSyncBatchId",
+                "Please notify the devs"
+            );
+            return;
+        };
+
+        let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
+        let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
+        let sent_blocks = downloaded_blocks.len();
+        let n_blobs = downloaded_blocks
+            .iter()
+            .map(|wrapped| wrapped.n_blobs())
+            .sum::<usize>();
+        let n_data_columns = downloaded_blocks
+            .iter()
+            .map(|wrapped| wrapped.n_data_columns())
+            .sum::<usize>();
+
+        let result = match self.process_backfill_blocks(downloaded_blocks) {
+            (imported_blocks, Ok(_)) => {
+                debug!(
                             batch_epoch = %epoch,
                             first_block_slot = start_slot,
                             keep_execution_payload = !self.chain.store.get_config().prune_payloads,
@@ -513,34 +557,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             processed_data_columns = n_data_columns,
                             service= "sync",
                             "Backfill batch processed");
-                        BatchProcessResult::Success {
-                            sent_blocks,
-                            imported_blocks,
-                        }
-                    }
-                    (_, Err(e)) => {
-                        debug!(
-                            batch_epoch = %epoch,
-                            first_block_slot = start_slot,
-                            last_block_slot = end_slot,
-                            processed_blobs = n_blobs,
-                            error = %e.message,
-                            service = "sync",
-                            "Backfill batch processing failed"
-                        );
-                        match e.peer_action {
-                            Some(penalty) => BatchProcessResult::FaultyFailure {
-                                imported_blocks: 0,
-                                penalty,
-                            },
-                            None => BatchProcessResult::NonFaultyFailure,
-                        }
-                    }
+                BatchProcessResult::Success {
+                    sent_blocks,
+                    imported_blocks,
+                }
+            }
+            (_, Err(e)) => {
+                debug!(
+                    batch_epoch = %epoch,
+                    first_block_slot = start_slot,
+                    last_block_slot = end_slot,
+                    processed_blobs = n_blobs,
+                    error = %e.message,
+                    service = "sync",
+                    "Backfill batch processing failed"
+                );
+                match e.peer_action {
+                    Some(penalty) => BatchProcessResult::FaultyFailure {
+                        imported_blocks: 0,
+                        penalty,
+                    },
+                    None => BatchProcessResult::NonFaultyFailure,
                 }
             }
         };
 
-        self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
+        self.send_sync_message(SyncMessage::BatchProcessed {
+            sync_type: process_id,
+            result,
+        });
     }
 
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
