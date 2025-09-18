@@ -82,6 +82,23 @@ pub enum ColumnsByRangeParentRequestId {
     CustodyBackfillSync(CustodyBackFillBatchRequestId),
 }
 
+impl Display for ColumnsByRangeParentRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColumnsByRangeParentRequestId::ComponentsByRange(parent_request_id) => {
+                let id = parent_request_id.id;
+                let requester = parent_request_id.requester;
+                write!(f, "{id}/{requester}")
+            }
+            ColumnsByRangeParentRequestId::CustodyBackfillSync(parent_request_id) => {
+                let id = parent_request_id.id;
+                let epoch = parent_request_id.epoch;
+                write!(f, "{id}/{epoch}")
+            }
+        }
+    }
+}
+
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
 /// handle retries and tie all their sub requests together.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -225,12 +242,6 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
                 }
             },
         }
-    }
-}
-
-impl Display for ColumnsByRangeParentRequestId {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        Ok(())
     }
 }
 
