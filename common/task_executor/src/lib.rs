@@ -255,7 +255,7 @@ impl TaskExecutor {
 
         let result = Arc::new(Mutex::new(None));
         let result_clone = result.clone();
-       
+
         if let Some(task_handle) = self.spawn_blocking_handle(
             move || {
                 thread_pool.scope(|s| {
