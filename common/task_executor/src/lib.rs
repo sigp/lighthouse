@@ -6,7 +6,7 @@ use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use std::sync::{Arc, Mutex, Weak};
 use tokio::runtime::{Handle, Runtime};
-use tracing::debug;
+use tracing::{debug, error};
 
 pub use tokio::task::JoinHandle;
 
@@ -261,8 +261,11 @@ impl TaskExecutor {
                 thread_pool.scope(|s| {
                     s.spawn(|_| {
                         let r = task();
-                        if let Ok(mut guard) = result_clone.lock() {
-                            *guard = Some(r);
+                        match result_clone.lock() {
+                            Ok(mut guard) => *guard = Some(r),
+                            Err(e) => {
+                                error!(error=?e, task_name=name, "Rayon pool lock is poisoned");
+                            }
                         }
                     })
                 })
@@ -274,7 +277,10 @@ impl TaskExecutor {
 
         match result.lock() {
             Ok(mut guard) => guard.take(),
-            Err(_) => None,
+            Err(e) => {
+                error!(error=?e, task_name=name, "Rayon pool lock is poisoned");
+                None
+            }
         }
     }
 
