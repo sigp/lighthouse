@@ -574,9 +574,10 @@ Flags:
       --supernode
           Run as a voluntary supernode. This node will subscribe to all data
           column subnets, custody all data columns, and perform reconstruction
-          and cross-seeding. Significantly increases bandwidth, storage, and
-          computation requirements but helps network resilience by ensuring data
-          availability.
+          and cross-seeding. This requires significantly more bandwidth,
+          storage, and computation requirements but the node will have direct
+          access to all blobs via the beacon API and it helps network resilience
+          by custodying and serving data columns to peers.
       --validator-monitor-auto
           Enables the automatic detection and monitoring of validators connected
           to the HTTP API and using the subnet subscription endpoint. This

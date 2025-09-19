@@ -54,8 +54,9 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .help("Run as a voluntary supernode. This node will subscribe to all data column \
                           subnets, custody all data columns, and perform reconstruction and cross-seeding. \
-                          Significantly increases bandwidth, storage, and computation requirements but \
-                          helps network resilience by ensuring data availability.")
+                          This requires significantly more bandwidth, storage, and computation requirements but \
+                          the node will have direct access to all blobs via the beacon API and it \
+                          helps network resilience by serving all data columns to syncing peers.")
                 .display_order(0)
         )
         .arg(
