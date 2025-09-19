@@ -646,6 +646,41 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         Err(Errors(errors))
     }
 
+    /// Try `func` on a specific beacon node by index first, then fall back to the normal order.
+    /// Returns immediately if the preferred node succeeds, otherwise falls back to first_success.
+    /// This is an insurance against potential race conditions that may arise.
+    pub async fn first_success_from_index<F, O, Err, R>(
+        &self,
+        preferred_index: Option<usize>,
+        func: F,
+    ) -> Result<O, Errors<Err>>
+    where
+        F: Fn(BeaconNodeHttpClient) -> R + Clone,
+        R: Future<Output = Result<O, Err>>,
+        Err: Debug,
+    {
+        let candidates = self.candidates.read().await;
+
+        // Try the preferred beacon node first if it exists
+        if let Some(preferred_idx) = preferred_index
+            && let Some(preferred_candidate) = candidates.iter().find(|c| c.index == preferred_idx)
+        {
+            let preferred_node = preferred_candidate.beacon_node.clone();
+            drop(candidates);
+
+            match Self::run_on_candidate(preferred_node, &func).await {
+                Ok(val) => return Ok(val),
+                Err(_) => {
+                    return self.first_success(func).await;
+                }
+            }
+        }
+
+        // Fall back to normal first_success behavior
+        drop(candidates);
+        self.first_success(func).await
+    }
+
     /// Run the future `func` on `candidate` while reporting metrics.
     async fn run_on_candidate<F, R, Err, O>(
         candidate: BeaconNodeHttpClient,

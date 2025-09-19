@@ -1,6 +1,7 @@
 pub mod attestation_service;
 pub mod block_service;
 pub mod duties_service;
+pub mod head_monitor_service;
 pub mod latency_service;
 pub mod notifier_service;
 pub mod preparation_service;
