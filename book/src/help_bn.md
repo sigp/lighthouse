@@ -577,7 +577,7 @@ Flags:
           and cross-seeding. This requires significantly more bandwidth,
           storage, and computation requirements but the node will have direct
           access to all blobs via the beacon API and it helps network resilience
-          by custodying and serving data columns to peers.
+          by serving all data columns to syncing peers.
       --validator-monitor-auto
           Enables the automatic detection and monitoring of validators connected
           to the HTTP API and using the subnet subscription endpoint. This
