@@ -9,6 +9,7 @@ use metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SLASHING_PROTECTION_FILENAME, SlashingDatabase};
+use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
@@ -42,6 +43,7 @@ use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
     duties_service::{self, DutiesService, DutiesServiceBuilder},
+    head_monitor_service::{HeadMonitorService, HeadMonitorServiceBuilder},
     latency_service,
     preparation_service::{PreparationService, PreparationServiceBuilder},
     sync_committee_service::SyncCommitteeService,
@@ -79,6 +81,7 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     context: RuntimeContext<E>,
     duties_service: Arc<DutiesService<ValidatorStore<E>, SystemTimeSlotClock>>,
     block_service: BlockService<ValidatorStore<E>, SystemTimeSlotClock>,
+    head_monitor_service: HeadMonitorService<ValidatorStore<E>, SystemTimeSlotClock>,
     attestation_service: AttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
     sync_committee_service: SyncCommitteeService<ValidatorStore<E>, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
@@ -493,7 +496,17 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             block_service_builder = block_service_builder.proposer_nodes(proposer_nodes.clone());
         }
 
+        let (head_sender, head_receiver) = mpsc::channel(1_024);
+
         let block_service = block_service_builder.build()?;
+
+        let head_monitor_service = HeadMonitorServiceBuilder::new()
+            .slot_clock(slot_clock.clone())
+            .executor(context.executor.clone())
+            .validator_store(validator_store.clone())
+            .beacon_nodes(beacon_nodes.clone())
+            .head_monitor_tx(Arc::new(head_sender))
+            .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
@@ -502,6 +515,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .beacon_nodes(beacon_nodes.clone())
             .executor(context.executor.clone())
             .chain_spec(context.eth2_config.spec.clone())
+            .head_monitor_rx(Arc::new(Mutex::new(head_receiver)))
             .disable(config.disable_attesting)
             .build()?;
 
@@ -526,6 +540,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context,
             duties_service,
             block_service,
+            head_monitor_service,
             attestation_service,
             sync_committee_service,
             doppelganger_service,
@@ -603,6 +618,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start preparation service: {}", e))?;
+
+        self.head_monitor_service
+            .clone()
+            .start_update_service()
+            .map_err(|e| format!("Unable to start head monitor service: {}", e))?;
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(

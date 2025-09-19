@@ -1,4 +1,7 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
+use tokio::sync::Mutex;
+
+use crate::head_monitor_service::HeadEvent;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use futures::future::join_all;
 use logging::crit;
@@ -7,6 +10,7 @@ use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant, sleep, sleep_until};
 use tracing::{debug, error, info, trace, warn};
 use tree_hash::TreeHash;
@@ -22,6 +26,7 @@ pub struct AttestationServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> 
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: Option<TaskExecutor>,
     chain_spec: Option<Arc<ChainSpec>>,
+    head_monitor_rx: Option<Arc<Mutex<mpsc::Receiver<HeadEvent>>>>,
     disable: bool,
 }
 
@@ -34,6 +39,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
             beacon_nodes: None,
             executor: None,
             chain_spec: None,
+            head_monitor_rx: None,
             disable: false,
         }
     }
@@ -73,6 +79,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
         self
     }
 
+    pub fn head_monitor_rx(
+        mut self,
+        head_monitor_rx: Arc<Mutex<mpsc::Receiver<HeadEvent>>>,
+    ) -> Self {
+        self.head_monitor_rx = Some(head_monitor_rx);
+        self
+    }
     pub fn build(self) -> Result<AttestationService<S, T>, String> {
         Ok(AttestationService {
             inner: Arc::new(Inner {
@@ -94,6 +107,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
                 chain_spec: self
                     .chain_spec
                     .ok_or("Cannot build AttestationService without chain_spec")?,
+                head_monitor_rx: self
+                    .head_monitor_rx
+                    .ok_or("Cannot build AttestationService without head_monitor_rx")?,
                 disable: self.disable,
             }),
         })
@@ -108,6 +124,7 @@ pub struct Inner<S, T> {
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     executor: TaskExecutor,
     chain_spec: Arc<ChainSpec>,
+    head_monitor_rx: Arc<Mutex<mpsc::Receiver<HeadEvent>>>,
     disable: bool,
 }
 
@@ -160,9 +177,17 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         let interval_fut = async move {
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    sleep(duration_to_next_slot + slot_duration / 3).await;
+                    let mut beacon_node_index: Option<usize> = None;
+                    tokio::select! {
+                        _ = sleep(duration_to_next_slot + slot_duration / 3) => {},
+                        head_event = self.poll_for_head_events() => {
+                            if let Ok(event) = head_event {
+                                beacon_node_index = Some(event.beacon_node_index);
+                            }
+                        }
+                    }
 
-                    if let Err(e) = self.spawn_attestation_tasks(slot_duration) {
+                    if let Err(e) = self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
                         crit!(error = e, "Failed to spawn attestation tasks")
                     } else {
                         trace!("Spawned attestation tasks");
@@ -180,9 +205,25 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
+    async fn poll_for_head_events(&self) -> Result<HeadEvent, String> {
+        let mut receiver = self.head_monitor_rx.lock().await;
+        match receiver.recv().await {
+            Some(head_event) => Ok(head_event),
+            None => Err("Head monitor channel closed unexpectedly".to_string()),
+        }
+    }
+
     /// For each each required attestation, spawn a new task that downloads, signs and uploads the
     /// attestation to the beacon node.
-    fn spawn_attestation_tasks(&self, slot_duration: Duration) -> Result<(), String> {
+    fn spawn_attestation_tasks(
+        &self,
+        slot_duration: Duration,
+        beacon_node_index: Option<usize>,
+    ) -> Result<(), String> {
+        info!(
+            "process attestation from beacon_node_index {:?}",
+            beacon_node_index
+        );
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
@@ -221,6 +262,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         committee_index,
                         validator_duties,
                         aggregate_production_instant,
+                        beacon_node_index,
                     ),
                     "attestation publish",
                 );
@@ -249,6 +291,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         committee_index: CommitteeIndex,
         validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
+        candidate_beacon_node: Option<usize>,
     ) -> Result<(), ()> {
         let attestations_timer = validator_metrics::start_timer_vec(
             &validator_metrics::ATTESTATION_SERVICE_TIMES,
@@ -265,7 +308,12 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         //
         // Download, sign and publish an `Attestation` for each validator.
         let attestation_opt = self
-            .produce_and_publish_attestations(slot, committee_index, &validator_duties)
+            .produce_and_publish_attestations(
+                slot,
+                committee_index,
+                &validator_duties,
+                candidate_beacon_node,
+            )
             .await
             .map_err(move |e| {
                 crit!(
@@ -333,6 +381,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         slot: Slot,
         committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
+        candidate_beacon_node: Option<usize>,
     ) -> Result<Option<AttestationData>, String> {
         if validator_duties.is_empty() {
             return Ok(None);
@@ -346,7 +395,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         let attestation_data = self
             .beacon_nodes
-            .first_success(|beacon_node| async move {
+            .first_success_from_index(candidate_beacon_node, |beacon_node| async move {
                 let _timer = validator_metrics::start_timer_vec(
                     &validator_metrics::ATTESTATION_SERVICE_TIMES,
                     &[validator_metrics::ATTESTATIONS_HTTP_GET],
