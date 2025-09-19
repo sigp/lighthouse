@@ -2,10 +2,8 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::sync::Arc;
 
 const DEFAULT_LOW_PRIORITY_CPU_PERCENTAGE: usize = 25;
-const MINIMUM_LOW_PRIORITY_THREAD_COUNT: usize = 1;
-
 const DEFAULT_HIGH_PRIORITY_CPU_PERCENTAGE: usize = 80;
-const MINIMUM_HIGH_PRIORITY_THREAD_COUNT: usize = 3;
+const MINIMUM_THREAD_COUNT: usize = 1;
 
 pub enum RayonPoolType {
     HighPriority,
@@ -17,14 +15,14 @@ pub struct RayonManager {
     /// By default ~25% of CPUs or a minimum of 1 thread.
     low_priority_thread_pool: Arc<ThreadPool>,
     /// Larger rayon thread pool for high-priority, compute-intensive tasks.
-    /// By default ~80% of CPUs or a minimum of 3 threads.
+    /// By default ~80% of CPUs or a minimum of 1 thread.
     high_priority_thread_pool: Arc<ThreadPool>,
 }
 
 impl Default for RayonManager {
     fn default() -> Self {
         let low_prio_threads = (num_cpus::get() * DEFAULT_LOW_PRIORITY_CPU_PERCENTAGE / 100)
-            .max(MINIMUM_LOW_PRIORITY_THREAD_COUNT);
+            .max(MINIMUM_THREAD_COUNT);
         let low_priority_thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(low_prio_threads)
@@ -33,7 +31,7 @@ impl Default for RayonManager {
         );
 
         let high_prio_threads = (num_cpus::get() * DEFAULT_HIGH_PRIORITY_CPU_PERCENTAGE / 100)
-            .max(MINIMUM_HIGH_PRIORITY_THREAD_COUNT);
+            .max(MINIMUM_THREAD_COUNT);
         let high_priority_thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(high_prio_threads)
