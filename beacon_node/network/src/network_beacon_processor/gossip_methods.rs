@@ -1500,11 +1500,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block_with_early_caching(
+            .process_block(
                 block_root,
                 verified_block,
-                BlockImportSource::Gossip,
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Gossip,
+                || Ok(()),
             )
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "block");
