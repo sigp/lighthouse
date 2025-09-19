@@ -47,16 +47,17 @@ pub fn cli_app() -> Command {
          * Network parameters.
          */
         .arg(
-            Arg::new("subscribe-all-data-column-subnets")
-                .long("subscribe-all-data-column-subnets")
+            Arg::new("supernode")
+                .long("supernode")
+                .alias("subscribe-all-data-column-subnets")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("Subscribe to all data column subnets and participate in data custody for \
-                        all columns. This will also advertise the beacon node as being long-lived \
-                        subscribed to all data column subnets. \
-                        NOTE: this is an experimental flag and may change any time without notice!")
+                .help("Run as a voluntary supernode. This node will subscribe to all data column \
+                          subnets, custody all data columns, and perform reconstruction and cross-seeding. \
+                          This requires significantly more bandwidth, storage, and computation requirements but \
+                          the node will have direct access to all blobs via the beacon API and it \
+                          helps network resilience by serving all data columns to syncing peers.")
                 .display_order(0)
-                .hide(true)
         )
         .arg(
             // TODO(das): remove this before PeerDAS release
