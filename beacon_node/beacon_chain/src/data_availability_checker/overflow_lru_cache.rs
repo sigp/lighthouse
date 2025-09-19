@@ -1,6 +1,5 @@
 use super::AvailableBlockData;
 use super::state_lru_cache::{DietAvailabilityPendingExecutedBlock, StateLRUCache};
-use crate::BeaconChainTypes;
 use crate::CustodyContext;
 use crate::beacon_chain::BeaconStore;
 use crate::blob_verification::KzgVerifiedBlob;
@@ -9,6 +8,7 @@ use crate::block_verification_types::{
 };
 use crate::data_availability_checker::{Availability, AvailabilityCheckError};
 use crate::data_column_verification::KzgVerifiedCustodyDataColumn;
+use crate::{BeaconChainTypes, BlockProcessStatus};
 use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -16,11 +16,45 @@ use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
+use types::beacon_block_body::KzgCommitments;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
     Hash256, RuntimeFixedVector, RuntimeVariableList, SignedBeaconBlock,
 };
+
+#[derive(Clone)]
+pub enum CachedBlock<E: EthSpec> {
+    PreExecution(Arc<SignedBeaconBlock<E>>),
+    Executed(Box<DietAvailabilityPendingExecutedBlock<E>>),
+}
+
+impl<E: EthSpec> CachedBlock<E> {
+    pub fn get_commitments(&self) -> KzgCommitments<E> {
+        let block = self.as_block();
+        block
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn as_block(&self) -> &SignedBeaconBlock<E> {
+        match self {
+            CachedBlock::PreExecution(b) => b,
+            CachedBlock::Executed(b) => b.as_block(),
+        }
+    }
+
+    pub fn num_blobs_expected(&self) -> usize {
+        self.as_block()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .map_or(0, |commitments| commitments.len())
+    }
+}
 
 /// This represents the components of a partially available block
 ///
@@ -39,20 +73,23 @@ pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
-    pub executed_block: Option<DietAvailabilityPendingExecutedBlock<E>>,
+    pub block: Option<CachedBlock<E>>,
     pub reconstruction_started: bool,
     span: Span,
 }
 
 impl<E: EthSpec> PendingComponents<E> {
-    /// Returns an immutable reference to the cached block.
-    pub fn get_cached_block(&self) -> &Option<DietAvailabilityPendingExecutedBlock<E>> {
-        &self.executed_block
-    }
-
     /// Returns an immutable reference to the fixed vector of cached blobs.
     pub fn get_cached_blobs(&self) -> &RuntimeFixedVector<Option<KzgVerifiedBlob<E>>> {
         &self.verified_blobs
+    }
+
+    #[cfg(test)]
+    fn get_diet_block(&self) -> Option<&DietAvailabilityPendingExecutedBlock<E>> {
+        self.block.as_ref().and_then(|block| match block {
+            CachedBlock::Executed(block) => Some(block.as_ref()),
+            _ => None,
+        })
     }
 
     /// Returns an immutable reference to the cached data column.
@@ -64,11 +101,6 @@ impl<E: EthSpec> PendingComponents<E> {
             .iter()
             .find(|d| d.index() == data_column_index)
             .map(|d| d.clone_arc())
-    }
-
-    /// Returns a mutable reference to the cached block.
-    pub fn get_cached_block_mut(&mut self) -> &mut Option<DietAvailabilityPendingExecutedBlock<E>> {
-        &mut self.executed_block
     }
 
     /// Returns a mutable reference to the fixed vector of cached blobs.
@@ -96,9 +128,17 @@ impl<E: EthSpec> PendingComponents<E> {
             .collect()
     }
 
-    /// Inserts a block into the cache.
-    pub fn insert_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
-        *self.get_cached_block_mut() = Some(block)
+    /// Inserts an executed block into the cache.
+    pub fn insert_executed_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
+        self.block = Some(CachedBlock::Executed(Box::new(block)))
+    }
+
+    /// Inserts a pre-execution block into the cache.
+    /// This does NOT override an existing executed block.
+    pub fn insert_pre_execution_block(&mut self, block: Arc<SignedBeaconBlock<E>>) {
+        if self.block.is_none() {
+            self.block = Some(CachedBlock::PreExecution(block))
+        }
     }
 
     /// Inserts a blob at a specific index in the cache.
@@ -128,7 +168,7 @@ impl<E: EthSpec> PendingComponents<E> {
     /// 1. The blob entry at the index is empty and no block exists, or
     /// 2. The block exists and its commitment matches the blob's commitment.
     pub fn merge_single_blob(&mut self, index: usize, blob: KzgVerifiedBlob<E>) {
-        if let Some(cached_block) = self.get_cached_block() {
+        if let Some(cached_block) = &self.block {
             let block_commitment_opt = cached_block.get_commitments().get(index).copied();
             if let Some(block_commitment) = block_commitment_opt
                 && block_commitment == *blob.get_commitment()
@@ -158,7 +198,7 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// Blobs that don't match the new block's commitments are evicted.
     pub fn merge_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
-        self.insert_block(block);
+        self.insert_executed_block(block);
         let reinsert = self.get_cached_blobs_mut().take();
         self.merge_blobs(reinsert);
     }
@@ -180,7 +220,7 @@ impl<E: EthSpec> PendingComponents<E> {
             &Span,
         ) -> Result<AvailabilityPendingExecutedBlock<E>, AvailabilityCheckError>,
     {
-        let Some(block) = &self.executed_block else {
+        let Some(CachedBlock::Executed(block)) = &self.block else {
             // Block not available yet
             return Ok(None);
         };
@@ -267,7 +307,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block,
             import_data,
             payload_verification_outcome,
-        } = recover(block.clone(), &self.span)?;
+        } = recover(*block.clone(), &self.span)?;
 
         let available_block = AvailableBlock {
             block_root: self.block_root,
@@ -295,7 +335,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block_root,
             verified_blobs: RuntimeFixedVector::new(vec![None; max_len]),
             verified_data_columns: vec![],
-            executed_block: None,
+            block: None,
             reconstruction_started: false,
             span,
         }
@@ -307,9 +347,9 @@ impl<E: EthSpec> PendingComponents<E> {
     /// - The first data column
     ///   Otherwise, returns None
     pub fn epoch(&self) -> Option<Epoch> {
-        // Get epoch from cached executed block
-        if let Some(executed_block) = &self.executed_block {
-            return Some(executed_block.as_block().epoch());
+        // Get epoch from cached block
+        if let Some(block) = &self.block {
+            return Some(block.as_block().epoch());
         }
 
         // Or, get epoch from first available blob
@@ -326,7 +366,7 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     pub fn status_str(&self, num_expected_columns_opt: Option<usize>) -> String {
-        let block_count = if self.executed_block.is_some() { 1 } else { 0 };
+        let block_count = if self.block.is_some() { 1 } else { 0 };
         if let Some(num_expected_columns) = num_expected_columns_opt {
             format!(
                 "block {} data_columns {}/{}",
@@ -335,7 +375,7 @@ impl<E: EthSpec> PendingComponents<E> {
                 num_expected_columns
             )
         } else {
-            let num_expected_blobs = if let Some(block) = self.get_cached_block() {
+            let num_expected_blobs = if let Some(block) = &self.block {
                 &block.num_blobs_expected().to_string()
             } else {
                 "?"
@@ -387,18 +427,17 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
-    pub fn get_execution_valid_block(
-        &self,
-        block_root: &Hash256,
-    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
+    pub fn get_cached_block(&self, block_root: &Hash256) -> Option<BlockProcessStatus<T::EthSpec>> {
         self.critical
             .read()
             .peek(block_root)
             .and_then(|pending_components| {
-                pending_components
-                    .executed_block
-                    .as_ref()
-                    .map(|block| block.block_cloned())
+                pending_components.block.as_ref().map(|block| match block {
+                    CachedBlock::PreExecution(b) => BlockProcessStatus::NotValidated(b.clone()),
+                    CachedBlock::Executed(b) => {
+                        BlockProcessStatus::ExecutionValidated(b.block_cloned())
+                    }
+                })
             })
     }
 
@@ -647,9 +686,46 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         }
     }
 
+    /// Inserts a pre executed block into the cache.
+    /// - This does NOT trigger the availability check as the block still needs to be executed.
+    /// - This does NOT override an existing cached block to avoid overwriting an executed block.
+    pub fn put_pre_execution_block(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<(), AvailabilityCheckError> {
+        let epoch = block.epoch();
+        let pending_components =
+            self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
+                pending_components.insert_pre_execution_block(block);
+                Ok(())
+            })?;
+
+        let num_expected_columns_opt = self.get_num_expected_columns(epoch);
+
+        pending_components.span.in_scope(|| {
+            debug!(
+                component = "pre execution block",
+                status = pending_components.status_str(num_expected_columns_opt),
+                "Component added to data availability checker"
+            );
+        });
+
+        Ok(())
+    }
+
+    /// Removes a pre-execution block from the cache.
+    /// This does NOT remove an existing executed block.
+    pub fn remove_pre_execution_block(&self, block_root: &Hash256) {
+        // The read lock is immediately dropped so we can safely remove the block from the cache.
+        if let Some(BlockProcessStatus::NotValidated(_)) = self.get_cached_block(block_root) {
+            self.critical.write().pop(block_root);
+        }
+    }
+
     /// Check if we have all the blobs for a block. If we do, return the Availability variant that
     /// triggers import of the block.
-    pub fn put_pending_executed_block(
+    pub fn put_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
@@ -667,14 +743,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 Ok(())
             })?;
 
-        let num_expected_columns_opt = if self.spec.is_peer_das_enabled_for_epoch(epoch) {
-            let num_of_column_samples = self
-                .custody_context
-                .num_of_data_columns_to_sample(epoch, &self.spec);
-            Some(num_of_column_samples)
-        } else {
-            None
-        };
+        let num_expected_columns_opt = self.get_num_expected_columns(epoch);
 
         pending_components.span.in_scope(|| {
             debug!(
@@ -689,6 +758,17 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             pending_components,
             num_expected_columns_opt,
         )
+    }
+
+    fn get_num_expected_columns(&self, epoch: Epoch) -> Option<usize> {
+        if self.spec.is_peer_das_enabled_for_epoch(epoch) {
+            let num_of_column_samples = self
+                .custody_context
+                .num_of_data_columns_to_sample(epoch, &self.spec);
+            Some(num_of_column_samples)
+        } else {
+            None
+        }
     }
 
     /// maintain the cache
@@ -964,7 +1044,7 @@ mod test {
         );
         assert!(cache.critical.read().is_empty(), "cache should be empty");
         let availability = cache
-            .put_pending_executed_block(pending_block)
+            .put_executed_block(pending_block)
             .expect("should put block");
         if blobs_expected == 0 {
             assert!(
@@ -1031,7 +1111,7 @@ mod test {
             );
         }
         let availability = cache
-            .put_pending_executed_block(pending_block)
+            .put_executed_block(pending_block)
             .expect("should put block");
         assert!(
             matches!(availability, Availability::Available(_)),
@@ -1093,7 +1173,7 @@ mod test {
 
             // put the block in the cache
             let availability = cache
-                .put_pending_executed_block(pending_block)
+                .put_executed_block(pending_block)
                 .expect("should put block");
 
             // grab the diet block from the cache for later testing
@@ -1101,12 +1181,7 @@ mod test {
                 .critical
                 .read()
                 .peek(&block_root)
-                .map(|pending_components| {
-                    pending_components
-                        .executed_block
-                        .clone()
-                        .expect("should exist")
-                })
+                .and_then(|pending_components| pending_components.get_diet_block().cloned())
                 .expect("should exist");
             pushed_diet_blocks.push_back(diet_block);
 
@@ -1267,7 +1342,7 @@ mod pending_components_tests {
     }
 
     pub fn assert_cache_consistent(cache: PendingComponents<E>, max_len: usize) {
-        if let Some(cached_block) = cache.get_cached_block() {
+        if let Some(cached_block) = &cache.block {
             let cached_block_commitments = cached_block.get_commitments();
             for index in 0..max_len {
                 let block_commitment = cached_block_commitments.get(index).copied();
@@ -1372,5 +1447,34 @@ mod pending_components_tests {
         cache.merge_block(block_commitments);
 
         assert_cache_consistent(cache, max_len);
+    }
+
+    #[test]
+    fn should_not_insert_pre_execution_block_if_executed_block_exists() {
+        let (pre_execution_block, blobs, random_blobs, max_len) = pre_setup();
+        let (executed_block, _blobs, _random_blobs) =
+            setup_pending_components(pre_execution_block.clone(), blobs, random_blobs);
+
+        let block_root = pre_execution_block.canonical_root();
+        let mut pending_component = <PendingComponents<E>>::empty(block_root, max_len);
+
+        let pre_execution_block = Arc::new(pre_execution_block);
+        pending_component.insert_pre_execution_block(pre_execution_block.clone());
+        assert!(
+            matches!(pending_component.block, Some(CachedBlock::PreExecution(_))),
+            "pre execution block inserted"
+        );
+
+        pending_component.insert_executed_block(executed_block);
+        assert!(
+            matches!(pending_component.block, Some(CachedBlock::Executed(_))),
+            "executed block inserted"
+        );
+
+        pending_component.insert_pre_execution_block(pre_execution_block);
+        assert!(
+            matches!(pending_component.block, Some(CachedBlock::Executed(_))),
+            "executed block should remain"
+        );
     }
 }
