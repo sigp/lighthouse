@@ -318,5 +318,4 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 #[derive(Debug)]
 pub enum SyncServiceMessage {
     CustodyCountChanged { columns: HashSet<ColumnIndex> },
-    EarliestCustodyEpochFinalized,
 }

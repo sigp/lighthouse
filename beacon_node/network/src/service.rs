@@ -185,6 +185,8 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// The sending channel for the network service to send messages to be routed throughout
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
+    /// The sending channel for the network service to send messages to the sync service.
+    sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
     /// A reference to lighthouse's database to persist the DHT.
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
@@ -214,7 +216,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
     ) -> Result<
         (
             NetworkService<T>,
@@ -310,6 +311,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch derived network services
 
+        let (sync_service_send, sync_service_recv) =
+            mpsc::unbounded_channel::<SyncServiceMessage>();
+
         // router task
         let router_send = Router::spawn(
             beacon_chain.clone(),
@@ -348,6 +352,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_recv,
             validator_subscription_recv,
             router_send,
+            sync_service_send,
             store,
             network_globals: network_globals.clone(),
             next_digest_update,
@@ -370,7 +375,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         executor: task_executor::TaskExecutor,
         libp2p_registry: Option<&'_ mut Registry>,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
     ) -> Result<(Arc<NetworkGlobals<T::EthSpec>>, NetworkSenders<T::EthSpec>), String> {
         let (network_service, network_globals, network_senders) = Self::build(
             beacon_chain,
@@ -378,7 +382,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             libp2p_registry,
             beacon_processor_send,
-            sync_service_recv,
         )
         .await?;
 
@@ -743,22 +746,17 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
 
-                if let Err(e) = self.beacon_chain.sync_service_send.send(
-                    SyncServiceMessage::CustodyCountChanged {
-                        columns: new_column_indices,
-                    },
-                ) {
+                if let Err(e) =
+                    self.sync_service_send
+                        .send(SyncServiceMessage::CustodyCountChanged {
+                            columns: new_column_indices,
+                        })
+                {
                     warn!(
                         error = ?e,
                         "Failed to send custody count change to the sync service"
                     );
                 }
-
-                // TODO(custody-sync) delete this (this skips waiting for finalization)
-                let _ = self
-                    .beacon_chain
-                    .sync_service_send
-                    .send(SyncServiceMessage::EarliestCustodyEpochFinalized);
 
                 if self
                     .network_globals

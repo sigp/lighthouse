@@ -1033,8 +1033,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             SyncServiceMessage::CustodyCountChanged { columns } => {
                 // Wait for the current epoch to finalize before starting custody sync
                 self.custody_backfill_sync.set_columns(columns);
-            }
-            SyncServiceMessage::EarliestCustodyEpochFinalized => {
                 self.start_custody_backfill_sync();
             }
         }

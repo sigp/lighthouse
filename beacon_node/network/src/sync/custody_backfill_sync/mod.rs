@@ -158,12 +158,12 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 }
             }
             CustodyBackFillState::Pending(_) | CustodyBackFillState::Completed => {
-                if self.columns.is_empty() {
+                if self.check_completed() {
+                    self.set_state(CustodyBackFillState::Completed);
                     return Ok(SyncStart::NotSyncing);
                 }
 
-                if self.check_completed() {
-                    self.set_state(CustodyBackFillState::Completed);
+                if self.columns.is_empty() {
                     return Ok(SyncStart::NotSyncing);
                 }
 

@@ -28,7 +28,6 @@ use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataC
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
-use crate::events::SyncServiceMessage;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
@@ -126,7 +125,6 @@ use store::{
     KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
-use tokio::sync::mpsc;
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
@@ -492,8 +490,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
-    /// The sending channel for the beacon chain to send messages to sync.
-    pub sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {

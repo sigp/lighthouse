@@ -31,7 +31,6 @@
 //! the head block root. This is unacceptable for fast-responding functions like the networking
 //! stack.
 
-use crate::events::SyncServiceMessage;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::BlockShufflingIds;
 use crate::{
@@ -1018,47 +1017,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .process_prune_blobs(data_availability_boundary);
         }
 
-        if self.should_trigger_custody_backfill_sync(new_view.finalized_checkpoint.epoch)
-            && let Err(e) = self
-                .sync_service_send
-                .send(SyncServiceMessage::EarliestCustodyEpochFinalized)
-        {
-            error!(
-                finalized_epoch=?new_view.finalized_checkpoint.epoch,
-                error=?e,
-                "Unable to trigger custody backfill sync at finalized epoch"
-            );
-        }
-
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;
 
         Ok(())
-    }
-
-    /// Checks if we should trigger custody backfill sync.
-    /// Returns true if the earliest data column custodied is from an epoch
-    /// that's greater than or equal to the most recently finalized epoch and is within the DA boundary.
-    fn should_trigger_custody_backfill_sync(&self, finalized_epoch: Epoch) -> bool {
-        let Some(earliest_data_column_slot) = self
-            .store
-            .get_data_column_custody_info()
-            .ok()
-            .flatten()
-            .and_then(|custody_info| custody_info.earliest_data_column_slot)
-        else {
-            return false;
-        };
-
-        let Some(column_da_boundary) = self.get_column_da_boundary() else {
-            return false;
-        };
-
-        let earliest_data_column_epoch =
-            earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
-
-        earliest_data_column_epoch >= finalized_epoch
-            && earliest_data_column_epoch > column_da_boundary
     }
 
     /// Persist fork choice to disk, writing immediately.

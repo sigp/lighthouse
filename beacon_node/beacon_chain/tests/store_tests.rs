@@ -2408,8 +2408,6 @@ async fn weak_subjectivity_sync_test(
         ..ChainConfig::default()
     };
 
-    let (sync_service_send, _) = mpsc::unbounded_channel::<SyncServiceMessage>();
-
     let beacon_chain = BeaconChainBuilder::<DiskHarnessType<E>>::new(MinimalEthSpec, kzg)
         .chain_config(chain_config)
         .store(store.clone())
@@ -2427,7 +2425,6 @@ async fn weak_subjectivity_sync_test(
         .shutdown_sender(shutdown_tx)
         .event_handler(Some(ServerSentEventHandler::new_with_capacity(1)))
         .execution_layer(Some(mock.el))
-        .sync_service_send(Some(sync_service_send))
         .rng(Box::new(StdRng::seed_from_u64(42)))
         .build()
         .expect("should build");

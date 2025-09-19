@@ -2,7 +2,6 @@ use super::*;
 use beacon_chain::{
     BeaconChain,
     builder::{BeaconChainBuilder, Witness},
-    events::SyncServiceMessage,
     test_utils::get_kzg,
 };
 use genesis::{DEFAULT_ETH1_BLOCK_HASH, generate_deterministic_keypairs, interop_genesis_state};
@@ -15,7 +14,6 @@ use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
 use task_executor::test_utils::TestRuntime;
-use tokio::sync::mpsc;
 use tracing_subscriber::EnvFilter;
 use types::{
     CommitteeIndex, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SubnetId,
@@ -54,8 +52,6 @@ impl TestBeaconChain {
 
         let test_runtime = TestRuntime::default();
 
-        let (sync_service_send, _) = mpsc::unbounded_channel::<SyncServiceMessage>();
-
         let chain = Arc::new(
             BeaconChainBuilder::new(MainnetEthSpec, kzg.clone())
                 .custom_spec(spec.clone())
@@ -79,7 +75,6 @@ impl TestBeaconChain {
                 ))
                 .shutdown_sender(shutdown_tx)
                 .rng(Box::new(StdRng::seed_from_u64(42)))
-                .sync_service_send(Some(sync_service_send))
                 .build()
                 .expect("should build"),
         );
