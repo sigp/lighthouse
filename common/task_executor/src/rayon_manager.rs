@@ -21,8 +21,8 @@ pub struct RayonManager {
 
 impl Default for RayonManager {
     fn default() -> Self {
-        let low_prio_threads = (num_cpus::get() * DEFAULT_LOW_PRIORITY_CPU_PERCENTAGE / 100)
-            .max(MINIMUM_THREAD_COUNT);
+        let low_prio_threads =
+            (num_cpus::get() * DEFAULT_LOW_PRIORITY_CPU_PERCENTAGE / 100).max(MINIMUM_THREAD_COUNT);
         let low_priority_thread_pool = Arc::new(
             ThreadPoolBuilder::new()
                 .num_threads(low_prio_threads)
