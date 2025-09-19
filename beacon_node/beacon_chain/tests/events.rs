@@ -162,7 +162,7 @@ async fn data_column_sidecar_event_on_process_rpc_columns() {
     // load the precomputed column sidecar to avoid computing them for every block in the tests.
     let mut sidecar = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
         TEST_DATA_COLUMN_SIDECARS_SSZ,
-        spec.number_of_columns as usize,
+        E::number_of_columns(),
     )
     .unwrap()[0]
         .clone();

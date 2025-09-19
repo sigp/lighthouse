@@ -1,10 +1,11 @@
 //! ENR extension trait to support libp2p integration.
 
-use crate::{Enr, Multiaddr, PeerId};
 use discv5::enr::{CombinedKey, CombinedPublicKey};
-use libp2p::core::multiaddr::Protocol;
-use libp2p::identity::{KeyType, Keypair, PublicKey, ed25519, secp256k1};
+use libp2p_identity::{KeyType, Keypair, PublicKey, ed25519, secp256k1};
+use multiaddr::{Multiaddr, PeerId, Protocol};
 use tiny_keccak::{Hasher, Keccak};
+
+type Enr = discv5::enr::Enr<CombinedKey>;
 
 pub const QUIC_ENR_KEY: &str = "quic";
 pub const QUIC6_ENR_KEY: &str = "quic6";

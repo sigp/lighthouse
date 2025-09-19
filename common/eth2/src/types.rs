@@ -967,6 +967,23 @@ pub struct PeerCount {
     pub disconnecting: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BeaconCommitteeSelection {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+    pub selection_proof: Signature,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncCommitteeSelection {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub subcommittee_index: u64,
+    pub selection_proof: Signature,
+}
 // --------- Server Sent Event Types -----------
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -1140,7 +1157,7 @@ impl<'de> ContextDeserialize<'de, ForkName> for SsePayloadAttributes {
             ForkName::Capella => {
                 Self::V2(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
-            ForkName::Deneb | ForkName::Electra | ForkName::Fulu => {
+            ForkName::Deneb | ForkName::Electra | ForkName::Fulu | ForkName::Gloas => {
                 Self::V3(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
@@ -2405,6 +2422,9 @@ mod test {
                 rng,
             )),
             ExecutionPayload::Fulu(ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng)),
+            ExecutionPayload::Gloas(ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(
+                rng,
+            )),
         ];
         let merged_forks = &ForkName::list_all()[2..];
         assert_eq!(
@@ -2452,6 +2472,17 @@ mod test {
                 let execution_payload =
                     ExecutionPayload::Fulu(
                         ExecutionPayloadFulu::<MainnetEthSpec>::random_for_test(rng),
+                    );
+                let blobs_bundle = BlobsBundle::random_for_test(rng);
+                ExecutionPayloadAndBlobs {
+                    execution_payload,
+                    blobs_bundle,
+                }
+            },
+            {
+                let execution_payload =
+                    ExecutionPayload::Gloas(
+                        ExecutionPayloadGloas::<MainnetEthSpec>::random_for_test(rng),
                     );
                 let blobs_bundle = BlobsBundle::random_for_test(rng);
                 ExecutionPayloadAndBlobs {

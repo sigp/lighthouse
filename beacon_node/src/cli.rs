@@ -47,16 +47,17 @@ pub fn cli_app() -> Command {
          * Network parameters.
          */
         .arg(
-            Arg::new("subscribe-all-data-column-subnets")
-                .long("subscribe-all-data-column-subnets")
+            Arg::new("supernode")
+                .long("supernode")
+                .alias("subscribe-all-data-column-subnets")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
-                .help("Subscribe to all data column subnets and participate in data custody for \
-                        all columns. This will also advertise the beacon node as being long-lived \
-                        subscribed to all data column subnets. \
-                        NOTE: this is an experimental flag and may change any time without notice!")
+                .help("Run as a voluntary supernode. This node will subscribe to all data column \
+                          subnets, custody all data columns, and perform reconstruction and cross-seeding. \
+                          This requires significantly more bandwidth, storage, and computation requirements but \
+                          the node will have direct access to all blobs via the beacon API and it \
+                          helps network resilience by serving all data columns to syncing peers.")
                 .display_order(0)
-                .hide(true)
         )
         .arg(
             // TODO(das): remove this before PeerDAS release
@@ -236,7 +237,6 @@ pub fn cli_app() -> Command {
                 .long("network-load")
                 .value_name("INTEGER")
                 .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].")
-                .default_value("3")
                 .hide(true)
                 .action(ArgAction::Set)
                 .display_order(0)
@@ -401,6 +401,16 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
+        )
+        .arg(
+            Arg::new("complete-blob-backfill")
+                .long("complete-blob-backfill")
+                .help("Download all blobs back to the Deneb fork epoch. This will likely result in \
+                       the node banning most of its peers.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+                .hide(true)
         )
         .arg(
             Arg::new("enable-private-discovery")
@@ -770,7 +780,7 @@ pub fn cli_app() -> Command {
                 .long("block-cache-size")
                 .value_name("SIZE")
                 .help("Specifies how many blocks the database should cache in memory")
-                .default_value("5")
+                .default_value("0")
                 .action(ArgAction::Set)
                 .display_order(0)
         )

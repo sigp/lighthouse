@@ -29,6 +29,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             None,
             None,
             None,
+            None,
             Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             Arc::new(spec),
             None,
@@ -43,6 +44,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
         cancun_time: Option<u64>,
         prague_time: Option<u64>,
         osaka_time: Option<u64>,
+        amsterdam_time: Option<u64>,
         jwt_key: Option<JwtKey>,
         spec: Arc<ChainSpec>,
         kzg: Option<Arc<Kzg>>,
@@ -60,6 +62,7 @@ impl<E: EthSpec> MockExecutionLayer<E> {
             cancun_time,
             prague_time,
             osaka_time,
+            amsterdam_time,
             spec.clone(),
             kzg,
         );
