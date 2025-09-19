@@ -7,7 +7,9 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext, metrics};
+use crate::{
+    BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus, CustodyContext, metrics,
+};
 use kzg::Kzg;
 use slot_clock::SlotClock;
 use std::fmt;
@@ -27,6 +29,7 @@ mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
+use crate::data_availability_checker::error::Error;
 use crate::data_column_verification::{
     CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
     KzgVerifiedDataColumn, verify_kzg_for_data_column_list,
@@ -144,14 +147,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self.custody_context
     }
 
-    /// Checks if the block root is currenlty in the availability cache awaiting import because
+    /// Checks if the block root is currently in the availability cache awaiting import because
     /// of missing components.
-    pub fn get_execution_valid_block(
-        &self,
-        block_root: &Hash256,
-    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
-        self.availability_cache
-            .get_execution_valid_block(block_root)
+    ///
+    /// Returns the cache block wrapped in a `BlockProcessStatus` enum if it exists.
+    pub fn get_cached_block(&self, block_root: &Hash256) -> Option<BlockProcessStatus<T::EthSpec>> {
+        self.availability_cache.get_cached_block(block_root)
     }
 
     /// Return the set of cached blob indexes for `block_root`. Returns None if there is no block
@@ -340,12 +341,29 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
     /// about whether all components have been received or more are required.
-    pub fn put_pending_executed_block(
+    pub fn put_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache.put_executed_block(executed_block)
+    }
+
+    /// Inserts a pre-execution block into the cache.
+    /// This does NOT override an existing executed block.
+    pub fn put_pre_execution_block(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    ) -> Result<(), Error> {
         self.availability_cache
-            .put_pending_executed_block(executed_block)
+            .put_pre_execution_block(block_root, block)
+    }
+
+    /// Removes a pre-execution block from the cache.
+    /// This does NOT remove an existing executed block.
+    pub fn remove_block_on_execution_error(&self, block_root: &Hash256) {
+        self.availability_cache
+            .remove_pre_execution_block(block_root);
     }
 
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
