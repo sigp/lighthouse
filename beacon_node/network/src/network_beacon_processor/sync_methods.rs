@@ -168,11 +168,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let signed_beacon_block = block.block_cloned();
         let result = self
             .chain
-            .process_block_with_early_caching(
+            .process_block(
                 block_root,
                 block,
-                BlockImportSource::Lookup,
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Lookup,
+                || Ok(()),
             )
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Rpc, "block");
