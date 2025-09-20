@@ -768,7 +768,7 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+        let params = json!([JsonExecutionPayload::try_from(execution_payload)?]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -785,7 +785,7 @@ impl HttpJsonRpc {
         &self,
         execution_payload: ExecutionPayload<E>,
     ) -> Result<PayloadStatusV1, Error> {
-        let params = json!([JsonExecutionPayload::from(execution_payload)]);
+        let params = json!([JsonExecutionPayload::try_from(execution_payload)?]);
 
         let response: JsonPayloadStatusV1 = self
             .rpc_request(
@@ -803,7 +803,12 @@ impl HttpJsonRpc {
         new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::Deneb(new_payload_request_deneb.execution_payload.clone().into()),
+            JsonExecutionPayload::Deneb(
+                new_payload_request_deneb
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
             new_payload_request_deneb.versioned_hashes,
             new_payload_request_deneb.parent_beacon_block_root,
         ]);
@@ -825,7 +830,10 @@ impl HttpJsonRpc {
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
             JsonExecutionPayload::Electra(
-                new_payload_request_electra.execution_payload.clone().into()
+                new_payload_request_electra
+                    .execution_payload
+                    .clone()
+                    .try_into()?
             ),
             new_payload_request_electra.versioned_hashes,
             new_payload_request_electra.parent_beacon_block_root,
@@ -850,7 +858,12 @@ impl HttpJsonRpc {
         new_payload_request_fulu: NewPayloadRequestFulu<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::Fulu(new_payload_request_fulu.execution_payload.clone().into()),
+            JsonExecutionPayload::Fulu(
+                new_payload_request_fulu
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
             new_payload_request_fulu.versioned_hashes,
             new_payload_request_fulu.parent_beacon_block_root,
             new_payload_request_fulu
@@ -874,7 +887,12 @@ impl HttpJsonRpc {
         new_payload_request_gloas: NewPayloadRequestGloas<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
-            JsonExecutionPayload::Gloas(new_payload_request_gloas.execution_payload.clone().into()),
+            JsonExecutionPayload::Gloas(
+                new_payload_request_gloas
+                    .execution_payload
+                    .clone()
+                    .try_into()?
+            ),
             new_payload_request_gloas.versioned_hashes,
             new_payload_request_gloas.parent_beacon_block_root,
             new_payload_request_gloas
@@ -1125,10 +1143,14 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response
+        response
             .into_iter()
-            .map(|opt_json| opt_json.map(From::from))
-            .collect())
+            .map(|opt_json| {
+                opt_json
+                    .map(|json| json.try_into().map_err(Error::from))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn get_payload_bodies_by_range_v1<E: EthSpec>(
@@ -1149,10 +1171,14 @@ impl HttpJsonRpc {
             )
             .await?;
 
-        Ok(response
+        response
             .into_iter()
-            .map(|opt_json| opt_json.map(From::from))
-            .collect())
+            .map(|opt_json| {
+                opt_json
+                    .map(|json| json.try_into().map_err(Error::from))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()
     }
 
     pub async fn exchange_capabilities(&self) -> Result<EngineCapabilities, Error> {

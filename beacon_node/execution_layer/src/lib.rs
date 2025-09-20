@@ -171,9 +171,16 @@ pub enum Error {
     InvalidPayloadBody(String),
     InvalidPayloadConversion,
     InvalidBlobConversion(String),
+    SszTypesError(ssz_types::Error),
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
     VerifyingVersionedHashes(versioned_hashes::Error),
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszTypesError(e)
+    }
 }
 
 impl From<BeaconStateError> for Error {
