@@ -16,21 +16,18 @@ use validator_store::ValidatorStore;
 
 type CacheHashMap = HashMap<usize, SseHead>;
 
-#[derive(Debug)]
-pub enum Error {
-    BeaconNodeNotFound,
-}
-
+// Builder for `HeadMonitorService`
 #[derive(Default)]
 pub struct HeadMonitorServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> {
     validator_store: Option<Arc<S>>,
-    slot_clock: Option<T>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T>>>,
     executor: Option<TaskExecutor>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
     head_monitor_tx: Option<Arc<mpsc::Sender<HeadEvent>>>,
 }
 
+// Cache to maintain the latest head received from each of the beacon nodes
+// in the `BeaconNodeFallback`
 pub struct BeaconHeadCache {
     cache: RwLock<CacheHashMap>,
 }
@@ -50,8 +47,14 @@ impl BeaconHeadCache {
             .values()
             .all(|cache_head| head.slot >= cache_head.slot)
     }
+
+    pub fn purge_cache(&self) {
+        self.cache.write().clear();
+    }
 }
 
+// This is used send the index derived from `CandidateBeaconNode` to the
+// `AttestationService` for further processing
 #[derive(Debug)]
 pub struct HeadEvent {
     pub beacon_node_index: usize,
@@ -61,7 +64,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorServiceBuil
     pub fn new() -> Self {
         Self {
             validator_store: None,
-            slot_clock: None,
             beacon_nodes: None,
             executor: None,
             beacon_head_cache: None,
@@ -71,11 +73,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorServiceBuil
 
     pub fn beacon_nodes(mut self, nodes: Arc<BeaconNodeFallback<T>>) -> Self {
         self.beacon_nodes = Some(nodes);
-        self
-    }
-
-    pub fn slot_clock(mut self, clock: T) -> Self {
-        self.slot_clock = Some(clock);
         self
     }
 
@@ -107,10 +104,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorServiceBuil
                 _validator_store: self
                     .validator_store
                     .ok_or("Cannot build HeadMonitorService without validator_store")?,
-
-                _slot_clock: self
-                    .slot_clock
-                    .ok_or("Cannot build HeadMonitorService without slot_clock")?,
                 beacon_nodes: self
                     .beacon_nodes
                     .ok_or("Cannot build HeadMonitorService without beacon_nodes")?,
@@ -126,15 +119,22 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorServiceBuil
     }
 }
 
+// Helper to minimise `Arc` usage
 pub struct Inner<S, T> {
     _validator_store: Arc<S>,
-    _slot_clock: T,
     executor: TaskExecutor,
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
     beacon_head_cache: Arc<BeaconHeadCache>,
     head_monitor_tx: Arc<mpsc::Sender<HeadEvent>>,
 }
 
+// Runs a non-terminating loop to update the `BeaconHeadCache` with the latest head received
+// from the candidate beacon_nodes. This is an attempt to stream events to beacon nodes and
+// potential start attestion duties earlier as soon as latest head is receive from any of the
+// beacon node in contrast to attest at the 1/3rd mark in the slot.
+//
+// The cache and the candidate BNs list are periodically refresh/purged to avoid race condition that may
+// be arise due to change in ranking of beacon_nodes thus affecting the indices of beacon_nodes
 pub struct HeadMonitorService<S, T> {
     inner: Arc<Inner<S, T>>,
 }
@@ -156,6 +156,7 @@ impl<S, T> Deref for HeadMonitorService<S, T> {
 }
 
 impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorService<S, T> {
+    // Starts the service to perpetually stream head events from connected beacon_nodes
     pub fn start_update_service(self) -> Result<(), String> {
         let executor = self.executor.clone();
         let head_cache = self.beacon_head_cache.clone();
@@ -198,7 +199,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorService<S, 
                                     .await
                                 {
                                 } else {
-                                    warn!("Channel closed");
+                                    warn!("Head monitoring service channel closed");
                                     break;
                                 }
                             }
@@ -212,6 +213,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorService<S, 
             futures::future::join_all(tasks).await;
 
             drop(candidates);
+            self.beacon_head_cache.purge_cache();
         };
 
         executor.spawn(interval_fut, "head_monitor_service");
