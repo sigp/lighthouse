@@ -501,7 +501,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         let block_service = block_service_builder.build()?;
 
         let head_monitor_service = HeadMonitorServiceBuilder::new()
-            .slot_clock(slot_clock.clone())
             .executor(context.executor.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
