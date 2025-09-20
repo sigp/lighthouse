@@ -1826,7 +1826,7 @@ fn test_request_too_large(
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
-    build_tracing_subscriber(log_level, enable_logging);
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
     let rt = Arc::new(Runtime::new().unwrap());
     let spec = Arc::new(spec_with_all_forks_enabled());
 
