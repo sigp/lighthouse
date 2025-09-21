@@ -116,14 +116,12 @@ impl RateLimiterConfig {
         Quota::n_every(NonZeroU64::new(896).unwrap(), 10);
     pub const DEFAULT_BLOBS_BY_ROOT_QUOTA: Quota =
         Quota::n_every(NonZeroU64::new(896).unwrap(), 10);
-    // 320 blocks worth of columns for regular node, or 40 blocks for supernode.
-    // Range sync load balances when requesting blocks, and each batch is 32 blocks.
+    // Allow up to `MAX_REQUEST_DATA_COLUMN_SIDECARS` (16384), the maximum number of data
+    // column sidecars in a single request from the spec.
     pub const DEFAULT_DATA_COLUMNS_BY_RANGE_QUOTA: Quota =
-        Quota::n_every(NonZeroU64::new(5120).unwrap(), 10);
-    // 512 columns per request from spec. This should be plenty as peers are unlikely to send all
-    // sampling requests to a single peer.
+        Quota::n_every(NonZeroU64::new(16384).unwrap(), 10);
     pub const DEFAULT_DATA_COLUMNS_BY_ROOT_QUOTA: Quota =
-        Quota::n_every(NonZeroU64::new(512).unwrap(), 10);
+        Quota::n_every(NonZeroU64::new(16384).unwrap(), 10);
     pub const DEFAULT_LIGHT_CLIENT_BOOTSTRAP_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_OPTIMISTIC_UPDATE_QUOTA: Quota = Quota::one_every(10);
     pub const DEFAULT_LIGHT_CLIENT_FINALITY_UPDATE_QUOTA: Quota = Quota::one_every(10);

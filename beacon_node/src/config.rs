@@ -1,5 +1,4 @@
 use account_utils::{STDIN_INPUTS_FLAG, read_input_from_user};
-use beacon_chain::TrustedSetup;
 use beacon_chain::chain_config::{
     DEFAULT_PREPARE_PAYLOAD_LOOKAHEAD_FACTOR, DEFAULT_RE_ORG_HEAD_THRESHOLD,
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
@@ -14,8 +13,8 @@ use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
 use execution_layer::DEFAULT_JWT_FILE;
 use http_api::TlsConfig;
-use lighthouse_network::ListenAddress;
 use lighthouse_network::{Enr, Multiaddr, NetworkConfig, PeerIdSerialized, multiaddr::Protocol};
+use network_utils::listen_addr::ListenAddress;
 use sensitive_url::SensitiveUrl;
 use std::collections::HashSet;
 use std::fmt::Debug;
@@ -349,25 +348,13 @@ pub fn get_config<E: EthSpec>(
     // Store the EL config in the client config.
     client_config.execution_layer = Some(el_config);
 
-    // 4844 params
-    if let Some(trusted_setup) = context
-        .eth2_network_config
-        .as_ref()
-        .map(|config| serde_json::from_slice(&config.kzg_trusted_setup))
-        .transpose()
-        .map_err(|e| format!("Unable to read trusted setup file: {}", e))?
-    {
-        client_config.trusted_setup = trusted_setup;
-    };
-
     // Override default trusted setup file if required
     if let Some(trusted_setup_file_path) = cli_args.get_one::<String>("trusted-setup-file-override")
     {
-        let file = std::fs::File::open(trusted_setup_file_path)
-            .map_err(|e| format!("Failed to open trusted setup file: {}", e))?;
-        let trusted_setup: TrustedSetup = serde_json::from_reader(file)
-            .map_err(|e| format!("Unable to read trusted setup file: {}", e))?;
-        client_config.trusted_setup = trusted_setup;
+        client_config.trusted_setup = std::fs::read(trusted_setup_file_path)
+            .map_err(|e| format!("Failed to read trusted setup file: {}", e))?;
+    } else if let Some(eth2_network_config) = context.eth2_network_config.as_ref() {
+        client_config.trusted_setup = eth2_network_config.kzg_trusted_setup.clone();
     }
 
     if let Some(freezer_dir) = cli_args.get_one::<String>("freezer-dir") {
@@ -838,6 +825,14 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.genesis_backfill = true;
     }
 
+    client_config.chain.complete_blob_backfill = cli_args.get_flag("complete-blob-backfill");
+
+    // Ensure `prune_blobs` is false whenever complete-blob-backfill is set. This overrides any
+    // setting of `--prune-blobs true` applied earlier in flag parsing.
+    if client_config.chain.complete_blob_backfill {
+        client_config.store.prune_blobs = false;
+    }
+
     // Backfill sync rate-limiting
     client_config.beacon_processor.enable_backfill_rate_limiting =
         !cli_args.get_flag("disable-backfill-rate-limiting");
@@ -1024,7 +1019,7 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp6_port)
+                .then(network_utils::unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port);
 
@@ -1043,18 +1038,18 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
             // use zero ports if required. If not, use the specific udp port. If none given, use
             // the tcp port.
             let disc_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(tcp_port);
 
             let quic_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
-            ListenAddress::V6(lighthouse_network::ListenAddr {
+            ListenAddress::V6(network_utils::listen_addr::ListenAddr {
                 addr: ipv6,
                 quic_port,
                 disc_port,
@@ -1066,25 +1061,25 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // use zero ports if required. If not, use the given port.
             let tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp4_port)
+                .then(network_utils::unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             // use zero ports if required. If not, use the specific discovery port. If none given, use
             // the tcp port.
             let disc_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(tcp_port);
             // use zero ports if required. If not, use the specific quic port. If none given, use
             // the tcp port + 1.
             let quic_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if tcp_port == 0 { 0 } else { tcp_port + 1 });
 
-            ListenAddress::V4(lighthouse_network::ListenAddr {
+            ListenAddress::V4(network_utils::listen_addr::ListenAddr {
                 addr: ipv4,
                 disc_port,
                 quic_port,
@@ -1096,16 +1091,16 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
             let port6 = maybe_port6.unwrap_or(port);
 
             let ipv4_tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp4_port)
+                .then(network_utils::unused_port::unused_tcp4_port)
                 .transpose()?
                 .unwrap_or(port);
             let ipv4_disc_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_disc_port)
                 .unwrap_or(ipv4_tcp_port);
             let ipv4_quic_port = use_zero_ports
-                .then(unused_port::unused_udp4_port)
+                .then(network_utils::unused_port::unused_udp4_port)
                 .transpose()?
                 .or(maybe_quic_port)
                 .unwrap_or(if ipv4_tcp_port == 0 {
@@ -1116,16 +1111,16 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
 
             // Defaults to 9000 when required
             let ipv6_tcp_port = use_zero_ports
-                .then(unused_port::unused_tcp6_port)
+                .then(network_utils::unused_port::unused_tcp6_port)
                 .transpose()?
                 .unwrap_or(port6);
             let ipv6_disc_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_disc6_port)
                 .unwrap_or(ipv6_tcp_port);
             let ipv6_quic_port = use_zero_ports
-                .then(unused_port::unused_udp6_port)
+                .then(network_utils::unused_port::unused_udp6_port)
                 .transpose()?
                 .or(maybe_quic6_port)
                 .unwrap_or(if ipv6_tcp_port == 0 {
@@ -1135,13 +1130,13 @@ pub fn parse_listening_addresses(cli_args: &ArgMatches) -> Result<ListenAddress,
                 });
 
             ListenAddress::DualStack(
-                lighthouse_network::ListenAddr {
+                network_utils::listen_addr::ListenAddr {
                     addr: ipv4,
                     disc_port: ipv4_disc_port,
                     quic_port: ipv4_quic_port,
                     tcp_port: ipv4_tcp_port,
                 },
-                lighthouse_network::ListenAddr {
+                network_utils::listen_addr::ListenAddr {
                     addr: ipv6,
                     disc_port: ipv6_disc_port,
                     quic_port: ipv6_quic_port,
@@ -1167,7 +1162,7 @@ pub fn set_network_config(
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
-    if parse_flag(cli_args, "subscribe-all-data-column-subnets") {
+    if parse_flag(cli_args, "supernode") {
         config.subscribe_all_data_column_subnets = true;
     }
 
@@ -1480,10 +1475,6 @@ pub fn set_network_config(
     if parse_flag(cli_args, "proposer-only") {
         config.subscribe_all_subnets = false;
 
-        if cli_args.get_one::<String>("target-peers").is_none() {
-            // If a custom value is not set, change the default to 15
-            config.target_peers = 15;
-        }
         config.proposer_only = true;
         warn!(
             info = "Proposer-only mode enabled",
