@@ -15,7 +15,7 @@ pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
 
-pub use self::error::{Error, ok_or_error};
+pub use self::error::{Error, ok_or_error, success_or_error};
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::*;
 use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
@@ -2811,39 +2811,5 @@ impl BeaconNodeHttpClient {
 
         self.post_with_timeout_and_response(path, &selections, self.timeouts.sync_aggregators)
             .await
-    }
-}
-
-/// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
-/// appropriate error message.
-pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
-    let status = response.status();
-
-    if status == StatusCode::OK {
-        Ok(response)
-    } else if let Ok(message) = response.json().await {
-        match message {
-            ResponseError::Message(message) => Err(Error::ServerMessage(message)),
-            ResponseError::Indexed(indexed) => Err(Error::ServerIndexedMessage(indexed)),
-        }
-    } else {
-        Err(Error::StatusCode(status))
-    }
-}
-
-/// Returns `Ok(response)` if the response is a success (2xx) response. Otherwise, creates an
-/// appropriate error message.
-pub async fn success_or_error(response: Response) -> Result<Response, Error> {
-    let status = response.status();
-
-    if status.is_success() {
-        Ok(response)
-    } else if let Ok(message) = response.json().await {
-        match message {
-            ResponseError::Message(message) => Err(Error::ServerMessage(message)),
-            ResponseError::Indexed(indexed) => Err(Error::ServerIndexedMessage(indexed)),
-        }
-    } else {
-        Err(Error::StatusCode(status))
     }
 }
