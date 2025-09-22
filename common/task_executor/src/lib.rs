@@ -301,6 +301,26 @@ impl TaskExecutor {
         }
     }
 
+    pub async fn spawn_rayon_async<F, R>(
+        &self,
+        rayon_pool_type: RayonPoolType,
+        task: F,
+    ) -> Result<R, tokio::sync::oneshot::error::RecvError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let thread_pool = self.rayon_manager.get_thread_pool(rayon_pool_type);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        thread_pool.spawn(move || {
+            let result = task();
+            let _ = tx.send(result);
+        });
+
+        rx.await
+    }
+
     /// Spawn a future on the tokio runtime wrapped in an `async-channel::Receiver` returning an optional
     /// join handle to the future.
     /// The task is cancelled when the corresponding async-channel is dropped.
