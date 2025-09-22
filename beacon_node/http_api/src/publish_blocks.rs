@@ -412,7 +412,7 @@ fn build_data_columns<T: BeaconChainTypes>(
             error!(
                 error = ?e,
                 %slot,
-                "Invalid data column - not publishing block"
+                "Invalid data column - not publishing data columns"
             );
             warp_utils::reject::custom_bad_request(format!("{e:?}"))
         })?;

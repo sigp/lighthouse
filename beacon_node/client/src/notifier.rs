@@ -9,8 +9,8 @@ use execution_layer::{
     EngineCapabilities,
     http::{
         ENGINE_FORKCHOICE_UPDATED_V2, ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_V2,
-        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3,
-        ENGINE_NEW_PAYLOAD_V4,
+        ENGINE_GET_PAYLOAD_V3, ENGINE_GET_PAYLOAD_V4, ENGINE_GET_PAYLOAD_V5, ENGINE_NEW_PAYLOAD_V2,
+        ENGINE_NEW_PAYLOAD_V3, ENGINE_NEW_PAYLOAD_V4,
     },
 };
 use lighthouse_network::{NetworkGlobals, types::SyncState};
@@ -524,18 +524,16 @@ fn methods_required_for_fork(
             }
         }
         ForkName::Fulu => {
-            // TODO(fulu) switch to v5 when the EL is ready
-            if !capabilities.get_payload_v4 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V4);
+            if !capabilities.get_payload_v5 {
+                missing_methods.push(ENGINE_GET_PAYLOAD_V5);
             }
             if !capabilities.new_payload_v4 {
                 missing_methods.push(ENGINE_NEW_PAYLOAD_V4);
             }
         }
         ForkName::Gloas => {
-            // TODO(gloas) switch to v5/v6 when the EL is ready
-            if !capabilities.get_payload_v4 {
-                missing_methods.push(ENGINE_GET_PAYLOAD_V4);
+            if !capabilities.get_payload_v5 {
+                missing_methods.push(ENGINE_GET_PAYLOAD_V5);
             }
             if !capabilities.new_payload_v4 {
                 missing_methods.push(ENGINE_NEW_PAYLOAD_V4);

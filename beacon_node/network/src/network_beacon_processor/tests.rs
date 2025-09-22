@@ -17,6 +17,7 @@ use beacon_chain::test_utils::{
     test_spec,
 };
 use beacon_chain::{BeaconChain, WhenSlotSkipped};
+use beacon_processor::rayon_manager::RayonManager;
 use beacon_processor::{work_reprocessing_queue::*, *};
 use gossipsub::MessageAcceptance;
 use itertools::Itertools;
@@ -94,12 +95,20 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), spec).await
+        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), false, spec).await
+    }
+
+    pub async fn new_supernode(chain_length: u64) -> Self {
+        // This allows for testing voluntary exits without building out a massive chain.
+        let mut spec = test_spec::<E>();
+        spec.shard_committee_period = 2;
+        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), true, spec).await
     }
 
     pub async fn new_parametric(
         chain_length: u64,
         beacon_processor_config: BeaconProcessorConfig,
+        import_data_columns: bool,
         spec: ChainSpec,
     ) -> Self {
         let spec = Arc::new(spec);
@@ -108,6 +117,7 @@ impl TestRig {
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
+            .import_all_data_columns(import_data_columns)
             .chain_config(<_>::default())
             .build();
 
@@ -257,6 +267,7 @@ impl TestRig {
             executor,
             current_workers: 0,
             config: beacon_processor_config,
+            rayon_manager: RayonManager::default(),
         }
         .spawn_manager(
             beacon_processor_rx,
@@ -449,10 +460,10 @@ impl TestRig {
             .unwrap();
     }
 
-    pub fn enqueue_backfill_batch(&self) {
+    pub fn enqueue_backfill_batch(&self, epoch: Epoch) {
         self.network_beacon_processor
             .send_chain_segment(
-                ChainSegmentProcessId::BackSyncBatchId(Epoch::default()),
+                ChainSegmentProcessId::BackSyncBatchId(epoch),
                 Vec::default(),
             )
             .unwrap();
@@ -597,8 +608,44 @@ impl TestRig {
     }
 
     pub async fn assert_event_journal(&mut self, expected: &[&str]) {
-        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT)
+        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT, false, false)
             .await
+    }
+
+    pub async fn assert_event_journal_completes_with_timeout(
+        &mut self,
+        expected: &[WorkType],
+        timeout: Duration,
+    ) {
+        self.assert_event_journal_with_timeout(
+            &expected
+                .iter()
+                .map(Into::<&'static str>::into)
+                .chain(std::iter::once(WORKER_FREED))
+                .chain(std::iter::once(NOTHING_TO_DO))
+                .collect::<Vec<_>>(),
+            timeout,
+            false,
+            false,
+        )
+        .await
+    }
+
+    pub async fn assert_event_journal_does_not_complete_with_timeout(
+        &mut self,
+        expected: &[WorkType],
+        timeout: Duration,
+    ) {
+        self.assert_not_in_event_journal_with_timeout(
+            &expected
+                .iter()
+                .map(Into::<&'static str>::into)
+                .chain(std::iter::once(WORKER_FREED))
+                .chain(std::iter::once(NOTHING_TO_DO))
+                .collect::<Vec<_>>(),
+            timeout,
+        )
+        .await
     }
 
     pub async fn assert_event_journal_completes(&mut self, expected: &[WorkType]) {
@@ -623,11 +670,21 @@ impl TestRig {
         &mut self,
         expected: &[&str],
         timeout: Duration,
+        ignore_worker_freed: bool,
+        ignore_nothing_to_do: bool,
     ) {
         let mut events = Vec::with_capacity(expected.len());
 
         let drain_future = async {
             while let Some(event) = self.work_journal_rx.recv().await {
+                if event == WORKER_FREED && ignore_worker_freed {
+                    continue;
+                }
+
+                if event == NOTHING_TO_DO && ignore_nothing_to_do {
+                    continue;
+                }
+
                 events.push(event);
 
                 // Break as soon as we collect the desired number of events.
@@ -649,6 +706,37 @@ impl TestRig {
         }
 
         assert_eq!(events, expected);
+    }
+
+    /// Assert that the `BeaconProcessor` event journal is not as `expected`.
+    pub async fn assert_not_in_event_journal_with_timeout(
+        &mut self,
+        expected: &[&str],
+        timeout: Duration,
+    ) {
+        let mut events = Vec::with_capacity(expected.len());
+
+        let drain_future = async {
+            while let Some(event) = self.work_journal_rx.recv().await {
+                events.push(event);
+
+                // Break as soon as we collect the desired number of events.
+                if events.len() >= expected.len() {
+                    break;
+                }
+            }
+        };
+
+        // Panic if we don't time out.
+        tokio::select! {
+            _ = tokio::time::sleep(timeout) => {},
+            _ = drain_future =>  panic!(
+                "Got events before timeout. Expected no events but got {:?}",
+                events
+            ),
+        }
+
+        assert_ne!(events, expected);
     }
 
     /// Listen for network messages and collect them for a specified duration or until reaching a count.
@@ -743,6 +831,159 @@ fn junk_message_id() -> MessageId {
     MessageId::new(&[])
 }
 
+// Test that column reconstruction is delayed for columns that arrive
+// at the beginning of the slot.
+#[tokio::test]
+async fn data_column_reconstruction_at_slot_start() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    if num_data_columns > 0 {
+        // Reconstruction is delayed by 100ms, we should not be able to complete
+        // reconstruction up to this point
+        rig.assert_event_journal_does_not_complete_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(100),
+        )
+        .await;
+
+        // We've waited at least 150ms, reconstruction can now be triggered
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(200),
+        )
+        .await;
+    }
+}
+
+// Test that column reconstruction happens immediately for columns that arrive at the
+// reconstruction deadline.
+#[tokio::test]
+async fn data_column_reconstruction_at_deadline() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    // We push the slot clock to 3 seconds into the slot, this is the deadline to trigger reconstruction.
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start + Duration::from_secs(3));
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    // Since we're at the reconstruction deadline, reconstruction should be triggered immediately
+    if num_data_columns > 0 {
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(50),
+        )
+        .await;
+    }
+}
+
+// Test the column reconstruction is delayed for columns that arrive for a previous slot.
+#[tokio::test]
+async fn data_column_reconstruction_at_next_slot() {
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new_supernode(SMALL_CHAIN).await;
+
+    let slot_start = rig
+        .chain
+        .slot_clock
+        .start_of(rig.next_block.slot())
+        .unwrap();
+
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start - rig.chain.spec.maximum_gossip_clock_disparity());
+
+    assert_eq!(
+        rig.chain.slot().unwrap(),
+        rig.next_block.slot() - 1,
+        "chain should be at the correct slot"
+    );
+
+    // We push the slot clock to the next slot.
+    rig.chain
+        .slot_clock
+        .set_current_time(slot_start + Duration::from_secs(12));
+
+    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
+    for i in 0..num_data_columns {
+        rig.enqueue_gossip_data_columns(i);
+        rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
+            .await;
+    }
+
+    if num_data_columns > 0 {
+        // Since we are in the next slot reconstruction for the previous slot should be delayed again
+        rig.assert_event_journal_does_not_complete_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(100),
+        )
+        .await;
+
+        // We've waited at least 150ms, reconstruction can now be triggered
+        rig.assert_event_journal_completes_with_timeout(
+            &[WorkType::ColumnReconstruction],
+            Duration::from_millis(200),
+        )
+        .await;
+    }
+}
+
 /// Blocks that arrive early should be queued for later processing.
 #[tokio::test]
 async fn import_gossip_block_acceptably_early() {
@@ -780,10 +1021,6 @@ async fn import_gossip_block_acceptably_early() {
     for i in 0..num_data_columns {
         rig.enqueue_gossip_data_columns(i);
         rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
-            .await;
-    }
-    if num_data_columns > 0 {
-        rig.assert_event_journal_completes(&[WorkType::ColumnReconstruction])
             .await;
     }
 
@@ -1161,6 +1398,8 @@ async fn requeue_unknown_block_gossip_attestation_without_import() {
             NOTHING_TO_DO,
         ],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
     )
     .await;
 
@@ -1201,6 +1440,8 @@ async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
             NOTHING_TO_DO,
         ],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
+        false,
+        false,
     )
     .await;
 
@@ -1335,8 +1576,8 @@ async fn test_backfill_sync_processing() {
     // (not straight forward to manipulate `TestingSlotClock` due to cloning of `SlotClock` in code)
     // and makes the test very slow, hence timing calculation is unit tested separately in
     // `work_reprocessing_queue`.
-    for _ in 0..1 {
-        rig.enqueue_backfill_batch();
+    for i in 0..1 {
+        rig.enqueue_backfill_batch(Epoch::new(i));
         // ensure queued batch is not processed until later
         rig.assert_no_events_for(Duration::from_millis(100)).await;
         // A new batch should be processed within a slot.
@@ -1347,6 +1588,8 @@ async fn test_backfill_sync_processing() {
                 NOTHING_TO_DO,
             ],
             rig.chain.slot_clock.slot_duration(),
+            false,
+            false,
         )
         .await;
     }
@@ -1359,11 +1602,16 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
         enable_backfill_rate_limiting: false,
         ..Default::default()
     };
-    let mut rig =
-        TestRig::new_parametric(SMALL_CHAIN, beacon_processor_config, test_spec::<E>()).await;
+    let mut rig = TestRig::new_parametric(
+        SMALL_CHAIN,
+        beacon_processor_config,
+        false,
+        test_spec::<E>(),
+    )
+    .await;
 
-    for _ in 0..3 {
-        rig.enqueue_backfill_batch();
+    for i in 0..3 {
+        rig.enqueue_backfill_batch(Epoch::new(i));
     }
 
     // ensure all batches are processed
@@ -1374,6 +1622,8 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
             WorkType::ChainSegmentBackfill.into(),
         ],
         Duration::from_millis(100),
+        true,
+        true,
     )
     .await;
 }

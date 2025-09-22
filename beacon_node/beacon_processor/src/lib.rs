@@ -38,6 +38,7 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
+use crate::rayon_manager::RayonManager;
 use crate::work_reprocessing_queue::{
     QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
 };
@@ -47,6 +48,7 @@ use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::TimeLatch;
 use logging::crit;
 use parking_lot::Mutex;
+use rayon::ThreadPool;
 pub use scheduler::work_reprocessing_queue;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -74,6 +76,7 @@ use work_reprocessing_queue::{
 };
 
 mod metrics;
+pub mod rayon_manager;
 pub mod scheduler;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -181,7 +184,7 @@ impl BeaconProcessorQueueLengths {
             // We don't request more than `PARENT_DEPTH_TOLERANCE` (32) lookups, so we can limit
             // this queue size. With 48 max blobs per block, each column sidecar list could be up to 12MB.
             rpc_custody_column_queue: 64,
-            column_reconstruction_queue: 64,
+            column_reconstruction_queue: 1,
             chain_segment_queue: 64,
             backfill_chain_segment: 64,
             gossip_block_queue: 1024,
@@ -603,7 +606,7 @@ pub enum Work<E: EthSpec> {
         process_fn: BlockingFn,
     },
     ChainSegment(AsyncFn),
-    ChainSegmentBackfill(AsyncFn),
+    ChainSegmentBackfill(BlockingFn),
     Status(BlockingFn),
     BlocksByRangeRequest(AsyncFn),
     BlocksByRootsRequest(AsyncFn),
@@ -807,6 +810,7 @@ pub struct BeaconProcessor<E: EthSpec> {
     pub network_globals: Arc<NetworkGlobals<E>>,
     pub executor: TaskExecutor,
     pub current_workers: usize,
+    pub rayon_manager: RayonManager,
     pub config: BeaconProcessorConfig,
 }
 
@@ -867,7 +871,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut rpc_blob_queue = FifoQueue::new(queue_lengths.rpc_blob_queue);
         let mut rpc_custody_column_queue = FifoQueue::new(queue_lengths.rpc_custody_column_queue);
         let mut column_reconstruction_queue =
-            FifoQueue::new(queue_lengths.column_reconstruction_queue);
+            LifoQueue::new(queue_lengths.column_reconstruction_queue);
         let mut chain_segment_queue = FifoQueue::new(queue_lengths.chain_segment_queue);
         let mut backfill_chain_segment = FifoQueue::new(queue_lengths.backfill_chain_segment);
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
@@ -1354,9 +1358,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::RpcCustodyColumn { .. } => {
                                 rpc_custody_column_queue.push(work, work_id)
                             }
-                            Work::ColumnReconstruction(_) => {
-                                column_reconstruction_queue.push(work, work_id)
-                            }
+                            Work::ColumnReconstruction(_) => column_reconstruction_queue.push(work),
                             Work::ChainSegment { .. } => chain_segment_queue.push(work, work_id),
                             Work::ChainSegmentBackfill { .. } => {
                                 backfill_chain_segment.push(work, work_id)
@@ -1605,7 +1607,17 @@ impl<E: EthSpec> BeaconProcessor<E> {
             Work::BlocksByRangeRequest(work) | Work::BlocksByRootsRequest(work) => {
                 task_spawner.spawn_async(work)
             }
-            Work::ChainSegmentBackfill(process_fn) => task_spawner.spawn_async(process_fn),
+            Work::ChainSegmentBackfill(process_fn) => {
+                if self.config.enable_backfill_rate_limiting {
+                    task_spawner.spawn_blocking_with_rayon(
+                        self.rayon_manager.low_priority_threadpool.clone(),
+                        process_fn,
+                    )
+                } else {
+                    // use the global rayon thread pool if backfill rate limiting is disabled.
+                    task_spawner.spawn_blocking(process_fn)
+                }
+            }
             Work::ApiRequestP0(process_fn) | Work::ApiRequestP1(process_fn) => match process_fn {
                 BlockingOrAsync::Blocking(process_fn) => task_spawner.spawn_blocking(process_fn),
                 BlockingOrAsync::Async(process_fn) => task_spawner.spawn_async(process_fn),
@@ -1662,6 +1674,22 @@ impl TaskSpawner {
         self.executor.spawn_blocking(
             || {
                 task();
+                drop(self.send_idle_on_drop)
+            },
+            WORKER_TASK_NAME,
+        )
+    }
+
+    /// Spawns a blocking task on a rayon thread pool, dropping the `SendOnDrop` after task completion.
+    fn spawn_blocking_with_rayon<F>(self, thread_pool: Arc<ThreadPool>, task: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.executor.spawn_blocking(
+            move || {
+                thread_pool.install(|| {
+                    task();
+                });
                 drop(self.send_idle_on_drop)
             },
             WORKER_TASK_NAME,
