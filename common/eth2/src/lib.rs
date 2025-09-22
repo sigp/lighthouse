@@ -1336,7 +1336,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Path for `v1/beacon/blob_sidecars/{block_id}`
-    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+    pub fn get_blob_sidecars_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -1345,7 +1345,18 @@ impl BeaconNodeHttpClient {
             .push(&block_id.to_string());
         Ok(path)
     }
-
+    /*
+       /// Path for `/v/beacon/blobs/{blob_id}`
+       pub fn get_blobsV2_path(&self, block_id: BlockId) -> Result<Url, Error> {
+           let mut path = self.eth_path(V1)?;
+           path.path_segments_mut()
+               .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+               .push("beacon")
+               .push("blob")
+               .push(&block_id.to_string());
+           Ok(path)
+       }
+    */
     /// Path for `v1/beacon/blinded_blocks/{block_id}`
     pub fn get_beacon_blinded_blocks_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
@@ -1374,13 +1385,13 @@ impl BeaconNodeHttpClient {
     /// `GET v1/beacon/blob_sidecars/{block_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_blobs<E: EthSpec>(
+    pub async fn get_blob_sidecars<E: EthSpec>(
         &self,
         block_id: BlockId,
         indices: Option<&[u64]>,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BlobSidecarList<E>>>, Error> {
-        let mut path = self.get_blobs_path(block_id)?;
+        let mut path = self.get_blob_sidecars_path(block_id)?;
         if let Some(indices) = indices {
             let indices_string = indices
                 .iter()

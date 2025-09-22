@@ -1900,7 +1900,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // GET beacon/blob_sidecars/{block_id}
-    let get_blobs = eth_v1
+    let get_blob_sidecars = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
@@ -4797,7 +4797,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_attestations)
                 .uor(get_beacon_blinded_block)
                 .uor(get_beacon_block_root)
-                .uor(get_blobs)
+                .uor(get_blob_sidecars)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)
                 .uor(get_beacon_pool_proposer_slashings)
