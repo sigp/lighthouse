@@ -2,15 +2,15 @@
 participants:
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    cl_extra_params:: ["--disable-backfill-rate-limiting"]
     el_type: geth
     el_image: ethereum/client-go:latest
+    cl_extra_params:: ["--disable-backfill-rate-limiting"]
     supernode: true
   - cl_type: lighthouse
     cl_image: lighthouse:local
-    cl_extra_params:: ["--disable-backfill-rate-limiting"]
     el_type: geth
-    el_image: ethereum/client-go:latest
+    el_image: ethereum/client-go:latest 
+    cl_extra_para_ms:: ["--disable-backfill-rate-limiting"]
     supernode: false
 
 checkpoint_sync_enabled: true
