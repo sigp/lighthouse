@@ -718,6 +718,13 @@ pub struct BlobIndicesQuery {
 
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct BlobsVersionedHashesQuery {
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub versioned_hashes: Option<Vec<Hash256>>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DataColumnIndicesQuery {
     #[serde(default, deserialize_with = "option_query_vec")]
     pub indices: Option<Vec<u64>>,

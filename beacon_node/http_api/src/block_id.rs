@@ -2,14 +2,15 @@ use crate::version::inconsistent_fork_rejection;
 use crate::{ExecutionOptimistic, state_id::checkpoint_slot_and_execution_optimistic};
 use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
-use eth2::types::BlobIndicesQuery;
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
+use eth2::types::{BlobIndicesQuery, BlobsVersionedHashesQuery};
+use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
+    Blob, BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
     SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
 };
 use warp::Rejection;
@@ -350,6 +351,45 @@ impl BlockId {
         };
 
         Ok((block, blob_sidecar_list, execution_optimistic, finalized))
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub fn get_blobs_by_versioned_hashes<T: BeaconChainTypes>(
+        &self,
+        query: BlobsVersionedHashesQuery,
+        chain: &BeaconChain<T>,
+    ) -> Result<(Vec<Blob<T::EthSpec>>, ExecutionOptimistic, Finalized), warp::Rejection> {
+        // First get all blobs using the existing function
+        let (_block, blob_sidecar_list, execution_optimistic, finalized) = self
+            .get_blinded_block_and_blob_list_filtered(
+                // Get all blob_sidecars
+                BlobIndicesQuery { indices: None },
+                chain,
+            )?;
+
+        // Filter by versioned_hashes if provided
+        let blobs = if let Some(hashes) = query.versioned_hashes {
+            blob_sidecar_list
+                .into_iter()
+                .filter_map(|sidecar| {
+                    // Compute versioned hash from KZG commitment
+                    let versioned_hash = kzg_commitment_to_versioned_hash(&sidecar.kzg_commitment);
+                    if hashes.contains(&versioned_hash) {
+                        Some(sidecar.blob.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            // Return all blobs if no version_hashes queryis provided
+            blob_sidecar_list
+                .into_iter()
+                .map(|sidecar| sidecar.blob.clone())
+                .collect()
+        };
+
+        Ok((blobs, execution_optimistic, finalized))
     }
 
     fn get_blobs<T: BeaconChainTypes>(
