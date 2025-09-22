@@ -18,7 +18,7 @@ pub static IS_SYNCED: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
 pub static IS_OPTIMISTIC_SYNC: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "optimistic_sync",
-        "Metric to check if the beacon chain is in optimistic sync mode. 0 if optimistic sync and 1 if synced",
+        "Metric to check if the beacon chain is in optimistic sync mode. 0 if synced and 1 if optimistic sync",
     )
 });
 
