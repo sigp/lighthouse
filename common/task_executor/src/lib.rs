@@ -88,7 +88,7 @@ pub struct TaskExecutor {
     #[allow(dead_code)]
     service_name: String,
 
-    pub rayon_manager: Arc<RayonManager>,
+    rayon_manager: Arc<RayonManager>,
 }
 
 impl TaskExecutor {
@@ -231,6 +231,26 @@ impl TaskExecutor {
         if let Some(task_handle) = self.spawn_blocking_handle(task, name) {
             self.spawn_monitor(task_handle, name)
         }
+    }
+
+    /// Spawns a blocking task on a rayon thread pool inside a dedicated tokio thread.
+    pub fn spawn_blocking_with_rayon<F>(
+        self,
+        task: F,
+        rayon_pool_type: RayonPoolType,
+        name: &'static str,
+    ) where
+        F: FnOnce() + Send + 'static,
+    {
+        let thread_pool = self.rayon_manager.get_thread_pool(rayon_pool_type);
+        self.spawn_blocking(
+            move || {
+                thread_pool.install(|| {
+                    task();
+                });
+            },
+            name,
+        )
     }
 
     pub fn spawn_blocking_handle_with_rayon<F, R>(

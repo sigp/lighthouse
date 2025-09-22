@@ -1678,14 +1678,12 @@ impl TaskSpawner {
     where
         F: FnOnce() + Send + 'static,
     {
-        let thread_pool = self.executor.rayon_manager.get_thread_pool(rayon_pool_type);
-        self.executor.spawn_blocking(
+        self.executor.spawn_blocking_with_rayon(
             move || {
-                thread_pool.install(|| {
-                    task();
-                });
+                task();
                 drop(self.send_idle_on_drop)
             },
+            rayon_pool_type,
             WORKER_TASK_NAME,
         )
     }
