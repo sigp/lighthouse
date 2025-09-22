@@ -3282,7 +3282,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
                 "reconstruct_data_columns",
             )
-            .ok_or(BeaconChainError::RuntimeShutdown)??;
+            .map_err(|_| BeaconChainError::RuntimeShutdown)??;
 
         match result {
             DataColumnReconstructionResult::Success((availability, data_columns_to_publish)) => {

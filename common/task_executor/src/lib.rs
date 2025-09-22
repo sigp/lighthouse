@@ -49,6 +49,10 @@ impl From<Handle> for HandleProvider {
     }
 }
 
+pub enum TaskExecutorError {
+    PoisonError,
+}
+
 impl From<Weak<Runtime>> for HandleProvider {
     fn from(weak_runtime: Weak<Runtime>) -> Self {
         HandleProvider::Runtime(weak_runtime)
@@ -258,7 +262,7 @@ impl TaskExecutor {
         rayon_pool_type: RayonPoolType,
         task: F,
         name: &'static str,
-    ) -> Option<R>
+    ) -> Result<R, TaskExecutorError>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -288,10 +292,11 @@ impl TaskExecutor {
         }
 
         match result.lock() {
-            Ok(mut guard) => guard.take(),
+            // `guard.take()` can only return `None` if a `PoisonError` occured within the `spawn_blocking_handle` scope.
+            Ok(mut guard) => guard.take().ok_or(TaskExecutorError::PoisonError),
             Err(e) => {
                 error!(error=?e, task_name=name, "Rayon pool lock is poisoned");
-                None
+                Err(TaskExecutorError::PoisonError)
             }
         }
     }
