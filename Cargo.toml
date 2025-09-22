@@ -134,7 +134,7 @@ deposit_contract = { path = "common/deposit_contract" }
 derivative = "2"
 directory = { path = "common/directory" }
 dirs = "3"
-discv5 = { version = "0.9", features = ["libp2p"] }
+discv5 = { version = "0.10", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
 either = "1.9"
 environment = { path = "lighthouse/environment" }
