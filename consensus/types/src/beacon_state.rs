@@ -173,6 +173,18 @@ pub enum Error {
     AggregatorNotInCommittee {
         aggregator_index: u64,
     },
+    ComputeProposerIndicesPastEpoch {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    ComputeProposerIndicesInsufficientLookahead {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
+    ComputeProposerIndicesExcessiveLookahead {
+        current_epoch: Epoch,
+        request_epoch: Epoch,
+    },
     PleaseNotifyTheDevs(String),
 }
 
@@ -998,6 +1010,40 @@ impl<E: EthSpec> BeaconState<E> {
         indices: &[usize],
         spec: &ChainSpec,
     ) -> Result<Vec<usize>, Error> {
+        // Regardless of fork, we never support computing proposer indices for past epochs.
+        let current_epoch = self.current_epoch();
+        if epoch < current_epoch {
+            return Err(Error::ComputeProposerIndicesPastEpoch {
+                current_epoch,
+                request_epoch: epoch,
+            });
+        }
+
+        // FIXME(sproul): double check fulu enabled condition, which epoch should we check?
+        if spec.fork_name_at_epoch(current_epoch).fulu_enabled() {
+            // Post-Fulu we must never compute proposer indices using insufficient lookahead. This
+            // would be very dangerous as it would lead to conflicts between the *true* proposer as
+            // defined by `self.proposer_lookahead` and the output of this function.
+            // With MIN_SEED_LOOKAHEAD=1 (common config), this is equivalent to checking that the
+            // requested epoch is not the current epoch.
+            if epoch < current_epoch.safe_add(spec.min_seed_lookahead)? {
+                return Err(Error::ComputeProposerIndicesInsufficientLookahead {
+                    current_epoch,
+                    request_epoch: epoch,
+                });
+            }
+        } else {
+            // Pre-Fulu the situation is reversed, we *should not* compute proposer indices using
+            // too much lookahead. To do so would make us vulnerable to changes in the proposer
+            // indices caused by effective balance changes.
+            if epoch >= current_epoch.safe_add(spec.min_seed_lookahead)? {
+                return Err(Error::ComputeProposerIndicesInsufficientLookahead {
+                    current_epoch,
+                    request_epoch: epoch,
+                });
+            }
+        }
+
         epoch
             .slot_iter(E::slots_per_epoch())
             .map(|slot| {
