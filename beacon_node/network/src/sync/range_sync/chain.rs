@@ -45,11 +45,11 @@ type RangeSyncBatchInfo<E> = BatchInfo<E, RangeSyncBatchConfig<E>, RpcBlocks<E>>
 type RangeSyncBatches<E> = BTreeMap<BatchId, RangeSyncBatchInfo<E>>;
 
 /// The number of times to retry a batch before it is considered failed.
-const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;
+const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
 
 /// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
-const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 10;
+const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 
 #[derive(Debug)]
 pub struct RangeSyncBatchConfig<E: EthSpec> {
