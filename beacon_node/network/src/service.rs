@@ -735,7 +735,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                 // subscribe to `sampling_count` subnets
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
-
                 if self
                     .network_globals
                     .config

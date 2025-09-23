@@ -44,6 +44,13 @@ type RpcBlocks<E> = Vec<RpcBlock<E>>;
 type RangeSyncBatchInfo<E> = BatchInfo<E, RangeSyncBatchConfig<E>, RpcBlocks<E>>;
 type RangeSyncBatches<E> = BTreeMap<BatchId, RangeSyncBatchInfo<E>>;
 
+/// The number of times to retry a batch before it is considered failed.
+const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;
+
+/// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed
+/// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
+const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 10;
+
 #[derive(Debug)]
 pub struct RangeSyncBatchConfig<E: EthSpec> {
     marker: PhantomData<E>,
@@ -51,10 +58,10 @@ pub struct RangeSyncBatchConfig<E: EthSpec> {
 
 impl<E: EthSpec> BatchConfig for RangeSyncBatchConfig<E> {
     fn max_batch_download_attempts() -> u8 {
-        5 //TODO MAX_BATCH_DOWNLOAD_ATTEMPTS
+        MAX_BATCH_DOWNLOAD_ATTEMPTS
     }
     fn max_batch_processing_attempts() -> u8 {
-        5 // TODO MAX_BATCH_PROCESSING_ATTEMPTS
+        MAX_BATCH_PROCESSING_ATTEMPTS
     }
     fn batch_attempt_hash<D: Hash>(data: &D) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();

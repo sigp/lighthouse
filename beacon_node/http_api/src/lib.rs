@@ -3818,7 +3818,6 @@ pub fn serve<T: BeaconChainTypes>(
 
                         let current_slot =
                             chain.slot().map_err(warp_utils::reject::unhandled_error)?;
-
                         if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()

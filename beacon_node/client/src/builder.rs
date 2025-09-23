@@ -486,7 +486,7 @@ where
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
-        init_custody_context(beacon_chain.clone(), &network_globals)?;
+        init_custody_context(beacon_chain, &network_globals)?;
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);

@@ -40,13 +40,6 @@ pub struct DataColumnsByRootRequestId {
     pub requester: DataColumnsByRootRequester,
 }
 
-/// Request ID for data_columns_by_root requests for custody sync.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct CustodySyncDataColumnsByRootRequestId {
-    pub id: Id,
-    pub parent_id: Id,
-}
-
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct BlocksByRangeRequestId {
     /// Id to identify this attempt at a blocks_by_range request for `parent_request_id`
