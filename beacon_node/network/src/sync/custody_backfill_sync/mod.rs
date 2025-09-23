@@ -723,12 +723,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         Ok(ProcessResult::Successful)
     }
 
-    /// Removes any batches previous to the given `validating_epoch`
+    /// Removes any batches previous to the given `validating_epoch` and advance custody backfill sync
+    /// to `validating_epoch`.
     ///
     /// The `validating_epoch` must align with batch boundaries.
-    ///
-    /// If a previous batch has been validated and it had been re-processed, penalize the original
-    /// peer.
     fn advance_custody_backfill_sync(&mut self, validating_epoch: Epoch) {
         let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
             return;
@@ -747,8 +745,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
         for (id, batch) in removed_batches.into_iter() {
             self.validated_batches = self.validated_batches.saturating_add(1);
-            // only for batches awaiting validation can we be sure the last attempt is
-            // right, and thus, that any different attempt is wrong
             match batch.state() {
                 BatchState::Downloading(..) | BatchState::AwaitingValidation(..) => {}
                 BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
