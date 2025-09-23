@@ -585,8 +585,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 if let Err(e) = batch.processing_completed(BatchProcessingResult::Success) {
                     self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
                 }
-
-                debug!(num_columns_imported=imported_columns, "Succesfully imported data columns");
                 
                 self.advance_custody_backfill_sync(batch_id);
 
@@ -596,9 +594,16 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     ));
                 };
 
+                let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
+                    return Err(CustodyBackfillError::InvalidSyncState(
+                        "Can't calculate column data availability boundary".to_string()
+                    ));
+                };
+
                 if batch_id == self.processing_target {
-                    // Advance processing target if we're above the Fulu fork epoch
-                    if self.processing_target > fulu_fork_epoch {
+                    // Advance processing target to the previous epoch
+                    // If the current processing target is above the column DA boundary
+                    if self.processing_target > column_da_boundary {
                         self.processing_target = self
                             .processing_target
                             .saturating_sub(CUSTODY_BACKFILL_EPOCHS_PER_BATCH);
