@@ -511,7 +511,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 };
                 match peer_action {
                     Some(penalty) => CustodyBatchProcessResult::FaultyFailure {
-                        imported_columns: 0,
                         penalty,
                         batch_id: process_id,
                     },

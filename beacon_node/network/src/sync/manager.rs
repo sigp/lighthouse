@@ -226,7 +226,6 @@ pub enum CustodyBatchProcessResult {
     /// The custody batch processing failed. It carries whether the processing imported any block.
     FaultyFailure {
         batch_id: Epoch,
-        imported_columns: usize,
         penalty: PeerAction,
     },
     NonFaultyFailure {

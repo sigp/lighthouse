@@ -579,10 +579,14 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         );
 
         match result {
-            CustodyBatchProcessResult::Success { .. } => {
+            CustodyBatchProcessResult::Success {
+                imported_columns, ..
+            } => {
                 if let Err(e) = batch.processing_completed(BatchProcessingResult::Success) {
                     self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
                 }
+
+                debug!(imported_count=?imported_columns, "Succesfully imported historical data columns");
 
                 self.advance_custody_backfill_sync(batch_id);
 
@@ -605,7 +609,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 // check if custody sync has completed syncing up to the DA window
                 if self.check_completed() {
                     info!(
-                        slots_processed = self.validated_batches * T::EthSpec::slots_per_epoch(),
+                        validated_epochs= ?self.validated_batches,
                         "Custody sync completed"
                     );
                     self.batches.clear();
@@ -625,11 +629,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     self.process_completed_batches(network)
                 }
             }
-            CustodyBatchProcessResult::FaultyFailure {
-                imported_columns: _,
-                penalty,
-                batch_id,
-            } => {
+            CustodyBatchProcessResult::FaultyFailure { penalty, batch_id } => {
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure) {
                     Err(e) => {
                         // Batch was in the wrong state
@@ -694,7 +694,8 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     // Batch is not ready, nothing to process
                 }
                 BatchState::AwaitingValidation(..) => {
-                    // This isn't a possible scenario
+                    // This isn't a possible scenario, log a crit just in case
+                    crit!("A custody backfill sync batch is in an invalid state");
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
                 BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
