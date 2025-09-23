@@ -1,10 +1,8 @@
-use std::collections::HashSet;
-
 pub use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender, error::SendError};
 use tracing::trace;
-use types::{ColumnIndex, EthSpec};
+use types::EthSpec;
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 16;
 
@@ -313,9 +311,4 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
     pub fn has_block_gossip_subscribers(&self) -> bool {
         self.block_gossip_tx.receiver_count() > 0
     }
-}
-
-#[derive(Debug)]
-pub enum SyncServiceMessage {
-    CustodyCountChanged { columns: HashSet<ColumnIndex> },
 }

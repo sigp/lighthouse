@@ -52,7 +52,6 @@ use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, BlockError, EngineState,
-    events::SyncServiceMessage,
 };
 use futures::StreamExt;
 use lighthouse_network::SyncInfo;
@@ -256,9 +255,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// A receiving channel sent by the message processor thread.
     input_channel: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
 
-    /// A receiving channel sent by the network service.
-    sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
-
     /// A network context to contact the network service.
     network: SyncNetworkContext<T>,
 
@@ -287,7 +283,6 @@ pub fn spawn<T: BeaconChainTypes>(
     network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     beacon_processor: Arc<NetworkBeaconProcessor<T>>,
     sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
-    sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
     fork_context: Arc<ForkContext>,
 ) {
     assert!(
@@ -304,7 +299,6 @@ pub fn spawn<T: BeaconChainTypes>(
         network_send,
         beacon_processor,
         sync_recv,
-        sync_service_recv,
         fork_context,
     );
 
@@ -319,14 +313,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         network_send: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
         beacon_processor: Arc<NetworkBeaconProcessor<T>>,
         sync_recv: mpsc::UnboundedReceiver<SyncMessage<T::EthSpec>>,
-        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
         fork_context: Arc<ForkContext>,
     ) -> Self {
         let network_globals = beacon_processor.network_globals.clone();
         Self {
             chain: beacon_chain.clone(),
             input_channel: sync_recv,
-            sync_service_recv,
             network: SyncNetworkContext::new(
                 network_send,
                 beacon_processor.clone(),
@@ -789,9 +781,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Some(sync_message) = self.input_channel.recv() => {
                     self.handle_message(sync_message);
                 },
-                Some(sync_service_message) = self.sync_service_recv.recv() => {
-                    self.handle_sync_service_message(sync_service_message);
-                }
                 Some(engine_state) = check_ee_stream.next(), if check_ee => {
                     self.handle_new_execution_engine_state(engine_state);
                 }
@@ -972,68 +961,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.update_sync_state();
                     }
                 }
-            }
-        }
-    }
-
-    fn start_custody_backfill_sync(&mut self) {
-        let sync_state = {
-            let head = self.chain.best_slot();
-            let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
-
-            let peers = self.network_globals().peers.read();
-            if current_slot >= head
-                && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
-                && head > 0
-            {
-                SyncState::Synced
-            } else if peers.advanced_peers().next().is_some() {
-                SyncState::SyncTransition
-            } else if peers.synced_peers().next().is_none() {
-                SyncState::Stalled
-            } else {
-                // There are no peers that require syncing and we have at least one synced
-                // peer
-                SyncState::Synced
-            }
-        };
-        match sync_state {
-            SyncState::Synced => {
-                let anchor_info = self.chain.store.get_anchor_info();
-                if !anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
-                    self.custody_backfill_sync.pause(
-                        "Custody backfill sync can't start until backfill sync has completed"
-                            .to_string(),
-                    );
-                    return;
-                }
-
-                match self.custody_backfill_sync.start(&mut self.network) {
-                    Ok(SyncStart::Syncing {
-                        completed,
-                        remaining,
-                    }) => {
-                        info!(?completed, ?remaining, "Starting Custody Sync");
-                    }
-                    Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if the custody backfill sync state didn't start.
-                    Err(e) => {
-                        error!(error = ?e, "Custody backfill sync failed to start");
-                    }
-                }
-            }
-            _ => {
-                self.custody_backfill_sync
-                    .pause("Custody backfill failed to start".to_string());
-            }
-        }
-    }
-
-    pub(crate) fn handle_sync_service_message(&mut self, sync_service_message: SyncServiceMessage) {
-        match sync_service_message {
-            SyncServiceMessage::CustodyCountChanged { .. } => {
-                // Wait for the current epoch to finalize before starting custody sync
-                // self.custody_backfill_sync.set_columns(columns);
-                // self.start_custody_backfill_sync();
             }
         }
     }

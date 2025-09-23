@@ -5,7 +5,7 @@ use crate::network_beacon_processor::InvalidBlockStorage;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::{SubnetService, SubnetServiceMessage, Subscription};
-use beacon_chain::{BeaconChain, BeaconChainTypes, events::SyncServiceMessage};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::BeaconProcessorSend;
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
@@ -36,7 +36,6 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use tracing::{debug, error, info, trace, warn};
-use types::ColumnIndex;
 use types::{
     EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId, Unsigned,
     ValidatorSubscription,
@@ -112,7 +111,6 @@ pub enum NetworkMessage<E: EthSpec> {
     /// Subscribe to new subnets and update ENR metadata.
     CustodyCountChanged {
         new_custody_group_count: u64,
-        new_column_indices: HashSet<ColumnIndex>,
         sampling_count: u64,
     },
 }
@@ -185,8 +183,6 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// The sending channel for the network service to send messages to be routed throughout
     /// lighthouse.
     router_send: mpsc::UnboundedSender<RouterMessage<T::EthSpec>>,
-    /// The sending channel for the network service to send messages to the sync service.
-    sync_service_send: mpsc::UnboundedSender<SyncServiceMessage>,
     /// A reference to lighthouse's database to persist the DHT.
     store: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     /// A collection of global variables, accessible outside of the network service.
@@ -311,9 +307,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // launch derived network services
 
-        let (sync_service_send, sync_service_recv) =
-            mpsc::unbounded_channel::<SyncServiceMessage>();
-
         // router task
         let router_send = Router::spawn(
             beacon_chain.clone(),
@@ -322,7 +315,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             executor.clone(),
             invalid_block_storage,
             beacon_processor_send,
-            sync_service_recv,
             fork_context.clone(),
         )?;
 
@@ -352,7 +344,6 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             network_recv,
             validator_subscription_recv,
             router_send,
-            sync_service_send,
             store,
             network_globals: network_globals.clone(),
             next_digest_update,
@@ -740,23 +731,10 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::CustodyCountChanged {
                 new_custody_group_count,
                 sampling_count,
-                new_column_indices,
             } => {
                 // subscribe to `sampling_count` subnets
                 self.libp2p
                     .subscribe_new_data_column_subnets(sampling_count);
-
-                if let Err(e) =
-                    self.sync_service_send
-                        .send(SyncServiceMessage::CustodyCountChanged {
-                            columns: new_column_indices,
-                        })
-                {
-                    warn!(
-                        error = ?e,
-                        "Failed to send custody count change to the sync service"
-                    );
-                }
 
                 if self
                     .network_globals

@@ -140,12 +140,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         }
     }
 
-    pub fn set_columns(&mut self, columns: HashSet<ColumnIndex>) {
-        self.columns = columns;
-    }
-
     /// Checks if custody backfill sync should start and sets the missing columns
     /// custody backfill sync will attempt to fetch.
+    /// The criteria to start custody sync is:
+    /// - The earliest data column epoch's custodied columns != previous epoch's custodied columns
+    /// - The earliest data column epoch is a finalied epoch
     pub fn should_start_custody_backfill_sync(&mut self) -> bool {
         if let Some(earliest_data_column_slot) = self
             .beacon_chain
@@ -187,7 +186,16 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
             if !missing_columns.is_empty() {
                 self.columns = missing_columns;
-                return true;
+
+                let latest_finalized_epoch = self
+                    .beacon_chain
+                    .canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .epoch;
+
+                // Check that the earliest data column epoch is a finalized epoch.
+                return earliest_data_column_epoch <= latest_finalized_epoch;
             }
         }
 
@@ -213,15 +221,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     return Ok(SyncStart::NotSyncing);
                 }
 
-                if self.should_start_custody_backfill_sync() {
-                    return Ok(SyncStart::NotSyncing);
-                }
-
-                if self.columns.is_empty() {
-                    return Ok(SyncStart::NotSyncing);
-                }
-
-                if !self.earliest_column_epoch_is_finalized() {
+                if !self.should_start_custody_backfill_sync() {
                     return Ok(SyncStart::NotSyncing);
                 }
 
@@ -615,6 +615,13 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                         slots_processed = self.validated_batches * T::EthSpec::slots_per_epoch(),
                         "Custody sync completed"
                     );
+                    self.batches.clear();
+                    self.restart_failed_sync = false;
+                    self.processing_target = self.current_start;
+                    self.to_be_downloaded = self.current_start;
+                    self.last_batch_downloaded = false;
+                    self.current_processing_batch = None;
+                    self.validated_batches = 0;
                     self.set_state(CustodyBackFillState::Completed);
                     Ok(ProcessResult::SyncCompleted)
                 } else {
@@ -844,29 +851,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 <= column_da_boundary;
         }
         false
-    }
-
-    /// Checks that that earliest slot we can fulfill our cgc requirements on
-    /// belongs to a finalized epoch.
-    fn earliest_column_epoch_is_finalized(&mut self) -> bool {
-        let Some(earliest_data_column_slot) = self
-            .beacon_chain
-            .store
-            .get_data_column_custody_info()
-            .unwrap_or(None)
-            .and_then(|info| info.earliest_data_column_slot)
-        else {
-            return false;
-        };
-
-        let latest_finalized_epoch = self
-            .beacon_chain
-            .canonical_head
-            .cached_head()
-            .finalized_checkpoint()
-            .epoch;
-
-        earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch()) <= latest_finalized_epoch
     }
 
     /// Checks if custody backfill would complete by syncing to `start_epoch`.

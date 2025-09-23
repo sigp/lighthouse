@@ -3819,13 +3819,6 @@ pub fn serve<T: BeaconChainTypes>(
                         let current_slot =
                             chain.slot().map_err(warp_utils::reject::unhandled_error)?;
 
-                        let current_custody_columns = chain
-                            .sampling_columns_for_epoch(
-                                current_slot.epoch(T::EthSpec::slots_per_epoch()),
-                            )
-                            .iter()
-                            .copied()
-                            .collect::<HashSet<_>>();
                         if let Some(cgc_change) = chain
                             .data_availability_checker
                             .custody_context()
@@ -3836,20 +3829,10 @@ pub fn serve<T: BeaconChainTypes>(
                                     .effective_epoch
                                     .start_slot(T::EthSpec::slots_per_epoch()),
                             ));
-                            let updated_custody_columns = chain
-                                .sampling_columns_for_epoch(cgc_change.effective_epoch)
-                                .iter()
-                                .copied()
-                                .collect::<HashSet<_>>();
-                            let new_column_indices = current_custody_columns
-                                .symmetric_difference(&updated_custody_columns)
-                                .copied()
-                                .collect::<HashSet<_>>();
 
                             network_tx.send(NetworkMessage::CustodyCountChanged {
                                 new_custody_group_count: cgc_change.new_custody_group_count,
                                 sampling_count: cgc_change.sampling_count,
-                                new_column_indices,
                             }).unwrap_or_else(|e| {
                                 debug!(error = %e, "Could not send message to the network service. \
                                 Likely shutdown")
@@ -4187,20 +4170,16 @@ pub fn serve<T: BeaconChainTypes>(
                         (effective_epoch).end_slot(T::EthSpec::slots_per_epoch()),
                     ));
 
-                    let updated_custody_columns = chain
+                    chain
                         .data_availability_checker
                         .custody_context()
-                        .get_all_custody_columns()
-                        .iter()
-                        .copied()
-                        .collect::<HashSet<_>>();
+                        .update_cgc(cgc + 2, effective_epoch);
 
                     publish_network_message(
                         &network_tx,
                         NetworkMessage::CustodyCountChanged {
-                            new_custody_group_count: cgc,
+                            new_custody_group_count: cgc + 2,
                             sampling_count,
-                            new_column_indices: updated_custody_columns,
                         },
                     )?;
                     Ok(())
