@@ -3274,7 +3274,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_span = Span::current();
         let result = self
             .task_executor
-            .spawn_rayon_async(RayonPoolType::HighPriority, move || {
+            .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
                 let _guard = current_span.enter();
                 data_availability_checker.reconstruct_data_columns(&block_root)
             })

@@ -233,7 +233,7 @@ impl TaskExecutor {
         }
     }
 
-    /// Spawns a blocking task on a rayon thread pool inside a dedicated tokio thread.
+    /// Spawns a blocking task on a dedicated tokio thread pool and installs a rayon context within it.
     pub fn spawn_blocking_with_rayon<F>(
         self,
         task: F,
@@ -253,7 +253,8 @@ impl TaskExecutor {
         )
     }
 
-    pub async fn spawn_rayon_async<F, R>(
+    /// Spawns a blocking computation on a rayon thread pool and awaits the result.
+    pub async fn spawn_blocking_with_rayon_async<F, R>(
         &self,
         rayon_pool_type: RayonPoolType,
         task: F,
