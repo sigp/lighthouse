@@ -10,7 +10,7 @@ pub enum RayonPoolType {
     LowPriority,
 }
 
-pub struct RayonManager {
+pub struct RayonPools {
     /// Smaller rayon thread pool for lower-priority, compute-intensive tasks.
     /// By default ~25% of CPUs or a minimum of 1 thread.
     low_priority_thread_pool: Arc<ThreadPool>,
@@ -19,7 +19,7 @@ pub struct RayonManager {
     high_priority_thread_pool: Arc<ThreadPool>,
 }
 
-impl Default for RayonManager {
+impl Default for RayonPools {
     fn default() -> Self {
         let low_prio_threads =
             (num_cpus::get() * DEFAULT_LOW_PRIORITY_CPU_PERCENTAGE / 100).max(MINIMUM_THREAD_COUNT);
@@ -45,7 +45,7 @@ impl Default for RayonManager {
     }
 }
 
-impl RayonManager {
+impl RayonPools {
     pub fn get_thread_pool(&self, rayon_pool_type: RayonPoolType) -> Arc<ThreadPool> {
         match rayon_pool_type {
             RayonPoolType::HighPriority => self.high_priority_thread_pool.clone(),

@@ -1,5 +1,5 @@
 mod metrics;
-mod rayon_manager;
+mod rayon_pools;
 pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
@@ -8,8 +8,8 @@ use std::sync::{Arc, Weak};
 use tokio::runtime::{Handle, Runtime};
 use tracing::debug;
 
-use crate::rayon_manager::RayonManager;
-pub use crate::rayon_manager::RayonPoolType;
+use crate::rayon_pools::RayonPools;
+pub use crate::rayon_pools::RayonPoolType;
 pub use tokio::task::JoinHandle;
 
 /// Provides a reason when Lighthouse is shut down.
@@ -88,7 +88,7 @@ pub struct TaskExecutor {
     #[allow(dead_code)]
     service_name: String,
 
-    rayon_manager: Arc<RayonManager>,
+    rayon_pools: Arc<RayonPools>,
 }
 
 impl TaskExecutor {
@@ -110,7 +110,7 @@ impl TaskExecutor {
             exit,
             signal_tx,
             service_name,
-            rayon_manager: Arc::new(RayonManager::default()),
+            rayon_pools: Arc::new(RayonPools::default()),
         }
     }
 
@@ -121,7 +121,7 @@ impl TaskExecutor {
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
             service_name,
-            rayon_manager: self.rayon_manager.clone(),
+            rayon_pools: self.rayon_pools.clone(),
         }
     }
 
@@ -242,7 +242,7 @@ impl TaskExecutor {
     ) where
         F: FnOnce() + Send + 'static,
     {
-        let thread_pool = self.rayon_manager.get_thread_pool(rayon_pool_type);
+        let thread_pool = self.rayon_pools.get_thread_pool(rayon_pool_type);
         self.spawn_blocking(
             move || {
                 thread_pool.install(|| {
@@ -262,7 +262,7 @@ impl TaskExecutor {
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
     {
-        let thread_pool = self.rayon_manager.get_thread_pool(rayon_pool_type);
+        let thread_pool = self.rayon_pools.get_thread_pool(rayon_pool_type);
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         thread_pool.spawn(move || {
