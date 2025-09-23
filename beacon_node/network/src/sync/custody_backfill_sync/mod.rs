@@ -144,6 +144,56 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.columns = columns;
     }
 
+    /// Checks if custody backfill sync should start and sets the missing columns
+    /// custody backfill sync will attempt to fetch.
+    pub fn should_start_custody_backfill_sync(&mut self) -> bool {
+        if let Some(earliest_data_column_slot) = self
+            .beacon_chain
+            .store
+            .get_data_column_custody_info()
+            .unwrap_or(None)
+            .and_then(|info| info.earliest_data_column_slot)
+        {
+            let earliest_data_column_epoch =
+                earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
+
+            let custody_context = self
+                .beacon_chain
+                .data_availability_checker
+                .custody_context();
+
+            let current_custodied_columns = custody_context
+                .custody_columns_for_epoch(
+                    Some(earliest_data_column_epoch),
+                    &self.beacon_chain.spec,
+                )
+                .iter()
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            let previous_custodied_columns = custody_context
+                .custody_columns_for_epoch(
+                    Some(earliest_data_column_epoch - 1),
+                    &self.beacon_chain.spec,
+                )
+                .iter()
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            let missing_columns = current_custodied_columns
+                .difference(&previous_custodied_columns)
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            if !missing_columns.is_empty() {
+                self.columns = missing_columns;
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Starts syncing.
     #[must_use = "A failure here indicates custody backfill sync has failed and the global sync state should be updated"]
     pub fn start(
@@ -160,6 +210,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             CustodyBackFillState::Pending(_) | CustodyBackFillState::Completed => {
                 if self.check_completed() {
                     self.set_state(CustodyBackFillState::Completed);
+                    return Ok(SyncStart::NotSyncing);
+                }
+
+                if self.should_start_custody_backfill_sync() {
                     return Ok(SyncStart::NotSyncing);
                 }
 

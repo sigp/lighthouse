@@ -1030,10 +1030,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     pub(crate) fn handle_sync_service_message(&mut self, sync_service_message: SyncServiceMessage) {
         match sync_service_message {
-            SyncServiceMessage::CustodyCountChanged { columns } => {
+            SyncServiceMessage::CustodyCountChanged { .. } => {
                 // Wait for the current epoch to finalize before starting custody sync
-                self.custody_backfill_sync.set_columns(columns);
-                self.start_custody_backfill_sync();
+                // self.custody_backfill_sync.set_columns(columns);
+                // self.start_custody_backfill_sync();
             }
         }
     }
