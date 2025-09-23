@@ -3,8 +3,8 @@ use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
-        validator_monitor::timestamp_now,
     },
+    validator_monitor::timestamp_now,
 };
 use eth2::{
     BeaconNodeHttpClient, Error,
