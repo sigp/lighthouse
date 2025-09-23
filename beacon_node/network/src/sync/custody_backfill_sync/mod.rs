@@ -580,19 +580,14 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
         match result {
             CustodyBatchProcessResult::Success {
-                imported_columns, ..
+                ..
             } => {
                 if let Err(e) = batch.processing_completed(BatchProcessingResult::Success) {
                     self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
                 }
-                
+
                 self.advance_custody_backfill_sync(batch_id);
 
-                let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch else {
-                    return Err(CustodyBackfillError::InvalidSyncState(
-                        "Fulu epoch isn't schedlued".to_string(),
-                    ));
-                };
 
                 let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
                     return Err(CustodyBackfillError::InvalidSyncState(
@@ -634,7 +629,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 }
             }
             CustodyBatchProcessResult::FaultyFailure {
-                imported_columns,
+                imported_columns: _,
                 penalty,
                 batch_id,
             } => {
@@ -655,14 +650,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     }
 
                     Ok(BatchOperationOutcome::Continue) => {
-                        // custody backfill can continue. Check if it can be progressed
-                        if *imported_columns > 0 {
-                            // TODO(custody-sync) is this actually true?
-                            // At least one column was successfully verified and imported, then we can be sure all
-                            // previous batches are valid and we only need to download the current failed
-                            // batch.
-                            self.advance_custody_backfill_sync(*batch_id);
-                        }
+                        self.advance_custody_backfill_sync(*batch_id);
                         // Handle this invalid batch, that is within the re-process retries limit.
                         self.handle_invalid_batch(network, *batch_id)
                             .map(|_| ProcessResult::Successful)
