@@ -579,19 +579,16 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         );
 
         match result {
-            CustodyBatchProcessResult::Success {
-                ..
-            } => {
+            CustodyBatchProcessResult::Success { .. } => {
                 if let Err(e) = batch.processing_completed(BatchProcessingResult::Success) {
                     self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
                 }
 
                 self.advance_custody_backfill_sync(batch_id);
 
-
                 let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
                     return Err(CustodyBackfillError::InvalidSyncState(
-                        "Can't calculate column data availability boundary".to_string()
+                        "Can't calculate column data availability boundary".to_string(),
                     ));
                 };
 
