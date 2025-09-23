@@ -9,7 +9,7 @@ use crate::network_beacon_processor::{InvalidBlockStorage, NetworkBeaconProcesso
 use crate::service::NetworkMessage;
 use crate::status::status_message;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes, events::SyncServiceMessage};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
@@ -86,7 +86,6 @@ impl<T: BeaconChainTypes> Router<T> {
         executor: task_executor::TaskExecutor,
         invalid_block_storage: InvalidBlockStorage,
         beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
-        sync_service_recv: mpsc::UnboundedReceiver<SyncServiceMessage>,
         fork_context: Arc<ForkContext>,
     ) -> Result<mpsc::UnboundedSender<RouterMessage<T::EthSpec>>, String> {
         trace!("Service starting");
@@ -114,7 +113,6 @@ impl<T: BeaconChainTypes> Router<T> {
             network_send.clone(),
             network_beacon_processor.clone(),
             sync_recv,
-            sync_service_recv,
             fork_context,
         );
 
