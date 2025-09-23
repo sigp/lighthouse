@@ -492,7 +492,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
-    pub fn process_historic_data_columns(
+    pub fn send_historic_data_columns(
         self: &Arc<Self>,
         process_id: Epoch,
         data_columns: DataColumnSidecarList<T::EthSpec>,
