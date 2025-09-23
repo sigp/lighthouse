@@ -1376,8 +1376,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             }
-            // TODO(custody-backfill) refactor
-            ColumnsByRangeParentRequestId::CustodyBackfillSync(_) => {}
+            ColumnsByRangeParentRequestId::CustodyBackfillSync(_) => {
+                // This should be impossible, log a crit just in case
+                crit!("Recevied a custody backfill sync response during a range components request.")
+            }
         }
     }
 

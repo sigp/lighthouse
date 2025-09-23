@@ -487,7 +487,6 @@ where
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         init_custody_context(beacon_chain.clone(), &network_globals)?;
-        // TODO(custody-sync) on restart we can check if custody sync should be started.
 
         self.network_globals = Some(network_globals);
         self.network_senders = Some(network_senders);
