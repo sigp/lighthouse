@@ -25,6 +25,7 @@ pub struct ForkVersionedResponse<T, M = EmptyMetadata> {
 /// `Deserialize`.
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct UnversionedResponse<T, M = EmptyMetadata> {
+    #[serde(flatten)]
     pub metadata: M,
     pub data: T,
 }

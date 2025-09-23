@@ -1984,11 +1984,17 @@ pub fn serve<T: BeaconChainTypes>(
                                 ))
                             }),
                         _ => {
+                            let hex_blobs: Vec<String> = blobs
+                                .iter()
+                                // Serialize the blob string as a hex string
+                                .map(|blob| format!("0x{}", hex::encode(blob.as_ref())))
+                                .collect();
+
                             let res = execution_optimistic_finalized_beacon_response(
                                 ResponseIncludesVersion::No,
                                 execution_optimistic,
                                 finalized,
-                                &blobs,
+                                &hex_blobs,
                             )?;
                             Ok(warp::reply::json(&res).into_response())
                         }
