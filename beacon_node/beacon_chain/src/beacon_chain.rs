@@ -3274,13 +3274,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_span = Span::current();
         let result = self
             .task_executor
-            .spawn_rayon_async(
-                RayonPoolType::HighPriority,
-                move || {
-                    let _guard = current_span.enter();
-                    data_availability_checker.reconstruct_data_columns(&block_root)
-                },
-            )
+            .spawn_rayon_async(RayonPoolType::HighPriority, move || {
+                let _guard = current_span.enter();
+                data_availability_checker.reconstruct_data_columns(&block_root)
+            })
             .await
             .map_err(|_| BeaconChainError::RuntimeShutdown)??;
 

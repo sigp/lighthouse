@@ -4,9 +4,9 @@ pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, Weak};
 use tokio::runtime::{Handle, Runtime};
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::rayon_manager::RayonManager;
 pub use crate::rayon_manager::RayonPoolType;
@@ -47,10 +47,6 @@ impl From<Handle> for HandleProvider {
     fn from(handle: Handle) -> Self {
         HandleProvider::Handle(handle)
     }
-}
-
-pub enum TaskExecutorError {
-    PoisonError,
 }
 
 impl From<Weak<Runtime>> for HandleProvider {
@@ -255,50 +251,6 @@ impl TaskExecutor {
             },
             name,
         )
-    }
-
-    pub fn spawn_blocking_handle_with_rayon<F, R>(
-        &self,
-        rayon_pool_type: RayonPoolType,
-        task: F,
-        name: &'static str,
-    ) -> Result<R, TaskExecutorError>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        let thread_pool = self.rayon_manager.get_thread_pool(rayon_pool_type);
-
-        let result = Arc::new(Mutex::new(None));
-        let result_clone = result.clone();
-
-        if let Some(task_handle) = self.spawn_blocking_handle(
-            move || {
-                thread_pool.scope(|s| {
-                    s.spawn(|_| {
-                        let r = task();
-                        match result_clone.lock() {
-                            Ok(mut guard) => *guard = Some(r),
-                            Err(e) => {
-                                error!(error=?e, task_name=name, "Rayon pool lock is poisoned");
-                            }
-                        }
-                    })
-                })
-            },
-            name,
-        ) {
-            self.spawn_monitor(task_handle, name);
-        }
-
-        match result.lock() {
-            // `guard.take()` can only return `None` if a `PoisonError` occured within the `spawn_blocking_handle` scope.
-            Ok(mut guard) => guard.take().ok_or(TaskExecutorError::PoisonError),
-            Err(e) => {
-                error!(error=?e, task_name=name, "Rayon pool lock is poisoned");
-                Err(TaskExecutorError::PoisonError)
-            }
-        }
     }
 
     pub async fn spawn_rayon_async<F, R>(
