@@ -24,7 +24,7 @@ use crate::sync::{
 };
 
 /// The maximum number of batches to queue before requesting more.
-const BACKFILL_BATCH_BUFFER_SIZE: u8 = 20;
+const BACKFILL_BATCH_BUFFER_SIZE: u8 = 5;
 
 /// Columns are downloaded in batches from peers. This constant specifies how many epochs worth of
 /// columns per batch are requested _at most_. A batch may request less columns to account for
