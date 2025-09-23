@@ -359,15 +359,32 @@ impl BlockId {
         query: BlobsVersionedHashesQuery,
         chain: &BeaconChain<T>,
     ) -> Result<(Vec<Blob<T::EthSpec>>, ExecutionOptimistic, Finalized), warp::Rejection> {
-        // First get all blobs using the existing function
-        let (_block, blob_sidecar_list, execution_optimistic, finalized) = self
-            .get_blinded_block_and_blob_list_filtered(
-                // Get all blob_sidecars
-                BlobIndicesQuery { indices: None },
-                chain,
-            )?;
+        let (root, execution_optimistic, finalized) = self.root(chain)?;
+        let block = BlockId::blinded_block_by_root(&root, chain)?.ok_or_else(|| {
+            warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
+        })?;
 
-        // Filter by versioned_hashes if provided
+        // Error if the block is pre-Deneb and lacks blobs.
+        let blob_kzg_commitments = block.message().body().blob_kzg_commitments().map_err(|_| {
+            warp_utils::reject::custom_bad_request(
+                "block is pre-Deneb and has no blobs".to_string(),
+            )
+        })?;
+
+        let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
+        let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
+            if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
+                Self::get_blobs_from_data_columns(chain, root, None, &block)?
+            } else {
+                //  // Use "None" for indices to get all blobs
+                Self::get_blobs(chain, root, None, max_blobs_per_block)?
+            }
+        } else {
+            BlobSidecarList::new(vec![], max_blobs_per_block)
+                .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
+        };
+
+        // Get blobs by versioned_hashes if provided
         let blobs = if let Some(hashes) = query.versioned_hashes {
             blob_sidecar_list
                 .into_iter()
@@ -382,7 +399,7 @@ impl BlockId {
                 })
                 .collect()
         } else {
-            // Return all blobs if no version_hashes queryis provided
+            // Return all blobs if no version_hashes is provided
             blob_sidecar_list
                 .into_iter()
                 .map(|sidecar| sidecar.blob.clone())
