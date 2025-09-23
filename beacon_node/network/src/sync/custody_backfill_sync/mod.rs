@@ -693,12 +693,15 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 BatchState::Downloading(..) => {
                     // Batch is not ready, nothing to process
                 }
+                // Batches can be in `AwaitingDownload` state if there weren't good data column subnet
+                // peers to send the request to.
+                BatchState::AwaitingDownload => return Ok(ProcessResult::Successful),
                 BatchState::AwaitingValidation(..) => {
                     // This isn't a possible scenario, log a crit just in case
                     crit!("A custody backfill sync batch is in an invalid state");
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
+                BatchState::Failed | BatchState::Processing(_) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Columns should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -862,7 +865,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .network_globals
                 .peers
                 .read()
-                .synced_peers()
+                .synced_peers_for_epoch(batch_id, None)
                 .cloned()
                 .collect::<HashSet<_>>();
 
