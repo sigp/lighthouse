@@ -20,7 +20,7 @@ use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
     BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlock, Slot,
+    SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -29,7 +29,7 @@ mod state_lru_cache;
 
 use crate::data_column_verification::{
     CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
-    KzgVerifiedDataColumn, verify_kzg_for_data_column_list_with_scoring,
+    KzgVerifiedDataColumn, verify_kzg_for_data_column_list,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -38,19 +38,18 @@ use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
-/// The LRU Cache stores `PendingComponents`, which can store up to `MAX_BLOBS_PER_BLOCK` blobs each.
+/// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
 /// * Deneb blobs are 128 kb each and are stored in the form of `BlobSidecar`.
 /// * From Fulu (PeerDAS), blobs are erasure-coded and are 256 kb each, stored in the form of 128 `DataColumnSidecar`s.
 ///
 /// With `MAX_BLOBS_PER_BLOCK` = 48 (expected in the next year), the maximum size of data columns
-/// in `PendingComponents` is ~12.29 MB. Setting this to 64 means the maximum size of the cache is
-/// approximately 0.8 GB.
+/// in `PendingComponents` is ~12.29 MB. Setting this to 32 means the maximum size of the cache is
+/// approximately 0.4 GB.
 ///
-/// Under normal conditions, the cache should only store the current pending block, but could
-///  occasionally spike to 2-4 for various reasons e.g. components arriving late, but would very
-/// rarely go above this, unless there are many concurrent forks.
-pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(64);
+/// `PendingComponents` are now never removed from the cache manually are only removed via LRU
+/// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
+pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
@@ -79,6 +78,7 @@ pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 /// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
 /// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
+    complete_blob_backfill: bool,
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
@@ -117,6 +117,7 @@ impl<E: EthSpec> Debug for Availability<E> {
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
+        complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
@@ -130,6 +131,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             spec.clone(),
         )?;
         Ok(Self {
+            complete_blob_backfill,
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
@@ -346,11 +348,6 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_pending_executed_block(executed_block)
     }
 
-    pub fn remove_pending_components(&self, block_root: Hash256) {
-        self.availability_cache
-            .remove_pending_components(block_root)
-    }
-
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
     /// include the fully available block.
     ///
@@ -378,7 +375,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
         if self.data_columns_required_for_block(&block) {
             return if let Some(data_column_list) = data_columns.as_ref() {
-                verify_kzg_for_data_column_list_with_scoring(
+                verify_kzg_for_data_column_list(
                     data_column_list
                         .iter()
                         .map(|custody_column| custody_column.as_data_column()),
@@ -445,13 +442,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .flatten()
             .map(CustodyDataColumn::into_inner)
             .collect::<Vec<_>>();
-        let all_data_columns =
-            RuntimeVariableList::from_vec(all_data_columns, self.spec.number_of_columns as usize);
 
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
             // Attributes fault to the specific peer that sent an invalid column
-            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)
+            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
@@ -526,9 +521,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
-        self.spec
-            .min_epoch_data_availability_boundary(current_epoch)
+        let fork_epoch = self.spec.deneb_fork_epoch?;
+
+        if self.complete_blob_backfill {
+            Some(fork_epoch)
+        } else {
+            let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
+            self.spec
+                .min_epoch_data_availability_boundary(current_epoch)
+        }
     }
 
     /// Returns true if the given epoch lies within the da boundary and false otherwise.
@@ -555,6 +556,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
     }
 
+    #[instrument(skip_all, level = "debug")]
     pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
@@ -591,8 +593,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // Check indices from cache again to make sure we don't publish components we've already received.
         let Some(existing_column_indices) = self.cached_data_column_indexes(block_root) else {
-            return Ok(DataColumnReconstructionResult::RecoveredColumnsNotImported(
-                "block already imported",
+            return Err(AvailabilityCheckError::Unexpected(
+                "block no longer exists in the data availability checker".to_string(),
             ));
         };
 
@@ -849,6 +851,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
     use store::HotColdDB;
+    use types::data_column_sidecar::DataColumn;
     use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
 
     type E = MainnetEthSpec;
@@ -1011,6 +1014,55 @@ mod test {
         )
     }
 
+    /// Regression test for KZG verification truncation bug (https://github.com/sigp/lighthouse/pull/7927)
+    #[test]
+    fn verify_kzg_for_rpc_blocks_should_not_truncate_data_columns() {
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+        let da_checker = new_da_checker(spec.clone());
+
+        // GIVEN multiple RPC blocks with data columns totalling more than 128
+        let blocks_with_columns = (0..2)
+            .map(|index| {
+                let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+                    ForkName::Fulu,
+                    NumBlobs::Number(1),
+                    &mut rng,
+                    &spec,
+                );
+
+                let custody_columns = if index == 0 {
+                    // 128 valid data columns in the first block
+                    data_columns
+                        .into_iter()
+                        .map(CustodyDataColumn::from_asserted_custody)
+                        .collect::<Vec<_>>()
+                } else {
+                    // invalid data columns in the second block
+                    data_columns
+                        .into_iter()
+                        .map(|d| {
+                            let invalid_sidecar = DataColumnSidecar {
+                                column: DataColumn::<E>::empty(),
+                                ..d.as_ref().clone()
+                            };
+                            CustodyDataColumn::from_asserted_custody(Arc::new(invalid_sidecar))
+                        })
+                        .collect::<Vec<_>>()
+                };
+
+                RpcBlock::new_with_custody_columns(None, Arc::new(block), custody_columns)
+                    .expect("should create RPC block with custody columns")
+            })
+            .collect::<Vec<_>>();
+
+        // WHEN verifying all blocks together (totalling 256 data columns)
+        let verification_result = da_checker.verify_kzg_for_rpc_blocks(blocks_with_columns);
+
+        // THEN batch block verification should fail due to 128 invalid columns in the second block
+        verification_result.expect_err("should have failed to verify blocks");
+    }
+
     fn init_custody_context_with_ordered_columns(
         custody_context: &Arc<CustodyContext<E>>,
         mut rng: &mut StdRng,
@@ -1033,7 +1085,15 @@ mod test {
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
         let custody_context = Arc::new(CustodyContext::new(false));
-        DataAvailabilityChecker::new(slot_clock, kzg, store, custody_context, spec)
-            .expect("should initialise data availability checker")
+        let complete_blob_backfill = false;
+        DataAvailabilityChecker::new(
+            complete_blob_backfill,
+            slot_clock,
+            kzg,
+            store,
+            custody_context,
+            spec,
+        )
+        .expect("should initialise data availability checker")
     }
 }

@@ -3,7 +3,7 @@ use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -16,6 +16,7 @@ use eth2::types::{
 use execution_layer::{ProvenancedPayload, SubmitBlindedBlockResponse};
 use futures::TryFutureExt;
 use lighthouse_network::PubsubMessage;
+use lighthouse_tracing::SPAN_PUBLISH_BLOCK;
 use network::NetworkMessage;
 use rand::prelude::SliceRandom;
 use slot_clock::SlotClock;
@@ -24,7 +25,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
-use tracing::{debug, error, info, warn};
+use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
@@ -75,6 +76,12 @@ impl<T: BeaconChainTypes> ProvenancedBlock<T, Arc<SignedBeaconBlock<T::EthSpec>>
 
 /// Handles a request from the HTTP API for full blocks.
 #[allow(clippy::too_many_arguments)]
+#[instrument(
+    name = SPAN_PUBLISH_BLOCK,
+    level = "info",
+    skip_all,
+    fields(?block_root, ?validation_level, provenance = tracing::field::Empty)
+)]
 pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     block_root: Option<Hash256>,
     provenanced_block: ProvenancedBlock<T, B>,
@@ -96,6 +103,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     } else {
         "builder"
     };
+    let current_span = Span::current();
+    current_span.record("provenance", provenance);
+
     let block = unverified_block.inner_block();
 
     debug!(slot = %block.slot(), "Signed block received in HTTP API");
@@ -133,8 +143,12 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     let slot = block.message().slot();
     let sender_clone = network_tx.clone();
 
-    let build_sidecar_task_handle =
-        spawn_build_data_sidecar_task(chain.clone(), block.clone(), unverified_blobs)?;
+    let build_sidecar_task_handle = spawn_build_data_sidecar_task(
+        chain.clone(),
+        block.clone(),
+        unverified_blobs,
+        current_span.clone(),
+    )?;
 
     // Gossip verify the block and blobs/data columns separately.
     let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
@@ -202,7 +216,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         }
     }
 
-    if gossip_verified_columns.iter().map(Option::is_some).count() > 0 {
+    if !gossip_verified_columns.is_empty() {
         if let Some(data_column_publishing_delay) = data_column_publishing_delay_for_testing {
             // Subtract block publishing delay if it is also used.
             // Note: if `data_column_publishing_delay` is less than `block_publishing_delay`, it
@@ -226,7 +240,6 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         let sampling_columns_indices = chain.sampling_columns_for_epoch(epoch);
         let sampling_columns = gossip_verified_columns
             .into_iter()
-            .flatten()
             .filter(|data_column| sampling_columns_indices.contains(&data_column.index()))
             .collect::<Vec<_>>();
 
@@ -334,7 +347,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 type BuildDataSidecarTaskResult<T> = Result<
     (
         Vec<Option<GossipVerifiedBlob<T>>>,
-        Vec<Option<GossipVerifiedDataColumn<T>>>,
+        Vec<GossipVerifiedDataColumn<T>>,
     ),
     Rejection,
 >;
@@ -347,6 +360,7 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
     proofs_and_blobs: UnverifiedBlobs<T>,
+    current_span: Span,
 ) -> Result<impl Future<Output = BuildDataSidecarTaskResult<T>>, Rejection> {
     chain
         .clone()
@@ -356,6 +370,7 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
                 let Some((kzg_proofs, blobs)) = proofs_and_blobs else {
                     return Ok((vec![], vec![]));
                 };
+                let _guard = debug_span!(parent: current_span, "build_data_sidecars").entered();
 
                 let peer_das_enabled = chain.spec.is_peer_das_enabled_for_epoch(block.epoch());
                 if !peer_das_enabled {
@@ -366,7 +381,7 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
                 } else {
                     // Post PeerDAS: construct data columns.
                     let gossip_verified_data_columns =
-                        build_gossip_verified_data_columns(&chain, &block, blobs, kzg_proofs)?;
+                        build_data_columns(&chain, &block, blobs, kzg_proofs)?;
                     Ok((vec![], gossip_verified_data_columns))
                 }
             },
@@ -381,66 +396,33 @@ fn spawn_build_data_sidecar_task<T: BeaconChainTypes>(
         })
 }
 
-fn build_gossip_verified_data_columns<T: BeaconChainTypes>(
+/// Build data columns as wrapped `GossipVerifiedDataColumn`s.
+/// There is no need to actually perform gossip verification on columns that a block producer
+/// is publishing. In the locally constructed case, cell proof verification happens in the EL.
+/// In the externally constructed case, there wont be any columns here.
+fn build_data_columns<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
     kzg_cell_proofs: KzgProofs<T::EthSpec>,
-) -> Result<Vec<Option<GossipVerifiedDataColumn<T>>>, Rejection> {
+) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
     let slot = block.slot();
     let data_column_sidecars =
         build_blob_data_column_sidecars(chain, block, blobs, kzg_cell_proofs).map_err(|e| {
             error!(
                 error = ?e,
                 %slot,
-                "Invalid data column - not publishing block"
+                "Invalid data column - not publishing data columns"
             );
             warp_utils::reject::custom_bad_request(format!("{e:?}"))
         })?;
 
-    let slot = block.slot();
     let gossip_verified_data_columns = data_column_sidecars
         .into_iter()
-        .map(|data_column_sidecar| {
-            let column_index = data_column_sidecar.index;
-            let subnet = DataColumnSubnetId::from_column_index(column_index, &chain.spec);
-            let gossip_verified_column =
-                GossipVerifiedDataColumn::new(data_column_sidecar, subnet, chain);
-
-            match gossip_verified_column {
-                Ok(blob) => Ok(Some(blob)),
-                Err(GossipDataColumnError::PriorKnown { proposer, .. }) => {
-                    // Log the error but do not abort publication, we may need to publish the block
-                    // or some of the other data columns if the block & data columns are only
-                    // partially published by the other publisher.
-                    debug!(
-                        column_index,
-                        %slot,
-                        proposer,
-                        "Data column for publication already known"
-                    );
-                    Ok(None)
-                }
-                Err(GossipDataColumnError::PriorKnownUnpublished) => {
-                    debug!(
-                        column_index,
-                        %slot,
-                        "Data column for publication already known via the EL"
-                    );
-                    Ok(None)
-                }
-                Err(e) => {
-                    error!(
-                        column_index,
-                        %slot,
-                        error = ?e,
-                        "Data column for publication is gossip-invalid"
-                    );
-                    Err(warp_utils::reject::custom_bad_request(format!("{e:?}")))
-                }
-            }
+        .filter_map(|data_column_sidecar| {
+            GossipVerifiedDataColumn::new_for_block_publishing(data_column_sidecar, chain).ok()
         })
-        .collect::<Result<Vec<_>, Rejection>>()?;
+        .collect::<Vec<_>>();
 
     Ok(gossip_verified_data_columns)
 }
@@ -517,13 +499,12 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
 
 fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    data_column_sidecars: &[Option<GossipVerifiedDataColumn<T>>],
+    data_column_sidecars: &[GossipVerifiedDataColumn<T>],
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
     let malicious_withhold_count = chain.config.malicious_withhold_count;
     let mut data_column_sidecars = data_column_sidecars
         .iter()
-        .flatten()
         .map(|d| d.clone_data_column())
         .collect::<Vec<_>>();
     if malicious_withhold_count > 0 {
@@ -532,7 +513,11 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
             .saturating_sub(malicious_withhold_count);
         // Randomize columns before dropping the last malicious_withhold_count items
         data_column_sidecars.shuffle(&mut **chain.rng.lock());
-        data_column_sidecars.truncate(columns_to_keep);
+        let dropped_indices = data_column_sidecars
+            .drain(columns_to_keep..)
+            .map(|d| d.index)
+            .collect::<Vec<_>>();
+        debug!(indices = ?dropped_indices, "Dropping data columns from publishing");
     }
     let pubsub_messages = data_column_sidecars
         .into_iter()

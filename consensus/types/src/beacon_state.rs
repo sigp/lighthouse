@@ -229,7 +229,7 @@ impl From<BeaconStateHash> for Hash256 {
 ///
 /// https://github.com/sigp/milhouse/issues/43
 #[superstruct(
-    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Base, Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             Derivative,
@@ -349,6 +349,20 @@ impl From<BeaconStateHash> for Hash256 {
                 groups(tree_lists)
             )),
             num_fields(all()),
+        )),
+        Gloas(metastruct(
+            mappings(
+                map_beacon_state_gloas_fields(),
+                map_beacon_state_gloas_tree_list_fields(mutable, fallible, groups(tree_lists)),
+                map_beacon_state_gloas_tree_list_fields_immutable(groups(tree_lists)),
+            ),
+            bimappings(bimap_beacon_state_gloas_tree_list_fields(
+                other_type = "BeaconStateGloas",
+                self_mutable,
+                fallible,
+                groups(tree_lists)
+            )),
+            num_fields(all()),
         ))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
@@ -435,11 +449,11 @@ where
 
     // Participation (Altair and later)
     #[compare_fields(as_iter)]
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[test_random(default)]
     #[compare_fields(as_iter)]
     pub previous_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[test_random(default)]
     pub current_epoch_participation: List<ParticipationFlags, E::ValidatorRegistryLimit>,
 
@@ -459,15 +473,15 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[test_random(default)]
     pub inactivity_scores: List<u64, E::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<E>>,
-    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Altair, Bellatrix, Capella, Deneb, Electra, Fulu, Gloas))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<E>>,
 
@@ -502,63 +516,71 @@ where
     )]
     #[metastruct(exclude_from(tree_lists))]
     pub latest_execution_payload_header: ExecutionPayloadHeaderFulu<E>,
+    #[superstruct(
+        only(Gloas),
+        partial_getter(rename = "latest_execution_payload_header_gloas")
+    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderGloas<E>,
 
     // Capella
-    #[superstruct(only(Capella, Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_index: u64,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     #[metastruct(exclude_from(tree_lists))]
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
-    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
     #[test_random(default)]
     pub historical_summaries: List<HistoricalSummary, E::HistoricalRootsLimit>,
 
     // Electra
-    #[superstruct(only(Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_requests_start_index: u64,
-    #[superstruct(only(Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub deposit_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub exit_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_exit_epoch: Epoch,
-    #[superstruct(only(Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub consolidation_balance_to_consume: u64,
-    #[superstruct(only(Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Electra, Fulu, Gloas), partial_getter(copy))]
     #[metastruct(exclude_from(tree_lists))]
     pub earliest_consolidation_epoch: Epoch,
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub pending_deposits: List<PendingDeposit, E::PendingDepositsLimit>,
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub pending_partial_withdrawals:
         List<PendingPartialWithdrawal, E::PendingPartialWithdrawalsLimit>,
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    #[superstruct(only(Electra, Fulu))]
+    #[superstruct(only(Electra, Fulu, Gloas))]
     pub pending_consolidations: List<PendingConsolidation, E::PendingConsolidationsLimit>,
 
     // Fulu
     #[compare_fields(as_iter)]
     #[test_random(default)]
-    #[superstruct(only(Fulu))]
+    #[superstruct(only(Fulu, Gloas))]
     pub proposer_lookahead: Vector<u64, E::ProposerLookaheadSlots>,
+
+    // Gloas
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -699,6 +721,7 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Deneb { .. } => ForkName::Deneb,
             BeaconState::Electra { .. } => ForkName::Electra,
             BeaconState::Fulu { .. } => ForkName::Fulu,
+            BeaconState::Gloas { .. } => ForkName::Gloas,
         }
     }
 
@@ -1048,6 +1071,9 @@ impl<E: EthSpec> BeaconState<E> {
             BeaconState::Fulu(state) => Ok(ExecutionPayloadHeaderRef::Fulu(
                 &state.latest_execution_payload_header,
             )),
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadHeaderRef::Gloas(
+                &state.latest_execution_payload_header,
+            )),
         }
     }
 
@@ -1069,6 +1095,9 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.latest_execution_payload_header,
             )),
             BeaconState::Fulu(state) => Ok(ExecutionPayloadHeaderRefMut::Fulu(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Gloas(state) => Ok(ExecutionPayloadHeaderRefMut::Gloas(
                 &mut state.latest_execution_payload_header,
             )),
         }
@@ -1444,6 +1473,12 @@ impl<E: EthSpec> BeaconState<E> {
             .ok_or(Error::StateRootsOutOfBounds(i))
     }
 
+    /// Gets the state root for the start slot of some epoch.
+    pub fn get_state_root_at_epoch_start(&self, epoch: Epoch) -> Result<Hash256, Error> {
+        self.get_state_root(epoch.start_slot(E::slots_per_epoch()))
+            .copied()
+    }
+
     /// Gets the oldest (earliest slot) state root.
     pub fn get_oldest_state_root(&self) -> Result<&Hash256, Error> {
         let oldest_slot = self.slot().saturating_sub(self.state_roots().len());
@@ -1601,6 +1636,16 @@ impl<E: EthSpec> BeaconState<E> {
                 &mut state.epoch_cache,
             )),
             BeaconState::Fulu(state) => Ok((
+                &mut state.validators,
+                &mut state.balances,
+                &state.previous_epoch_participation,
+                &state.current_epoch_participation,
+                &mut state.inactivity_scores,
+                &mut state.progressive_balances_cache,
+                &mut state.exit_cache,
+                &mut state.epoch_cache,
+            )),
+            BeaconState::Gloas(state) => Ok((
                 &mut state.validators,
                 &mut state.balances,
                 &state.previous_epoch_participation,
@@ -1791,12 +1836,13 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Altair(_)
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_) => self.get_validator_churn_limit(spec)?,
-            BeaconState::Deneb(_) | BeaconState::Electra(_) | BeaconState::Fulu(_) => {
-                std::cmp::min(
-                    spec.max_per_epoch_activation_churn_limit,
-                    self.get_validator_churn_limit(spec)?,
-                )
-            }
+            BeaconState::Deneb(_)
+            | BeaconState::Electra(_)
+            | BeaconState::Fulu(_)
+            | BeaconState::Gloas(_) => std::cmp::min(
+                spec.max_per_epoch_activation_churn_limit,
+                self.get_validator_churn_limit(spec)?,
+            ),
         })
     }
 
@@ -1916,6 +1962,7 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Deneb(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Fulu(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Gloas(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == previous_epoch {
             match self {
@@ -1926,6 +1973,7 @@ impl<E: EthSpec> BeaconState<E> {
                 BeaconState::Deneb(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Electra(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Fulu(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Gloas(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -2190,6 +2238,11 @@ impl<E: EthSpec> BeaconState<E> {
                     any_pending_mutations |= self_field.has_pending_updates();
                 });
             }
+            Self::Gloas(self_inner) => {
+                map_beacon_state_gloas_tree_list_fields_immutable!(self_inner, |_, self_field| {
+                    any_pending_mutations |= self_field.has_pending_updates();
+                });
+            }
         };
         any_pending_mutations
     }
@@ -2390,7 +2443,7 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Electra(_) | BeaconState::Fulu(_) => {
+            BeaconState::Electra(_) | BeaconState::Fulu(_) | BeaconState::Gloas(_) => {
                 // Consume the balance and update state variables
                 *self.exit_balance_to_consume_mut()? =
                     exit_balance_to_consume.safe_sub(exit_balance)?;
@@ -2437,7 +2490,7 @@ impl<E: EthSpec> BeaconState<E> {
             | BeaconState::Bellatrix(_)
             | BeaconState::Capella(_)
             | BeaconState::Deneb(_) => Err(Error::IncorrectStateVariant),
-            BeaconState::Electra(_) | BeaconState::Fulu(_) => {
+            BeaconState::Electra(_) | BeaconState::Fulu(_) | BeaconState::Gloas(_) => {
                 // Consume the balance and update state variables.
                 *self.consolidation_balance_to_consume_mut()? =
                     consolidation_balance_to_consume.safe_sub(consolidation_balance)?;
@@ -2508,6 +2561,14 @@ impl<E: EthSpec> BeaconState<E> {
                 );
             }
             (Self::Fulu(_), _) => (),
+            (Self::Gloas(self_inner), Self::Gloas(base_inner)) => {
+                bimap_beacon_state_gloas_tree_list_fields!(
+                    self_inner,
+                    base_inner,
+                    |_, self_field, base_field| { self_field.rebase_on(base_field) }
+                );
+            }
+            (Self::Gloas(_), _) => (),
         }
 
         // Use sync committees from `base` if they are equal.
@@ -2571,6 +2632,12 @@ impl<E: EthSpec> BeaconState<E> {
     }
 }
 
+impl<E: EthSpec> ForkVersionDecode for BeaconState<E> {
+    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError> {
+        Ok(map_fork_name!(fork_name, Self, <_>::from_ssz_bytes(bytes)?))
+    }
+}
+
 impl<E: EthSpec> BeaconState<E> {
     /// The number of fields of the `BeaconState` rounded up to the nearest power of two.
     ///
@@ -2585,6 +2652,7 @@ impl<E: EthSpec> BeaconState<E> {
             ForkName::Deneb => BeaconStateDeneb::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Electra => BeaconStateElectra::<E>::NUM_FIELDS.next_power_of_two(),
             ForkName::Fulu => BeaconStateFulu::<E>::NUM_FIELDS.next_power_of_two(),
+            ForkName::Gloas => BeaconStateGloas::<E>::NUM_FIELDS.next_power_of_two(),
         }
     }
 
@@ -2635,6 +2703,9 @@ impl<E: EthSpec> BeaconState<E> {
             }
             Self::Fulu(inner) => {
                 map_beacon_state_fulu_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
+            Self::Gloas(inner) => {
+                map_beacon_state_gloas_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
         }
         Ok(())
@@ -2695,7 +2766,7 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(proof)
     }
 
-    fn generate_proof(
+    pub fn generate_proof(
         &self,
         field_index: usize,
         leaves: &[Hash256],
@@ -2710,7 +2781,7 @@ impl<E: EthSpec> BeaconState<E> {
         Ok(proof)
     }
 
-    fn get_beacon_state_leaves(&self) -> Vec<Hash256> {
+    pub fn get_beacon_state_leaves(&self) -> Vec<Hash256> {
         let mut leaves = vec![];
         #[allow(clippy::arithmetic_side_effects)]
         match self {
@@ -2746,6 +2817,11 @@ impl<E: EthSpec> BeaconState<E> {
             }
             BeaconState::Fulu(state) => {
                 map_beacon_state_fulu_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Gloas(state) => {
+                map_beacon_state_gloas_fields!(state, |_, field| {
                     leaves.push(field.tree_hash_root());
                 });
             }
@@ -2807,6 +2883,7 @@ impl<E: EthSpec> CompareFields for BeaconState<E> {
             (BeaconState::Deneb(x), BeaconState::Deneb(y)) => x.compare_fields(y),
             (BeaconState::Electra(x), BeaconState::Electra(y)) => x.compare_fields(y),
             (BeaconState::Fulu(x), BeaconState::Fulu(y)) => x.compare_fields(y),
+            (BeaconState::Gloas(x), BeaconState::Gloas(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
     }

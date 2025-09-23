@@ -17,6 +17,7 @@ use beacon_chain::{
     store::{HotColdDB, ItemStore, StoreConfig},
 };
 use beacon_chain::{Kzg, LightClientProducerEvent};
+use beacon_processor::rayon_manager::RayonManager;
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
@@ -185,13 +186,10 @@ where
         };
 
         let kzg_err_msg = |e| format!("Failed to load trusted setup: {:?}", e);
-        let trusted_setup = config.trusted_setup.clone();
         let kzg = if spec.is_peer_das_scheduled() {
-            Kzg::new_from_trusted_setup_das_enabled(trusted_setup).map_err(kzg_err_msg)?
-        } else if spec.deneb_fork_epoch.is_some() {
-            Kzg::new_from_trusted_setup(trusted_setup).map_err(kzg_err_msg)?
+            Kzg::new_from_trusted_setup(&config.trusted_setup).map_err(kzg_err_msg)?
         } else {
-            Kzg::new_from_trusted_setup_no_precomp(trusted_setup).map_err(kzg_err_msg)?
+            Kzg::new_from_trusted_setup_no_precomp(&config.trusted_setup).map_err(kzg_err_msg)?
         };
 
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
@@ -683,6 +681,7 @@ where
                     executor: beacon_processor_context.executor.clone(),
                     current_workers: 0,
                     config: beacon_processor_config,
+                    rayon_manager: RayonManager::default(),
                 }
                 .spawn_manager(
                     beacon_processor_channels.beacon_processor_rx,

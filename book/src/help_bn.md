@@ -22,7 +22,7 @@ Options:
           Data directory for the blobs database.
       --block-cache-size <SIZE>
           Specifies how many blocks the database should cache in memory
-          [default: 5]
+          [default: 0]
       --boot-nodes <ENR/MULTIADDR LIST>
           One or more comma-delimited base64-encoded ENR's to bootstrap the p2p
           network. Multiaddr is also supported.
@@ -395,6 +395,10 @@ Options:
       --telemetry-collector-url <URL>
           URL of the OpenTelemetry collector to export tracing spans (e.g.,
           http://localhost:4317). If not set, tracing export is disabled.
+      --telemetry-service-name <NAME>
+          Override the OpenTelemetry service name. Defaults to 'lighthouse-bn'
+          for beacon node, 'lighthouse-vc' for validator client, or 'lighthouse'
+          for other subcommands.
       --trusted-peers <TRUSTED_PEERS>
           One or more comma-delimited trusted peer ids which always have the
           highest score according to the peer scoring system.

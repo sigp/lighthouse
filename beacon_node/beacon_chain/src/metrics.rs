@@ -578,11 +578,31 @@ pub static FORK_CHOICE_READ_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = Laz
         exponential_buckets(1e-4, 4.0, 7),
     )
 });
+pub static FORK_CHOICE_UPGRADABLE_READ_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram_with_buckets(
+            "beacon_fork_choice_upgradable_read_lock_aquire_seconds",
+            "Time taken to aquire the fork-choice upgradable read lock",
+            exponential_buckets(1e-4, 4.0, 7),
+        )
+    });
 pub static FORK_CHOICE_WRITE_LOCK_AQUIRE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
     try_create_histogram_with_buckets(
         "beacon_fork_choice_write_lock_aquire_seconds",
         "Time taken to aquire the fork-choice write lock",
         exponential_buckets(1e-3, 4.0, 7),
+    )
+});
+pub static FORK_CHOICE_ENCODE_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_fork_choice_encode_seconds",
+        "Time taken to SSZ encode the persisted fork choice data",
+    )
+});
+pub static FORK_CHOICE_COMPRESS_TIMES: LazyLock<Result<Histogram>> = LazyLock::new(|| {
+    try_create_histogram(
+        "beacon_fork_choice_compress_seconds",
+        "Time taken to compress the persisted fork choice data",
     )
 });
 pub static BALANCES_CACHE_HITS: LazyLock<Result<IntCounter>> = LazyLock::new(|| {

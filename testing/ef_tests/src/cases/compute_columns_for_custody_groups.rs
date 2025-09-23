@@ -27,7 +27,7 @@ impl<E: EthSpec> Case for ComputeColumnsForCustodyGroups<E> {
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let spec = E::default_spec();
-        let computed_columns = compute_columns_for_custody_group(self.custody_group, &spec)
+        let computed_columns = compute_columns_for_custody_group::<E>(self.custody_group, &spec)
             .expect("should compute custody columns from group")
             .collect::<Vec<_>>();
 

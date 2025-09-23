@@ -11,10 +11,14 @@ use crate::sync::SyncDutiesMap;
 use crate::sync::poll_sync_committee_duties;
 use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
 use eth2::types::{
-    AttesterData, BeaconCommitteeSubscription, DutiesResponse, ProposerData, StateId, ValidatorId,
+    AttesterData, BeaconCommitteeSelection, BeaconCommitteeSubscription, DutiesResponse,
+    ProposerData, StateId, ValidatorId,
 };
-use futures::{StreamExt, stream};
-use parking_lot::RwLock;
+use futures::{
+    StreamExt,
+    stream::{self, FuturesUnordered},
+};
+use parking_lot::{RwLock, RwLockWriteGuard};
 use safe_arith::{ArithError, SafeArith};
 use slot_clock::SlotClock;
 use std::cmp::min;
@@ -31,17 +35,6 @@ use validator_store::{DoppelgangerStatus, Error as ValidatorStoreError, Validato
 
 /// Only retain `HISTORICAL_DUTIES_EPOCHS` duties prior to the current epoch.
 const HISTORICAL_DUTIES_EPOCHS: u64 = 2;
-
-/// Compute attestation selection proofs this many slots before they are required.
-///
-/// At start-up selection proofs will be computed with less lookahead out of necessity.
-const SELECTION_PROOF_SLOT_LOOKAHEAD: u64 = 8;
-
-/// The attestation selection proof lookahead for those running with the --distributed flag.
-const SELECTION_PROOF_SLOT_LOOKAHEAD_DVT: u64 = 1;
-
-/// Fraction of a slot at which selection proof signing should happen (2 means half way).
-const SELECTION_PROOF_SCHEDULE_DENOM: u32 = 2;
 
 /// Minimum number of validators for which we auto-enable per-validator metrics.
 /// For validators greater than this value, we need to manually set the `enable-per-validator-metrics`
@@ -121,18 +114,97 @@ pub struct SubscriptionSlots {
     duty_slot: Slot,
 }
 
+#[derive(Copy, Clone, Debug)]
+pub struct SelectionProofConfig {
+    pub lookahead_slot: u64,
+    /// The seconds to compute the selection proof before a slot.
+    pub computation_offset: Duration,
+    /// Whether to call the selections endpoint, true for DVT with middleware.
+    pub selections_endpoint: bool,
+    /// Whether to sign the selection proof in parallel, true in distributed mode.
+    pub parallel_sign: bool,
+}
+
+/// The default config for selection proofs covers the non-DVT case.
+impl Default for SelectionProofConfig {
+    fn default() -> Self {
+        Self {
+            lookahead_slot: 0,
+            computation_offset: Duration::default(),
+            selections_endpoint: false,
+            parallel_sign: false,
+        }
+    }
+}
+
 /// Create a selection proof for `duty`.
 ///
 /// Return `Ok(None)` if the attesting validator is not an aggregator.
-async fn make_selection_proof<S: ValidatorStore + 'static>(
+async fn make_selection_proof<S: ValidatorStore + 'static, T: SlotClock>(
     duty: &AttesterData,
     validator_store: &S,
     spec: &ChainSpec,
+    beacon_nodes: &Arc<BeaconNodeFallback<T>>,
+    config: &SelectionProofConfig,
 ) -> Result<Option<SelectionProof>, Error<S::Error>> {
-    let selection_proof = validator_store
-        .produce_selection_proof(duty.pubkey, duty.slot)
-        .await
-        .map_err(Error::FailedToProduceSelectionProof)?;
+    let selection_proof = if config.selections_endpoint {
+        let beacon_committee_selection = BeaconCommitteeSelection {
+            validator_index: duty.validator_index,
+            slot: duty.slot,
+            // This is partial selection proof
+            selection_proof: validator_store
+                .produce_selection_proof(duty.pubkey, duty.slot)
+                .await
+                .map_err(Error::FailedToProduceSelectionProof)?
+                .into(),
+        };
+        // Call the endpoint /eth/v1/validator/beacon_committee_selections
+        // by sending the BeaconCommitteeSelection that contains partial selection proof
+        // The middleware should return BeaconCommitteeSelection that contains full selection proof
+        let middleware_response = beacon_nodes
+            .first_success(|beacon_node| {
+                let selection_data = beacon_committee_selection.clone();
+                debug!(
+                    "validator_index" = duty.validator_index,
+                    "slot" = %duty.slot,
+                    "partial selection proof" = ?beacon_committee_selection.selection_proof,
+                    "Sending selection to middleware"
+                );
+                async move {
+                    beacon_node
+                        .post_validator_beacon_committee_selections(&[selection_data])
+                        .await
+                }
+            })
+            .await;
+
+        let response_data = middleware_response
+            .map_err(|e| {
+                Error::FailedToProduceSelectionProof(ValidatorStoreError::Middleware(e.to_string()))
+            })?
+            .data
+            .pop()
+            .ok_or_else(|| {
+                Error::FailedToProduceSelectionProof(ValidatorStoreError::Middleware(format!(
+                    "attestation selection proof - empty response for validator {}",
+                    duty.validator_index
+                )))
+            })?;
+
+        debug!(
+            "validator_index" = response_data.validator_index,
+            "slot" = %response_data.slot,
+            // The selection proof from middleware response will be a full selection proof
+            "full selection proof" = ?response_data.selection_proof,
+            "Received selection from middleware"
+        );
+        SelectionProof::from(response_data.selection_proof)
+    } else {
+        validator_store
+            .produce_selection_proof(duty.pubkey, duty.slot)
+            .await
+            .map_err(Error::FailedToProduceSelectionProof)?
+    };
 
     selection_proof
         .is_aggregator(duty.committee_length as usize, spec)
@@ -217,8 +289,10 @@ pub struct DutiesServiceBuilder<S, T> {
     spec: Option<Arc<ChainSpec>>,
     //// Whether we permit large validator counts in the metrics.
     enable_high_validator_count_metrics: bool,
-    /// If this validator is running in distributed mode.
-    distributed: bool,
+    /// Create attestation selection proof config
+    attestation_selection_proof_config: SelectionProofConfig,
+    /// Create sync selection proof config
+    sync_selection_proof_config: SelectionProofConfig,
     disable_attesting: bool,
 }
 
@@ -237,7 +311,8 @@ impl<S, T> DutiesServiceBuilder<S, T> {
             executor: None,
             spec: None,
             enable_high_validator_count_metrics: false,
-            distributed: false,
+            attestation_selection_proof_config: SelectionProofConfig::default(),
+            sync_selection_proof_config: SelectionProofConfig::default(),
             disable_attesting: false,
         }
     }
@@ -275,8 +350,19 @@ impl<S, T> DutiesServiceBuilder<S, T> {
         self
     }
 
-    pub fn distributed(mut self, distributed: bool) -> Self {
-        self.distributed = distributed;
+    pub fn attestation_selection_proof_config(
+        mut self,
+        attestation_selection_proof_config: SelectionProofConfig,
+    ) -> Self {
+        self.attestation_selection_proof_config = attestation_selection_proof_config;
+        self
+    }
+
+    pub fn sync_selection_proof_config(
+        mut self,
+        sync_selection_proof_config: SelectionProofConfig,
+    ) -> Self {
+        self.sync_selection_proof_config = sync_selection_proof_config;
         self
     }
 
@@ -289,7 +375,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
         Ok(DutiesService {
             attesters: Default::default(),
             proposers: Default::default(),
-            sync_duties: SyncDutiesMap::new(self.distributed),
+            sync_duties: SyncDutiesMap::new(self.sync_selection_proof_config),
             validator_store: self
                 .validator_store
                 .ok_or("Cannot build DutiesService without validator_store")?,
@@ -305,7 +391,7 @@ impl<S, T> DutiesServiceBuilder<S, T> {
                 .ok_or("Cannot build DutiesService without executor")?,
             spec: self.spec.ok_or("Cannot build DutiesService without spec")?,
             enable_high_validator_count_metrics: self.enable_high_validator_count_metrics,
-            distributed: self.distributed,
+            selection_proof_config: self.attestation_selection_proof_config,
             disable_attesting: self.disable_attesting,
         })
     }
@@ -332,10 +418,10 @@ pub struct DutiesService<S, T> {
     pub executor: TaskExecutor,
     /// The current chain spec.
     pub spec: Arc<ChainSpec>,
-    //// Whether we permit large validator counts in the metrics.
+    /// Whether we permit large validator counts in the metrics.
     pub enable_high_validator_count_metrics: bool,
-    /// If this validator is running in distributed mode.
-    pub distributed: bool,
+    /// Pass the config for distributed or non-distributed mode.
+    pub selection_proof_config: SelectionProofConfig,
     pub disable_attesting: bool,
 }
 
@@ -1119,6 +1205,75 @@ async fn post_validator_duties_attester<S: ValidatorStore, T: SlotClock + 'stati
         .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))
 }
 
+// Create a helper function here to reduce code duplication for normal and distributed mode
+fn process_duty_and_proof<S: ValidatorStore>(
+    attesters: &mut RwLockWriteGuard<AttesterMap>,
+    result: Result<(AttesterData, Option<SelectionProof>), Error<S::Error>>,
+    dependent_root: Hash256,
+    current_slot: Slot,
+) -> bool {
+    let (duty, selection_proof) = match result {
+        Ok(duty_and_proof) => duty_and_proof,
+        Err(Error::FailedToProduceSelectionProof(ValidatorStoreError::UnknownPubkey(pubkey))) => {
+            // A pubkey can be missing when a validator was recently removed via the API.
+            warn!(
+                info = "A validator may have recently been removed from this VC",
+                ?pubkey,
+                "Missing pubkey for duty and proof"
+            );
+            // Do not abort the entire batch for a single failure.
+            // return true means continue processing duties.
+            return true;
+        }
+        Err(e) => {
+            error!(
+                error = ?e,
+                msg = "may impair attestation duties",
+                "Failed to produce duty and proof"
+            );
+            return true;
+        }
+    };
+
+    let attester_map = attesters.entry(duty.pubkey).or_default();
+    let epoch = duty.slot.epoch(S::E::slots_per_epoch());
+    match attester_map.entry(epoch) {
+        hash_map::Entry::Occupied(mut entry) => {
+            // No need to update duties for which no proof was computed.
+            let Some(selection_proof) = selection_proof else {
+                return true;
+            };
+
+            let (existing_dependent_root, existing_duty) = entry.get_mut();
+
+            if *existing_dependent_root == dependent_root {
+                // Replace existing proof.
+                existing_duty.selection_proof = Some(selection_proof);
+                true
+            } else {
+                // Our selection proofs are no longer relevant due to a reorg, abandon this entire background process.
+                debug!(
+                    reason = "re-org",
+                    "Stopping selection proof background task"
+                );
+                false
+            }
+        }
+
+        hash_map::Entry::Vacant(entry) => {
+            // This probably shouldn't happen, but we have enough info to fill in the entry so we may as well.
+            let subscription_slots = SubscriptionSlots::new(duty.slot, current_slot);
+            let duty_and_proof = DutyAndProof {
+                duty,
+                selection_proof,
+                subscription_slots,
+            };
+            entry.insert((dependent_root, duty_and_proof));
+            true
+        }
+    }
+}
+
 /// Compute the attestation selection proofs for the `duties` and add them to the `attesters` map.
 ///
 /// Duties are computed in batches each slot. If a re-org is detected then the process will
@@ -1138,26 +1293,33 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
     // At halfway through each slot when nothing else is likely to be getting signed, sign a batch
     // of selection proofs and insert them into the duties service `attesters` map.
     let slot_clock = &duties_service.slot_clock;
-    let slot_offset = duties_service.slot_clock.slot_duration() / SELECTION_PROOF_SCHEDULE_DENOM;
 
     while !duties_by_slot.is_empty() {
         if let Some(duration) = slot_clock.duration_to_next_slot() {
-            sleep(duration.saturating_sub(slot_offset)).await;
+            sleep(
+                duration.saturating_sub(duties_service.selection_proof_config.computation_offset),
+            )
+            .await;
 
             let Some(current_slot) = slot_clock.now() else {
                 continue;
             };
 
-            let selection_lookahead = if duties_service.distributed {
-                SELECTION_PROOF_SLOT_LOOKAHEAD_DVT
-            } else {
-                SELECTION_PROOF_SLOT_LOOKAHEAD
-            };
+            let selection_lookahead = duties_service.selection_proof_config.lookahead_slot;
 
             let lookahead_slot = current_slot + selection_lookahead;
 
-            let mut relevant_duties = duties_by_slot.split_off(&lookahead_slot);
-            std::mem::swap(&mut relevant_duties, &mut duties_by_slot);
+            let relevant_duties = if duties_service.selection_proof_config.parallel_sign {
+                // Remove old slot duties and only keep current duties in distributed mode
+                duties_by_slot
+                    .remove(&lookahead_slot)
+                    .map(|duties| BTreeMap::from([(lookahead_slot, duties)]))
+                    .unwrap_or_default()
+            } else {
+                let mut duties = duties_by_slot.split_off(&lookahead_slot);
+                std::mem::swap(&mut duties, &mut duties_by_slot);
+                duties
+            };
 
             let batch_size = relevant_duties.values().map(Vec::len).sum::<usize>();
 
@@ -1170,87 +1332,69 @@ async fn fill_in_selection_proofs<S: ValidatorStore + 'static, T: SlotClock + 's
                 &[validator_metrics::ATTESTATION_SELECTION_PROOFS],
             );
 
-            // Sign selection proofs (serially).
-            let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
-                .then(|duty| async {
-                    let opt_selection_proof = make_selection_proof(
-                        &duty,
-                        duties_service.validator_store.as_ref(),
-                        &duties_service.spec,
-                    )
-                    .await?;
-                    Ok((duty, opt_selection_proof))
-                })
-                .collect::<Vec<_>>()
-                .await;
+            // In distributed case, we want to send all partial selection proofs to the middleware to determine aggregation duties,
+            // as the middleware will need to have a threshold of partial selection proofs to be able to return the full selection proof
+            // Thus, sign selection proofs in parallel in distributed case; Otherwise, sign them serially in non-distributed (normal) case
+            if duties_service.selection_proof_config.parallel_sign {
+                let mut duty_and_proof_results = relevant_duties
+                    .into_values()
+                    .flatten()
+                    .map(|duty| async {
+                        let opt_selection_proof = make_selection_proof(
+                            &duty,
+                            duties_service.validator_store.as_ref(),
+                            &duties_service.spec,
+                            &duties_service.beacon_nodes,
+                            &duties_service.selection_proof_config,
+                        )
+                        .await?;
+                        Ok((duty, opt_selection_proof))
+                    })
+                    .collect::<FuturesUnordered<_>>();
 
-            // Add to attesters store.
-            let mut attesters = duties_service.attesters.write();
-            for result in duty_and_proof_results {
-                let (duty, selection_proof) = match result {
-                    Ok(duty_and_proof) => duty_and_proof,
-                    Err(Error::FailedToProduceSelectionProof(
-                        ValidatorStoreError::UnknownPubkey(pubkey),
-                    )) => {
-                        // A pubkey can be missing when a validator was recently
-                        // removed via the API.
-                        warn!(
-                            info = "a validator may have recently been removed from this VC",
-                            ?pubkey,
-                            "Missing pubkey for duty and proof"
-                        );
-                        // Do not abort the entire batch for a single failure.
-                        continue;
-                    }
-                    Err(e) => {
-                        error!(
-                            error = ?e,
-                            msg = "may impair attestation duties",
-                            "Failed to produce duty and proof"
-                        );
-                        // Do not abort the entire batch for a single failure.
-                        continue;
-                    }
-                };
-
-                let attester_map = attesters.entry(duty.pubkey).or_default();
-                let epoch = duty.slot.epoch(S::E::slots_per_epoch());
-                match attester_map.entry(epoch) {
-                    hash_map::Entry::Occupied(mut entry) => {
-                        // No need to update duties for which no proof was computed.
-                        let Some(selection_proof) = selection_proof else {
-                            continue;
-                        };
-
-                        let (existing_dependent_root, existing_duty) = entry.get_mut();
-
-                        if *existing_dependent_root == dependent_root {
-                            // Replace existing proof.
-                            existing_duty.selection_proof = Some(selection_proof);
-                        } else {
-                            // Our selection proofs are no longer relevant due to a reorg, abandon
-                            // this entire background process.
-                            debug!(
-                                reason = "re-org",
-                                "Stopping selection proof background task"
-                            );
-                            return;
-                        }
-                    }
-                    hash_map::Entry::Vacant(entry) => {
-                        // This probably shouldn't happen, but we have enough info to fill in the
-                        // entry so we may as well.
-                        let subscription_slots = SubscriptionSlots::new(duty.slot, current_slot);
-                        let duty_and_proof = DutyAndProof {
-                            duty,
-                            selection_proof,
-                            subscription_slots,
-                        };
-                        entry.insert((dependent_root, duty_and_proof));
+                while let Some(result) = duty_and_proof_results.next().await {
+                    let mut attesters = duties_service.attesters.write();
+                    // if process_duty_and_proof returns false, exit the loop
+                    if !process_duty_and_proof::<S>(
+                        &mut attesters,
+                        result,
+                        dependent_root,
+                        current_slot,
+                    ) {
+                        return;
                     }
                 }
-            }
-            drop(attesters);
+            } else {
+                // In normal (non-distributed case), sign selection proofs serially
+                let duty_and_proof_results = stream::iter(relevant_duties.into_values().flatten())
+                    .then(|duty| async {
+                        let opt_selection_proof = make_selection_proof(
+                            &duty,
+                            duties_service.validator_store.as_ref(),
+                            &duties_service.spec,
+                            &duties_service.beacon_nodes,
+                            &duties_service.selection_proof_config,
+                        )
+                        .await?;
+                        Ok((duty, opt_selection_proof))
+                    })
+                    .collect::<Vec<_>>()
+                    .await;
+
+                // Add to attesters store.
+                let mut attesters = duties_service.attesters.write();
+                for result in duty_and_proof_results {
+                    if !process_duty_and_proof::<S>(
+                        &mut attesters,
+                        result,
+                        dependent_root,
+                        current_slot,
+                    ) {
+                        return;
+                    }
+                }
+                drop(attesters);
+            };
 
             let time_taken_ms =
                 Duration::from_secs_f64(timer.map_or(0.0, |t| t.stop_and_record())).as_millis();

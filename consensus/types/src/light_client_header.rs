@@ -5,8 +5,8 @@ use crate::{BeaconBlockHeader, ExecutionPayloadHeader};
 use crate::{ContextDeserialize, ForkName};
 use crate::{
     EthSpec, ExecutionPayloadHeaderCapella, ExecutionPayloadHeaderDeneb,
-    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, FixedVector, Hash256,
-    SignedBlindedBeaconBlock, test_utils::TestRandom,
+    ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu, ExecutionPayloadHeaderGloas,
+    FixedVector, Hash256, SignedBlindedBeaconBlock, test_utils::TestRandom,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -18,7 +18,7 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 #[superstruct(
-    variants(Altair, Capella, Deneb, Electra, Fulu),
+    variants(Altair, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             Debug,
@@ -68,8 +68,10 @@ pub struct LightClientHeader<E: EthSpec> {
     pub execution: ExecutionPayloadHeaderElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "execution_payload_header_fulu"))]
     pub execution: ExecutionPayloadHeaderFulu<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "execution_payload_header_gloas"))]
+    pub execution: ExecutionPayloadHeaderGloas<E>,
 
-    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
     pub execution_branch: FixedVector<Hash256, ExecutionPayloadProofLen>,
 
     #[ssz(skip_serializing, skip_deserializing)]
@@ -104,6 +106,9 @@ impl<E: EthSpec> LightClientHeader<E> {
             ForkName::Fulu => {
                 LightClientHeader::Fulu(LightClientHeaderFulu::block_to_light_client_header(block)?)
             }
+            ForkName::Gloas => LightClientHeader::Gloas(
+                LightClientHeaderGloas::block_to_light_client_header(block)?,
+            ),
         };
         Ok(header)
     }
@@ -124,6 +129,9 @@ impl<E: EthSpec> LightClientHeader<E> {
             }
             ForkName::Fulu => {
                 LightClientHeader::Fulu(LightClientHeaderFulu::from_ssz_bytes(bytes)?)
+            }
+            ForkName::Gloas => {
+                LightClientHeader::Gloas(LightClientHeaderGloas::from_ssz_bytes(bytes)?)
             }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
@@ -340,6 +348,48 @@ impl<E: EthSpec> Default for LightClientHeaderFulu<E> {
     }
 }
 
+impl<E: EthSpec> LightClientHeaderGloas<E> {
+    pub fn block_to_light_client_header(
+        block: &SignedBlindedBeaconBlock<E>,
+    ) -> Result<Self, Error> {
+        let payload = block
+            .message()
+            .execution_payload()?
+            .execution_payload_gloas()?;
+
+        let header = ExecutionPayloadHeaderGloas::from(payload);
+        let beacon_block_body = BeaconBlockBody::from(
+            block
+                .message()
+                .body_gloas()
+                .map_err(|_| Error::BeaconBlockBodyError)?
+                .to_owned(),
+        );
+
+        let execution_branch = beacon_block_body
+            .to_ref()
+            .block_body_merkle_proof(EXECUTION_PAYLOAD_INDEX)?;
+
+        Ok(LightClientHeaderGloas {
+            beacon: block.message().block_header(),
+            execution: header,
+            execution_branch: FixedVector::new(execution_branch)?,
+            _phantom_data: PhantomData,
+        })
+    }
+}
+
+impl<E: EthSpec> Default for LightClientHeaderGloas<E> {
+    fn default() -> Self {
+        Self {
+            beacon: BeaconBlockHeader::empty(),
+            execution: ExecutionPayloadHeaderGloas::default(),
+            execution_branch: FixedVector::default(),
+            _phantom_data: PhantomData,
+        }
+    }
+}
+
 impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E> {
     fn context_deserialize<D>(deserializer: D, context: ForkName) -> Result<Self, D::Error>
     where
@@ -373,6 +423,9 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientHeader<E>
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
+            ForkName::Gloas => {
+                Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
         })
     }
 }
@@ -402,5 +455,17 @@ mod tests {
     mod electra {
         use crate::{LightClientHeaderElectra, MainnetEthSpec};
         ssz_tests!(LightClientHeaderElectra<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod fulu {
+        use crate::{LightClientHeaderFulu, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderFulu<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod gloas {
+        use crate::{LightClientHeaderGloas, MainnetEthSpec};
+        ssz_tests!(LightClientHeaderGloas<MainnetEthSpec>);
     }
 }

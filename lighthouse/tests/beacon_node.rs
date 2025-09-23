@@ -10,6 +10,9 @@ use beacon_node::{
 };
 use beacon_processor::BeaconProcessorConfig;
 use lighthouse_network::PeerId;
+use network_utils::unused_port::{
+    unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port,
+};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -22,7 +25,6 @@ use std::time::Duration;
 use tempfile::TempDir;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
-use unused_port::{unused_tcp4_port, unused_tcp6_port, unused_udp4_port, unused_udp6_port};
 
 const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 const DEFAULT_EXECUTION_JWT_SECRET_KEY: &str =
@@ -388,6 +390,37 @@ fn genesis_backfill_with_historic_flag() {
         .flag("reconstruct-historic-states", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.genesis_backfill));
+}
+
+#[test]
+fn complete_blob_backfill_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.complete_blob_backfill));
+}
+
+#[test]
+fn complete_blob_backfill_flag() {
+    CommandLineTest::new()
+        .flag("complete-blob-backfill", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.complete_blob_backfill);
+            assert!(!config.store.prune_blobs);
+        });
+}
+
+// Even if `--prune-blobs true` is provided, `--complete-blob-backfill` should override it to false.
+#[test]
+fn complete_blob_backfill_and_prune_blobs_true() {
+    CommandLineTest::new()
+        .flag("complete-blob-backfill", None)
+        .flag("prune-blobs", Some("true"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert!(config.chain.complete_blob_backfill);
+            assert!(!config.store.prune_blobs);
+        });
 }
 
 // Tests for Eth1 flags.
@@ -1807,11 +1840,24 @@ fn slots_per_restore_point_flag() {
 }
 
 #[test]
+fn block_cache_size_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 0));
+}
+#[test]
 fn block_cache_size_flag() {
     CommandLineTest::new()
         .flag("block-cache-size", Some("4"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.store.block_cache_size, new_non_zero_usize(4)));
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 4));
+}
+#[test]
+fn block_cache_size_zero() {
+    CommandLineTest::new()
+        .flag("block-cache-size", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.store.block_cache_size, 0));
 }
 #[test]
 fn state_cache_size_default() {
