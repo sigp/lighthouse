@@ -8,6 +8,8 @@ edition = { workspace = true }
 async-channel = { workspace = true }
 futures = { workspace = true }
 metrics = { workspace = true }
+num_cpus = { workspace = true }
+rayon = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tracing = { workspace = true }
 

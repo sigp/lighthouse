@@ -1,12 +1,15 @@
 mod metrics;
+mod rayon_pool_provider;
 pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 use tokio::runtime::{Handle, Runtime};
 use tracing::debug;
 
+use crate::rayon_pool_provider::RayonPoolProvider;
+pub use crate::rayon_pool_provider::RayonPoolType;
 pub use tokio::task::JoinHandle;
 
 /// Provides a reason when Lighthouse is shut down.
@@ -84,6 +87,8 @@ pub struct TaskExecutor {
     // FIXME(sproul): delete?
     #[allow(dead_code)]
     service_name: String,
+
+    rayon_pool_provider: Arc<RayonPoolProvider>,
 }
 
 impl TaskExecutor {
@@ -105,6 +110,7 @@ impl TaskExecutor {
             exit,
             signal_tx,
             service_name,
+            rayon_pool_provider: Arc::new(RayonPoolProvider::default()),
         }
     }
 
@@ -115,6 +121,7 @@ impl TaskExecutor {
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
             service_name,
+            rayon_pool_provider: self.rayon_pool_provider.clone(),
         }
     }
 
@@ -224,6 +231,47 @@ impl TaskExecutor {
         if let Some(task_handle) = self.spawn_blocking_handle(task, name) {
             self.spawn_monitor(task_handle, name)
         }
+    }
+
+    /// Spawns a blocking task on a dedicated tokio thread pool and installs a rayon context within it.
+    pub fn spawn_blocking_with_rayon<F>(
+        self,
+        task: F,
+        rayon_pool_type: RayonPoolType,
+        name: &'static str,
+    ) where
+        F: FnOnce() + Send + 'static,
+    {
+        let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
+        self.spawn_blocking(
+            move || {
+                thread_pool.install(|| {
+                    task();
+                });
+            },
+            name,
+        )
+    }
+
+    /// Spawns a blocking computation on a rayon thread pool and awaits the result.
+    pub async fn spawn_blocking_with_rayon_async<F, R>(
+        &self,
+        rayon_pool_type: RayonPoolType,
+        task: F,
+    ) -> Result<R, tokio::sync::oneshot::error::RecvError>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let thread_pool = self.rayon_pool_provider.get_thread_pool(rayon_pool_type);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        thread_pool.spawn(move || {
+            let result = task();
+            let _ = tx.send(result);
+        });
+
+        rx.await
     }
 
     /// Spawn a future on the tokio runtime wrapped in an `async-channel::Receiver` returning an optional
