@@ -196,9 +196,10 @@ impl<T, M> From<UnversionedResponse<T, M>> for BeaconResponse<T, M> {
 
 #[cfg(test)]
 mod fork_version_response_tests {
+    use crate::beacon_response::ExecutionOptimisticFinalizedMetadata;
     use crate::{
         ExecutionPayload, ExecutionPayloadBellatrix, ForkName, ForkVersionedResponse,
-        MainnetEthSpec,
+        MainnetEthSpec, UnversionedResponse,
     };
     use serde_json::json;
 
@@ -236,5 +237,26 @@ mod fork_version_response_tests {
             serde_json::from_str(&response_json);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn serialize_dezerialize_round_trip_test() {
+        // Create an UnversionedResponse with some data
+        let data = UnversionedResponse {
+            metadata: ExecutionOptimisticFinalizedMetadata {
+                execution_optimistic: Some(false),
+                finalized: Some(false),
+            },
+            data: "some_test_data".to_string(),
+        };
+
+        // Serialize to JSON string
+        let serialized = serde_json::to_string(&data);
+
+        // Deserialize back from JSON string
+        let deserialized =
+            serde_json::from_str(&serialized.unwrap()).expect("Failed to deserialize");
+
+        assert_eq!(data, deserialized);
     }
 }
