@@ -124,7 +124,7 @@ use store::{
     BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
     KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
-use task_executor::{ShutdownReason, TaskExecutor};
+use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
@@ -3274,16 +3274,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_span = Span::current();
         let result = self
             .task_executor
-            .spawn_blocking_handle(
-                move || {
-                    let _guard = current_span.enter();
-                    data_availability_checker.reconstruct_data_columns(&block_root)
-                },
-                "reconstruct_data_columns",
-            )
-            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+                let _guard = current_span.enter();
+                data_availability_checker.reconstruct_data_columns(&block_root)
+            })
             .await
-            .map_err(BeaconChainError::TokioJoin)??;
+            .map_err(|_| BeaconChainError::RuntimeShutdown)??;
 
         match result {
             DataColumnReconstructionResult::Success((availability, data_columns_to_publish)) => {
