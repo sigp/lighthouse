@@ -4907,14 +4907,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
         let proposing_at_re_org_slot = {
-            // The proposer shuffling has the same decision root as the next epoch attestation
-            // shuffling. We know our re-org block is not on the epoch boundary, so it has the
-            // same proposer shuffling as the head (but not necessarily the parent which may lie
-            // in the previous epoch).
-            let shuffling_decision_root = info
-                .head_node
-                .next_epoch_shuffling_id
-                .shuffling_decision_block;
+            // We know our re-org block is not on the epoch boundary, so it has the same proposer
+            // shuffling as the head (but not necessarily the parent which may lie in the previous
+            // epoch).
+            let shuffling_decision_root = if self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
+                .fulu_enabled()
+            {
+                info.head_node.current_epoch_shuffling_id
+            } else {
+                info.head_node.next_epoch_shuffling_id
+            }
+            .shuffling_decision_block;
             let proposer_index = self
                 .beacon_proposer_cache
                 .lock()
@@ -6556,6 +6561,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         accessor: impl Fn(&mut BeaconProposerCache) -> Option<V>,
         state_provider: impl FnOnce() -> Result<Option<(Hash256, BeaconState<T::EthSpec>)>, E>,
     ) -> Result<Option<V>, E> {
+        // FIXME(sproul): use OnceCell magic here
         let mut cache = self.beacon_proposer_cache.lock();
         if let Some(value) = accessor(&mut cache) {
             return Ok(Some(value));

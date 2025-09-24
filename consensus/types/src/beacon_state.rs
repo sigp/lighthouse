@@ -1022,13 +1022,19 @@ impl<E: EthSpec> BeaconState<E> {
         }
 
         // FIXME(sproul): double check fulu enabled condition, which epoch should we check?
-        if spec.fork_name_at_epoch(current_epoch).fulu_enabled() {
+        if spec.fork_name_at_epoch(epoch).fulu_enabled() {
             // Post-Fulu we must never compute proposer indices using insufficient lookahead. This
             // would be very dangerous as it would lead to conflicts between the *true* proposer as
             // defined by `self.proposer_lookahead` and the output of this function.
             // With MIN_SEED_LOOKAHEAD=1 (common config), this is equivalent to checking that the
             // requested epoch is not the current epoch.
-            if epoch < current_epoch.safe_add(spec.min_seed_lookahead)? {
+            //
+            // We do not run this check if this function is called from `upgrade_to_fulu`,
+            // which runs *after* the slot is incremented, and needs to compute the proposer
+            // shuffling for the epoch that was just transitioned into.
+            if self.fork_name_unchecked().fulu_enabled()
+                && epoch < current_epoch.safe_add(spec.min_seed_lookahead)?
+            {
                 return Err(Error::ComputeProposerIndicesInsufficientLookahead {
                     current_epoch,
                     request_epoch: epoch,
@@ -1039,7 +1045,7 @@ impl<E: EthSpec> BeaconState<E> {
             // too much lookahead. To do so would make us vulnerable to changes in the proposer
             // indices caused by effective balance changes.
             if epoch >= current_epoch.safe_add(spec.min_seed_lookahead)? {
-                return Err(Error::ComputeProposerIndicesInsufficientLookahead {
+                return Err(Error::ComputeProposerIndicesExcessiveLookahead {
                     current_epoch,
                     request_epoch: epoch,
                 });
@@ -1215,11 +1221,10 @@ impl<E: EthSpec> BeaconState<E> {
     ) -> Result<Vec<usize>, Error> {
         // This isn't in the spec, but we remove the footgun that is requesting the current epoch
         // for a Fulu state.
-        if spec.fork_name_at_epoch(epoch).fulu_enabled()
+        if let Ok(proposer_lookahead) = self.proposer_lookahead()
             && epoch >= self.current_epoch()
             && epoch <= self.next_epoch()?
         {
-            let proposer_lookahead = self.proposer_lookahead()?;
             let slots_per_epoch = E::slots_per_epoch() as usize;
             let start_offset = if epoch == self.current_epoch() {
                 0

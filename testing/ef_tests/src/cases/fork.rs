@@ -60,7 +60,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let mut result_state = self.pre.clone();
         let mut expected = Some(self.post.clone());
-        let spec = &E::default_spec();
+        let spec = &fork_name.make_genesis_spec(E::default_spec());
 
         let mut result = match fork_name {
             ForkName::Base => panic!("phase0 not supported"),

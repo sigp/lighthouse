@@ -160,6 +160,43 @@ pub struct Block {
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
+impl Block {
+    // FIXME(sproul): docs
+    pub fn proposer_shuffling_root_for_child_block(
+        &self,
+        child_block_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Hash256 {
+        let block_epoch = self.current_epoch_shuffling_id.shuffling_epoch;
+
+        if !spec.fork_name_at_epoch(child_block_epoch).fulu_enabled() {
+            // Prior to Fulu the proposer shuffling decision root for the current epoch is the same
+            // as the attestation shuffling for the *next* epoch, i.e. it is determined at the start
+            // of the epoch.
+            if block_epoch == child_block_epoch {
+                self.next_epoch_shuffling_id.shuffling_decision_block
+            } else {
+                // Otherwise, the block epoch is greater, so its decision root is the parent
+                // root itself.
+                self.root
+            }
+        } else {
+            // After Fulu the proposer shuffling is determined with lookahead, so if the block
+            // lies in the same epoch as its parent, its decision root is the same as the
+            // parent's current epoch attester shuffling
+            //
+            // i.e. the block from the end of epoch N - 2.
+            if block_epoch == child_block_epoch {
+                self.current_epoch_shuffling_id.shuffling_decision_block
+            } else {
+                // If the block is in a new epoch, then it instead shares its decision root with
+                // the parent's *next epoch* shuffling.
+                self.next_epoch_shuffling_id.shuffling_decision_block
+            }
+        }
+    }
+}
+
 /// A Vec-wrapper which will grow to match any request.
 ///
 /// E.g., a `get` or `insert` to an out-of-bounds element will cause the Vec to grow (using
