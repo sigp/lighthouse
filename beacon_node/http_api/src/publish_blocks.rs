@@ -555,6 +555,11 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
                 "Valid block from HTTP API"
             );
 
+            self.send_sync_message(SyncMessage::BlockProcessResult {
+                block_root,
+                imported: true,
+            });
+
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(
                 seen_timestamp,

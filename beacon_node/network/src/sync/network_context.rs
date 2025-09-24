@@ -839,7 +839,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // processing.
             BlockProcessStatus::NotValidated { .. } => {
                 // Lookup sync event safety: If the block is currently in the processing cache, we
-                // are guaranteed to receive a `SyncMessage::GossipBlockProcessResult` that will
+                // are guaranteed to receive a `SyncMessage::BlockProcessResult` that will
                 // make progress on this lookup
                 return Ok(LookupRequestResult::Pending("block in processing cache"));
             }

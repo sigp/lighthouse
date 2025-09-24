@@ -1712,21 +1712,21 @@ async fn test_data_column_import_notifies_sync() {
             .await
             .expect("should receive sync message");
 
-        // Verify we received the expected GossipBlockProcessResult message
+        // Verify we received the expected BlockProcessResult message
         assert_eq!(
             sync_messages.len(),
             1,
             "should receive exactly one sync message"
         );
         match &sync_messages[0] {
-            SyncMessage::GossipBlockProcessResult {
+            SyncMessage::BlockProcessResult {
                 block_root: msg_block_root,
                 imported,
             } => {
                 assert_eq!(*msg_block_root, block_root, "block root should match");
                 assert!(*imported, "block should be marked as imported");
             }
-            other => panic!("expected GossipBlockProcessResult, got {:?}", other),
+            other => panic!("expected BlockProcessResult, got {:?}", other),
         }
     }
 }

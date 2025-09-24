@@ -1006,7 +1006,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // imported. A block can become imported both after processing a block or blob. If a
         // importing a block results in `Imported`, notify. Do not notify of blob errors.
         if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
-            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+            self.send_sync_message(SyncMessage::BlockProcessResult {
                 block_root,
                 imported: true,
             });
@@ -1119,7 +1119,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // imported. A block can become imported both after processing a block or data column. If a
         // importing a block results in `Imported`, notify. Do not notify of data column errors.
         if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
-            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+            self.send_sync_message(SyncMessage::BlockProcessResult {
                 block_root,
                 imported: true,
             });
@@ -1614,7 +1614,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             self.maybe_store_invalid_block(&invalid_block_storage, block_root, &block, e);
         }
 
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+        self.send_sync_message(SyncMessage::BlockProcessResult {
             block_root,
             imported: matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))),
         });

@@ -1123,7 +1123,7 @@ impl TestRig {
             .data_availability_checker
             .remove_block_on_execution_error(&block_root);
 
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+        self.send_sync_message(SyncMessage::BlockProcessResult {
             block_root,
             imported: false,
         });
@@ -1137,7 +1137,7 @@ impl TestRig {
 
         self.insert_block_to_da_checker(block);
 
-        self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+        self.send_sync_message(SyncMessage::BlockProcessResult {
             block_root,
             imported: false,
         });

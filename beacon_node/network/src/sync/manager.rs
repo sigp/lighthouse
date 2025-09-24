@@ -165,7 +165,7 @@ pub enum SyncMessage<E: EthSpec> {
     },
 
     /// A block from gossip has completed processing,
-    GossipBlockProcessResult { block_root: Hash256, imported: bool },
+    BlockProcessResult { block_root: Hash256, imported: bool },
 }
 
 /// The type of processing specified for a received block.
@@ -831,7 +831,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             } => self
                 .block_lookups
                 .on_processing_result(process_type, result, &mut self.network),
-            SyncMessage::GossipBlockProcessResult {
+            SyncMessage::BlockProcessResult {
                 block_root,
                 imported,
             } => self.block_lookups.on_external_processing_result(
