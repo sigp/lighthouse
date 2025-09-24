@@ -4910,8 +4910,7 @@ pub fn serve<T: BeaconChainTypes>(
         .recover(warp_utils::reject::handle_rejection)
         .with(tracing_logging())
         .with(prometheus_metrics())
-        // Add a `Server` header.
-        .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
+        // Intentionally omit `Server` header to avoid version/platform disclosure.
         .with(cors_builder.build())
         .boxed();
 
