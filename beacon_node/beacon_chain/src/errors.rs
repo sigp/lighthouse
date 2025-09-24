@@ -234,6 +234,10 @@ pub enum BeaconChainError {
         state_decision_block_root: Hash256,
         requested_decision_block_root: Hash256,
     },
+    ProposerCacheAccessorFailure {
+        decision_block_root: Hash256,
+        proposal_epoch: Epoch,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

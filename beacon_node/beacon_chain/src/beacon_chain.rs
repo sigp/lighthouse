@@ -6549,18 +6549,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    pub fn with_proposer_cache<V>(
+    pub fn with_proposer_cache<V, E: From<BeaconChainError> + From<BeaconStateError>>(
         &self,
         shuffling_decision_block: Hash256,
         proposal_epoch: Epoch,
         accessor: impl Fn(&mut BeaconProposerCache) -> Option<V>,
-        state_provider: impl FnOnce() -> Result<Option<(Hash256, BeaconState<T::EthSpec>)>, Error>,
-    ) -> Result<Option<V>, Error> {
+        state_provider: impl FnOnce() -> Result<Option<(Hash256, BeaconState<T::EthSpec>)>, E>,
+    ) -> Result<Option<V>, E> {
         let mut cache = self.beacon_proposer_cache.lock();
         if let Some(value) = accessor(&mut cache) {
             return Ok(Some(value));
         }
         drop(cache);
+        debug!(
+            ?shuffling_decision_block,
+            %proposal_epoch,
+            "Proposer shuffling cache miss"
+        );
 
         // Fetch the state on-demand if the required epoch was missing from the cache.
         let Some((state_root, mut state)) = state_provider()? else {
@@ -6587,7 +6592,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(Error::ProposerCacheIncorrectState {
                 state_decision_block_root,
                 requested_decision_block_root: shuffling_decision_block,
-            });
+            }
+            .into());
         }
 
         // Add the proposers to the cache, and re-run the accessor function which is now very likely
