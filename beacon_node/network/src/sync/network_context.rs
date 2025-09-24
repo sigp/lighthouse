@@ -514,7 +514,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         // Attempt to find all required custody peers to request the failed columns from
         let columns_by_range_peers_to_request = self
-            .select_columns_by_range_peers_to_request(
+            .select_column_peers_to_request(
                 failed_columns,
                 peers,
                 active_request_count_by_peer,
@@ -586,7 +586,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 .cloned()
                 .collect();
 
-            match self.select_columns_by_range_peers_to_request(
+            match self.select_column_peers_to_request(
                 &custody_indices,
                 &synced_peers,
                 active_requests.clone(),
@@ -699,7 +699,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     .iter()
                     .cloned()
                     .collect();
-                Some(self.select_columns_by_range_peers_to_request(
+                Some(self.select_column_peers_to_request(
                     &column_indexes,
                     peers,
                     active_request_count_by_peer,
@@ -800,7 +800,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(id.id)
     }
 
-    fn select_columns_by_range_peers_to_request(
+    fn select_column_peers_to_request(
         &self,
         custody_indexes: &HashSet<ColumnIndex>,
         peers: &HashSet<PeerId>,

@@ -34,6 +34,9 @@ use types::{
 pub struct RangeBlockComponentsRequest<E: EthSpec> {
     /// Blocks we have received awaiting for their corresponding sidecar.
     blocks_request: ByRangeRequest<BlocksByRangeRequestId, Vec<Arc<SignedBeaconBlock<E>>>>,
+    /// We store the peer that we requested the blocks from for this particular `RangeBlockComponentsRequest`.
+    /// This is to ensure that we penalize the block peer if the blocks turn out to be invalid
+    /// during processing.
     block_peer: PeerId,
     /// Sidecars we have received awaiting for their corresponding block.
     block_data_request: RangeBlockDataRequest<E>,
@@ -49,7 +52,8 @@ enum ByRangeRequest<I: PartialEq + std::fmt::Display, T> {
 enum RangeBlockDataRequest<E: EthSpec> {
     NoData,
     Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecar<E>>>>),
-    DataColumns {
+    /// These are data columns fetched by a range request.
+    DataColumnsFromRange {
         requests: HashMap<
             DataColumnsByRangeRequestId,
             ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
@@ -98,13 +102,13 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
     /// * `blocks_req_id` - Request ID for the blocks
     /// * `blobs_req_id` - Optional request ID for blobs (pre-Fulu fork)
     /// * `data_columns` - Optional tuple of (request_id->column_indices pairs, expected_custody_columns) for Fulu fork
-    /// * `request_columns_by_root` - Creates an uninitialized `RangeBlockDataRequest::DataColumnsFromRoot` variant if this is true.
+    /// * `data_columns_by_root` - Creates an uninitialized `RangeBlockDataRequest::DataColumnsFromRoot` variant if this is `Some`.
     ///   Note: this is only relevant is `data_columns == None`.
     #[allow(clippy::type_complexity)]
     pub fn new(
         blocks_req_id: BlocksByRangeRequestId,
         blobs_req_id: Option<BlobsByRangeRequestId>,
-        data_columns: Option<(
+        data_columns_by_range: Option<(
             Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
             Vec<ColumnIndex>,
         )>,
@@ -114,7 +118,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         let block_peer = blocks_req_id.peer_id;
         let block_data_request = if let Some(blobs_req_id) = blobs_req_id {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
-        } else if let Some((requests, expected_custody_columns)) = data_columns {
+        } else if let Some((requests, expected_custody_columns)) = data_columns_by_range {
             let request_to_column_indices: HashMap<_, _> = requests.into_iter().collect();
             RangeBlockDataRequest::DataColumns {
                 requests: request_to_column_indices
@@ -268,7 +272,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         match &mut self.block_data_request {
             RangeBlockDataRequest::NoData => Err("received blobs but expected no data".to_owned()),
             RangeBlockDataRequest::DataColumnsFromRoot { .. } => {
-                Err("received blobs but expected no data columns by root".to_owned())
+                Err("received blobs but expected data columns by root".to_owned())
             }
             RangeBlockDataRequest::Blobs(req) => req.finish(req_id, blobs),
             RangeBlockDataRequest::DataColumns { .. } => {
