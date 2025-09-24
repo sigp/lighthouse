@@ -404,7 +404,7 @@ impl<T: BeaconChainTypes> BeaconBlockStreamer<T> {
         if self.check_caches == CheckCaches::Yes {
             match self.beacon_chain.get_block_process_status(&root) {
                 BlockProcessStatus::Unknown => None,
-                BlockProcessStatus::NotValidated(block)
+                BlockProcessStatus::NotValidated(block, _)
                 | BlockProcessStatus::ExecutionValidated(block) => {
                     metrics::inc_counter(&metrics::BEACON_REQRESP_PRE_IMPORT_CACHE_HITS);
                     Some(block)
