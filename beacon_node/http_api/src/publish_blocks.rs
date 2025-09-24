@@ -107,8 +107,9 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
     current_span.record("provenance", provenance);
 
     let block = unverified_block.inner_block();
+    let block_root = block.canonical_root();
 
-    debug!(slot = %block.slot(), "Signed block received in HTTP API");
+    debug!(slot = %block.slot(), ?block_root, "Signed block received in HTTP API");
 
     /* actually publish a block */
     let publish_block_p2p = move |block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -128,6 +129,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
         info!(
             slot = %block.slot(),
+            ?block_root,
             publish_delay_ms = publish_delay.as_millis(),
             "Signed block published to network via HTTP API"
         );
@@ -152,18 +154,13 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 
     // Gossip verify the block and blobs/data columns separately.
     let gossip_verified_block_result = unverified_block.into_gossip_verified_block(&chain);
-    let block_root = block_root.unwrap_or_else(|| {
-        gossip_verified_block_result.as_ref().map_or_else(
-            |_| block.canonical_root(),
-            |verified_block| verified_block.block_root,
-        )
-    });
 
     let should_publish_block = gossip_verified_block_result.is_ok();
     if BroadcastValidation::Gossip == validation_level && should_publish_block {
         if let Some(block_publishing_delay) = block_publishing_delay_for_testing {
             debug!(
                 ?block_publishing_delay,
+                ?block_root,
                 "Publishing block with artificial delay"
             );
             tokio::time::sleep(block_publishing_delay).await;
@@ -210,7 +207,11 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             return if let BroadcastValidation::Gossip = validation_level {
                 Err(warp_utils::reject::broadcast_without_import(msg))
             } else {
-                error!(reason = &msg, "Invalid blob provided to HTTP API");
+                error!(
+                    reason = &msg,
+                    ?block_root,
+                    "Invalid blob provided to HTTP API"
+                );
                 Err(warp_utils::reject::custom_bad_request(msg))
             };
         }
@@ -228,6 +229,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             if !delay.is_zero() {
                 debug!(
                     ?data_column_publishing_delay,
+                    ?block_root,
                     "Publishing data columns with artificial delay"
                 );
                 tokio::time::sleep(delay).await;
@@ -255,6 +257,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 } else {
                     error!(
                         reason = &msg,
+                        ?block_root,
                         "Invalid data column during block publication"
                     );
                     Err(warp_utils::reject::custom_bad_request(msg))
@@ -336,6 +339,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Err(e) => {
             warn!(
                 %slot,
+                ?block_root,
                 error = %e,
                 "Not publishing block - not gossip verified"
             );
