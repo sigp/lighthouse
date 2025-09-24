@@ -540,12 +540,14 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
 ) -> Result<Response, Rejection> {
     // Notify lookup sync of completing a block import. Necessary if a lookup was created after
     // an HTTP block start import but before it completes.
-    self.send_sync_message(SyncMessage::BlockProcessResult {
+    //
+    // TODO: sync_tx not available in the http_api crate...
+    sync_tx.send_sync_message(SyncMessage::BlockProcessResult {
         block_root,
         imported: matches!(
             result,
             Ok(AvailabilityProcessingStatus::Imported(_))
-                | Err(BlockError::DuplicateFullyImported(root))
+                | Err(BlockError::DuplicateFullyImported(_))
         ),
     });
 

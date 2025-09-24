@@ -1619,7 +1619,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             imported: matches!(
                 result,
                 Ok(AvailabilityProcessingStatus::Imported(_))
-                    | Err(BlockError::DuplicateFullyImported(root))
+                    | Err(BlockError::DuplicateFullyImported(_))
             ),
         });
     }
