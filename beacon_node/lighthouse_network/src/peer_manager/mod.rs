@@ -1435,7 +1435,9 @@ impl<E: EthSpec> PeerManager<E> {
         self.update_peer_score_metrics();
 
         // Maintain minimum count for custody peers.
-        self.maintain_custody_peers();
+        if self.network_globals.spec.is_peer_das_scheduled() {
+            self.maintain_custody_peers();
+        }
 
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
