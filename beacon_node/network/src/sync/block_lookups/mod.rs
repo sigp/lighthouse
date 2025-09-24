@@ -617,7 +617,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         request_state.revert_to_awaiting_processing()?;
                         Action::ParentUnknown { parent_root }
                     }
-                    ref e @ BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
+                    ref e @ BlockError::ExecutionPayloadError(ref epe)
+                        if !epe.penalize_sync_peer() =>
+                    {
                         // These errors indicate that the execution layer is offline
                         // and failed to validate the execution payload. Do not downscore peer.
                         debug!(

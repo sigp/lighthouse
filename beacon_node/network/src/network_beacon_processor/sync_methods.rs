@@ -11,8 +11,7 @@ use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
-    ExecutionPayloadError, HistoricalBlockError, NotifyExecutionLayer,
-    validator_monitor::get_slot_delay_ms,
+    HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
 };
 use beacon_processor::{
     AsyncFn, BlockingFn, DuplicateCache,
@@ -773,7 +772,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 Err(ChainSegmentFailed {
                     message: format!("Block has an unknown parent: {}", parent_root),
                     // Peers are faulty if they send non-sequential blocks.
-                    peer_action: Some(PeerAction::LowToleranceError), // todo(pawan): revise this
+                    peer_action: Some(PeerAction::LowToleranceError),
                     faulty_component: Some(FaultyComponent::Blocks),
                 })
             }
@@ -852,20 +851,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
             }
             ref err @ BlockError::ExecutionPayloadError(ref epe) => {
-                if matches!(epe, ExecutionPayloadError::RejectedByExecutionEngine { .. }) {
-                    debug!(
-                        error = ?err,
-                        "Invalid execution payload rejected by EE"
-                    );
-                    Err(ChainSegmentFailed {
-                        message: format!(
-                            "Peer sent a block containing invalid execution payload. Reason: {:?}",
-                            err
-                        ),
-                        peer_action: Some(PeerAction::LowToleranceError),
-                        faulty_component: Some(FaultyComponent::Blocks), // todo(pawan): recheck this
-                    })
-                } else if !epe.penalize_peer() {
+                if !epe.penalize_sync_peer() {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
                     // Pause the syncing while the EL recovers
                     debug!(

@@ -418,7 +418,7 @@ pub enum ExecutionPayloadError {
 }
 
 impl ExecutionPayloadError {
-    pub fn penalize_peer(&self) -> bool {
+    pub fn penalize_gossip_peer(&self) -> bool {
         // This match statement should never have a default case so that we are
         // always forced to consider here whether or not to penalize a peer when
         // we add a new error condition.
@@ -443,6 +443,39 @@ impl ExecutionPayloadError {
             ExecutionPayloadError::InvalidActivationEpoch { .. } => false,
             // As per `Self::InvalidActivationEpoch`.
             ExecutionPayloadError::InvalidTerminalBlockHash { .. } => false,
+            // Do not penalize the peer since it's not their fault that *we're* optimistic.
+            ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
+        }
+    }
+
+    pub fn penalize_sync_peer(&self) -> bool {
+        // This match statement should never have a default case so that we are
+        // always forced to consider here whether or not to penalize a peer when
+        // we add a new error condition.
+        match self {
+            // The peer has nothing to do with this error, do not penalize them.
+            ExecutionPayloadError::NoExecutionConnection => false,
+            // The peer has nothing to do with this error, do not penalize them.
+            ExecutionPayloadError::RequestFailed(_) => false,
+            // For the sync case, we do not want a peer to keep sending us blocks that our
+            // execution engine considers invalid.
+            //
+            // Also, we ask peers for blocks over sync/rpc only when they indicate
+            // that they have fully validated a given block (using their status message).
+            //
+            // Hence, we should penalize for this error in the sync case.
+            ExecutionPayloadError::RejectedByExecutionEngine { .. } => true,
+            // There is no reason for an honest peer to propagate a block with an invalid
+            // payload time stamp.
+            ExecutionPayloadError::InvalidPayloadTimestamp { .. } => true,
+            // We do not want to receive these blocks over rpc even though the gossip
+            // case is still allowed.
+            ExecutionPayloadError::InvalidTerminalPoWBlock { .. } => true,
+            // We should penalize RPC blocks, since even an optimistic node shouldn't
+            // verify this block.
+            ExecutionPayloadError::InvalidActivationEpoch { .. } => true,
+            // As per `Self::InvalidActivationEpoch`.
+            ExecutionPayloadError::InvalidTerminalBlockHash { .. } => true,
             // Do not penalize the peer since it's not their fault that *we're* optimistic.
             ExecutionPayloadError::UnverifiedNonOptimisticCandidate => false,
         }
