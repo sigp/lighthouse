@@ -1021,7 +1021,6 @@ impl<E: EthSpec> BeaconState<E> {
             });
         }
 
-        // FIXME(sproul): double check fulu enabled condition, which epoch should we check?
         if spec.fork_name_at_epoch(epoch).fulu_enabled() {
             // Post-Fulu we must never compute proposer indices using insufficient lookahead. This
             // would be very dangerous as it would lead to conflicts between the *true* proposer as
