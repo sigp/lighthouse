@@ -12,7 +12,6 @@ logging = { workspace = true }
 metrics = { workspace = true }
 num_cpus = { workspace = true }
 parking_lot = { workspace = true }
-rayon = { workspace = true }
 serde = { workspace = true }
 slot_clock = { workspace = true }
 strum = { workspace = true }

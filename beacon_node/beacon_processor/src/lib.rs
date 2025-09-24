@@ -38,7 +38,6 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
-use crate::rayon_manager::RayonManager;
 use crate::work_reprocessing_queue::{
     QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
 };
@@ -48,7 +47,6 @@ use lighthouse_network::{MessageId, NetworkGlobals, PeerId};
 use logging::TimeLatch;
 use logging::crit;
 use parking_lot::Mutex;
-use rayon::ThreadPool;
 pub use scheduler::work_reprocessing_queue;
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -61,7 +59,7 @@ use std::sync::Arc;
 use std::task::Context;
 use std::time::{Duration, Instant};
 use strum::IntoStaticStr;
-use task_executor::TaskExecutor;
+use task_executor::{RayonPoolType, TaskExecutor};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::{debug, error, trace, warn};
@@ -76,7 +74,6 @@ use work_reprocessing_queue::{
 };
 
 mod metrics;
-pub mod rayon_manager;
 pub mod scheduler;
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -810,7 +807,6 @@ pub struct BeaconProcessor<E: EthSpec> {
     pub network_globals: Arc<NetworkGlobals<E>>,
     pub executor: TaskExecutor,
     pub current_workers: usize,
-    pub rayon_manager: RayonManager,
     pub config: BeaconProcessorConfig,
 }
 
@@ -1609,10 +1605,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
             }
             Work::ChainSegmentBackfill(process_fn) => {
                 if self.config.enable_backfill_rate_limiting {
-                    task_spawner.spawn_blocking_with_rayon(
-                        self.rayon_manager.low_priority_threadpool.clone(),
-                        process_fn,
-                    )
+                    task_spawner.spawn_blocking_with_rayon(RayonPoolType::LowPriority, process_fn)
                 } else {
                     // use the global rayon thread pool if backfill rate limiting is disabled.
                     task_spawner.spawn_blocking(process_fn)
@@ -1681,17 +1674,16 @@ impl TaskSpawner {
     }
 
     /// Spawns a blocking task on a rayon thread pool, dropping the `SendOnDrop` after task completion.
-    fn spawn_blocking_with_rayon<F>(self, thread_pool: Arc<ThreadPool>, task: F)
+    fn spawn_blocking_with_rayon<F>(self, rayon_pool_type: RayonPoolType, task: F)
     where
         F: FnOnce() + Send + 'static,
     {
-        self.executor.spawn_blocking(
+        self.executor.spawn_blocking_with_rayon(
             move || {
-                thread_pool.install(|| {
-                    task();
-                });
+                task();
                 drop(self.send_idle_on_drop)
             },
+            rayon_pool_type,
             WORKER_TASK_NAME,
         )
     }

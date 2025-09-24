@@ -980,7 +980,6 @@ dependencies = [
  "metrics",
  "num_cpus",
  "parking_lot 0.12.3",
- "rayon",
  "serde",
  "slot_clock",
  "strum",
@@ -9232,6 +9231,8 @@ dependencies = [
  "async-channel 1.9.0",
  "futures",
  "metrics",
+ "num_cpus",
+ "rayon",
  "tokio",
  "tracing",
 ]
