@@ -538,6 +538,17 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
     seen_timestamp: Duration,
     chain: &Arc<BeaconChain<T>>,
 ) -> Result<Response, Rejection> {
+    // Notify lookup sync of completing a block import. Necessary if a lookup was created after
+    // an HTTP block start import but before it completes.
+    self.send_sync_message(SyncMessage::BlockProcessResult {
+        block_root,
+        imported: matches!(
+            result,
+            Ok(AvailabilityProcessingStatus::Imported(_))
+                | Err(BlockError::DuplicateFullyImported(root))
+        ),
+    });
+
     match result {
         // The `DuplicateFullyImported` case here captures the case where the block finishes
         // being imported after gossip verification. It could be that it finished imported as a
@@ -554,11 +565,6 @@ async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
                 slot = %block.slot(),
                 "Valid block from HTTP API"
             );
-
-            self.send_sync_message(SyncMessage::BlockProcessResult {
-                block_root,
-                imported: true,
-            });
 
             // Notify the validator monitor.
             chain.validator_monitor.read().register_api_block(

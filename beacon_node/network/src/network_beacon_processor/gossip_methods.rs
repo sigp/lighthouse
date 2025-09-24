@@ -1616,7 +1616,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         self.send_sync_message(SyncMessage::BlockProcessResult {
             block_root,
-            imported: matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))),
+            imported: matches!(
+                result,
+                Ok(AvailabilityProcessingStatus::Imported(_))
+                    | Err(BlockError::DuplicateFullyImported(root))
+            ),
         });
     }
 
