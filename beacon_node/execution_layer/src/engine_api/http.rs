@@ -869,13 +869,14 @@ impl HttpJsonRpc {
         &self,
         new_payload_request_eip7805: NewPayloadRequestEip7805<'_, E>,
     ) -> Result<PayloadStatusV1, Error> {
-        // TODO(focil) clean this up?
-        let mut il_transactions = vec![];
-        for transaction in new_payload_request_eip7805.il_transactions {
-            if let Ok(hex_tx) = String::from_utf8(transaction.into()).map(|v| format!("0x{}", v)) {
-                il_transactions.push(hex_tx);
-            }
-        }
+        let il_transactions: Vec<String> = new_payload_request_eip7805
+            .il_transactions
+            .into_iter()
+            .map(|tx| {
+                let bytes: Vec<u8> = tx.into();
+                format!("0x{}", hex::encode(bytes))
+            })
+            .collect();
 
         let params = json!([
             JsonExecutionPayload::V5(new_payload_request_eip7805.execution_payload.clone().into()),
