@@ -865,6 +865,25 @@ impl ChainSpec {
         )
     }
 
+    /// Returns the slot at which the proposer shuffling was decided.
+    ///
+    /// The block root at this slot can be used to key the proposer shuffling for the given epoch.
+    pub fn proposer_shuffling_decision_slot<E: EthSpec>(&self, epoch: Epoch) -> Slot {
+        if self.fork_name_at_epoch(epoch).fulu_enabled() {
+            // Post-Fulu the proposer shuffling decision slot for epoch N is the slot at the end
+            // of epoch N - 2.
+            // FIXME(sproul): rewrite this in terms of min_seed_lookahead?
+            epoch
+                .saturating_sub(Epoch::new(1))
+                .start_slot(E::slots_per_epoch())
+                .saturating_sub(1_u64)
+        } else {
+            // Pre-Fulu the proposer shuffling decision slot for epcoch N is the slot at the end of
+            // epoch N - 1.
+            epoch.start_slot(E::slots_per_epoch()).saturating_sub(1_u64)
+        }
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {

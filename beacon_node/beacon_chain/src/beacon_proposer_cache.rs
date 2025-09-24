@@ -12,9 +12,9 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use fork_choice::ExecutionStatus;
 use lru::LruCache;
 use once_cell::sync::OnceCell;
+use safe_arith::SafeArith;
 use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
-use std::cmp::Ordering;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use types::non_zero_usize::new_non_zero_usize;
@@ -178,7 +178,12 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .ok_or(BeaconChainError::HeadMissingFromForkChoice(head_block_root))?;
 
     // Advance the state into the requested epoch.
-    ensure_state_is_in_epoch(&mut state, head_state_root, request_epoch, &chain.spec)?;
+    ensure_state_can_determine_proposers_for_epoch(
+        &mut state,
+        head_state_root,
+        request_epoch,
+        &chain.spec,
+    )?;
 
     let indices = state
         .get_beacon_proposer_indices(request_epoch, &chain.spec)
@@ -186,13 +191,13 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 
     let dependent_root = state
         // The only block which decides its own shuffling is the genesis block.
-        .proposer_shuffling_decision_root(chain.genesis_block_root)
+        .proposer_shuffling_decision_root(chain.genesis_block_root, &chain.spec)
         .map_err(BeaconChainError::from)?;
 
     Ok((indices, dependent_root, execution_status, state.fork()))
 }
 
-/// If required, advance `state` to `target_epoch`.
+/// If required, advance `state` to the epoch required to determine proposer indices in `target_epoch`.
 ///
 /// ## Details
 ///
@@ -200,22 +205,33 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 /// - No-op if `state.current_epoch() == target_epoch`.
 /// - It must be the case that `state.canonical_root() == state_root`, but this function will not
 ///   check that.
-pub fn ensure_state_is_in_epoch<E: EthSpec>(
+pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,
     target_epoch: Epoch,
     spec: &ChainSpec,
 ) -> Result<(), BeaconChainError> {
-    match state.current_epoch().cmp(&target_epoch) {
-        // Protects against an inconsistent slot clock.
-        Ordering::Greater => Err(BeaconStateError::SlotOutOfBounds.into()),
-        // The state needs to be advanced.
-        Ordering::Less => {
-            let target_slot = target_epoch.start_slot(E::slots_per_epoch());
-            partial_state_advance(state, Some(state_root), target_slot, spec)
-                .map_err(BeaconChainError::from)
-        }
-        // The state is suitable, nothing to do.
-        Ordering::Equal => Ok(()),
+    // The decision slot is the end of an epoch, so we add 1 to reach the first slot of the epoch
+    // at which the shuffling is determined.
+    let minimum_slot = spec
+        .proposer_shuffling_decision_slot::<E>(target_epoch)
+        .safe_add(1)?;
+    let minimum_epoch = minimum_slot.epoch(E::slots_per_epoch());
+
+    // Before and after Fulu, the oldest epoch reachable from a state at epoch N is epoch N itself,
+    // i.e. we can never "look back".
+    let maximum_epoch = target_epoch;
+
+    if state.current_epoch() > maximum_epoch {
+        Err(BeaconStateError::SlotOutOfBounds.into())
+    } else if state.current_epoch() >= minimum_epoch {
+        // Fulu allows us to access shufflings in multiple epochs (thanks to lookahead).
+        // Pre-Fulu we expect `minimum_epoch == maximum_epoch`, and this branch covers that case.
+        Ok(())
+    } else {
+        // State's current epoch is less than the minimum epoch.
+        // Advance the state up to the minimum epoch.
+        partial_state_advance(state, Some(state_root), minimum_slot, spec)
+            .map_err(BeaconChainError::from)
     }
 }

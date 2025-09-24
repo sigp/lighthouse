@@ -5,8 +5,10 @@ use crate::attestation_verification::{
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
+use crate::beacon_proposer_cache::{
+    BeaconProposerCache, compute_proposer_duties_from_head,
+    ensure_state_can_determine_proposers_for_epoch,
+};
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
@@ -4699,14 +4701,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Compute the proposer index.
         let head_epoch = cached_head.head_slot().epoch(T::EthSpec::slots_per_epoch());
-        let shuffling_decision_root = if head_epoch == proposal_epoch {
-            cached_head
-                .snapshot
-                .beacon_state
-                .proposer_shuffling_decision_root(proposer_head)?
-        } else {
-            proposer_head
-        };
+        let shuffling_decision_root = cached_head
+            .snapshot
+            .beacon_state
+            .proposer_shuffling_decision_root_at_epoch(proposal_epoch, proposer_head, &self.spec)?;
         let cached_proposer = self
             .beacon_proposer_cache
             .lock()
@@ -6556,6 +6554,66 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
                 "per_slot_task_fc_signal_tx",
             );
+        }
+    }
+
+    pub fn with_proposer_cache<V>(
+        &self,
+        shuffling_decision_block: Hash256,
+        proposal_epoch: Epoch,
+        accessor: impl Fn(&mut BeaconProposerCache, Hash256, Epoch) -> Option<V>,
+        state_provider: impl FnOnce() -> Result<Option<(Hash256, BeaconState<T::EthSpec>)>, Error>,
+    ) -> Result<Option<V>, Error> {
+        let mut cache = self.beacon_proposer_cache.lock();
+        if let Some(value) = accessor(&mut cache, shuffling_decision_block, proposal_epoch) {
+            return Ok(Some(value));
+        }
+        drop(cache);
+
+        // Fetch the state on-demand if the required epoch was missing from the cache.
+        let Some((state_root, mut state)) = state_provider()? else {
+            // The caller could not compute a state or chose not to.
+            return Ok(None);
+        };
+
+        // Ensure the state can compute proposer duties for `epoch`.
+        ensure_state_can_determine_proposers_for_epoch(
+            &mut state,
+            state_root,
+            proposal_epoch,
+            &self.spec,
+        )?;
+
+        // Sanity check the state.
+        let latest_block_root = state.get_latest_block_root(state_root);
+        let state_decision_block_root = state.proposer_shuffling_decision_root_at_epoch(
+            proposal_epoch,
+            latest_block_root,
+            &self.spec,
+        )?;
+        if state_decision_block_root != shuffling_decision_block {
+            return Err(Error::ProposerCacheIncorrectState {
+                state_decision_block_root,
+                requested_decision_block_root: shuffling_decision_block,
+            });
+        }
+
+        // Add the proposers to the cache, and re-run the accessor function which is now very likely
+        // to succeed.
+        let proposers = state.get_beacon_proposer_indices(proposal_epoch, &self.spec)?;
+
+        let mut cache = self.beacon_proposer_cache.lock();
+        cache.insert(
+            proposal_epoch,
+            shuffling_decision_block,
+            proposers,
+            state.fork(),
+        )?;
+
+        if let Some(value) = accessor(&mut cache, shuffling_decision_block, proposal_epoch) {
+            Ok(Some(value))
+        } else {
+            Ok(None)
         }
     }
 

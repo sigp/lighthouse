@@ -74,7 +74,7 @@ async fn missed_blocks_across_epochs() {
             .get_hot_state(state_roots_by_slot[&start_slot])
             .unwrap();
         let decision_root = state
-            .proposer_shuffling_decision_root(genesis_block_root)
+            .proposer_shuffling_decision_root(genesis_block_root, &harness.chain.spec)
             .unwrap();
         proposer_shuffling_cache
             .insert(
@@ -152,7 +152,7 @@ async fn missed_blocks_basic() {
         .unwrap();
     let mut missed_block_proposer = validator_indexes[slot_in_epoch.as_usize()];
     let mut proposer_shuffling_decision_root = _state
-        .proposer_shuffling_decision_root(duplicate_block_root)
+        .proposer_shuffling_decision_root(duplicate_block_root, &harness1.chain.spec)
         .unwrap();
 
     let beacon_proposer_cache = harness1
@@ -326,7 +326,11 @@ async fn missed_blocks_basic() {
         .unwrap();
     missed_block_proposer = validator_indexes[slot_in_epoch.as_usize()];
     proposer_shuffling_decision_root = _state3
-        .proposer_shuffling_decision_root_at_epoch(epoch, duplicate_block_root)
+        .proposer_shuffling_decision_root_at_epoch(
+            epoch,
+            duplicate_block_root,
+            &harness1.chain.spec,
+        )
         .unwrap();
 
     let beacon_proposer_cache = harness3

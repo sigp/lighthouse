@@ -230,6 +230,10 @@ pub enum BeaconChainError {
         columns_found: usize,
     },
     FailedToReconstructBlobs(String),
+    ProposerCacheIncorrectState {
+        state_decision_block_root: Hash256,
+        requested_decision_block_root: Hash256,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
