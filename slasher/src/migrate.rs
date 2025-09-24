@@ -9,41 +9,64 @@ impl<E: EthSpec> SlasherDB<E> {
         drop(txn);
 
         if let Some(schema_version) = schema_version {
-            match (schema_version, CURRENT_SCHEMA_VERSION) {
+            tracing::info!(
+                "Found SlasherDB on-disk schema version v{} (software target v{})",
+                schema_version,
+                CURRENT_SCHEMA_VERSION
+            );
+            return match (schema_version, CURRENT_SCHEMA_VERSION) {
                 // Schema v3 changed the underlying database from LMDB to MDBX. Unless the user did
                 // some manual hacking it should be impossible to read an MDBX schema version < 3.
-                (from, _) if from < 3 => Err(Error::IncompatibleSchemaVersion {
-                    database_schema_version: schema_version,
-                    software_schema_version: CURRENT_SCHEMA_VERSION,
-                }),
-                (x, y) if x == y => Ok(self),
+                (from, _) if from < 3 => {
+                    tracing::info!(
+                        "SlasherDB schema v{} is older than the supported minimum; refusing to run",
+                        from
+                    );
+                    Err(Error::IncompatibleSchemaVersion {
+                        database_schema_version: schema_version,
+                        software_schema_version: CURRENT_SCHEMA_VERSION,
+                    })
+                }
+                (x, y) if x == y => {
+                    tracing::info!(
+                        "SlasherDB schema already at target version v{}; no migration required",
+                        y
+                    );
+                    Ok(self)
+                }
 
-                (from, to) if from + 1 == to && self.is_redb() => {
+                (from, to) if from + 1 == to && self.env.is_redb() => {
                     tracing::info!(
                         "Detected Redb SlasherDB schema v{} -> upgrading to v{}",
                         from,
                         to
                     );
-                    self.upgrade()?;
+                    self.env.upgrade()?;
+                    tracing::info!(
+                        "Redb SlasherDB schema upgrade to v{} completed successfully",
+                        to
+                    );
                     Ok(self)
                 }
 
-                (from, to) => Err(Error::IncompatibleSchemaVersion {
-                    database_schema_version: from,
-                    software_schema_version: to,
-                }),
-            }
-        } else {
-            tracing::info!("No schema version found, assuming fresh DB");
-            Ok(self)
+                (from, to) => {
+                    tracing::info!(
+                        "SlasherDB schema upgrade path from v{} to v{} is unsupported; refusing to run",
+                        from,
+                        to
+                    );
+                    Err(Error::IncompatibleSchemaVersion {
+                        database_schema_version: from,
+                        software_schema_version: to,
+                    })
+                }
+            };
         }
-    }
 
-    pub fn is_redb(&self) -> bool {
-        self.env.is_redb()
-    }
-
-    pub fn upgrade(&self) -> Result<(), Error> {
-        self.env.upgrade()
+        tracing::info!(
+            "No schema version found, assuming fresh DB at target version v{}",
+            CURRENT_SCHEMA_VERSION
+        );
+        Ok(self)
     }
 }

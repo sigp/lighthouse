@@ -137,15 +137,40 @@ impl Environment {
 
         let current_version = self.get_schema_version()?;
 
+        tracing::info!(
+            "Checking SlasherDB Redb schema version (current: {}, target: {})",
+            current_version,
+            CURRENT_SCHEMA_VERSION
+        );
+
         if current_version < CURRENT_SCHEMA_VERSION {
+            tracing::info!(
+                "Upgrading SlasherDB Redb schema from v{} to v{}",
+                current_version,
+                CURRENT_SCHEMA_VERSION
+            );
             self.set_schema_version(&mut txn, CURRENT_SCHEMA_VERSION)?;
         } else if current_version > CURRENT_SCHEMA_VERSION {
+            tracing::info!(
+                "SlasherDB Redb schema version {} is newer than supported v{}",
+                current_version,
+                CURRENT_SCHEMA_VERSION
+            );
             return Err(Error::IncompatibleSchemaVersion {
                 database_schema_version: current_version,
                 software_schema_version: CURRENT_SCHEMA_VERSION,
             });
+        } else {
+            tracing::info!(
+                "SlasherDB Redb schema already at target version {}",
+                CURRENT_SCHEMA_VERSION
+            );
         }
         txn.commit()?;
+        tracing::info!(
+            "Commited SlasherDB Redb schema version {}",
+            CURRENT_SCHEMA_VERSION
+        );
         Ok(())
     }
 }

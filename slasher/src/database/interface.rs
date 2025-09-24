@@ -1,3 +1,4 @@
+#[cfg(feature = "redb")]
 use crate::database::CURRENT_SCHEMA_VERSION;
 use crate::{Config, DatabaseBackend, Error};
 use std::borrow::Cow;
@@ -130,10 +131,15 @@ impl Environment {
             #[cfg(feature = "redb")]
             Self::Redb(env) => {
                 tracing::info!(
-                    "Upgrading SlasherDB Redb schema to version {}",
+                    "Starting SlasherDB Redb schema to version {}",
                     CURRENT_SCHEMA_VERSION
                 );
-                env.upgrade()
+                env.upgrade()?;
+                tracing::info!(
+                    "Finished SlasherDB Redb schema upgrade to version {}",
+                    CURRENT_SCHEMA_VERSION
+                );
+                Ok(())
             }
             _ => Ok(()),
         }
@@ -141,12 +147,22 @@ impl Environment {
 
     /// Returns true if this database is using Redb as the backend
     pub fn is_redb(&self) -> bool {
-        if cfg!(feature = "redb") {
+        #[cfg(feature = "redb")]
+        {
             matches!(self, Self::Redb(_))
-        } else {
+        }
+
+        #[cfg(not(feature = "redb"))]
+        {
             false
         }
     }
+    //     if cfg!(feature = "redb") {
+    //         matches!(self, Self::Redb(_))
+    //     } else {
+    //         false
+    //     }
+    // }
 }
 
 impl<'env> RwTransaction<'env> {
