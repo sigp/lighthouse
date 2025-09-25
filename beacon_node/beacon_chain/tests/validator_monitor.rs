@@ -3,7 +3,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::validator_monitor::{MISSED_BLOCK_LAG_SLOTS, ValidatorMonitorConfig};
 use std::sync::LazyLock;
-use types::{Epoch, EthSpec, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
+use types::{Epoch, EthSpec, Hash256, Keypair, MainnetEthSpec, PublicKeyBytes, Slot};
 
 // Should ideally be divisible by 3.
 pub const VALIDATOR_COUNT: usize = 48;
@@ -74,7 +74,7 @@ async fn missed_blocks_across_epochs() {
             .get_hot_state(state_roots_by_slot[&start_slot])
             .unwrap();
         let decision_root = state
-            .proposer_shuffling_decision_root(genesis_block_root)
+            .proposer_shuffling_decision_root(genesis_block_root, &harness.chain.spec)
             .unwrap();
         proposer_shuffling_cache
             .insert(
@@ -152,7 +152,7 @@ async fn missed_blocks_basic() {
         .unwrap();
     let mut missed_block_proposer = validator_indexes[slot_in_epoch.as_usize()];
     let mut proposer_shuffling_decision_root = _state
-        .proposer_shuffling_decision_root(duplicate_block_root)
+        .proposer_shuffling_decision_root(duplicate_block_root, &harness1.chain.spec)
         .unwrap();
 
     let beacon_proposer_cache = harness1
@@ -235,17 +235,20 @@ async fn missed_blocks_basic() {
     // Let's fill the cache with the proposers for the current epoch
     // and push the duplicate_block_root to the block_roots vector
     assert_eq!(
-        beacon_proposer_cache.lock().insert(
-            epoch,
-            duplicate_block_root,
-            validator_indexes.clone(),
-            _state2.fork()
-        ),
+        _state2.set_block_root(prev_slot, duplicate_block_root),
         Ok(())
     );
 
+    let decision_block_root = _state2
+        .proposer_shuffling_decision_root_at_epoch(epoch, Hash256::ZERO, &harness2.chain.spec)
+        .unwrap();
     assert_eq!(
-        _state2.set_block_root(prev_slot, duplicate_block_root),
+        beacon_proposer_cache.lock().insert(
+            epoch,
+            decision_block_root,
+            validator_indexes.clone(),
+            _state2.fork()
+        ),
         Ok(())
     );
 
@@ -326,7 +329,11 @@ async fn missed_blocks_basic() {
         .unwrap();
     missed_block_proposer = validator_indexes[slot_in_epoch.as_usize()];
     proposer_shuffling_decision_root = _state3
-        .proposer_shuffling_decision_root_at_epoch(epoch, duplicate_block_root)
+        .proposer_shuffling_decision_root_at_epoch(
+            epoch,
+            duplicate_block_root,
+            &harness1.chain.spec,
+        )
         .unwrap();
 
     let beacon_proposer_cache = harness3

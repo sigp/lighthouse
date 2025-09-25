@@ -5,9 +5,13 @@ use std::sync::Arc;
 /// Cache of values which are uniquely determined at the start of an epoch.
 ///
 /// The values are fixed with respect to the last block of the _prior_ epoch, which we refer
-/// to as the "decision block". This cache is very similar to the `BeaconProposerCache` in that
-/// beacon proposers are determined at exactly the same time as the values in this cache, so
-/// the keys for the two caches are identical.
+/// to as the "decision block".
+///
+/// Prior to Fulu this cache was similar to the `BeaconProposerCache` in that beacon proposers were
+/// determined at exactly the same time as the values in this cache, so the keys for the two caches
+/// were identical.
+///
+/// Post-Fulu, we use a different key (the proposers have more lookahead).
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(Debug, PartialEq, Eq, Clone, Default)]
 pub struct EpochCache {
