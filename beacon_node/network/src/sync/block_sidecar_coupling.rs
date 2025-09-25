@@ -120,7 +120,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::Blobs(ByRangeRequest::Active(blobs_req_id))
         } else if let Some((requests, expected_custody_columns)) = data_columns_by_range {
             let request_to_column_indices: HashMap<_, _> = requests.into_iter().collect();
-            RangeBlockDataRequest::DataColumns {
+            RangeBlockDataRequest::DataColumnsFromRange {
                 requests: request_to_column_indices
                     .keys()
                     .map(|id| (*id, ByRangeRequest::Active(*id)))
@@ -155,7 +155,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             block_and_blob: self.block_peer,
             data_columns: match &self.block_data_request {
                 RangeBlockDataRequest::NoData | RangeBlockDataRequest::Blobs(_) => HashMap::new(),
-                RangeBlockDataRequest::DataColumns {
+                RangeBlockDataRequest::DataColumnsFromRange {
                     request_to_column_indices,
                     ..
                 } => request_to_column_indices
@@ -180,7 +180,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         failed_column_requests: Vec<(DataColumnsByRangeRequestId, Vec<u64>)>,
     ) -> Result<(), String> {
         match &mut self.block_data_request {
-            RangeBlockDataRequest::DataColumns {
+            RangeBlockDataRequest::DataColumnsFromRange {
                 requests,
                 expected_custody_columns: _,
                 request_to_column_indices,
@@ -275,7 +275,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 Err("received blobs but expected data columns by root".to_owned())
             }
             RangeBlockDataRequest::Blobs(req) => req.finish(req_id, blobs),
-            RangeBlockDataRequest::DataColumns { .. } => {
+            RangeBlockDataRequest::DataColumnsFromRange { .. } => {
                 Err("received blobs but expected data columns".to_owned())
             }
         }
@@ -300,7 +300,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::DataColumnsFromRoot { .. } => {
                 Err("received data columns by root but expected range".to_owned())
             }
-            RangeBlockDataRequest::DataColumns { requests, .. } => {
+            RangeBlockDataRequest::DataColumnsFromRange { requests, .. } => {
                 let req = requests
                     .get_mut(&req_id)
                     .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
@@ -325,7 +325,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
             RangeBlockDataRequest::Blobs(_) => {
                 Err("received data columns but expected blobs".to_owned())
             }
-            RangeBlockDataRequest::DataColumns { .. } => {
+            RangeBlockDataRequest::DataColumnsFromRange { .. } => {
                 Err("received data columns by range but expected root".to_owned())
             }
             RangeBlockDataRequest::DataColumnsFromRoot { requests, .. } => {
@@ -366,7 +366,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 ))
             }
 
-            RangeBlockDataRequest::DataColumns {
+            RangeBlockDataRequest::DataColumnsFromRange {
                 requests,
                 expected_custody_columns,
                 request_to_column_indices,
