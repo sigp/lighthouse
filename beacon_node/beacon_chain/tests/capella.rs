@@ -3,6 +3,7 @@
 use beacon_chain::test_utils::BeaconChainHarness;
 use execution_layer::test_utils::Block;
 use types::*;
+ use types::consts::bellatrix::BASIS_POINTS;
 
 const VALIDATOR_COUNT: usize = 32;
 type E = MainnetEthSpec;
