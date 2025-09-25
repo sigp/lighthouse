@@ -1191,6 +1191,96 @@ fn check_shuffling_compatible(
     }
 }
 
+/// These tests check the consistency of:
+///
+/// - ProtoBlock::proposer_shuffling_root_for_child_block, and
+/// - BeaconState::proposer_shuffling_decision_root{_at_epoch}
+async fn proposer_shuffling_root_consistency_test(parent_slot: u64, child_slot: u64) {
+    let child_slot = Slot::new(child_slot);
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    // Build chain out to parent block.
+    let initial_slots: Vec<Slot> = (1..=parent_slot).map(Into::into).collect();
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, parent_root, _) = harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
+
+    // Add the child block.
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, child_root, child_block_state) = harness
+        .add_attested_blocks_at_slots(state, state_root, &[child_slot], &all_validators)
+        .await;
+
+    let child_block_epoch = child_slot.epoch(E::slots_per_epoch());
+
+    // Load parent block from fork choice.
+    let fc_parent = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&parent_root.into())
+        .unwrap();
+
+    // The proposer shuffling decision root computed using fork choice should equal the root
+    // computed from the child state.
+    let decision_root = fc_parent.proposer_shuffling_root_for_child_block(child_block_epoch, spec);
+
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root(child_root.into(), spec)
+            .unwrap()
+    );
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root_at_epoch(child_block_epoch, child_root.into(), spec)
+            .unwrap()
+    );
+
+    // The passed block root argument should be irrelevant for all blocks except the genesis block.
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root(Hash256::ZERO, spec)
+            .unwrap()
+    );
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root_at_epoch(child_block_epoch, Hash256::ZERO, spec)
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_same_epoch() {
+    proposer_shuffling_root_consistency_test(32, 39).await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_next_epoch() {
+    proposer_shuffling_root_consistency_test(32, 47).await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_two_epochs() {
+    proposer_shuffling_root_consistency_test(32, 55).await;
+}
+
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[tokio::test]
 async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
