@@ -106,6 +106,9 @@ impl ValidatorRegistrations {
     /// and updating the map to store the latest validator custody requirements for the `effective_epoch`.
     pub fn backfill_validator_custody_requirements(&mut self, effective_epoch: Epoch) {
         if let Some(latest_validator_custody) = self.latest_validator_custody_requirement() {
+            // Delete records if
+            // 1. The epoch is greater than or equal than `effective_epoch`
+            // 2. the cgc requirements match the latest validator custody requirements
             self.epoch_validator_custody_requirements
                 .retain(|&epoch, custody_requirement| {
                     !(epoch >= effective_epoch && *custody_requirement == latest_validator_custody)
@@ -308,7 +311,7 @@ impl<E: EthSpec> CustodyContext<E> {
     /// minimum sampling size which may exceed the custody group count (CGC).
     ///
     /// See also: [`Self::num_of_custody_groups_to_sample`].
-    fn custody_group_count_at_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+    pub fn custody_group_count_at_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
         if self.current_is_supernode {
             spec.number_of_custody_groups
         } else {

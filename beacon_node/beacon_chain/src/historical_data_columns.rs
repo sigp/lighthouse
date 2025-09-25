@@ -5,6 +5,7 @@ use crate::{
     data_column_verification::verify_kzg_for_data_column_list,
 };
 use store::{Error as StoreError, KeyValueStore};
+use tracing::{debug, warn};
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
@@ -89,7 +90,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .get_data_column(&block_root, &data_column.index)?
                         .is_some()
                     {
-                        tracing::debug!(
+                        debug!(
                             block_root = ?block_root,
                             column_index = data_column.index,
                             "Skipping data column import as identical data column exists"
@@ -116,12 +117,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.store.blobs_db.do_atomically(ops)?;
 
-        if slot_and_column_index_to_data_columns.is_empty() {
-            self.store.put_data_column_custody_info(Some(
-                epoch.start_slot(T::EthSpec::slots_per_epoch()),
-            ))?;
-        } else {
-            tracing::warn!(
+        if !slot_and_column_index_to_data_columns.is_empty() {
+            warn!(
                 ?epoch,
                 missing_slots = ?slot_and_column_index_to_data_columns.keys().map(|(slot, _)| slot),
                 "Some data columns are missing from the batch"
@@ -138,7 +135,49 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .custody_context()
             .backfill_custody_count_at_epoch(epoch);
 
-        tracing::debug!(total_imported, "Imported historical data columns");
+        let cgc_at_head = self
+            .data_availability_checker
+            .custody_context()
+            .custody_group_count_at_head(&self.spec);
+
+        let cgc_at_epoch = self
+            .data_availability_checker
+            .custody_context()
+            .custody_group_count_at_epoch(epoch, &self.spec);
+
+        let earliest_data_column_slot = self
+            .store
+            .get_data_column_custody_info()
+            .map_err(HistoricalDataColumnError::StoreError)?
+            .and_then(|info| info.earliest_data_column_slot);
+
+        let can_update_data_column_custody_info =
+            if let Some(earliest_data_column_slot) = earliest_data_column_slot {
+                // Ensure that latest cgc requirements are satisified
+                // and that we are only updating the earliest available data column by one epoch.
+                cgc_at_head == cgc_at_epoch
+                    && epoch == earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch()) - 1
+            } else {
+                // There is no data column custody info record, simply make sure
+                // the latest cgc requirements are satisfied
+                cgc_at_head == cgc_at_epoch
+            };
+
+        if can_update_data_column_custody_info {
+            self.store.put_data_column_custody_info(Some(
+                epoch.start_slot(T::EthSpec::slots_per_epoch()),
+            ))?;
+        } else {
+            debug!(
+                cgc_at_head,
+                cgc_at_epoch,
+                ?epoch,
+                earliest_available_epoch = ?earliest_data_column_slot.map(|slot| slot.epoch(T::EthSpec::slots_per_epoch())),
+                "Cannot update data column custody info."
+            );
+        }
+
+        debug!(total_imported, "Imported historical data columns");
 
         Ok(total_imported)
     }
