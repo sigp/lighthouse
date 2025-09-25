@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 // can assert that this is the correct value of `blob_kzg_commitments_count`.
                 match cx.chain.get_block_process_status(&self.block_root) {
                     BlockProcessStatus::Unknown => None,
-                    BlockProcessStatus::NotValidated(block)
+                    BlockProcessStatus::NotValidated(block, _)
                     | BlockProcessStatus::ExecutionValidated(block) => Some(block.clone()),
                 }
             }) {
