@@ -965,7 +965,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 let parent_state_root = if let Some(state_root) = parent.beacon_state_root {
                     state_root
                 } else {
-                    // FIXME(sproul): a little inefficient?
+                    // This is potentially a little inefficient, although we are likely to need
+                    // the state's hash eventually (if the block is valid), and we are also likely
+                    // to already have the hash cached (if fetched from the state cache).
                     parent.pre_state.canonical_root()?
                 };
                 let parent_state = parent.pre_state.clone();
