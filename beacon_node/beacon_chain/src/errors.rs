@@ -238,6 +238,15 @@ pub enum BeaconChainError {
         decision_block_root: Hash256,
         proposal_epoch: Epoch,
     },
+    ProposerCacheOutOfBounds {
+        slot: Slot,
+        epoch: Epoch,
+    },
+    ProposerCacheWrongEpoch {
+        request_epoch: Epoch,
+        cache_epoch: Epoch,
+    },
+    SkipProposerPreparation,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

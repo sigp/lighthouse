@@ -51,6 +51,34 @@ pub struct EpochBlockProposers {
     pub(crate) proposers: SmallVec<[usize; TYPICAL_SLOTS_PER_EPOCH]>,
 }
 
+impl EpochBlockProposers {
+    pub fn new(epoch: Epoch, fork: Fork, proposers: Vec<usize>) -> Self {
+        Self {
+            epoch,
+            fork,
+            proposers: proposers.into(),
+        }
+    }
+
+    pub fn get_slot<E: EthSpec>(&self, slot: Slot) -> Result<Proposer, BeaconChainError> {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        if epoch == self.epoch {
+            self.proposers
+                .get(slot.as_usize() % E::SlotsPerEpoch::to_usize())
+                .map(|&index| Proposer {
+                    index,
+                    fork: self.fork,
+                })
+                .ok_or(BeaconChainError::ProposerCacheOutOfBounds { slot, epoch })
+        } else {
+            Err(BeaconChainError::ProposerCacheWrongEpoch {
+                request_epoch: epoch,
+                cache_epoch: self.epoch,
+            })
+        }
+    }
+}
+
 /// A cache to store the proposers for some epoch.
 ///
 /// See the module-level documentation for more information.
@@ -76,23 +104,8 @@ impl BeaconProposerCache {
     ) -> Option<Proposer> {
         let epoch = slot.epoch(E::slots_per_epoch());
         let key = (epoch, shuffling_decision_block);
-        let cache_opt = self.cache.get(&key).and_then(|cell| cell.get());
-        if let Some(cache) = cache_opt {
-            // This `if` statement is likely unnecessary, but it feels like good practice.
-            if epoch == cache.epoch {
-                cache
-                    .proposers
-                    .get(slot.as_usize() % E::SlotsPerEpoch::to_usize())
-                    .map(|&index| Proposer {
-                        index,
-                        fork: cache.fork,
-                    })
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        let cache = self.cache.get(&key)?.get()?;
+        cache.get_slot::<E>(slot).ok()
     }
 
     /// As per `Self::get_slot`, but returns all proposers in all slots for the given `epoch`.
@@ -142,11 +155,7 @@ impl BeaconProposerCache {
     ) -> Result<(), BeaconStateError> {
         let key = (epoch, shuffling_decision_block);
         if !self.cache.contains(&key) {
-            let epoch_proposers = EpochBlockProposers {
-                epoch,
-                fork,
-                proposers: proposers.into(),
-            };
+            let epoch_proposers = EpochBlockProposers::new(epoch, fork, proposers);
             self.cache
                 .put(key, Arc::new(OnceCell::with_value(epoch_proposers)));
         }

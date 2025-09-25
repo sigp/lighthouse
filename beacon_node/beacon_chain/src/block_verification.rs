@@ -954,10 +954,10 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // write lock before trying to acquire it again in the `else` clause.
         let block_slot = block.slot();
         let mut opt_parent = None;
-        let Some(proposer) = chain.with_proposer_cache::<_, BlockError>(
+        let proposer = chain.with_proposer_cache::<_, BlockError>(
             proposer_shuffling_decision_block,
             block_epoch,
-            |cache| cache.get_slot::<T::EthSpec>(proposer_shuffling_decision_block, block_slot),
+            |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
             || {
                 // The proposer index was *not* cached and we must load the parent in order to
                 // determine the proposer index.
@@ -970,14 +970,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 };
                 let parent_state = parent.pre_state.clone();
                 opt_parent = Some(parent);
-                Ok(Some((parent_state_root, parent_state)))
+                Ok((parent_state_root, parent_state))
             },
-        )?
-        else {
-            return Err(BlockError::InternalError(format!(
-                "Unable to determine proposer for slot {block_slot}",
-            )));
-        };
+        )?;
         let expected_proposer = proposer.index;
         let fork = proposer.fork;
 

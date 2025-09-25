@@ -642,10 +642,10 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
     let proposer_shuffling_root =
         parent_block.proposer_shuffling_root_for_child_block(column_epoch, &chain.spec);
 
-    let Some(proposer) = chain.with_proposer_cache(
+    let proposer = chain.with_proposer_cache(
         proposer_shuffling_root,
         column_epoch,
-        |cache| cache.get_slot::<T::EthSpec>(proposer_shuffling_root, column_slot),
+        |proposers| proposers.get_slot::<T::EthSpec>(column_slot),
         || {
             debug!(
                 %block_root,
@@ -655,15 +655,16 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
             chain
                 .store
                 .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
-                .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))
+                .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
+                .ok_or_else(|| {
+                    GossipDataColumnError::BeaconChainError(Box::new(
+                        BeaconChainError::DBInconsistent(format!(
+                            "Missing state for parent block {block_parent_root:?}",
+                        )),
+                    ))
+                })
         },
-    )?
-    else {
-        return Err(BeaconChainError::DBInconsistent(format!(
-            "Missing state for parent block {block_parent_root:?}",
-        ))
-        .into());
-    };
+    )?;
     let proposer_index = proposer.index;
     let fork = proposer.fork;
 

@@ -495,10 +495,10 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     let proposer_shuffling_root =
         parent_block.proposer_shuffling_root_for_child_block(blob_epoch, &chain.spec);
 
-    let Some(proposer) = chain.with_proposer_cache(
+    let proposer = chain.with_proposer_cache(
         proposer_shuffling_root,
         blob_epoch,
-        |cache| cache.get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot),
+        |proposers| proposers.get_slot::<T::EthSpec>(blob_slot),
         || {
             debug!(
                 %block_root,
@@ -508,15 +508,14 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
             chain
                 .store
                 .get_advanced_hot_state(block_parent_root, blob_slot, parent_block.state_root)
-                .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))
+                .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
+                .ok_or_else(|| {
+                    GossipBlobError::BeaconChainError(Box::new(BeaconChainError::DBInconsistent(
+                        format!("Missing state for parent block {block_parent_root:?}",),
+                    )))
+                })
         },
-    )?
-    else {
-        return Err(BeaconChainError::DBInconsistent(format!(
-            "Missing state for parent block {block_parent_root:?}",
-        ))
-        .into());
-    };
+    )?;
     let proposer_index = proposer.index;
     let fork = proposer.fork;
 
