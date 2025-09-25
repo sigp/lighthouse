@@ -535,6 +535,18 @@ impl<E: EthSpec> DataColumnsByRootRequest<E> {
         Ok(Self { data_column_ids })
     }
 
+    pub fn from_single_block(block_root: Hash256, indices: Vec<u64>) -> Result<Self, &'static str> {
+        let columns = VariableList::new(indices)
+            .map_err(|_| "Number of indices exceeds total number of columns")?;
+        DataColumnsByRootRequest::new(
+            vec![DataColumnsByRootIdentifier {
+                block_root,
+                columns,
+            }],
+            1,
+        )
+    }
+
     pub fn max_requested(&self) -> usize {
         self.data_column_ids.iter().map(|id| id.columns.len()).sum()
     }

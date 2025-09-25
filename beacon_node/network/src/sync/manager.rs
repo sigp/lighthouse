@@ -1129,24 +1129,20 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         data_column: RpcEvent<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) {
-        match req_id.requester {
-            DataColumnsByRootRequester::Custody(custody_id) => {
-                if let Some(resp) =
-                    self.network
-                        .on_data_columns_by_root_response(req_id, peer_id, data_column)
-                    && let Some(result) = self
+        if let Some(resp) =
+            self.network
+                .on_data_columns_by_root_response(req_id, peer_id, data_column)
+        {
+            match req_id.requester {
+                DataColumnsByRootRequester::Custody(custody_id) => {
+                    if let Some(result) = self
                         .network
                         .on_custody_by_root_response(custody_id, req_id, peer_id, resp)
-                {
-                    self.on_custody_by_root_result(custody_id.requester, result);
+                    {
+                        self.on_custody_by_root_result(custody_id.requester, result);
+                    }
                 }
-            }
-            DataColumnsByRootRequester::RangeSync { parent } => {
-                if let Some(resp) = self.network.on_data_columns_by_root_range_response(
-                    req_id,
-                    peer_id,
-                    data_column,
-                ) {
+                DataColumnsByRootRequester::RangeSync { parent } => {
                     self.on_range_components_response(
                         parent,
                         peer_id,

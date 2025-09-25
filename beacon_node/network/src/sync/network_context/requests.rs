@@ -12,10 +12,7 @@ pub use blobs_by_root::{BlobsByRootRequestItems, BlobsByRootSingleBlockRequest};
 pub use blocks_by_range::BlocksByRangeRequestItems;
 pub use blocks_by_root::{BlocksByRootRequestItems, BlocksByRootSingleRequest};
 pub use data_columns_by_range::DataColumnsByRangeRequestItems;
-pub use data_columns_by_root::{
-    DataColumnsByRootBatchBlockRequest, DataColumnsByRootRangeRequestItems,
-    DataColumnsByRootRequestItems, DataColumnsByRootSingleBlockRequest,
-};
+pub use data_columns_by_root::{DataColumnsByRootBatchBlockRequest, DataColumnsByRootRequestItems};
 
 use crate::metrics;
 

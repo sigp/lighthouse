@@ -1,5 +1,5 @@
 use crate::sync::network_context::{
-    DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
+    DataColumnsByRootBatchBlockRequest, DataColumnsByRootRequestId,
 };
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::validator_monitor::timestamp_now;
@@ -16,7 +16,7 @@ use tracing::{Span, debug, debug_span, warn};
 use types::{DataColumnSidecar, Hash256, data_column_sidecar::ColumnIndex};
 use types::{DataColumnSidecarList, EthSpec};
 
-use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
+use super::{PeerGroup, RpcResponseResult, SyncNetworkContext};
 
 const MAX_STALE_NO_PEERS_DURATION: Duration = Duration::from_secs(30);
 
@@ -279,12 +279,12 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         }
 
         for (peer_id, indices) in columns_to_request_by_peer.into_iter() {
-            let request_result = cx
-                .data_column_lookup_request(
+            let req_id = cx
+                .send_data_columns_by_root_request(
                     DataColumnsByRootRequester::Custody(self.custody_id),
                     peer_id,
-                    DataColumnsByRootSingleBlockRequest {
-                        block_root: self.block_root,
+                    DataColumnsByRootBatchBlockRequest {
+                        block_roots: vec![self.block_root],
                         indices: indices.clone(),
                     },
                     // If peer is in the lookup peer set, it claims to have imported the block and
@@ -295,38 +295,32 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                 )
                 .map_err(Error::SendFailed)?;
 
-            match request_result {
-                LookupRequestResult::RequestSent(req_id) => {
-                    *self.peer_attempts.entry(peer_id).or_insert(0) += 1;
+            *self.peer_attempts.entry(peer_id).or_insert(0) += 1;
 
-                    let client = cx.network_globals().client(&peer_id).kind;
-                    let batch_columns_req_span = debug_span!(
-                        "batch_columns_req",
-                        %peer_id,
-                        %client,
-                    );
-                    let _guard = batch_columns_req_span.clone().entered();
-                    for column_index in &indices {
-                        let column_request = self
-                            .column_requests
-                            .get_mut(column_index)
-                            // Should never happen: column_index is iterated from column_requests
-                            .ok_or(Error::BadState("unknown column_index".to_owned()))?;
+            let client = cx.network_globals().client(&peer_id).kind;
+            let batch_columns_req_span = debug_span!(
+                "batch_columns_req",
+                %peer_id,
+                %client,
+            );
+            let _guard = batch_columns_req_span.clone().entered();
+            for column_index in &indices {
+                let column_request = self
+                    .column_requests
+                    .get_mut(column_index)
+                    // Should never happen: column_index is iterated from column_requests
+                    .ok_or(Error::BadState("unknown column_index".to_owned()))?;
 
-                        column_request.on_download_start(req_id)?;
-                    }
-
-                    self.active_batch_columns_requests.insert(
-                        req_id,
-                        ActiveBatchColumnsRequest {
-                            indices,
-                            span: batch_columns_req_span,
-                        },
-                    );
-                }
-                LookupRequestResult::NoRequestNeeded(_) => unreachable!(),
-                LookupRequestResult::Pending(_) => unreachable!(),
+                column_request.on_download_start(req_id)?;
             }
+
+            self.active_batch_columns_requests.insert(
+                req_id,
+                ActiveBatchColumnsRequest {
+                    indices,
+                    span: batch_columns_req_span,
+                },
+            );
         }
 
         Ok(None)

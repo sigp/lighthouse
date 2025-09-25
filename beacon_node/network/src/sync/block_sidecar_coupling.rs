@@ -53,7 +53,7 @@ enum RangeBlockDataRequest<E: EthSpec> {
     NoData,
     Blobs(ByRangeRequest<BlobsByRangeRequestId, Vec<Arc<BlobSidecar<E>>>>),
     /// These are data columns fetched by a range request.
-    DataColumnsFromRange {
+    DataColumns {
         requests: HashMap<
             DataColumnsByRangeRequestId,
             ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
