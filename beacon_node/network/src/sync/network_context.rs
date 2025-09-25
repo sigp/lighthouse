@@ -1488,11 +1488,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
     /// Check whether a batch for this epoch (and only this epoch) should request just blocks or
     /// blocks and blobs.
-    pub fn batch_type(
-        &self,
-        epoch: Epoch,
-        request_type: RangeRequestType,
-    ) -> ByRangeRequestType {
+    pub fn batch_type(&self, epoch: Epoch, request_type: RangeRequestType) -> ByRangeRequestType {
         // Induces a compile time panic if this doesn't hold true.
         #[allow(clippy::assertions_on_constants)]
         const _: () = assert!(
