@@ -616,28 +616,29 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 penalty,
                 faulty_component,
             } => {
-                let Some(batch_peers) = batch.processing_peers() else {
-                    error!(?batch_id, "Responsible peers not found for a failed batch");
-                    return self
-                        .fail_sync(BackFillError::BatchProcessingFailed(batch_id))
-                        .map(|_| ProcessResult::Successful);
-                };
-                // Penalize the peer appropriately.
-                match faulty_component {
-                    Some(FaultyComponent::Blocks) | Some(FaultyComponent::Blobs) => {
-                        network.report_peer(batch_peers.block_and_blob, *penalty, "faulty_batch");
-                    }
-                    // todo(pawan): clean this up
-                    Some(FaultyComponent::Columns(faulty_columns)) => {
-                        for (peer, columns) in batch_peers.data_columns.iter() {
-                            for faulty_column in faulty_columns {
-                                if columns.contains(faulty_column) {
-                                    network.report_peer(*peer, *penalty, "faulty_batch");
+                if let Some(batch_peers) = batch.processing_peers() {
+                    // Penalize the peer appropriately.
+                    match faulty_component {
+                        Some(FaultyComponent::Blocks) | Some(FaultyComponent::Blobs) => {
+                            network.report_peer(
+                                batch_peers.block_and_blob,
+                                *penalty,
+                                "faulty_batch",
+                            );
+                        }
+                        Some(FaultyComponent::Columns(faulty_columns)) => {
+                            for (peer, columns) in batch_peers.data_columns.iter() {
+                                for faulty_column in faulty_columns {
+                                    if columns.contains(faulty_column) {
+                                        network.report_peer(*peer, *penalty, "faulty_batch");
+                                    }
                                 }
                             }
                         }
+                        None => {}
                     }
-                    None => {}
+                } else {
+                    warn!(?batch_id, "Responsible peers not found for a failed batch");
                 }
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure) {
                     Err(e) => {

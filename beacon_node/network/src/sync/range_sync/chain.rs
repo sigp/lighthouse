@@ -476,18 +476,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             }
         };
 
-        let peers = batch.processing_peers().cloned().ok_or_else(|| {
-            RemoveChain::WrongBatchState(format!(
-                "Processing target is in wrong state: {:?}",
-                batch.state(),
-            ))
-        })?;
-
         // Log the process result and the batch for debugging purposes.
         debug!(
             result = ?result,
             batch_epoch = %batch_id,
-            ?peers,
             batch_state = ?batch_state,
             ?batch,
             "Batch processing result"
@@ -554,7 +546,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 faulty_component,
             } => {
                 let Some(batch_peers) = batch.processing_peers() else {
-                    crit!(
+                    warn!(
                         current_state = ?batch.state(),
                         "Inconsistent state, batch must have been in processing state"
                     );
