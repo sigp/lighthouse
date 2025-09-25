@@ -90,7 +90,6 @@ impl<T: BeaconChainTypes> Router<T> {
         trace!("Service starting");
 
         let (handler_send, handler_recv) = mpsc::unbounded_channel();
-
         // generate the message channel
         let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 

@@ -15,6 +15,10 @@ pub enum SyncState {
     /// specified by its peers. Once completed, the node enters this sync state and attempts to
     /// download all required historical blocks.
     BackFillSyncing { completed: usize, remaining: usize },
+    /// The node is undertaking a custody backfill sync. This occurs for a node that has completed forward and
+    /// backfill sync and has undergone a custody count change. During custody backfill sync the node attempts
+    /// to backfill its new column custody requirements up to the data availability window.
+    CustodyBackFillSyncing { completed: usize, remaining: usize },
     /// The node has completed syncing a finalized chain and is in the process of re-evaluating
     /// which sync state to progress to.
     SyncTransition,
@@ -39,6 +43,17 @@ pub enum BackFillState {
     Failed,
 }
 
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+/// The state of the custody backfill sync.
+pub enum CustodyBackFillState {
+    /// We are currently backfilling custody columns.
+    Syncing,
+    /// A custody backfill sync has completed.
+    Completed,
+    /// A custody sync should is set to Pending for various reasons.
+    Pending(String),
+}
+
 impl PartialEq for SyncState {
     fn eq(&self, other: &Self) -> bool {
         matches!(
@@ -54,6 +69,10 @@ impl PartialEq for SyncState {
                     SyncState::BackFillSyncing { .. },
                     SyncState::BackFillSyncing { .. }
                 )
+                | (
+                    SyncState::CustodyBackFillSyncing { .. },
+                    SyncState::CustodyBackFillSyncing { .. }
+                )
         )
     }
 }
@@ -65,8 +84,8 @@ impl SyncState {
             SyncState::SyncingFinalized { .. } => true,
             SyncState::SyncingHead { .. } => true,
             SyncState::SyncTransition => true,
-            // Backfill doesn't effect any logic, we consider this state, not syncing.
-            SyncState::BackFillSyncing { .. } => false,
+            // Both backfill and custody backfill don't effect any logic, we consider this state, not syncing.
+            SyncState::BackFillSyncing { .. } | SyncState::CustodyBackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
         }
@@ -77,7 +96,7 @@ impl SyncState {
             SyncState::SyncingFinalized { .. } => true,
             SyncState::SyncingHead { .. } => false,
             SyncState::SyncTransition => false,
-            SyncState::BackFillSyncing { .. } => false,
+            SyncState::BackFillSyncing { .. } | SyncState::CustodyBackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
         }
@@ -87,7 +106,12 @@ impl SyncState {
     ///
     /// NOTE: We consider the node synced if it is fetching old historical blocks.
     pub fn is_synced(&self) -> bool {
-        matches!(self, SyncState::Synced | SyncState::BackFillSyncing { .. })
+        matches!(
+            self,
+            SyncState::Synced
+                | SyncState::BackFillSyncing { .. }
+                | SyncState::CustodyBackFillSyncing { .. }
+        )
     }
 
     /// Returns true if the node is *stalled*, i.e. has no synced peers.
@@ -108,6 +132,9 @@ impl std::fmt::Display for SyncState {
             SyncState::Stalled => write!(f, "Stalled"),
             SyncState::SyncTransition => write!(f, "Evaluating known peers"),
             SyncState::BackFillSyncing { .. } => write!(f, "Syncing Historical Blocks"),
+            SyncState::CustodyBackFillSyncing { .. } => {
+                write!(f, "Syncing Historical Data Columns")
+            }
         }
     }
 }

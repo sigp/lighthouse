@@ -60,13 +60,36 @@ pub struct BlobsByRangeRequestId {
 pub struct DataColumnsByRangeRequestId {
     /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
     pub id: Id,
-    /// The Id of the overall By Range request for block components.
-    pub parent_request_id: ComponentsByRangeRequestId,
+    /// The Id of the overall By Range request for either a components by range request or a custody backfill request.
+    pub parent_request_id: ColumnsByRangeParentRequestId,
     /// The peer id associated with the request.
     ///
     /// This is useful to penalize the peer at a later point if it returned data columns that
     /// did not match with the verified block.
     pub peer: PeerId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum ColumnsByRangeParentRequestId {
+    ComponentsByRange(ComponentsByRangeRequestId),
+    CustodyBackfillSync(CustodyBackFillBatchRequestId),
+}
+
+impl Display for ColumnsByRangeParentRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColumnsByRangeParentRequestId::ComponentsByRange(parent_request_id) => {
+                let id = parent_request_id.id;
+                let requester = parent_request_id.requester;
+                write!(f, "{id}/{requester}")
+            }
+            ColumnsByRangeParentRequestId::CustodyBackfillSync(parent_request_id) => {
+                let id = parent_request_id.id;
+                let epoch = parent_request_id.epoch;
+                write!(f, "{id}/{epoch}")
+            }
+        }
+    }
 }
 
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
@@ -78,6 +101,24 @@ pub struct ComponentsByRangeRequestId {
     pub id: Id,
     /// What sync component is issuing a components by range request and expecting data back
     pub requester: RangeRequestId,
+}
+
+// A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
+// handle retries and tie all the range requests for the given epoch together.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyBackFillBatchRequestId {
+    /// For each `epoch` we may request the same data in a later retry. This Id identifies the
+    /// current attempt.
+    pub id: Id,
+    pub epoch: Epoch,
+}
+
+impl Display for CustodyBackFillBatchRequestId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let id = self.id;
+        let epoch = self.epoch;
+        write!(f, "CustodySync/{id}/{epoch}")
+    }
 }
 
 /// Range sync chain or backfill batch
@@ -263,13 +304,15 @@ mod tests {
     fn display_id_data_columns_by_range() {
         let id = DataColumnsByRangeRequestId {
             id: 123,
-            parent_request_id: ComponentsByRangeRequestId {
-                id: 122,
-                requester: RangeRequestId::RangeSync {
-                    chain_id: 54,
-                    batch_id: Epoch::new(0),
+            parent_request_id: ColumnsByRangeParentRequestId::ComponentsByRange(
+                ComponentsByRangeRequestId {
+                    id: 122,
+                    requester: RangeRequestId::RangeSync {
+                        chain_id: 54,
+                        batch_id: Epoch::new(0),
+                    },
                 },
-            },
+            ),
             peer: PeerId::random(),
         };
         assert_eq!(format!("{id}"), "123/122/RangeSync/0/54");

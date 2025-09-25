@@ -6909,6 +6909,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
     }
 
+    /// The da boundary for custodying columns. It will just be the DA boundary unless we are near the Fulu fork epoch.
+    pub fn get_column_da_boundary(&self) -> Option<Epoch> {
+        match self.data_availability_boundary() {
+            Some(da_boundary_epoch) => {
+                if let Some(fulu_fork_epoch) = self.spec.fulu_fork_epoch {
+                    if da_boundary_epoch < fulu_fork_epoch {
+                        Some(fulu_fork_epoch)
+                    } else {
+                        Some(da_boundary_epoch)
+                    }
+                } else {
+                    None
+                }
+            }
+            None => None, // If no DA boundary set, dont try to custody backfill
+        }
+    }
+
     /// This method serves to get a sense of the current chain health. It is used in block proposal
     /// to determine whether we should outsource payload production duties.
     ///

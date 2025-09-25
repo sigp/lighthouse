@@ -1,6 +1,7 @@
 use crate::metrics::{self, register_process_result_metrics};
 use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProcessor};
 use crate::sync::BatchProcessResult;
+use crate::sync::manager::CustodyBatchProcessResult;
 use crate::sync::{
     ChainId,
     manager::{BlockProcessType, SyncMessage},
@@ -8,6 +9,7 @@ use crate::sync::{
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
 use beacon_chain::data_availability_checker::AvailabilityCheckError;
 use beacon_chain::data_availability_checker::MaybeAvailableBlock;
+use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainTypes, BlockError, ChainSegmentResult,
     HistoricalBlockError, NotifyExecutionLayer, validator_monitor::get_slot_delay_ms,
@@ -427,6 +429,98 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             process_type,
             result: result.into(),
         });
+    }
+
+    pub fn process_historic_data_columns(
+        &self,
+        process_id: Epoch,
+        downloaded_columns: DataColumnSidecarList<T::EthSpec>,
+    ) {
+        let sent_columns = downloaded_columns.len();
+        let result = match self
+            .chain
+            .import_historical_data_column_batch(process_id, downloaded_columns)
+        {
+            Ok(imported_columns) => {
+                metrics::inc_counter_by(
+                    &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_COLUMN_IMPORT_SUCCESS_TOTAL,
+                    imported_columns as u64,
+                );
+                CustodyBatchProcessResult::Success {
+                    batch_id: process_id,
+                    sent_columns,
+                    imported_columns,
+                }
+            }
+            Err(e) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_CUSTODY_BACKFILL_BATCH_FAILED_TOTAL,
+                );
+                let peer_action: Option<PeerAction> = match &e {
+                    HistoricalDataColumnError::NoBlockFound {
+                        data_column_block_root,
+                    } => {
+                        debug!(
+                            error = "no_block_found",
+                            ?data_column_block_root,
+                            "Custody backfill batch processing error"
+                        );
+                        // The peer is faulty if they send blocks with bad roots.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalDataColumnError::MissingDataColumns { .. } => {
+                        warn!(
+                            error = ?e,
+                            "Custody backfill batch processing error",
+                        );
+                        // The peer is faulty if they don't return data columns
+                        // that they advertised as available.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalDataColumnError::InvalidKzg => {
+                        warn!(
+                            error = ?e,
+                            "Custody backfill batch processing error",
+                        );
+                        // The peer is faulty if they don't return data columns
+                        // with valid kzg commitments.
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    HistoricalDataColumnError::BeaconChainError(e) => {
+                        warn!(
+                            error = ?e,
+                            "Custody ackfill batch processing error",
+                        );
+
+                        // This is an interal error, don't penalize the peer
+                        None
+                    }
+                    HistoricalDataColumnError::IndexOutOfBounds => {
+                        error!(
+                            error = ?e,
+                            "Custody backfill batch out of bounds error"
+                        );
+                        // This should never occur, don't penalize the peer.
+                        None
+                    }
+                    HistoricalDataColumnError::StoreError(e) => {
+                        warn!(error = ?e, "Custody backfill batch processing error");
+                        // This is an internal error, don't penalize the peer.
+                        None
+                    }
+                };
+                match peer_action {
+                    Some(penalty) => CustodyBatchProcessResult::FaultyFailure {
+                        penalty,
+                        batch_id: process_id,
+                    },
+                    None => CustodyBatchProcessResult::NonFaultyFailure {
+                        batch_id: process_id,
+                    },
+                }
+            }
+        };
+        self.send_sync_message(SyncMessage::CustodyBatchProcessed { result });
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync

@@ -7,7 +7,10 @@ use lighthouse_network::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     },
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tracing::Span;
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
@@ -54,6 +57,160 @@ enum RangeBlockDataRequest<E: EthSpec> {
         expected_custody_columns: Vec<ColumnIndex>,
         attempt: usize,
     },
+}
+
+pub struct RangeDataColumnBatchRequest<E: EthSpec> {
+    requests: HashMap<
+        DataColumnsByRangeRequestId,
+        ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
+    >,
+    /// The column indices corresponding to the request
+    column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
+    expected_custody_columns: HashSet<ColumnIndex>,
+    attempt: usize,
+}
+
+impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
+    pub fn new(by_range_requests: Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>) -> Self {
+        let requests = by_range_requests
+            .clone()
+            .into_iter()
+            .map(|(req, _)| (req, ByRangeRequest::Active(req)))
+            .collect::<HashMap<_, _>>();
+
+        let column_peers = by_range_requests.clone().into_iter().collect();
+
+        let expected_custody_columns = by_range_requests
+            .into_iter()
+            .flat_map(|(_, column_indices)| column_indices)
+            .collect();
+
+        Self {
+            requests,
+            column_peers,
+            expected_custody_columns,
+            attempt: 0,
+        }
+    }
+
+    pub fn add_custody_columns(
+        &mut self,
+        req_id: DataColumnsByRangeRequestId,
+        columns: Vec<Arc<DataColumnSidecar<E>>>,
+    ) -> Result<(), String> {
+        let req = self
+            .requests
+            .get_mut(&req_id)
+            .ok_or(format!("unknown data columns by range req_id {req_id}"))?;
+        req.finish(req_id, columns)
+    }
+
+    pub fn responses(
+        &mut self,
+        _spec: &ChainSpec,
+    ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
+        let mut data_columns = vec![];
+        let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
+        for req in self.requests.values() {
+            let Some(data) = req.to_finished() else {
+                return None;
+            };
+            data_columns.extend(data.clone())
+        }
+
+        // Note: this assumes that only 1 peer is responsible for a column
+        // with a batch.
+        for (id, columns) in self.column_peers.iter() {
+            for column in columns {
+                column_to_peer_id.insert(*column, id.peer);
+            }
+        }
+
+        // An "attempt" is complete here after we have received a response for all the
+        // requests we made. i.e. `req.to_finished()` returns Some for all requests.
+        self.attempt += 1;
+
+        let resp = Self::responses_with_custody_columns(
+            data_columns,
+            column_to_peer_id,
+            &self.expected_custody_columns,
+            self.attempt,
+        );
+
+        if let Err(CouplingError::DataColumnPeerFailure {
+            error: _,
+            faulty_peers,
+            action: _,
+            exceeded_retries: _,
+        }) = &resp
+        {
+            for (_, peer) in faulty_peers.iter() {
+                // find the req id associated with the peer and
+                // delete it from the entries as we are going to make
+                // a separate attempt for those components.
+                self.requests.retain(|&k, _| k.peer != *peer);
+            }
+        }
+
+        Some(resp)
+    }
+
+    fn responses_with_custody_columns(
+        data_columns: DataColumnSidecarList<E>,
+        column_to_peer: HashMap<u64, PeerId>,
+        expected_custody_columns: &HashSet<ColumnIndex>,
+        attempt: usize,
+    ) -> Result<DataColumnSidecarList<E>, CouplingError> {
+        let mut naughty_peers = vec![];
+
+        let mut slots_to_column_indices = data_columns
+            .iter()
+            .map(|col| (col.slot(), expected_custody_columns.clone()))
+            .collect::<HashMap<_, _>>();
+
+        for data_column in data_columns.iter() {
+            if slots_to_column_indices
+                .remove(&data_column.slot())
+                .is_none()
+            {
+                let Some(naughty_peer) = column_to_peer.get(&data_column.index) else {
+                    return Err(CouplingError::InternalError(format!(
+                        "Internal error, no request made for column {}",
+                        data_column.index
+                    )));
+                };
+
+                naughty_peers.push((data_column.index, naughty_peer));
+            }
+        }
+
+        if !slots_to_column_indices.is_empty() {
+            let faulty_peers = slots_to_column_indices
+                .iter()
+                .flat_map(|(_, column_indices)| {
+                    column_indices.iter().filter_map(|column_index| {
+                        column_to_peer
+                            .get(column_index)
+                            .map(|faulty_peer| (*column_index, *faulty_peer))
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            tracing::debug!(
+                missing_slots_and_columns = ?slots_to_column_indices,
+                "Missing columns for some slots"
+            );
+
+            return Err(CouplingError::DataColumnPeerFailure {
+                error: "Missing columns for some slots".to_string(),
+                faulty_peers,
+                action: PeerAction::LowToleranceError,
+                exceeded_retries: attempt >= MAX_COLUMN_RETRIES,
+            });
+        }
+
+        Ok(data_columns)
+    }
 }
 
 #[derive(Debug)]
@@ -470,8 +627,8 @@ mod tests {
     use lighthouse_network::{
         PeerAction, PeerId,
         service::api_types::{
-            BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-            DataColumnsByRangeRequestId, Id, RangeRequestId,
+            BlobsByRangeRequestId, BlocksByRangeRequestId, ColumnsByRangeParentRequestId,
+            ComponentsByRangeRequestId, DataColumnsByRangeRequestId, Id, RangeRequestId,
         },
     };
     use rand::SeedableRng;
@@ -505,7 +662,7 @@ mod tests {
 
     fn columns_id(
         id: Id,
-        parent_request_id: ComponentsByRangeRequestId,
+        parent_request_id: ColumnsByRangeParentRequestId,
     ) -> DataColumnsByRangeRequestId {
         DataColumnsByRangeRequestId {
             id,
@@ -602,7 +759,15 @@ mod tests {
         let columns_req_id = expects_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
@@ -661,7 +826,15 @@ mod tests {
         let columns_req_id = batched_column_requests
             .iter()
             .enumerate()
-            .map(|(i, columns)| (columns_id(i as Id, components_id), columns.clone()))
+            .map(|(i, columns)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    columns.clone(),
+                )
+            })
             .collect::<Vec<_>>();
 
         let mut info = RangeBlockComponentsRequest::<E>::new(
@@ -742,7 +915,15 @@ mod tests {
         let columns_req_id = expected_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
@@ -822,7 +1003,15 @@ mod tests {
         let columns_req_id = expected_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,
@@ -858,7 +1047,10 @@ mod tests {
         assert!(result.is_err());
 
         // AND: We retry with a new peer for the failed column
-        let new_columns_req_id = columns_id(10 as Id, components_id);
+        let new_columns_req_id = columns_id(
+            10 as Id,
+            ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+        );
         let failed_column_requests = vec![(new_columns_req_id, vec![2])];
         info.reinsert_failed_column_requests(failed_column_requests)
             .unwrap();
@@ -904,7 +1096,15 @@ mod tests {
         let columns_req_id = expected_custody_columns
             .iter()
             .enumerate()
-            .map(|(i, column)| (columns_id(i as Id, components_id), vec![*column]))
+            .map(|(i, column)| {
+                (
+                    columns_id(
+                        i as Id,
+                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                    ),
+                    vec![*column],
+                )
+            })
             .collect::<Vec<_>>();
         let mut info = RangeBlockComponentsRequest::<E>::new(
             blocks_req_id,

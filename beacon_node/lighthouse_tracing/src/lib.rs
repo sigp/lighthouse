@@ -26,6 +26,7 @@ pub const SPAN_PROCESS_RPC_BLOCK: &str = "process_rpc_block";
 pub const SPAN_PROCESS_RPC_BLOBS: &str = "process_rpc_blobs";
 pub const SPAN_PROCESS_RPC_CUSTODY_COLUMNS: &str = "process_rpc_custody_columns";
 pub const SPAN_PROCESS_CHAIN_SEGMENT: &str = "process_chain_segment";
+pub const SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST: &str = "custody_backfill_sync_batch_request";
 pub const SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL: &str = "process_chain_segment_backfill";
 
 /// Fork choice root spans
@@ -73,4 +74,5 @@ pub const LH_BN_ROOT_SPAN_NAMES: &[&str] = &[
     SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP,
     SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
     SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
+    SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST,
 ];
