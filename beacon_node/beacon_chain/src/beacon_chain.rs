@@ -124,7 +124,7 @@ use store::{
     BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
     KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
-use task_executor::{ShutdownReason, TaskExecutor};
+use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
@@ -334,7 +334,7 @@ pub enum BlockProcessStatus<E: EthSpec> {
     /// Block is not in any pre-import cache. Block may be in the data-base or in the fork-choice.
     Unknown,
     /// Block is currently processing but not yet validated.
-    NotValidated(Arc<SignedBeaconBlock<E>>),
+    NotValidated(Arc<SignedBeaconBlock<E>>, BlockImportSource),
     /// Block is fully valid, but not yet imported. It's cached in the da_checker while awaiting
     /// missing block components.
     ExecutionValidated(Arc<SignedBeaconBlock<E>>),
@@ -3274,16 +3274,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_span = Span::current();
         let result = self
             .task_executor
-            .spawn_blocking_handle(
-                move || {
-                    let _guard = current_span.enter();
-                    data_availability_checker.reconstruct_data_columns(&block_root)
-                },
-                "reconstruct_data_columns",
-            )
-            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+                let _guard = current_span.enter();
+                data_availability_checker.reconstruct_data_columns(&block_root)
+            })
             .await
-            .map_err(BeaconChainError::TokioJoin)??;
+            .map_err(|_| BeaconChainError::RuntimeShutdown)??;
 
         match result {
             DataColumnReconstructionResult::Success((availability, data_columns_to_publish)) => {
@@ -3355,8 +3351,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        self.data_availability_checker
-            .put_pre_execution_block(block_root, unverified_block.block_cloned())?;
+        self.data_availability_checker.put_pre_execution_block(
+            block_root,
+            unverified_block.block_cloned(),
+            block_source,
+        )?;
 
         // Start the Prometheus timer.
         let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
