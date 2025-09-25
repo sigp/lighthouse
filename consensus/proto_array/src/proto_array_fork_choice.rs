@@ -189,7 +189,7 @@ impl Block {
             // parent's current epoch attester shuffling
             //
             // i.e. the block from the end of epoch N - 2.
-            if child_block_epoch = block_epoch {
+            if child_block_epoch == block_epoch {
                 self.current_epoch_shuffling_id.shuffling_decision_block
             } else if child_block_epoch == block_epoch + 1 {
                 // If the block is the next epoch, then it instead shares its decision root with
