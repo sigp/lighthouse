@@ -55,7 +55,7 @@ fn all_benches(c: &mut Criterion) {
             b.iter(|| {
                 black_box(reconstruct_data_columns(
                     &kzg,
-                    &column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2],
+                    column_sidecars.iter().as_slice()[0..column_sidecars.len() / 2].to_vec(),
                     spec.as_ref(),
                 ))
             })

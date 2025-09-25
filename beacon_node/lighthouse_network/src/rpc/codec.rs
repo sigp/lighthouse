@@ -1089,11 +1089,11 @@ mod tests {
     }
 
     fn bbroot_request_v1(fork_name: ForkName, spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name, spec))
+        BlocksByRootRequest::new_v1(vec![Hash256::zero()], &fork_context(fork_name, spec)).unwrap()
     }
 
     fn bbroot_request_v2(fork_name: ForkName, spec: &ChainSpec) -> BlocksByRootRequest {
-        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name, spec))
+        BlocksByRootRequest::new(vec![Hash256::zero()], &fork_context(fork_name, spec)).unwrap()
     }
 
     fn blbroot_request(fork_name: ForkName, spec: &ChainSpec) -> BlobsByRootRequest {
@@ -1104,6 +1104,7 @@ mod tests {
             }],
             &fork_context(fork_name, spec),
         )
+        .unwrap()
     }
 
     fn ping_message() -> Ping {

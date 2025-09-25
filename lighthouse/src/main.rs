@@ -20,7 +20,8 @@ use lighthouse_version::VERSION;
 use logging::{MetricsLayer, build_workspace_filter, crit};
 use malloc_utils::configure_memory_allocator;
 use opentelemetry::trace::TracerProvider;
-use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_otlp::tonic_types::transport::ClientTlsConfig;
+use opentelemetry_otlp::{WithExportConfig, WithTonicConfig};
 use std::backtrace::Backtrace;
 use std::io::IsTerminal;
 use std::path::PathBuf;
@@ -712,6 +713,7 @@ fn run<E: EthSpec>(
         let telemetry_layer = environment.runtime().block_on(async {
             let exporter = opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
+                .with_tls_config(ClientTlsConfig::new().with_native_roots())
                 .with_endpoint(telemetry_collector_url)
                 .build()
                 .map_err(|e| format!("Failed to create OTLP exporter: {:?}", e))?;

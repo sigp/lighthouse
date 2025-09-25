@@ -2061,7 +2061,7 @@ impl BlockBlobError for GossipDataColumnError {
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
 /// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
 /// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
-#[instrument(skip(state, spec), level = "debug")]
+#[instrument(skip_all, fields(?state_root_opt, %block_slot), level = "debug")]
 pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobError>(
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,

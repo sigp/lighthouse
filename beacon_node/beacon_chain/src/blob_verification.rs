@@ -96,7 +96,7 @@ pub enum GossipBlobError {
     /// ## Peer scoring
     ///
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
-    BlobParentUnknown { parent_root: Hash256 },
+    ParentUnknown { parent_root: Hash256 },
 
     /// Invalid kzg commitment inclusion proof
     /// ## Peer scoring
@@ -474,7 +474,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     // We have already verified that the blob is past finalization, so we can
     // just check fork choice for the block's parent.
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
-        return Err(GossipBlobError::BlobParentUnknown {
+        return Err(GossipBlobError::ParentUnknown {
             parent_root: block_parent_root,
         });
     };

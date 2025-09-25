@@ -69,6 +69,7 @@ pub enum Error {
     CacheBuildError(EpochCacheError),
     RandaoMixOutOfBounds,
     MilhouseError(milhouse::Error),
+    SszTypesError(ssz_types::Error),
     Compression(std::io::Error),
     FinalizedStateDecreasingSlot,
     FinalizedStateUnaligned,
@@ -158,6 +159,12 @@ impl From<StoreConfigError> for Error {
 impl From<milhouse::Error> for Error {
     fn from(e: milhouse::Error) -> Self {
         Self::MilhouseError(e)
+    }
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Self::SszTypesError(e)
     }
 }
 

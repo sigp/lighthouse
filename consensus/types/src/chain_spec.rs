@@ -876,7 +876,7 @@ impl ChainSpec {
         Duration::from_millis(
             component_basis_points
                 .safe_mul(self.slot_duration_ms)
-                .expect("should not overflow")
+                .expect("should not overflow"),
         )
     }
 
@@ -2031,10 +2031,11 @@ const fn default_min_epochs_for_data_column_sidecars_requests() -> u64 {
 
 fn max_blocks_by_root_request_common(max_request_blocks: u64) -> usize {
     let max_request_blocks = max_request_blocks as usize;
-    RuntimeVariableList::<Hash256>::from_vec(
+    RuntimeVariableList::<Hash256>::new(
         vec![Hash256::zero(); max_request_blocks],
         max_request_blocks,
     )
+    .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
     .as_ssz_bytes()
     .len()
 }
@@ -2046,10 +2047,11 @@ fn max_blobs_by_root_request_common(max_request_blob_sidecars: u64) -> usize {
         index: 0,
     };
 
-    RuntimeVariableList::<BlobIdentifier>::from_vec(
+    RuntimeVariableList::<BlobIdentifier>::new(
         vec![empty_blob_identifier; max_request_blob_sidecars],
         max_request_blob_sidecars,
     )
+    .expect("creating a RuntimeVariableList of size `max_request_blob_sidecars` should succeed")
     .as_ssz_bytes()
     .len()
 }
@@ -2062,10 +2064,11 @@ fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) 
         columns: VariableList::from(vec![0; E::number_of_columns()]),
     };
 
-    RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::from_vec(
+    RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
         vec![empty_data_columns_by_root_id; max_request_blocks],
         max_request_blocks,
     )
+    .expect("creating a RuntimeVariableList of size `max_request_blocks` should succeed")
     .as_ssz_bytes()
     .len()
 }

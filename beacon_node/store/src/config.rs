@@ -19,7 +19,7 @@ pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::LevelDb;
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
 pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 8;
-pub const DEFAULT_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(64);
+pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 0;
 pub const DEFAULT_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 pub const DEFAULT_STATE_CACHE_HEADROOM: NonZeroUsize = new_non_zero_usize(1);
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
@@ -34,7 +34,7 @@ pub const DEFAULT_BLOB_PUNE_MARGIN_EPOCHS: u64 = 0;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoreConfig {
     /// Maximum number of blocks to store in the in-memory block cache.
-    pub block_cache_size: NonZeroUsize,
+    pub block_cache_size: usize,
     /// Maximum number of states to store in the in-memory state cache.
     pub state_cache_size: NonZeroUsize,
     /// Minimum number of states to cull from the state cache upon fullness.

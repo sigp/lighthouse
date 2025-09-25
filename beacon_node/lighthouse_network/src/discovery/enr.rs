@@ -3,13 +3,13 @@
 pub use discv5::enr::CombinedKey;
 
 use super::ENR_FILENAME;
-use super::enr_ext::CombinedKeyExt;
-use super::enr_ext::{EnrExt, QUIC_ENR_KEY, QUIC6_ENR_KEY};
 use crate::NetworkConfig;
 use crate::types::{Enr, EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use alloy_rlp::bytes::Bytes;
 use libp2p::identity::Keypair;
 use lighthouse_version::{client_name, version};
+use network_utils::enr_ext::CombinedKeyExt;
+use network_utils::enr_ext::{EnrExt, QUIC_ENR_KEY, QUIC6_ENR_KEY};
 use ssz::{Decode, Encode};
 use ssz_types::BitVector;
 use std::fs::File;

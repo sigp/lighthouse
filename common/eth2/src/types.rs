@@ -967,6 +967,23 @@ pub struct PeerCount {
     pub disconnecting: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BeaconCommitteeSelection {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+    pub selection_proof: Signature,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncCommitteeSelection {
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub validator_index: u64,
+    pub slot: Slot,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub subcommittee_index: u64,
+    pub selection_proof: Signature,
+}
 // --------- Server Sent Event Types -----------
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]

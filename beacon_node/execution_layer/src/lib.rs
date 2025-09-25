@@ -43,7 +43,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_stream::wrappers::WatchStream;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::beacon_block_body::KzgCommitments;
 use types::builder_bid::BuilderBid;
@@ -851,6 +851,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     }
 
     /// Returns the fee-recipient address that should be used to build a block
+    #[instrument(level = "debug", skip_all)]
     pub async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
         if let Some(preparation_data_entry) =
             self.proposer_preparation_data().await.get(&proposer_index)
@@ -875,6 +876,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
         }
     }
 
+    #[instrument(level = "debug", skip_all)]
     pub async fn get_proposer_gas_limit(&self, proposer_index: u64) -> Option<u64> {
         self.proposer_preparation_data()
             .await
@@ -891,6 +893,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
+    #[instrument(level = "debug", skip_all)]
     pub async fn get_payload(
         &self,
         payload_parameters: PayloadParameters<'_>,
@@ -996,6 +999,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             timed_future(metrics::GET_BLINDED_PAYLOAD_BUILDER, async {
                 builder
                     .get_builder_header::<E>(slot, parent_hash, pubkey)
+                    .instrument(debug_span!("get_builder_header"))
                     .await
             }),
             timed_future(metrics::GET_BLINDED_PAYLOAD_LOCAL, async {
@@ -1237,6 +1241,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
             .await
     }
 
+    #[instrument(level = "debug", skip_all)]
     async fn get_full_payload_with(
         &self,
         payload_parameters: PayloadParameters<'_>,
@@ -2027,7 +2032,9 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         relay_response_ms = duration.as_millis(),
                         ?block_root,
                         "Successfully submitted blinded block to the builder"
-                    )
+                    );
+
+                    Ok(())
                 }
                 Err(e) => {
                     metrics::inc_counter_vec(
@@ -2040,11 +2047,10 @@ impl<E: EthSpec> ExecutionLayer<E> {
                         relay_response_ms = duration.as_millis(),
                         ?block_root,
                         "Failed to submit blinded block to the builder"
-                    )
+                    );
+                    Err(e)
                 }
             }
-
-            Ok(())
         } else {
             Err(Error::NoPayloadBuilder)
         }

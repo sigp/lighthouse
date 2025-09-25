@@ -1,9 +1,0 @@
-[package]
-name = "unused_port"
-version = "0.1.0"
-edition = { workspace = true }
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-lru_cache = { workspace = true }
-parking_lot = { workspace = true }

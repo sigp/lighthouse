@@ -1,5 +1,4 @@
 use self::gossip_cache::GossipCache;
-use crate::EnrExt;
 use crate::Eth2Enr;
 use crate::config::{GossipsubConfigParams, NetworkLoad, gossipsub_config};
 use crate::discovery::{
@@ -12,8 +11,8 @@ use crate::peer_manager::{
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
-    GoodbyeReason, HandlerErr, InboundRequestId, NetworkParams, Protocol, RPC, RPCError,
-    RPCMessage, RPCReceived, RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse,
+    GoodbyeReason, HandlerErr, InboundRequestId, Protocol, RPC, RPCError, RPCMessage, RPCReceived,
+    RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse,
 };
 use crate::types::{
     GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery,
@@ -33,6 +32,7 @@ use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
 use libp2p::upnp::tokio::Behaviour as Upnp;
 use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
+use network_utils::enr_ext::EnrExt;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -367,17 +367,11 @@ impl<E: EthSpec> Network<E> {
             (gossipsub, update_gossipsub_scores)
         };
 
-        let network_params = NetworkParams {
-            max_payload_size: ctx.chain_spec.max_payload_size as usize,
-            ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
-            resp_timeout: ctx.chain_spec.resp_timeout(),
-        };
         let eth2_rpc = RPC::new(
             ctx.fork_context.clone(),
             config.enable_light_client_server,
             config.inbound_rate_limiter_config.clone(),
             config.outbound_rate_limiter_config.clone(),
-            network_params,
             seq_number,
         );
 

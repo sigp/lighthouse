@@ -143,6 +143,7 @@ pub enum DataColumnSidecarError {
     PreDeneb,
     SszError(SszError),
     BuildSidecarFailed(String),
+    InvalidCellProofLength { expected: usize, actual: usize },
 }
 
 impl From<ArithError> for DataColumnSidecarError {

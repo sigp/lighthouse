@@ -102,7 +102,7 @@ jobs:
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in release
-      run: make nextest-release
+      run: make test-release
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       continue-on-error: true
@@ -134,7 +134,7 @@ jobs:
     - name: Set LIBCLANG_PATH
       run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
-      run: make nextest-release
+      run: make test-release
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       continue-on-error: true
@@ -225,6 +225,7 @@ jobs:
         TEST_FEATURES: portable
         CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
     - name: Upload logs
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: network_test_logs
@@ -269,7 +270,7 @@ jobs:
       with:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Run tests in debug
-      run: make nextest-debug
+      run: make test-debug
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       continue-on-error: true
@@ -306,7 +307,7 @@ jobs:
           cache-target: release
           bins: cargo-nextest
     - name: Run consensus-spec-tests with blst and fake_crypto
-      run: make nextest-ef
+      run: make test-ef
     - name: Show cache stats
       if: env.SELF_HOSTED_RUNNERS == 'true'
       continue-on-error: true
@@ -328,6 +329,7 @@ jobs:
     - name: Run a basic beacon chain sim that starts from Deneb
       run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
     - name: Upload logs
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: basic_simulator_logs
@@ -349,6 +351,7 @@ jobs:
     - name: Run a beacon chain sim which tests VC fallback behaviour
       run: cargo run --release --bin simulator fallback-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/fallback_simulator_logs
     - name: Upload logs
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: fallback_simulator_logs

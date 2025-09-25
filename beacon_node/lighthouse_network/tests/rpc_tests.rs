@@ -831,7 +831,7 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
         // BlocksByRoot Request
         let rpc_request =
             RequestType::BlocksByRoot(BlocksByRootRequest::V2(BlocksByRootRequestV2 {
-                block_roots: RuntimeVariableList::from_vec(
+                block_roots: RuntimeVariableList::new(
                     vec![
                         Hash256::zero(),
                         Hash256::zero(),
@@ -841,7 +841,8 @@ fn test_tcp_blocks_by_root_chunked_rpc() {
                         Hash256::zero(),
                     ],
                     spec.max_request_blocks(current_fork_name),
-                ),
+                )
+                .unwrap(),
             }));
 
         // BlocksByRoot Response
@@ -991,7 +992,8 @@ fn test_tcp_columns_by_root_chunked_rpc() {
                 max_request_blocks
             ],
             max_request_blocks,
-        );
+        )
+        .unwrap();
         let req_bytes = req.data_column_ids.as_ssz_bytes();
         let req_decoded = DataColumnsByRootRequest {
             data_column_ids: <RuntimeVariableList<DataColumnsByRootIdentifier<E>>>::from_ssz_bytes(
@@ -1281,7 +1283,7 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
         // BlocksByRoot Request
         let rpc_request =
             RequestType::BlocksByRoot(BlocksByRootRequest::V2(BlocksByRootRequestV2 {
-                block_roots: RuntimeVariableList::from_vec(
+                block_roots: RuntimeVariableList::new(
                     vec![
                         Hash256::zero(),
                         Hash256::zero(),
@@ -1295,7 +1297,8 @@ fn test_tcp_blocks_by_root_chunked_rpc_terminates_correctly() {
                         Hash256::zero(),
                     ],
                     spec.max_request_blocks(current_fork),
-                ),
+                )
+                .unwrap(),
             }));
 
         // BlocksByRoot Response

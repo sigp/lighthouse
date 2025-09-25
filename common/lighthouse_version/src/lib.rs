@@ -1,5 +1,5 @@
 use git_version::git_version;
-use target_info::Target;
+use std::env::consts;
 
 /// Returns the current version of this build of Lighthouse.
 ///
@@ -45,7 +45,7 @@ pub const COMMIT_PREFIX: &str = git_version!(
 ///
 /// `Lighthouse/v1.5.1-67da032+/x86_64-linux`
 pub fn version_with_platform() -> String {
-    format!("{}/{}-{}", VERSION, Target::arch(), Target::os())
+    format!("{}/{}-{}", VERSION, consts::ARCH, consts::OS)
 }
 
 /// Returns semantic versioning information only.

@@ -84,6 +84,7 @@ pub enum BlobSidecarError {
     MissingKzgCommitment,
     BeaconState(BeaconStateError),
     MerkleTree(MerkleTreeError),
+    SszTypes(ssz_types::Error),
     ArithError(ArithError),
 }
 
@@ -283,10 +284,11 @@ impl<E: EthSpec> BlobSidecar<E> {
             let blob_sidecar = BlobSidecar::new(i, blob, block, *kzg_proof)?;
             blob_sidecars.push(Arc::new(blob_sidecar));
         }
-        Ok(RuntimeVariableList::from_vec(
+        RuntimeVariableList::new(
             blob_sidecars,
             spec.max_blobs_per_block(block.epoch()) as usize,
-        ))
+        )
+        .map_err(BlobSidecarError::SszTypes)
     }
 }
 

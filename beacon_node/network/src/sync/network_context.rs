@@ -29,7 +29,7 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
-use lighthouse_tracing::SPAN_OUTGOING_RANGE_REQUEST;
+use lighthouse_tracing::{SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST, SPAN_OUTGOING_RANGE_REQUEST};
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -49,8 +49,8 @@ use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
-    Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -835,14 +835,26 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         match self.chain.get_block_process_status(&block_root) {
             // Unknown block, continue request to download
             BlockProcessStatus::Unknown => {}
-            // Block is known are currently processing, expect a future event with the result of
-            // processing.
-            BlockProcessStatus::NotValidated { .. } => {
-                // Lookup sync event safety: If the block is currently in the processing cache, we
-                // are guaranteed to receive a `SyncMessage::GossipBlockProcessResult` that will
-                // make progress on this lookup
-                return Ok(LookupRequestResult::Pending("block in processing cache"));
-            }
+            // Block is known and currently processing. Imports from gossip and HTTP API insert the
+            // block in the da_cache. However, HTTP API is unable to notify sync when it completes
+            // block import. Returning `Pending` here will result in stuck lookups if the block is
+            // importing from sync.
+            BlockProcessStatus::NotValidated(_, source) => match source {
+                BlockImportSource::Gossip => {
+                    // Lookup sync event safety: If the block is currently in the processing cache, we
+                    // are guaranteed to receive a `SyncMessage::GossipBlockProcessResult` that will
+                    // make progress on this lookup
+                    return Ok(LookupRequestResult::Pending("block in processing cache"));
+                }
+                BlockImportSource::Lookup
+                | BlockImportSource::RangeSync
+                | BlockImportSource::HttpApi => {
+                    // Lookup, RangeSync or HttpApi block import don't emit the GossipBlockProcessResult
+                    // event. If a lookup happens to be created during block import from one of
+                    // those sources just import the block twice. Otherwise the lookup will get
+                    // stuck. Double imports are fine, they just waste resources.
+                }
+            },
             // Block is fully validated. If it's not yet imported it's waiting for missing block
             // components. Consider this request completed and do nothing.
             BlockProcessStatus::ExecutionValidated { .. } => {
@@ -865,10 +877,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // - RPCError(request_id): handled by `Self::on_single_block_response`
         // - Disconnect(peer_id) handled by `Self::peer_disconnected``which converts it to a
         // ` RPCError(request_id)`event handled by the above method
+        let network_request = RequestType::BlocksByRoot(
+            request
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlocksByRoot(request.into_request(&self.fork_context)),
+                request: network_request,
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
@@ -881,6 +898,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "Sync RPC request sent"
         );
 
+        let request_span = debug_span!(
+            parent: Span::current(),
+            SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST,
+            %block_root,
+        );
         self.blocks_by_root_requests.insert(
             id,
             peer_id,
@@ -888,8 +910,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // block and the peer must have it.
             true,
             BlocksByRootRequestItems::new(request),
-            // Not implemented
-            Span::none(),
+            request_span,
         );
 
         Ok(LookupRequestResult::RequestSent(id.req_id))
@@ -959,10 +980,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         // Lookup sync event safety: Refer to `Self::block_lookup_request` `network_send.send` call
+        let network_request = RequestType::BlobsByRoot(
+            request
+                .clone()
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlobsByRoot(request.clone().into_request(&self.fork_context)),
+                request: network_request,
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;

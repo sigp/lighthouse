@@ -599,6 +599,40 @@ impl SlashingDatabase {
         Ok(safe)
     }
 
+    /// Check whether a block would be safe to sign if we were to sign it now.
+    ///
+    /// The database is not modified, and therefore multiple threads reading the database might get
+    /// the same result. Therefore:
+    ///
+    /// DO NOT USE THIS FUNCTION TO DECIDE IF A BLOCK IS SAFE TO SIGN!
+    pub fn preliminary_check_block_proposal(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        block_header: &BeaconBlockHeader,
+        domain: Hash256,
+    ) -> Result<Safe, NotSafe> {
+        #[allow(clippy::disallowed_methods)]
+        self.preliminary_check_block_signing_root(
+            validator_pubkey,
+            block_header.slot,
+            block_header.signing_root(domain).into(),
+        )
+    }
+
+    /// As for `preliminary_check_block_proposal` but without requiring the whole `BeaconBlockHeader`.
+    ///
+    /// DO NOT USE THIS FUNCTION TO DECIDE IF A BLOCK IS SAFE TO SIGN!
+    pub fn preliminary_check_block_signing_root(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        slot: Slot,
+        signing_root: SigningRoot,
+    ) -> Result<Safe, NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        self.check_block_proposal(&txn, validator_pubkey, slot, signing_root)
+    }
+
     /// Check an attestation for slash safety, and if it is safe, record it in the database.
     ///
     /// The checking and inserting happen atomically and exclusively. We enforce exclusivity
@@ -668,6 +702,49 @@ impl SlashingDatabase {
             )?;
         }
         Ok(safe)
+    }
+
+    /// Check whether an attestation would be safe to sign if we were to sign it now.
+    ///
+    /// The database is not modified, and therefore multiple threads reading the database might get
+    /// the same result. Therefore:
+    ///
+    /// DO NOT USE THIS FUNCTION TO DECIDE IF AN ATTESTATION IS SAFE TO SIGN!
+    pub fn preliminary_check_attestation(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        attestation: &AttestationData,
+        domain: Hash256,
+    ) -> Result<Safe, NotSafe> {
+        let attestation_signing_root = attestation.signing_root(domain).into();
+        #[allow(clippy::disallowed_methods)]
+        self.preliminary_check_attestation_signing_root(
+            validator_pubkey,
+            attestation.source.epoch,
+            attestation.target.epoch,
+            attestation_signing_root,
+        )
+    }
+
+    /// As for `preliminary_check_attestation` but without requiring the whole `AttestationData`.
+    ///
+    /// DO NOT USE THIS FUNCTION TO DECIDE IF AN ATTESTATION IS SAFE TO SIGN!
+    pub fn preliminary_check_attestation_signing_root(
+        &self,
+        validator_pubkey: &PublicKeyBytes,
+        att_source_epoch: Epoch,
+        att_target_epoch: Epoch,
+        att_signing_root: SigningRoot,
+    ) -> Result<Safe, NotSafe> {
+        let mut conn = self.conn_pool.get()?;
+        let txn = conn.transaction_with_behavior(TransactionBehavior::Exclusive)?;
+        self.check_attestation(
+            &txn,
+            validator_pubkey,
+            att_source_epoch,
+            att_target_epoch,
+            att_signing_root,
+        )
     }
 
     /// Import slashing protection from another client in the interchange format.

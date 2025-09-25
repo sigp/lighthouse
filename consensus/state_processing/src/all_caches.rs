@@ -1,5 +1,6 @@
 use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use crate::epoch_cache::initialize_epoch_cache;
+use tracing::instrument;
 use types::{
     BeaconState, ChainSpec, EpochCacheError, EthSpec, FixedBytesExtended, Hash256, RelativeEpoch,
 };
@@ -23,6 +24,7 @@ pub trait AllCaches {
 }
 
 impl<E: EthSpec> AllCaches for BeaconState<E> {
+    #[instrument(skip_all)]
     fn build_all_caches(&mut self, spec: &ChainSpec) -> Result<(), EpochCacheError> {
         self.build_caches(spec)?;
         initialize_epoch_cache(self, spec)?;

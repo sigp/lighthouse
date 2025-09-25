@@ -7,7 +7,9 @@ use crate::block_verification_types::{
 use crate::data_availability_checker::overflow_lru_cache::{
     DataAvailabilityCheckerInner, ReconstructColumnsDecision,
 };
-use crate::{BeaconChain, BeaconChainTypes, BeaconStore, CustodyContext, metrics};
+use crate::{
+    BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus, CustodyContext, metrics,
+};
 use kzg::Kzg;
 use slot_clock::SlotClock;
 use std::fmt;
@@ -19,17 +21,18 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch,
+    EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 mod error;
 mod overflow_lru_cache;
 mod state_lru_cache;
 
+use crate::data_availability_checker::error::Error;
 use crate::data_column_verification::{
     CustodyDataColumn, GossipVerifiedDataColumn, KzgVerifiedCustodyDataColumn,
-    KzgVerifiedDataColumn, verify_kzg_for_data_column_list_with_scoring,
+    KzgVerifiedDataColumn, verify_kzg_for_data_column_list,
 };
 use crate::metrics::{
     KZG_DATA_COLUMN_RECONSTRUCTION_ATTEMPTS, KZG_DATA_COLUMN_RECONSTRUCTION_FAILURES,
@@ -38,19 +41,18 @@ use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
 use types::non_zero_usize::new_non_zero_usize;
 
-/// The LRU Cache stores `PendingComponents`, which can store up to `MAX_BLOBS_PER_BLOCK` blobs each.
+/// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
 /// * Deneb blobs are 128 kb each and are stored in the form of `BlobSidecar`.
 /// * From Fulu (PeerDAS), blobs are erasure-coded and are 256 kb each, stored in the form of 128 `DataColumnSidecar`s.
 ///
 /// With `MAX_BLOBS_PER_BLOCK` = 48 (expected in the next year), the maximum size of data columns
-/// in `PendingComponents` is ~12.29 MB. Setting this to 64 means the maximum size of the cache is
-/// approximately 0.8 GB.
+/// in `PendingComponents` is ~12.29 MB. Setting this to 32 means the maximum size of the cache is
+/// approximately 0.4 GB.
 ///
-/// Under normal conditions, the cache should only store the current pending block, but could
-///  occasionally spike to 2-4 for various reasons e.g. components arriving late, but would very
-/// rarely go above this, unless there are many concurrent forks.
-pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(64);
+/// `PendingComponents` are now never removed from the cache manually are only removed via LRU
+/// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
+pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
@@ -79,6 +81,7 @@ pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 /// proposer. Having a capacity > 1 is an optimization to prevent sync lookup from having re-fetch
 /// data during moments of unstable network conditions.
 pub struct DataAvailabilityChecker<T: BeaconChainTypes> {
+    complete_blob_backfill: bool,
     availability_cache: Arc<DataAvailabilityCheckerInner<T>>,
     slot_clock: T::SlotClock,
     kzg: Arc<Kzg>,
@@ -117,6 +120,7 @@ impl<E: EthSpec> Debug for Availability<E> {
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn new(
+        complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
         kzg: Arc<Kzg>,
         store: BeaconStore<T>,
@@ -130,6 +134,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             spec.clone(),
         )?;
         Ok(Self {
+            complete_blob_backfill,
             availability_cache: Arc::new(inner),
             slot_clock,
             kzg,
@@ -142,14 +147,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self.custody_context
     }
 
-    /// Checks if the block root is currenlty in the availability cache awaiting import because
+    /// Checks if the block root is currently in the availability cache awaiting import because
     /// of missing components.
-    pub fn get_execution_valid_block(
-        &self,
-        block_root: &Hash256,
-    ) -> Option<Arc<SignedBeaconBlock<T::EthSpec>>> {
-        self.availability_cache
-            .get_execution_valid_block(block_root)
+    ///
+    /// Returns the cache block wrapped in a `BlockProcessStatus` enum if it exists.
+    pub fn get_cached_block(&self, block_root: &Hash256) -> Option<BlockProcessStatus<T::EthSpec>> {
+        self.availability_cache.get_cached_block(block_root)
     }
 
     /// Return the set of cached blob indexes for `block_root`. Returns None if there is no block
@@ -338,17 +341,30 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
     /// about whether all components have been received or more are required.
-    pub fn put_pending_executed_block(
+    pub fn put_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_pending_executed_block(executed_block)
+        self.availability_cache.put_executed_block(executed_block)
     }
 
-    pub fn remove_pending_components(&self, block_root: Hash256) {
+    /// Inserts a pre-execution block into the cache.
+    /// This does NOT override an existing executed block.
+    pub fn put_pre_execution_block(
+        &self,
+        block_root: Hash256,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        source: BlockImportSource,
+    ) -> Result<(), Error> {
         self.availability_cache
-            .remove_pending_components(block_root)
+            .put_pre_execution_block(block_root, block, source)
+    }
+
+    /// Removes a pre-execution block from the cache.
+    /// This does NOT remove an existing executed block.
+    pub fn remove_block_on_execution_error(&self, block_root: &Hash256) {
+        self.availability_cache
+            .remove_pre_execution_block(block_root);
     }
 
     /// Verifies kzg commitments for an RpcBlock, returns a `MaybeAvailableBlock` that may
@@ -378,7 +394,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
         if self.data_columns_required_for_block(&block) {
             return if let Some(data_column_list) = data_columns.as_ref() {
-                verify_kzg_for_data_column_list_with_scoring(
+                verify_kzg_for_data_column_list(
                     data_column_list
                         .iter()
                         .map(|custody_column| custody_column.as_data_column()),
@@ -449,7 +465,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         // verify kzg for all data columns at once
         if !all_data_columns.is_empty() {
             // Attributes fault to the specific peer that sent an invalid column
-            verify_kzg_for_data_column_list_with_scoring(all_data_columns.iter(), &self.kzg)
+            verify_kzg_for_data_column_list(all_data_columns.iter(), &self.kzg)
                 .map_err(AvailabilityCheckError::InvalidColumn)?;
         }
 
@@ -524,9 +540,15 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     /// The epoch at which we require a data availability check in block processing.
     /// `None` if the `Deneb` fork is disabled.
     pub fn data_availability_boundary(&self) -> Option<Epoch> {
-        let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
-        self.spec
-            .min_epoch_data_availability_boundary(current_epoch)
+        let fork_epoch = self.spec.deneb_fork_epoch?;
+
+        if self.complete_blob_backfill {
+            Some(fork_epoch)
+        } else {
+            let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
+            self.spec
+                .min_epoch_data_availability_boundary(current_epoch)
+        }
     }
 
     /// Returns true if the given epoch lies within the da boundary and false otherwise.
@@ -553,6 +575,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         }
     }
 
+    #[instrument(skip_all, level = "debug")]
     pub fn reconstruct_data_columns(
         &self,
         block_root: &Hash256,
@@ -589,8 +612,8 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
         // Check indices from cache again to make sure we don't publish components we've already received.
         let Some(existing_column_indices) = self.cached_data_column_indexes(block_root) else {
-            return Ok(DataColumnReconstructionResult::RecoveredColumnsNotImported(
-                "block already imported",
+            return Err(AvailabilityCheckError::Unexpected(
+                "block no longer exists in the data availability checker".to_string(),
             ));
         };
 
@@ -1081,7 +1104,15 @@ mod test {
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
         let custody_context = Arc::new(CustodyContext::new(false));
-        DataAvailabilityChecker::new(slot_clock, kzg, store, custody_context, spec)
-            .expect("should initialise data availability checker")
+        let complete_blob_backfill = false;
+        DataAvailabilityChecker::new(
+            complete_blob_backfill,
+            slot_clock,
+            kzg,
+            store,
+            custody_context,
+            spec,
+        )
+        .expect("should initialise data availability checker")
     }
 }

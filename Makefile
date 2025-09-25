@@ -139,29 +139,18 @@ build-release-tarballs:
 	$(call tarball_release_binary,$(BUILD_PATH_RISCV64),$(RISCV64_TAG),"")
 
 
+
 # Runs the full workspace tests in **release**, without downloading any additional
 # test vectors.
 test-release:
-	cargo test --workspace --release --features "$(TEST_FEATURES)" \
- 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
-		--exclude http_api
-
-# Runs the full workspace tests in **release**, without downloading any additional
-# test vectors, using nextest.
-nextest-release:
 	cargo nextest run --workspace --release --features "$(TEST_FEATURES)" \
 		--exclude ef_tests --exclude beacon_chain --exclude slasher --exclude network \
 		--exclude http_api
 
+
 # Runs the full workspace tests in **debug**, without downloading any additional test
 # vectors.
 test-debug:
-	cargo test --workspace --features "$(TEST_FEATURES)" \
-		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
-
-# Runs the full workspace tests in **debug**, without downloading any additional test
-# vectors, using nextest.
-nextest-debug:
 	cargo nextest run --workspace --features "$(TEST_FEATURES)" \
 		--exclude ef_tests --exclude beacon_chain --exclude network --exclude http_api
 
@@ -173,15 +162,9 @@ cargo-fmt:
 check-benches:
 	cargo check --workspace --benches --features "$(TEST_FEATURES)"
 
-# Runs only the ef-test vectors.
-run-ef-tests:
-	rm -rf $(EF_TESTS)/.accessed_file_log.txt
-	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
-	cargo test --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
-	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
-# Runs EF test vectors with nextest
-nextest-run-ef-tests:
+# Runs EF test vectors
+run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES)"
 	cargo nextest run --release -p ef_tests --features "ef_tests,$(EF_TEST_FEATURES),fake_crypto"
@@ -193,11 +176,11 @@ test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p beacon_chain
 
-# Run the tests in the `beacon_chain` crate for all known forks.
-test-http-api: $(patsubst %,test-beacon-chain-%,$(RECENT_FORKS))
+# Run the tests in the `http_api` crate for recent forks.
+test-http-api: $(patsubst %,test-http-api-%,$(RECENT_FORKS))
 
 test-http-api-%:
-	env FORK_NAME=$* cargo nextest run --release --features "fork_from_env,slasher/lmdb,$(TEST_FEATURES)" -p http_api
+	env FORK_NAME=$* cargo nextest run --release --features "beacon_chain/fork_from_env" -p http_api
 
 
 # Run the tests in the `operation_pool` crate for all known forks.
@@ -233,9 +216,6 @@ test-ef: make-ef-tests run-ef-tests
 # Downloads and runs the nightly EF test vectors.
 test-ef-nightly: make-ef-tests-nightly run-ef-tests
 
-# Downloads and runs the EF test vectors with nextest.
-nextest-ef: make-ef-tests nextest-run-ef-tests
-
 # Runs tests checking interop between Lighthouse and execution clients.
 test-exec-engine:
 	make -C $(EXECUTION_ENGINE_INTEGRATION) test
@@ -269,6 +249,7 @@ lint:
 		-D clippy::fn_to_numeric_cast_any \
 		-D clippy::manual_let_else \
 		-D clippy::large_stack_frames \
+		-D clippy::disallowed_methods \
 		-D warnings \
 		-A clippy::derive_partial_eq_without_eq \
 		-A clippy::upper-case-acronyms \

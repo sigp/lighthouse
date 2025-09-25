@@ -1,13 +1,15 @@
 //! Identifies each data column subnet by an integer identifier.
 use crate::ChainSpec;
 use crate::data_column_sidecar::ColumnIndex;
+use derivative::Derivative;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Display};
 use std::ops::{Deref, DerefMut};
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Derivative, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derivative(Debug = "transparent")]
 #[serde(transparent)]
 pub struct DataColumnSubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 

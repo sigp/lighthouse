@@ -33,6 +33,7 @@ http_api = { workspace = true }
 hyper = { workspace = true }
 lighthouse_network = { workspace = true }
 monitoring_api = { workspace = true }
+network_utils = { workspace = true }
 sensitive_url = { workspace = true }
 serde_json = { workspace = true }
 slasher = { workspace = true }
@@ -41,7 +42,6 @@ strum = { workspace = true }
 task_executor = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
-unused_port = { workspace = true }
 
 [dev-dependencies]
 node_test_rig = { path = "../testing/node_test_rig" }
