@@ -2,8 +2,8 @@
 
 use beacon_chain::test_utils::BeaconChainHarness;
 use execution_layer::test_utils::{Block, DEFAULT_TERMINAL_BLOCK, generate_pow_block};
+use types::consts::bellatrix::BASIS_POINTS;
 use types::*;
- use types::consts::bellatrix::BASIS_POINTS;
 
 const VALIDATOR_COUNT: usize = 32;
 
