@@ -366,7 +366,12 @@ impl<E: EthSpec> CustodyContext<E> {
         self.validator_registrations
             .write()
             .update_cgc(new_custody, effective_epoch);
+
+
+        self.validator_custody_count
+            .store(new_custody, Ordering::Relaxed);
     }
+
 
     /// Returns the ordered list of column indices that the node is assigned to custody
     /// (and advertised to peers) at the given epoch. If epoch is `None`, this function

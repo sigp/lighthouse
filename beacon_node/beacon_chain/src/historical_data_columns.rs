@@ -145,18 +145,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .custody_context()
             .custody_group_count_at_epoch(epoch, &self.spec);
 
-        let earliest_data_column_slot = self
+        let earliest_data_column_epoch = self
             .store
             .get_data_column_custody_info()
             .map_err(HistoricalDataColumnError::StoreError)?
-            .and_then(|info| info.earliest_data_column_slot);
+            .and_then(|info| info.earliest_data_column_slot)
+            .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()));
 
         let can_update_data_column_custody_info =
-            if let Some(earliest_data_column_slot) = earliest_data_column_slot {
+            if let Some(earliest_data_column_epoch) = earliest_data_column_epoch {
                 // Ensure that latest cgc requirements are satisified
                 // and that we are only updating the earliest available data column by one epoch.
                 cgc_at_head == cgc_at_epoch
-                    && epoch == earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch()) - 1
+                    && (epoch == earliest_data_column_epoch - 1
+                        || epoch == earliest_data_column_epoch)
             } else {
                 // There is no data column custody info record, simply make sure
                 // the latest cgc requirements are satisfied
@@ -172,7 +174,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 cgc_at_head,
                 cgc_at_epoch,
                 ?epoch,
-                earliest_available_epoch = ?earliest_data_column_slot.map(|slot| slot.epoch(T::EthSpec::slots_per_epoch())),
+                ?earliest_data_column_epoch,
                 "Cannot update data column custody info."
             );
         }

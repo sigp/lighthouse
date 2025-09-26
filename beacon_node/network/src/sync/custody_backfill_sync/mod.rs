@@ -85,6 +85,11 @@ pub struct CustodyBackFillSync<T: BeaconChainTypes> {
     /// The columns we're targeting for download.
     columns: HashSet<ColumnIndex>,
 
+    /// The custody group count we are trying to fulfill up to the DA window.
+    /// This is used as an indicator to restart custody backfill sync if the cgc
+    /// was changed in the middle of a currently active sync.
+    cgc: u64,
+
     /// Starting epoch of the next batch that needs to be downloaded.
     to_be_downloaded: BatchId,
 
@@ -121,6 +126,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             current_start: Epoch::new(0),
             processing_target: Epoch::new(0),
             columns: HashSet::new(),
+            cgc: 0,
             to_be_downloaded: Epoch::new(0),
             last_batch_downloaded: false,
             batches: BTreeMap::new(),
@@ -170,9 +176,13 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .cloned()
                 .collect::<HashSet<_>>();
 
+            let Some(earliest_column_epoch) = self.beacon_chain.get_column_da_boundary() else {
+                return false
+            };
+
             let previous_custodied_columns = custody_context
                 .custody_columns_for_epoch(
-                    Some(earliest_data_column_epoch - 1),
+                    Some(earliest_column_epoch),
                     &self.beacon_chain.spec,
                 )
                 .iter()
@@ -202,6 +212,37 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         false
     }
 
+    fn restart_if_required(&mut self) -> bool {
+        let cgc_at_head = self
+            .beacon_chain
+            .data_availability_checker
+            .custody_context()
+            .custody_group_count_at_head(&self.beacon_chain.spec);
+
+        if cgc_at_head != self.cgc {
+            // Set state to paused
+            self.set_state(CustodyBackFillState::Pending(
+                "CGC count has changed and custody backfill sync needs to restart".to_string(),
+            ));
+
+            // Remove all batches and active requests.
+            self.batches.clear();
+            self.restart_failed_sync = false;
+
+            // Reset all downloading and processing targets
+            // NOTE: Lets keep validated_batches for posterity
+            self.processing_target = Epoch::new(0);
+            self.to_be_downloaded = Epoch::new(0);
+            self.last_batch_downloaded = false;
+            self.current_processing_batch = None;
+            self.validated_batches = 0;
+            self.cgc = 0;
+            return true
+        }
+
+        return false
+    }
+
     /// Starts syncing.
     #[must_use = "A failure here indicates custody backfill sync has failed and the global sync state should be updated"]
     pub fn start(
@@ -210,6 +251,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     ) -> Result<SyncStart, CustodyBackfillError> {
         match self.state() {
             CustodyBackFillState::Syncing => {
+                if self.restart_if_required() {
+                    return Ok(SyncStart::NotSyncing)
+                }
+
                 if self.check_completed() {
                     self.set_state(CustodyBackFillState::Completed);
                     return Ok(SyncStart::NotSyncing);
@@ -220,6 +265,8 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     self.set_state(CustodyBackFillState::Completed);
                     return Ok(SyncStart::NotSyncing);
                 }
+
+                self.set_cgc();
 
                 if !self.should_start_custody_backfill_sync() {
                     return Ok(SyncStart::NotSyncing);
@@ -263,6 +310,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .saturating_sub(column_da_boundary.start_slot(T::EthSpec::slots_per_epoch()))
                 .as_usize(),
         })
+    }
+
+    fn set_cgc(&mut self) {
+        self.cgc = self.beacon_chain.data_availability_checker.custody_context().custody_group_count_at_head(&self.beacon_chain.spec);
     }
 
     fn set_start_epoch(&mut self) -> Result<(), CustodyBackfillError> {
@@ -683,6 +734,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             return Ok(ProcessResult::Successful);
         }
 
+        // Check if we need to restart custody backfill sync due to a cgc change.
+        if self.restart_if_required() {
+            return Ok(ProcessResult::Successful);
+        }
+
         // Find the id of the batch we are going to process.
         if let Some(batch) = self.batches.get(&self.processing_target) {
             let state = batch.state();
@@ -697,8 +753,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 // peers to send the request to.
                 BatchState::AwaitingDownload => return Ok(ProcessResult::Successful),
                 BatchState::AwaitingValidation(..) => {
-                    // This isn't a possible scenario, log a crit just in case
-                    crit!("A custody backfill sync batch is in an invalid state");
+                    // The batch is validated
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
                 BatchState::Failed | BatchState::Processing(_) => {
@@ -820,14 +875,14 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             // Check that the data column custody info `earliest_available_slot`
             // is in an epoch that is less than or equal to the current DA boundary
             let Some(earliest_data_column_slot) = self
-                .beacon_chain
-                .store
-                .get_data_column_custody_info()
-                .unwrap_or(None)
-                .and_then(|info| info.earliest_data_column_slot)
-            else {
-                return false;
-            };
+            .beacon_chain
+            .store
+            .get_data_column_custody_info()
+            .unwrap_or(None)
+            .and_then(|info| info.earliest_data_column_slot)
+        else {
+            return false;
+        };
 
             let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
                 return false;

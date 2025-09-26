@@ -4152,8 +4152,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .canonical_head
                         .cached_head()
                         .head_slot()
-                        .epoch(T::EthSpec::slots_per_epoch())
-                        - 1;
+                        .epoch(T::EthSpec::slots_per_epoch()) - 2;
 
                     let cgc = chain
                         .data_availability_checker
@@ -4169,15 +4168,17 @@ pub fn serve<T: BeaconChainTypes>(
                         (effective_epoch).end_slot(T::EthSpec::slots_per_epoch()),
                     ));
 
+                    tracing::info!(?cgc,"THE CGC");
+
                     chain
                         .data_availability_checker
                         .custody_context()
-                        .update_cgc(cgc + 2, effective_epoch);
+                        .update_cgc(cgc + 1, effective_epoch);
 
                     publish_network_message(
                         &network_tx,
                         NetworkMessage::CustodyCountChanged {
-                            new_custody_group_count: cgc + 2,
+                            new_custody_group_count: cgc + 1,
                             sampling_count,
                         },
                     )?;
