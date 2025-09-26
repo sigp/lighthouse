@@ -246,7 +246,6 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     } else {
         // State's current epoch is less than the minimum epoch.
         // Advance the state up to the minimum epoch.
-        tracing::debug!(state_current_epoch=?state.current_epoch(), ?minimum_epoch,fork=?state.fork(),"No We are here");
         partial_state_advance(state, Some(state_root), minimum_slot, spec)
             .map_err(BeaconChainError::from)
     }
