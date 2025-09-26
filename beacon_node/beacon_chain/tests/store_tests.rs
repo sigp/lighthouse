@@ -1191,6 +1191,271 @@ fn check_shuffling_compatible(
     }
 }
 
+/// These tests check the consistency of:
+///
+/// - ProtoBlock::proposer_shuffling_root_for_child_block, and
+/// - BeaconState::proposer_shuffling_decision_root{_at_epoch}
+async fn proposer_shuffling_root_consistency_test(parent_slot: u64, child_slot: u64) {
+    let child_slot = Slot::new(child_slot);
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    // Build chain out to parent block.
+    let initial_slots: Vec<Slot> = (1..=parent_slot).map(Into::into).collect();
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, parent_root, _) = harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
+
+    // Add the child block.
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, child_root, child_block_state) = harness
+        .add_attested_blocks_at_slots(state, state_root, &[child_slot], &all_validators)
+        .await;
+
+    let child_block_epoch = child_slot.epoch(E::slots_per_epoch());
+
+    // Load parent block from fork choice.
+    let fc_parent = harness
+        .chain
+        .canonical_head
+        .fork_choice_read_lock()
+        .get_block(&parent_root.into())
+        .unwrap();
+
+    // The proposer shuffling decision root computed using fork choice should equal the root
+    // computed from the child state.
+    let decision_root = fc_parent.proposer_shuffling_root_for_child_block(child_block_epoch, spec);
+
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root(child_root.into(), spec)
+            .unwrap()
+    );
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root_at_epoch(child_block_epoch, child_root.into(), spec)
+            .unwrap()
+    );
+
+    // The passed block root argument should be irrelevant for all blocks except the genesis block.
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root(Hash256::ZERO, spec)
+            .unwrap()
+    );
+    assert_eq!(
+        decision_root,
+        child_block_state
+            .proposer_shuffling_decision_root_at_epoch(child_block_epoch, Hash256::ZERO, spec)
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_same_epoch() {
+    proposer_shuffling_root_consistency_test(32, 39).await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_next_epoch() {
+    proposer_shuffling_root_consistency_test(32, 47).await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_two_epochs() {
+    proposer_shuffling_root_consistency_test(32, 55).await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_changing_with_lookahead() {
+    let initial_blocks = E::slots_per_epoch() * 4 - 1;
+
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    // Start with some blocks, finishing with one slot before a new epoch.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            initial_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let pre_deposit_state = harness.get_current_state();
+    assert_eq!(pre_deposit_state.slot(), initial_blocks);
+    let topup_block_slot = Slot::new(initial_blocks + 1);
+    let validator_to_topup_index = 1;
+    let validator_to_topup = pre_deposit_state
+        .get_validator(validator_to_topup_index)
+        .unwrap()
+        .clone();
+
+    // Craft a block with a deposit request and consolidation.
+    // XXX: This is a really nasty way to do this, but we need better test facilities in
+    // MockExecutionLayer to address this.
+    let deposit_request: DepositRequest = DepositRequest {
+        index: pre_deposit_state.eth1_deposit_index(),
+        pubkey: validator_to_topup.pubkey,
+        withdrawal_credentials: validator_to_topup.withdrawal_credentials,
+        amount: 63_000_000_000,
+        signature: SignatureBytes::empty(),
+    };
+
+    let consolidation_request: ConsolidationRequest = ConsolidationRequest {
+        source_address: validator_to_topup
+            .get_execution_withdrawal_address(spec)
+            .unwrap(),
+        source_pubkey: validator_to_topup.pubkey,
+        target_pubkey: validator_to_topup.pubkey,
+    };
+
+    let execution_requests = ExecutionRequests::<E> {
+        deposits: VariableList::new(vec![deposit_request]).unwrap(),
+        withdrawals: vec![].into(),
+        consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
+    };
+
+    let mut block = Box::pin(harness.make_block_with_modifier(
+        pre_deposit_state.clone(),
+        topup_block_slot,
+        |block| *block.body_mut().execution_requests_mut().unwrap() = execution_requests,
+    ))
+    .await
+    .0;
+
+    let Err(BlockError::StateRootMismatch {
+        local: true_state_root,
+        ..
+    }) = harness
+        .process_block(topup_block_slot, block.0.canonical_root(), block.clone())
+        .await
+    else {
+        panic!("state root should not match due to pending deposits changes/etc");
+    };
+    let mut new_block = block.0.message_fulu().unwrap().clone();
+    new_block.state_root = true_state_root;
+    block.0 = Arc::new(harness.sign_beacon_block(new_block.into(), &pre_deposit_state));
+
+    harness
+        .process_block(topup_block_slot, block.0.canonical_root(), block.clone())
+        .await
+        .unwrap();
+
+    // Advance two epochs to finalize the deposit and process it.
+    // Start with just a single epoch advance so we can grab the state one epoch prior to where
+    // we end up.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Grab the epoch start state. This is the state from which the proposers at the next epoch were
+    // computed.
+    let prev_epoch_state = harness.get_current_state();
+    assert_eq!(prev_epoch_state.slot() % E::slots_per_epoch(), 0);
+
+    // The deposit should be pending.
+    let pending_deposits = prev_epoch_state.pending_deposits().unwrap();
+    assert_eq!(pending_deposits.len(), 1, "{pending_deposits:?}");
+
+    // Advance the 2nd epoch to finalize the deposit and process it.
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            E::slots_per_epoch() as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let current_epoch_state = harness.get_current_state();
+    assert_eq!(current_epoch_state.slot() % E::slots_per_epoch(), 0);
+
+    // Deposit is processed!
+    let pending_deposits = current_epoch_state.pending_deposits().unwrap();
+    assert_eq!(pending_deposits.len(), 0, "{pending_deposits:?}");
+
+    let validator = current_epoch_state
+        .get_validator(validator_to_topup_index)
+        .unwrap();
+    assert!(validator.has_compounding_withdrawal_credential(spec));
+    assert_eq!(validator.effective_balance, 95_000_000_000);
+
+    // The shuffling for the current epoch from `prev_epoch_state` should match the shuffling
+    // for the current epoch from `current_epoch_state` because we should be correctly using the
+    // stored lookahead.
+    let current_epoch = current_epoch_state.current_epoch();
+    let proposer_shuffling = prev_epoch_state
+        .get_beacon_proposer_indices(current_epoch, spec)
+        .unwrap();
+
+    assert_eq!(
+        proposer_shuffling,
+        current_epoch_state
+            .get_beacon_proposer_indices(current_epoch, spec)
+            .unwrap()
+    );
+
+    // If we bypass the safety checks in `get_proposer_indices`, we should see that the shuffling
+    // differs due to the effective balance change.
+    let unsafe_get_proposer_indices = |state: &BeaconState<E>, epoch| -> Vec<usize> {
+        let indices = state.get_active_validator_indices(epoch, spec).unwrap();
+        let preimage = state.get_seed(epoch, Domain::BeaconProposer, spec).unwrap();
+        epoch
+            .slot_iter(E::slots_per_epoch())
+            .map(|slot| {
+                let mut preimage = preimage.to_vec();
+                preimage.append(&mut int_to_bytes::int_to_bytes8(slot.as_u64()));
+                let seed = ethereum_hashing::hash(&preimage);
+                state.compute_proposer_index(&indices, &seed, spec).unwrap()
+            })
+            .collect()
+    };
+
+    // The unsafe function is correct when used with lookahead.
+    assert_eq!(
+        unsafe_get_proposer_indices(&prev_epoch_state, current_epoch),
+        proposer_shuffling
+    );
+
+    // Computing the shuffling for current epoch without lookahead is WRONG.
+    assert_ne!(
+        unsafe_get_proposer_indices(&current_epoch_state, current_epoch),
+        proposer_shuffling,
+    );
+}
+
 // Ensure blocks from abandoned forks are pruned from the Hot DB
 #[tokio::test]
 async fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
