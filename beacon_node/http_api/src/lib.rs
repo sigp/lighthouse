@@ -4152,7 +4152,8 @@ pub fn serve<T: BeaconChainTypes>(
                         .canonical_head
                         .cached_head()
                         .head_slot()
-                        .epoch(T::EthSpec::slots_per_epoch()) - 2;
+                        .epoch(T::EthSpec::slots_per_epoch())
+                        - 2;
 
                     let cgc = chain
                         .data_availability_checker
@@ -4168,7 +4169,7 @@ pub fn serve<T: BeaconChainTypes>(
                         (effective_epoch).end_slot(T::EthSpec::slots_per_epoch()),
                     ));
 
-                    tracing::info!(?cgc,"THE CGC");
+                    tracing::info!(?cgc, "THE CGC");
 
                     chain
                         .data_availability_checker

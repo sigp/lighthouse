@@ -177,14 +177,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .collect::<HashSet<_>>();
 
             let Some(earliest_column_epoch) = self.beacon_chain.get_column_da_boundary() else {
-                return false
+                return false;
             };
 
             let previous_custodied_columns = custody_context
-                .custody_columns_for_epoch(
-                    Some(earliest_column_epoch),
-                    &self.beacon_chain.spec,
-                )
+                .custody_columns_for_epoch(Some(earliest_column_epoch), &self.beacon_chain.spec)
                 .iter()
                 .cloned()
                 .collect::<HashSet<_>>();
@@ -237,10 +234,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             self.current_processing_batch = None;
             self.validated_batches = 0;
             self.cgc = 0;
-            return true
+            return true;
         }
 
-        return false
+        return false;
     }
 
     /// Starts syncing.
@@ -252,7 +249,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         match self.state() {
             CustodyBackFillState::Syncing => {
                 if self.restart_if_required() {
-                    return Ok(SyncStart::NotSyncing)
+                    return Ok(SyncStart::NotSyncing);
                 }
 
                 if self.check_completed() {
@@ -313,7 +310,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     }
 
     fn set_cgc(&mut self) {
-        self.cgc = self.beacon_chain.data_availability_checker.custody_context().custody_group_count_at_head(&self.beacon_chain.spec);
+        self.cgc = self
+            .beacon_chain
+            .data_availability_checker
+            .custody_context()
+            .custody_group_count_at_head(&self.beacon_chain.spec);
     }
 
     fn set_start_epoch(&mut self) -> Result<(), CustodyBackfillError> {
@@ -875,14 +876,14 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             // Check that the data column custody info `earliest_available_slot`
             // is in an epoch that is less than or equal to the current DA boundary
             let Some(earliest_data_column_slot) = self
-            .beacon_chain
-            .store
-            .get_data_column_custody_info()
-            .unwrap_or(None)
-            .and_then(|info| info.earliest_data_column_slot)
-        else {
-            return false;
-        };
+                .beacon_chain
+                .store
+                .get_data_column_custody_info()
+                .unwrap_or(None)
+                .and_then(|info| info.earliest_data_column_slot)
+            else {
+                return false;
+            };
 
             let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
                 return false;
