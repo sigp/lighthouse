@@ -237,7 +237,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             return true;
         }
 
-        return false;
+        false
     }
 
     /// Starts syncing.
