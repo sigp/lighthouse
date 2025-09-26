@@ -108,6 +108,10 @@ use warp::sse::Event;
 use warp::{Filter, Rejection, http::Response};
 use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::UnifyingOrFilter};
 
+use axum::Router;
+use futures::FutureExt;
+use warpdrive::WarpService;
+
 const API_PREFIX: &str = "eth";
 
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
@@ -4901,27 +4905,33 @@ pub fn serve<T: BeaconChainTypes>(
         .with(cors_builder.build())
         .boxed();
 
+    let router = Router::new().fallback_service(WarpService::new(routes));
+
     let http_socket: SocketAddr = SocketAddr::new(config.listen_addr, config.listen_port);
+    let std_listener = std::net::TcpListener::bind(http_socket)
+        .map_err(|e| format!("Failed to bind to socket: {}", e))?;
+    std_listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Failed to set non-blocking: {}", e))?;
+
     let http_server: HttpServer = match config.tls_config {
-        Some(tls_config) => {
-            let (socket, server) = warp::serve(routes)
-                .tls()
-                .cert_path(tls_config.cert)
-                .key_path(tls_config.key)
-                .try_bind_with_graceful_shutdown(http_socket, async {
-                    shutdown.await;
-                })?;
-
-            info!("HTTP API is being served over TLS");
-
-            (socket, Box::pin(server))
+        Some(_tls_config) => {
+            unimplemented!("TLS is unsupported")
         }
         None => {
-            let (socket, server) =
-                warp::serve(routes).try_bind_with_graceful_shutdown(http_socket, async {
-                    shutdown.await;
-                })?;
-            (socket, Box::pin(server))
+            let listener = tokio::net::TcpListener::from_std(std_listener)
+                .map_err(|e| format!("Failed to bind to socket: {}", e))?;
+
+            let local_socket = listener
+                .local_addr()
+                .map_err(|e| format!("Failed to get local address: {}", e))?;
+
+            let server = axum::serve(listener, router)
+                .with_graceful_shutdown(shutdown)
+                .into_future()
+                .map(|_| ());
+
+            (local_socket, Box::pin(server))
         }
     };
 

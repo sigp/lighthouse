@@ -6,6 +6,7 @@ edition = { workspace = true }
 autotests = false                               # using a single test binary compiles faster
 
 [dependencies]
+axum = { workspace = true }
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }
 bs58 = "0.4.0"
@@ -48,6 +49,7 @@ tree_hash = { workspace = true }
 types = { workspace = true }
 warp = { workspace = true }
 warp_utils = { workspace = true }
+warpdrive = { workspace = true }
 
 [dev-dependencies]
 genesis = { workspace = true }

@@ -59,6 +59,11 @@ use warp::{Filter, reply::Response, sse::Event};
 use warp_utils::reject::convert_rejection;
 use warp_utils::task::blocking_json_task;
 
+use axum::Router;
+use futures::FutureExt;
+use std::future::IntoFuture;
+use warpdrive::WarpService;
+
 #[derive(Debug)]
 pub enum Error {
     Warp(warp::Error),
@@ -155,7 +160,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let use_long_timeouts = config.bn_long_timeouts;
 
     // Configure CORS.
-    let cors_builder = {
+    let warp_cors_builder = {
         let builder = warp::cors()
             .allow_methods(vec!["GET", "POST", "PATCH", "DELETE"])
             .allow_headers(vec!["Content-Type", "Authorization"]);
@@ -1396,20 +1401,36 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
-        .with(cors_builder.build());
+        .with(warp_cors_builder.build())
+        .boxed();
 
-    let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddr::new(config.listen_addr, config.listen_port),
-        async {
-            shutdown.await;
-        },
-    )?;
+    let axum_router = Router::new().fallback_service(WarpService::new(routes));
+
+    let http_socket = SocketAddr::new(config.listen_addr, config.listen_port);
+
+    let std_listener = std::net::TcpListener::bind(http_socket)
+        .map_err(|e| format!("Failed to bind to socket: {}", e))?;
+    std_listener
+        .set_nonblocking(true)
+        .map_err(|e| format!("Failed to set non-blocking: {}", e))?;
+
+    let listener = tokio::net::TcpListener::from_std(std_listener)
+        .map_err(|e| Error::Other(format!("Failed to convert listener: {}", e)))?;
+
+    let local_socket = listener
+        .local_addr()
+        .map_err(|e| format!("Failed to get local address: {}", e))?;
+
+    let server = axum::serve(listener, axum_router)
+        .with_graceful_shutdown(shutdown)
+        .into_future()
+        .map(|_| ());
 
     info!(
-        listen_address = listening_socket.to_string(),
+        listen_address = local_socket.to_string(),
         ?api_token_path,
         "HTTP API started"
     );
 
-    Ok((listening_socket, server))
+    Ok((local_socket, server))
 }
