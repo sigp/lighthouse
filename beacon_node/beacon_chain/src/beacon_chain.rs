@@ -6917,9 +6917,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .and_then(|info| info.earliest_data_column_slot)
             .map(|slot| {
                 let mut epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-                // If the earliest custodied slot isn't the last slot in the epoch
+                // If the earliest custodied slot isn't the first slot in the epoch
                 // The node has only met its custody requirements for the next epoch.
-                if slot < epoch.end_slot(T::EthSpec::slots_per_epoch()) {
+                if slot > epoch.start_slot(T::EthSpec::slots_per_epoch()) {
                     epoch += 1;
                 }
                 epoch

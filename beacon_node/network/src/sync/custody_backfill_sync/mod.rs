@@ -775,7 +775,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         }
 
         while self.skipped_batches.contains(&self.processing_target) {
-            debug!(?self.processing_target, "Skipping batch processing");
             self.skipped_batches.remove(&self.processing_target);
             // Update data column custody info with the skipped batch
             if let Err(e) = self
