@@ -17,7 +17,7 @@ pub mod types;
 use self::mixin::{RequestAccept, ResponseOptional};
 use self::types::{Error as ResponseError, *};
 use ::types::beacon_response::ExecutionOptimisticFinalizedBeaconResponse;
-use derivative::Derivative;
+use educe::Educe;
 use futures::Stream;
 use futures_util::StreamExt;
 use libp2p_identity::PeerId;
@@ -212,10 +212,10 @@ impl Timeouts {
 
 /// A wrapper around `reqwest::Client` which provides convenience methods for interfacing with a
 /// Lighthouse Beacon Node HTTP server (`http_api`).
-#[derive(Clone, Debug, Derivative)]
-#[derivative(PartialEq)]
+#[derive(Clone, Debug, Educe)]
+#[educe(PartialEq)]
 pub struct BeaconNodeHttpClient {
-    #[derivative(PartialEq = "ignore")]
+    #[educe(PartialEq(ignore))]
     client: reqwest::Client,
     server: SensitiveUrl,
     timeouts: Timeouts,

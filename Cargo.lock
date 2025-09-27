@@ -2848,7 +2848,7 @@ dependencies = [
 name = "eth2"
 version = "0.1.0"
 dependencies = [
- "derivative",
+ "educe",
  "either",
  "enr",
  "eth2_keystore",
@@ -8783,7 +8783,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "byteorder",
- "derivative",
+ "educe",
  "ethereum_ssz",
  "ethereum_ssz_derive",
  "filesystem",
@@ -8951,7 +8951,7 @@ dependencies = [
  "arbitrary",
  "beacon_chain",
  "bls",
- "derivative",
+ "educe",
  "ethereum_hashing",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -10134,7 +10134,7 @@ version = "0.1.0"
 dependencies = [
  "bls",
  "deposit_contract",
- "derivative",
+ "educe",
  "eth2_keystore",
  "filesystem",
  "hex",

@@ -9,7 +9,7 @@ default = ["lighthouse"]
 lighthouse = []
 
 [dependencies]
-derivative = { workspace = true }
+educe = { workspace = true }
 either = { workspace = true }
 enr = { version = "0.13.0", features = ["ed25519"] }
 eth2_keystore = { workspace = true }
