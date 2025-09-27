@@ -136,6 +136,7 @@ directory = { path = "common/directory" }
 dirs = "3"
 discv5 = { version = "0.10", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
+educe = "0.6"
 either = "1.9"
 environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }

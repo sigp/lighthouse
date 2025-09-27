@@ -5020,7 +5020,7 @@ dependencies = [
  "arbitrary",
  "c-kzg",
  "criterion",
- "derivative",
+ "educe",
  "ethereum_hashing",
  "ethereum_serde_utils",
  "ethereum_ssz",
