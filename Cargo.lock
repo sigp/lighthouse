@@ -862,7 +862,7 @@ dependencies = [
  "bitvec 1.0.1",
  "bls",
  "criterion",
- "derivative",
+ "educe",
  "eth2",
  "eth2_network_config",
  "ethereum_hashing",

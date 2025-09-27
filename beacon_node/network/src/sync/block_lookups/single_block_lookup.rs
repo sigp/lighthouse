@@ -58,7 +58,7 @@ pub enum LookupRequestError {
 }
 
 #[derive(Educe)]
-#[educe(Debug(bound = "T: BeaconChainTypes"))]
+#[educe(Debug(bound(T: BeaconChainTypes)))]
 pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<T::EthSpec>,

@@ -43,7 +43,7 @@ pub trait TransformPersist {
 #[educe(
     PartialEq,
     Eq,
-    Hash(bound = "T: TransformPersist + std::hash::Hash, E: EthSpec")
+    Hash(bound(T: TransformPersist + std::hash::Hash, E: EthSpec))
 )]
 #[arbitrary(bound = "T: TransformPersist + Arbitrary<'arbitrary>, E: EthSpec")]
 pub struct SigVerifiedOp<T: TransformPersist, E: EthSpec> {
