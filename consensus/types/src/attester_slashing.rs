@@ -43,7 +43,7 @@ use tree_hash_derive::TreeHash;
     arbitrary(bound = "E: EthSpec")
 )]
 #[derive(Debug, Clone, Serialize, Encode, Deserialize, TreeHash, Educe)]
-#[educe(PartialEq, Eq, Hash(bound("E: EthSpec")))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec", untagged)]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
@@ -58,7 +58,7 @@ pub struct AttesterSlashing<E: EthSpec> {
 /// using the `union` behavior for the purposes of persistence on disk. We use a separate
 /// type so that we don't accidentally use this non-spec encoding in consensus objects.
 #[derive(Debug, Clone, Encode, Decode, Educe)]
-#[educe(PartialEq, Eq, Hash(bound("E: EthSpec")))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[ssz(enum_behaviour = "union")]
 pub enum AttesterSlashingOnDisk<E: EthSpec> {
     Base(AttesterSlashingBase<E>),

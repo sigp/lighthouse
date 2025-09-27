@@ -44,7 +44,7 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
     Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe,
 )]
 #[serde(bound = "E: EthSpec")]
-#[educe(PartialEq, Eq, Hash(bound("E: EthSpec")))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]

@@ -27,7 +27,7 @@ pub type ConsolidationRequests<E> =
     Debug, Educe, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 #[serde(bound = "E: EthSpec")]
-#[educe(PartialEq, Eq, Hash(bound("E: EthSpec")))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]
 pub struct ExecutionRequests<E: EthSpec> {
     pub deposits: DepositRequests<E>,

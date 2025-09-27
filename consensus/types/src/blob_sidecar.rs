@@ -54,7 +54,7 @@ impl Ord for BlobIdentifier {
 )]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
-#[educe(PartialEq, Eq, Hash(bound("E: EthSpec")))]
+#[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 pub struct BlobSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: u64,
