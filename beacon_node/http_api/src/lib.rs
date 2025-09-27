@@ -4169,8 +4169,6 @@ pub fn serve<T: BeaconChainTypes>(
                         (effective_epoch).end_slot(T::EthSpec::slots_per_epoch()),
                     ));
 
-                    tracing::info!(?cgc, "THE CGC");
-
                     chain
                         .data_availability_checker
                         .custody_context()

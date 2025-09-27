@@ -12,13 +12,15 @@ use lighthouse_network::{
 use lighthouse_tracing::SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST;
 use logging::crit;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use tracing::{debug, info, info_span, warn};
-use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Slot};
+use tracing::{debug, error, info, info_span, warn};
+use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec};
 
 use crate::sync::{
-    backfill_sync::{ProcessResult, SyncStart},
-    batch::{BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState},
-    batch::{BatchId, ByRangeRequestType},
+    backfill_sync::{BACKFILL_EPOCHS_PER_BATCH, ProcessResult, SyncStart},
+    batch::{
+        BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+        ByRangeRequestType,
+    },
     manager::CustodyBatchProcessResult,
     network_context::{RpcResponseError, SyncNetworkContext},
 };
@@ -82,9 +84,6 @@ pub struct CustodyBackFillSync<T: BeaconChainTypes> {
     /// This is incremented as the chain advances.
     processing_target: BatchId,
 
-    /// The columns we're targeting for download.
-    columns: HashSet<ColumnIndex>,
-
     /// The custody group count we are trying to fulfill up to the DA window.
     /// This is used as an indicator to restart custody backfill sync if the cgc
     /// was changed in the middle of a currently active sync.
@@ -104,6 +103,9 @@ pub struct CustodyBackFillSync<T: BeaconChainTypes> {
 
     /// Batches validated.
     validated_batches: u64,
+
+    /// These are batches that we've skipped because we have no columns to fetch for the epoch.
+    skipped_batches: HashSet<BatchId>,
 
     /// When a custody backfill sync fails, we keep track of whether a new fully synced peer has joined.
     /// This signifies that we are able to attempt to restart a failed chain.
@@ -125,11 +127,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         Self {
             current_start: Epoch::new(0),
             processing_target: Epoch::new(0),
-            columns: HashSet::new(),
             cgc: 0,
             to_be_downloaded: Epoch::new(0),
             last_batch_downloaded: false,
             batches: BTreeMap::new(),
+            skipped_batches: HashSet::new(),
             current_processing_batch: None,
             validated_batches: 0,
             restart_failed_sync: false,
@@ -152,61 +154,52 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// - The earliest data column epoch's custodied columns != previous epoch's custodied columns
     /// - The earliest data column epoch is a finalied epoch
     pub fn should_start_custody_backfill_sync(&mut self) -> bool {
-        if let Some(earliest_data_column_slot) = self
-            .beacon_chain
-            .store
-            .get_data_column_custody_info()
-            .unwrap_or(None)
-            .and_then(|info| info.earliest_data_column_slot)
-        {
-            let earliest_data_column_epoch =
-                earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
+        let Some(earliest_column_epoch) = self.beacon_chain.get_column_da_boundary() else {
+            return false;
+        };
 
-            let custody_context = self
+        let Some(earliest_data_column_epoch) =
+            self.beacon_chain.earliest_custodied_data_column_epoch()
+        else {
+            return false;
+        };
+
+        let missing_columns = self.get_missing_columns_for_epoch(earliest_column_epoch);
+
+        if !missing_columns.is_empty() {
+            let latest_finalized_epoch = self
                 .beacon_chain
-                .data_availability_checker
-                .custody_context();
+                .canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .epoch;
 
-            let current_custodied_columns = custody_context
-                .custody_columns_for_epoch(
-                    Some(earliest_data_column_epoch),
-                    &self.beacon_chain.spec,
-                )
-                .iter()
-                .cloned()
-                .collect::<HashSet<_>>();
-
-            let Some(earliest_column_epoch) = self.beacon_chain.get_column_da_boundary() else {
-                return false;
-            };
-
-            let previous_custodied_columns = custody_context
-                .custody_columns_for_epoch(Some(earliest_column_epoch), &self.beacon_chain.spec)
-                .iter()
-                .cloned()
-                .collect::<HashSet<_>>();
-
-            let missing_columns = current_custodied_columns
-                .difference(&previous_custodied_columns)
-                .cloned()
-                .collect::<HashSet<_>>();
-
-            if !missing_columns.is_empty() {
-                self.columns = missing_columns;
-
-                let latest_finalized_epoch = self
-                    .beacon_chain
-                    .canonical_head
-                    .cached_head()
-                    .finalized_checkpoint()
-                    .epoch;
-
-                // Check that the earliest data column epoch is a finalized epoch.
-                return earliest_data_column_epoch <= latest_finalized_epoch;
-            }
+            // Check that the earliest data column epoch is a finalized epoch.
+            return earliest_data_column_epoch <= latest_finalized_epoch;
         }
 
         false
+    }
+
+    fn restart_sync(&mut self) {
+        // Set state to paused
+        self.set_state(CustodyBackFillState::Pending(
+            "CGC count has changed and custody backfill sync needs to restart".to_string(),
+        ));
+
+        // Remove all batches and active requests.
+        self.batches.clear();
+        self.skipped_batches.clear();
+        self.restart_failed_sync = false;
+
+        // Reset all downloading and processing targets
+        // NOTE: Lets keep validated_batches for posterity
+        self.processing_target = Epoch::new(0);
+        self.to_be_downloaded = Epoch::new(0);
+        self.last_batch_downloaded = false;
+        self.current_processing_batch = None;
+        self.validated_batches = 0;
+        self.cgc = 0;
     }
 
     fn restart_if_required(&mut self) -> bool {
@@ -217,23 +210,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             .custody_group_count_at_head(&self.beacon_chain.spec);
 
         if cgc_at_head != self.cgc {
-            // Set state to paused
-            self.set_state(CustodyBackFillState::Pending(
-                "CGC count has changed and custody backfill sync needs to restart".to_string(),
-            ));
-
-            // Remove all batches and active requests.
-            self.batches.clear();
-            self.restart_failed_sync = false;
-
-            // Reset all downloading and processing targets
-            // NOTE: Lets keep validated_batches for posterity
-            self.processing_target = Epoch::new(0);
-            self.to_be_downloaded = Epoch::new(0);
-            self.last_batch_downloaded = false;
-            self.current_processing_batch = None;
-            self.validated_batches = 0;
-            self.cgc = 0;
+            self.restart_sync();
             return true;
         }
 
@@ -318,15 +295,12 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     }
 
     fn set_start_epoch(&mut self) -> Result<(), CustodyBackfillError> {
-        let earliest_data_column_slot = self
+        let earliest_data_column_epoch = self
             .beacon_chain
-            .store
-            .get_data_column_custody_info()
-            .unwrap_or(None)
-            .and_then(|info| info.earliest_data_column_slot)
-            .unwrap_or(Slot::new(0));
+            .earliest_custodied_data_column_epoch()
+            .unwrap_or(Epoch::new(0));
 
-        self.current_start = earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
+        self.current_start = earliest_data_column_epoch + 1;
         self.processing_target = self.current_start;
         self.to_be_downloaded = self.current_start;
         Ok(())
@@ -386,9 +360,33 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// Creates the next required batch from the chain. If there are no more batches required,
     /// `None` is returned.
     fn include_next_batch(&mut self) -> Option<BatchId> {
-        // Don't request batches before the Fulu fork epoch
-        if let Some(fulu_fork_epoch) = self.beacon_chain.spec.fulu_fork_epoch
-            && self.to_be_downloaded < fulu_fork_epoch
+        let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
+            return None;
+        };
+
+        let mut missing_columns = HashSet::new();
+
+        // Skip all batches (Epochs) that don't have missing columns.
+        for i in Epoch::range_inclusive_rev(self.to_be_downloaded, column_da_boundary) {
+            let current_batch = i;
+            missing_columns = self.get_missing_columns_for_epoch(current_batch);
+
+            if !missing_columns.is_empty() {
+                self.to_be_downloaded = current_batch;
+                break;
+            }
+
+            // This batch is being skipped, insert it into the skipped batches mapping.
+            self.skipped_batches.insert(current_batch);
+
+            if i == column_da_boundary {
+                return None;
+            }
+        }
+
+        // Don't request batches before the column da boundary
+        if let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary()
+            && self.to_be_downloaded < column_da_boundary
         {
             return None;
         }
@@ -418,6 +416,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         }
 
         let batch_id = self.to_be_downloaded;
+
         // this batch could have been included already being an optimistic batch
         match self.batches.entry(batch_id) {
             Entry::Occupied(_) => {
@@ -435,7 +434,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 entry.insert(BatchInfo::new(
                     &batch_id,
                     CUSTODY_BACKFILL_EPOCHS_PER_BATCH,
-                    ByRangeRequestType::Columns(self.columns.clone()),
+                    ByRangeRequestType::Columns(missing_columns),
                 ));
                 if self.would_complete(batch_id) {
                     self.last_batch_downloaded = true;
@@ -446,6 +445,40 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 Some(batch_id)
             }
         }
+    }
+
+    fn get_missing_columns_for_epoch(&self, epoch: Epoch) -> HashSet<ColumnIndex> {
+        let mut missing_columns = HashSet::new();
+        if let Some(earliest_data_column_epoch) =
+            self.beacon_chain.earliest_custodied_data_column_epoch()
+        {
+            let custody_context = self
+                .beacon_chain
+                .data_availability_checker
+                .custody_context();
+
+            let columns_required = custody_context
+                .custody_columns_for_epoch(
+                    Some(earliest_data_column_epoch),
+                    &self.beacon_chain.spec,
+                )
+                .iter()
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            let current_columns_at_epoch = custody_context
+                .custody_columns_for_epoch(Some(epoch), &self.beacon_chain.spec)
+                .iter()
+                .cloned()
+                .collect::<HashSet<_>>();
+
+            missing_columns = columns_required
+                .difference(&current_columns_at_epoch)
+                .cloned()
+                .collect::<HashSet<_>>();
+        }
+
+        missing_columns
     }
 
     /// Processes the batch with the given id.
@@ -671,6 +704,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     self.last_batch_downloaded = false;
                     self.current_processing_batch = None;
                     self.validated_batches = 0;
+                    self.skipped_batches.clear();
                     self.set_state(CustodyBackFillState::Completed);
                     Ok(ProcessResult::SyncCompleted)
                 } else {
@@ -738,6 +772,25 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         // Check if we need to restart custody backfill sync due to a cgc change.
         if self.restart_if_required() {
             return Ok(ProcessResult::Successful);
+        }
+
+        while self.skipped_batches.contains(&self.processing_target) {
+            debug!(?self.processing_target, "Skipping batch processing");
+            self.skipped_batches.remove(&self.processing_target);
+            // Update data column custody info with the skipped batch
+            if let Err(e) = self
+                .beacon_chain
+                .safely_backfill_data_column_custody_info(self.processing_target)
+            {
+                // I can't see a scenario where this could happen, but if we don't
+                // handle this edge case custody backfill sync could be stuck indefinitely.
+                error!(
+                    error=?e,
+                    "Unable to update data column custody info, restarting sync"
+                );
+                self.restart_sync();
+            };
+            self.processing_target -= BACKFILL_EPOCHS_PER_BATCH;
         }
 
         // Find the id of the batch we are going to process.
@@ -875,12 +928,8 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         if self.would_complete(self.current_start) {
             // Check that the data column custody info `earliest_available_slot`
             // is in an epoch that is less than or equal to the current DA boundary
-            let Some(earliest_data_column_slot) = self
-                .beacon_chain
-                .store
-                .get_data_column_custody_info()
-                .unwrap_or(None)
-                .and_then(|info| info.earliest_data_column_slot)
+            let Some(earliest_data_column_epoch) =
+                self.beacon_chain.earliest_custodied_data_column_epoch()
             else {
                 return false;
             };
@@ -889,8 +938,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 return false;
             };
 
-            return earliest_data_column_slot.epoch(T::EthSpec::slots_per_epoch())
-                <= column_da_boundary;
+            return earliest_data_column_epoch <= column_da_boundary;
         }
         false
     }
@@ -947,7 +995,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 Err(e) => match e {
                     crate::sync::network_context::RpcRequestSendError::NoPeer(no_peer) => {
                         // If we are here we have no more synced peers
-                        info!(
+                        debug!(
                             "reason" = format!("insufficient_synced_peers({no_peer:?})"),
                             "Custody sync paused"
                         );

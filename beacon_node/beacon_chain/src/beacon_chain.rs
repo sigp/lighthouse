@@ -6909,6 +6909,71 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
     }
 
+    /// Get the earliest epoch in which the node has met its custody requirements
+    pub fn earliest_custodied_data_column_epoch(&self) -> Option<Epoch> {
+        self.store
+            .get_data_column_custody_info()
+            .unwrap_or(None)
+            .and_then(|info| info.earliest_data_column_slot)
+            .map(|slot| {
+                let mut epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+                // If the earliest custodied slot isn't the last slot in the epoch
+                // The node has only met its custody requirements for the next epoch.
+                if slot < epoch.end_slot(T::EthSpec::slots_per_epoch()) {
+                    epoch += 1;
+                }
+                epoch
+            })
+    }
+
+    /// Safely update data column custody info by ensuring that:
+    /// - cgc values at the updated epoch and the earliest custodied column epoch are equal
+    /// - we are only decrementing the earliest custodied data column epoch by one epoch
+    /// - the new earliest data column slot is set to the last slot in `effective_epoch`.
+    pub fn safely_backfill_data_column_custody_info(
+        &self,
+        effective_epoch: Epoch,
+    ) -> Result<(), Error> {
+        let Some(earliest_data_column_epoch) = self.earliest_custodied_data_column_epoch() else {
+            return Ok(());
+        };
+
+        if effective_epoch >= earliest_data_column_epoch {
+            return Ok(());
+        }
+
+        let cgc_at_effective_epoch = self
+            .data_availability_checker
+            .custody_context()
+            .custody_group_count_at_epoch(effective_epoch, &self.spec);
+
+        let cgc_at_earliest_data_colum_epoch = self
+            .data_availability_checker
+            .custody_context()
+            .custody_group_count_at_epoch(earliest_data_column_epoch, &self.spec);
+
+        let can_update_data_column_custody_info = cgc_at_earliest_data_colum_epoch
+            == cgc_at_effective_epoch
+            && effective_epoch == earliest_data_column_epoch - 1;
+
+        if can_update_data_column_custody_info {
+            self.store.put_data_column_custody_info(Some(
+                effective_epoch.end_slot(T::EthSpec::slots_per_epoch()),
+            ))?;
+        } else {
+            info!(
+                ?cgc_at_effective_epoch,
+                ?cgc_at_earliest_data_colum_epoch,
+                ?effective_epoch,
+                ?earliest_data_column_epoch,
+                "Couldn't update data column custody info"
+            );
+            return Err(Error::FailedColumnCustodyInfoUpdate);
+        }
+
+        Ok(())
+    }
+
     /// The da boundary for custodying columns. It will just be the DA boundary unless we are near the Fulu fork epoch.
     pub fn get_column_da_boundary(&self) -> Option<Epoch> {
         match self.data_availability_boundary() {
