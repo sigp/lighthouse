@@ -6,7 +6,7 @@ use crate::{
     SignedBeaconBlockHeader, Slot,
 };
 use bls::Signature;
-use derivative::Derivative;
+use educe::Educe;
 use kzg::Error as KzgError;
 use kzg::{KzgCommitment, KzgProof};
 use merkle_proof::verify_merkle_proof;
@@ -41,10 +41,10 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
     arbitrary(bound = "E: EthSpec")
 )]
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe,
 )]
 #[serde(bound = "E: EthSpec")]
-#[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[educe(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 #[context_deserialize(ForkName)]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]

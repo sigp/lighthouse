@@ -1,15 +1,15 @@
 use crate::FixedBytesExtended;
 use crate::Hash256;
 use crate::test_utils::TestRandom;
-use derivative::Derivative;
+use educe::Educe;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Derivative)]
-#[derivative(Debug = "transparent")]
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Educe)]
+#[educe(Debug = "transparent")]
 #[serde(transparent)]
 pub struct ExecutionBlockHash(#[serde(with = "serde_utils::b256_hex")] pub Hash256);
 

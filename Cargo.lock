@@ -9890,7 +9890,7 @@ dependencies = [
  "compare_fields_derive",
  "context_deserialize",
  "criterion",
- "derivative",
+ "educe",
  "eth2_interop_keypairs",
  "ethereum_hashing",
  "ethereum_serde_utils",

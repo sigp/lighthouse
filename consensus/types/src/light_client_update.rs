@@ -7,7 +7,7 @@ use crate::{
     LightClientHeaderCapella, LightClientHeaderDeneb, LightClientHeaderFulu,
     LightClientHeaderGloas, SignedBlindedBeaconBlock, beacon_state, test_utils::TestRandom,
 };
-use derivative::Derivative;
+use educe::Educe;
 use safe_arith::ArithError;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -105,15 +105,15 @@ impl From<milhouse::Error> for Error {
         derive(
             Debug,
             Clone,
-            PartialEq,
             Serialize,
             Deserialize,
-            Derivative,
+            Educe,
             Decode,
             Encode,
             TestRandom,
             TreeHash,
         ),
+        educe(PartialEq),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
