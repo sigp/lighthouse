@@ -5,8 +5,9 @@ use crate::attestation_verification::{
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
+use crate::beacon_proposer_cache::{
+    BeaconProposerCache, EpochBlockProposers, ensure_state_can_determine_proposers_for_epoch,
+};
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
@@ -4698,65 +4699,54 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Compute the proposer index.
         let head_epoch = cached_head.head_slot().epoch(T::EthSpec::slots_per_epoch());
-        let shuffling_decision_root = if head_epoch == proposal_epoch {
-            cached_head
-                .snapshot
-                .beacon_state
-                .proposer_shuffling_decision_root(proposer_head)?
-        } else {
-            proposer_head
-        };
-        let cached_proposer = self
-            .beacon_proposer_cache
-            .lock()
-            .get_slot::<T::EthSpec>(shuffling_decision_root, proposal_slot);
-        let proposer_index = if let Some(proposer) = cached_proposer {
-            proposer.index as u64
-        } else {
-            if head_epoch + self.config.sync_tolerance_epochs < proposal_epoch {
-                warn!(
-                    msg = "this is a non-critical issue that can happen on unhealthy nodes or \
-                              networks.",
-                    %proposal_epoch,
-                    %head_epoch,
-                    "Skipping proposer preparation"
-                );
+        let shuffling_decision_root = cached_head
+            .snapshot
+            .beacon_state
+            .proposer_shuffling_decision_root_at_epoch(proposal_epoch, proposer_head, &self.spec)?;
 
-                // Don't skip the head forward more than two epochs. This avoids burdening an
-                // unhealthy node.
-                //
-                // Although this node might miss out on preparing for a proposal, they should still
-                // be able to propose. This will prioritise beacon chain health over efficient
-                // packing of execution blocks.
-                return Ok(None);
+        let Some(proposer_index) = self.with_proposer_cache(
+            shuffling_decision_root,
+            proposal_epoch,
+            |proposers| proposers.get_slot::<T::EthSpec>(proposal_slot).map(|p| p.index as u64),
+            || {
+                if head_epoch + self.config.sync_tolerance_epochs < proposal_epoch {
+                    warn!(
+                        msg = "this is a non-critical issue that can happen on unhealthy nodes or \
+                               networks",
+                        %proposal_epoch,
+                        %head_epoch,
+                        "Skipping proposer preparation"
+                    );
+
+                    // Don't skip the head forward too many epochs. This avoids burdening an
+                    // unhealthy node.
+                    //
+                    // Although this node might miss out on preparing for a proposal, they should
+                    // still be able to propose. This will prioritise beacon chain health over
+                    // efficient packing of execution blocks.
+                    Err(Error::SkipProposerPreparation)
+                } else {
+                    let head = self.canonical_head.cached_head();
+                    Ok((
+                        head.head_state_root(),
+                        head.snapshot.beacon_state.clone(),
+                    ))
+                }
+            },
+        ).map_or_else(|e| {
+            match e {
+                Error::ProposerCacheIncorrectState { .. } => {
+                    warn!("Head changed during proposer preparation");
+                    Ok(None)
+                }
+                Error::SkipProposerPreparation => {
+                    // Warning logged for this above.
+                    Ok(None)
+                }
+                e => Err(e)
             }
-
-            let (proposers, decision_root, _, fork) =
-                compute_proposer_duties_from_head(proposal_epoch, self)?;
-
-            let proposer_offset = (proposal_slot % T::EthSpec::slots_per_epoch()).as_usize();
-            let proposer = *proposers
-                .get(proposer_offset)
-                .ok_or(BeaconChainError::NoProposerForSlot(proposal_slot))?;
-
-            self.beacon_proposer_cache.lock().insert(
-                proposal_epoch,
-                decision_root,
-                proposers,
-                fork,
-            )?;
-
-            // It's possible that the head changes whilst computing these duties. If so, abandon
-            // this routine since the change of head would have also spawned another instance of
-            // this routine.
-            //
-            // Exit now, after updating the cache.
-            if decision_root != shuffling_decision_root {
-                warn!("Head changed during proposer preparation");
-                return Ok(None);
-            }
-
-            proposer as u64
+        }, |value| Ok(Some(value)))? else {
+            return Ok(None);
         };
 
         // Get the `prev_randao` and parent block number.
@@ -4916,14 +4906,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
         let proposing_at_re_org_slot = {
-            // The proposer shuffling has the same decision root as the next epoch attestation
-            // shuffling. We know our re-org block is not on the epoch boundary, so it has the
-            // same proposer shuffling as the head (but not necessarily the parent which may lie
-            // in the previous epoch).
-            let shuffling_decision_root = info
-                .head_node
-                .next_epoch_shuffling_id
-                .shuffling_decision_block;
+            // We know our re-org block is not on the epoch boundary, so it has the same proposer
+            // shuffling as the head (but not necessarily the parent which may lie in the previous
+            // epoch).
+            let shuffling_decision_root = if self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
+                .fulu_enabled()
+            {
+                info.head_node.current_epoch_shuffling_id
+            } else {
+                info.head_node.next_epoch_shuffling_id
+            }
+            .shuffling_decision_block;
             let proposer_index = self
                 .beacon_proposer_cache
                 .lock()
@@ -6556,6 +6551,70 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "per_slot_task_fc_signal_tx",
             );
         }
+    }
+
+    pub fn with_proposer_cache<V, E: From<BeaconChainError> + From<BeaconStateError>>(
+        &self,
+        shuffling_decision_block: Hash256,
+        proposal_epoch: Epoch,
+        accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
+        state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<T::EthSpec>), E>,
+    ) -> Result<V, E> {
+        let cache_entry = self
+            .beacon_proposer_cache
+            .lock()
+            .get_or_insert_key(proposal_epoch, shuffling_decision_block);
+
+        // If the cache entry is not initialised, run the code to initialise it inside a OnceCell.
+        // This prevents duplication of work across multiple threads.
+        //
+        // If it is already initialised, then `get_or_try_init` will return immediately without
+        // executing the initialisation code at all.
+        let epoch_block_proposers = cache_entry.get_or_try_init(|| {
+            debug!(
+                ?shuffling_decision_block,
+                %proposal_epoch,
+                "Proposer shuffling cache miss"
+            );
+
+            // Fetch the state on-demand if the required epoch was missing from the cache.
+            // If the caller wants to not compute the state they must return an error here and then
+            // catch it at the call site.
+            let (state_root, mut state) = state_provider()?;
+
+            // Ensure the state can compute proposer duties for `epoch`.
+            ensure_state_can_determine_proposers_for_epoch(
+                &mut state,
+                state_root,
+                proposal_epoch,
+                &self.spec,
+            )?;
+
+            // Sanity check the state.
+            let latest_block_root = state.get_latest_block_root(state_root);
+            let state_decision_block_root = state.proposer_shuffling_decision_root_at_epoch(
+                proposal_epoch,
+                latest_block_root,
+                &self.spec,
+            )?;
+            if state_decision_block_root != shuffling_decision_block {
+                return Err(Error::ProposerCacheIncorrectState {
+                    state_decision_block_root,
+                    requested_decision_block_root: shuffling_decision_block,
+                }
+                .into());
+            }
+
+            let proposers = state.get_beacon_proposer_indices(proposal_epoch, &self.spec)?;
+            Ok::<_, E>(EpochBlockProposers::new(
+                proposal_epoch,
+                state.fork(),
+                proposers,
+            ))
+        })?;
+
+        // Run the accessor function on the computed epoch proposers.
+        accessor(epoch_block_proposers).map_err(Into::into)
     }
 
     /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
