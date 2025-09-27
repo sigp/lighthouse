@@ -188,7 +188,7 @@ pub trait AbstractExecPayload<E: EthSpec>:
     arbitrary(bound = "E: EthSpec")
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound("E: EthSpec")))]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct FullPayload<E: EthSpec> {
@@ -557,7 +557,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
     arbitrary(bound = "E: EthSpec")
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, TreeHash, Educe)]
-#[educe(PartialEq, Hash(bound("E: EthSpec")))]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct BlindedPayload<E: EthSpec> {

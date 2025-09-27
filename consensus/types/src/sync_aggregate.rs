@@ -29,7 +29,7 @@ impl From<ArithError> for Error {
 #[derive(
     Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe,
 )]
-#[educe(PartialEq, Hash(bound("E: EthSpec")))]
+#[educe(PartialEq, Hash(bound(E: EthSpec)))]
 #[serde(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 pub struct SyncAggregate<E: EthSpec> {
