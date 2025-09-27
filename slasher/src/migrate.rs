@@ -42,6 +42,9 @@ impl<E: EthSpec> SlasherDB<E> {
                         to
                     );
                     self.env.upgrade()?;
+                    let mut txn = self.begin_rw_txn()?;
+                    self.store_schema_version(&mut txn)?;
+                    txn.commit()?;
                     tracing::info!(
                         "Redb SlasherDB schema upgrade to v{} completed successfully",
                         to
@@ -67,6 +70,12 @@ impl<E: EthSpec> SlasherDB<E> {
             "No schema version found, assuming fresh DB at target version v{}",
             CURRENT_SCHEMA_VERSION
         );
+
+        // Store the schema version for future runs
+        let mut txn = self.begin_rw_txn()?;
+        self.store_schema_version(&mut txn)?;
+        txn.commit()?;
+
         Ok(self)
     }
 }
