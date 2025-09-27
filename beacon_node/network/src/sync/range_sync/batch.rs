@@ -116,7 +116,7 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// Whether this batch contains all blocks or all blocks and blobs.
     batch_type: ByRangeRequestType,
     /// Pin the generic
-    #[educe(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     marker: std::marker::PhantomData<B>,
 }
 

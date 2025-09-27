@@ -26,7 +26,7 @@ pub struct Database<'env> {
 #[derive(Educe)]
 #[educe(Debug)]
 pub struct RwTransaction<'env> {
-    #[educe(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     txn: redb::WriteTransaction,
     _phantom: PhantomData<&'env ()>,
 }
@@ -34,7 +34,7 @@ pub struct RwTransaction<'env> {
 #[derive(Educe)]
 #[educe(Debug)]
 pub struct Cursor<'env> {
-    #[educe(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     txn: &'env redb::WriteTransaction,
     db: &'env Database<'env>,
     current_key: Option<Cow<'env, [u8]>>,

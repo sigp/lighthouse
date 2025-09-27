@@ -45,7 +45,7 @@ use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, TreeHashType};
 ///
 /// ```
 #[derive(Clone, Serialize, Deserialize, Educe)]
-#[educe(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
+#[educe(PartialEq, Eq, Hash(bound(T: std::hash::Hash)))]
 #[serde(transparent)]
 pub struct RuntimeVariableList<T> {
     vec: Vec<T>,

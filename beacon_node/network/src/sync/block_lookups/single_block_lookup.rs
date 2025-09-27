@@ -372,7 +372,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 #[derive(Educe)]
 #[educe(Debug)]
 pub struct BlobRequestState<E: EthSpec> {
-    #[educe(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub block_root: Hash256,
     pub state: SingleLookupRequestState<FixedBlobSidecarList<E>>,
 }
@@ -390,7 +390,7 @@ impl<E: EthSpec> BlobRequestState<E> {
 #[derive(Educe)]
 #[educe(Debug)]
 pub struct CustodyRequestState<E: EthSpec> {
-    #[educe(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub block_root: Hash256,
     pub state: SingleLookupRequestState<DataColumnSidecarList<E>>,
 }
@@ -408,7 +408,7 @@ impl<E: EthSpec> CustodyRequestState<E> {
 #[derive(Educe)]
 #[educe(Debug)]
 pub struct BlockRequestState<E: EthSpec> {
-    #[educe(Debug = "ignore")]
+    #[educe(Debug(ignore))]
     pub requested_block_root: Hash256,
     pub state: SingleLookupRequestState<Arc<SignedBeaconBlock<E>>>,
 }

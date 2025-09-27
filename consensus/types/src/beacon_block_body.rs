@@ -72,7 +72,7 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
     arbitrary(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Educe, TreeHash)]
-#[educe(PartialEq, Hash(bound = "E: EthSpec"))]
+#[educe(PartialEq, Hash(bound("E: EthSpec")))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>")]
 #[tree_hash(enum_behaviour = "transparent")]
