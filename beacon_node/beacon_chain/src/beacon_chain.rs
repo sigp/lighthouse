@@ -6929,7 +6929,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Safely update data column custody info by ensuring that:
     /// - cgc values at the updated epoch and the earliest custodied column epoch are equal
     /// - we are only decrementing the earliest custodied data column epoch by one epoch
-    /// - the new earliest data column slot is set to the last slot in `effective_epoch`.
+    /// - the new earliest data column slot is set to the first slot in `effective_epoch`.
     pub fn safely_backfill_data_column_custody_info(
         &self,
         effective_epoch: Epoch,
@@ -6958,7 +6958,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if can_update_data_column_custody_info {
             self.store.put_data_column_custody_info(Some(
-                effective_epoch.end_slot(T::EthSpec::slots_per_epoch()),
+                effective_epoch.start_slot(T::EthSpec::slots_per_epoch()),
             ))?;
         } else {
             info!(
