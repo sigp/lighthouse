@@ -1737,6 +1737,8 @@ fn test_active_requests() {
     })
 }
 
+// Test that when a node receives an invalid BlocksByRange request exceeding the maximum count,
+// it bans the sender.
 #[test]
 fn test_request_too_large_blocks_by_range() {
     let spec = Arc::new(spec_with_all_forks_enabled());
@@ -1764,6 +1766,8 @@ fn test_request_too_large_blocks_by_range() {
     );
 }
 
+// Test that when a node receives an invalid BlobsByRange request exceeding the maximum count,
+// it bans the sender.
 #[test]
 fn test_request_too_large_blobs_by_range() {
     let spec = Arc::new(spec_with_all_forks_enabled());
@@ -1792,6 +1796,8 @@ fn test_request_too_large_blobs_by_range() {
     );
 }
 
+// Test that when a node receives an invalid DataColumnsByRange request exceeding the columns count,
+// it bans the sender.
 #[test]
 fn test_request_too_large_data_columns_by_range() {
     test_request_too_large(
@@ -1876,7 +1882,7 @@ fn test_request_too_large(
                     }
                     NetworkEvent::RPCFailed { error, .. } => {
                         // This variant should be unreachable, as the receiver doesn't respond with an error when a request exceeds the limit.
-                        println!("{:?}", error);
+                        debug!(?error, "RPC failed");
                         unreachable!();
                     }
                     NetworkEvent::PeerDisconnected(peer_id) => {
