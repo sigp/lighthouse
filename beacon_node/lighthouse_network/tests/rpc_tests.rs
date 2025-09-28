@@ -1815,10 +1815,7 @@ fn test_request_too_large_data_columns_by_range() {
     );
 }
 
-fn test_request_too_large(
-    app_request_id: AppRequestId,
-    request: RequestType<E>,
-) {
+fn test_request_too_large(app_request_id: AppRequestId, request: RequestType<E>) {
     // Set up the logging.
     let log_level = "debug";
     let enable_logging = true;
@@ -1868,7 +1865,8 @@ fn test_request_too_large(
                     _ => {}
                 }
             }
-        }.instrument(info_span!("Sender"));
+        }
+        .instrument(info_span!("Sender"));
 
         // Build the receiver future
         let receiver_future = async {
@@ -1878,7 +1876,8 @@ fn test_request_too_large(
                     unreachable!();
                 }
             }
-        }.instrument(info_span!("Receiver"));
+        }
+        .instrument(info_span!("Receiver"));
 
         tokio::select! {
             _ = sender_future => {}
