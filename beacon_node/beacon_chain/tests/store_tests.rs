@@ -1195,14 +1195,18 @@ fn check_shuffling_compatible(
 ///
 /// - ProtoBlock::proposer_shuffling_root_for_child_block, and
 /// - BeaconState::proposer_shuffling_decision_root{_at_epoch}
-async fn proposer_shuffling_root_consistency_test(parent_slot: u64, child_slot: u64) {
+async fn proposer_shuffling_root_consistency_test(
+    spec: ChainSpec,
+    parent_slot: u64,
+    child_slot: u64,
+) {
     let child_slot = Slot::new(child_slot);
     let db_path = tempdir().unwrap();
-    let store = get_store(&db_path);
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
     let harness = TestHarness::builder(MinimalEthSpec)
-        .default_spec()
+        .spec(spec.into())
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
         .mock_execution_layer()
@@ -1268,17 +1272,58 @@ async fn proposer_shuffling_root_consistency_test(parent_slot: u64, child_slot: 
 
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_same_epoch() {
-    proposer_shuffling_root_consistency_test(32, 39).await;
+    let spec = test_spec::<E>();
+    proposer_shuffling_root_consistency_test(spec, 32, 39).await;
 }
 
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_next_epoch() {
-    proposer_shuffling_root_consistency_test(32, 47).await;
+    let spec = test_spec::<E>();
+    proposer_shuffling_root_consistency_test(spec, 32, 47).await;
 }
 
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_two_epochs() {
-    proposer_shuffling_root_consistency_test(32, 55).await;
+    let spec = test_spec::<E>();
+    proposer_shuffling_root_consistency_test(spec, 32, 55).await;
+}
+
+#[tokio::test]
+async fn proposer_shuffling_root_consistency_at_fork_boundary() {
+    let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    spec.fulu_fork_epoch = Some(Epoch::new(4));
+
+    // Parent block in epoch prior to Fulu fork epoch, child block in Fulu fork epoch.
+    proposer_shuffling_root_consistency_test(
+        spec.clone(),
+        3 * E::slots_per_epoch(),
+        4 * E::slots_per_epoch(),
+    )
+    .await;
+
+    // Parent block and child block in Fulu fork epoch.
+    proposer_shuffling_root_consistency_test(
+        spec.clone(),
+        4 * E::slots_per_epoch(),
+        4 * E::slots_per_epoch() + 1,
+    )
+    .await;
+
+    // Parent block in Fulu fork epoch and child block in epoch after.
+    proposer_shuffling_root_consistency_test(
+        spec.clone(),
+        4 * E::slots_per_epoch(),
+        5 * E::slots_per_epoch(),
+    )
+    .await;
+
+    // Parent block in epoch prior and child block in epoch after.
+    proposer_shuffling_root_consistency_test(
+        spec,
+        3 * E::slots_per_epoch(),
+        5 * E::slots_per_epoch(),
+    )
+    .await;
 }
 
 #[tokio::test]

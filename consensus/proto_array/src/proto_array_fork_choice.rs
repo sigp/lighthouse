@@ -172,7 +172,13 @@ impl Block {
     ) -> Hash256 {
         let block_epoch = self.current_epoch_shuffling_id.shuffling_epoch;
 
-        if !spec.fork_name_at_epoch(child_block_epoch).fulu_enabled() {
+        // For child blocks in the Fulu fork epoch itself, we want to use the old logic. There is no
+        // lookahead in the first Fulu epoch. So we check whether Fulu is enabled at
+        // `child_block_epoch - 1`, i.e. whether `child_block_epoch > fulu_fork_epoch`.
+        if !spec
+            .fork_name_at_epoch(child_block_epoch.saturating_sub(1_u64))
+            .fulu_enabled()
+        {
             // Prior to Fulu the proposer shuffling decision root for the current epoch is the same
             // as the attestation shuffling for the *next* epoch, i.e. it is determined at the start
             // of the current epoch.
