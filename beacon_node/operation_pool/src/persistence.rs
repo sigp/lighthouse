@@ -22,10 +22,7 @@ type PersistedSyncContributions<E> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
 #[superstruct(
     variants(V15, V20),
-    variant_attributes(
-        derive(Educe, PartialEq, Debug, Encode, Decode),
-        educe(Clone),
-    ),
+    variant_attributes(derive(Educe, PartialEq, Debug, Encode, Decode), educe(Clone),),
     partial_getter_error(ty = "OpPoolError", expr = "OpPoolError::IncorrectOpPoolVariant")
 )]
 #[derive(PartialEq, Debug, Encode)]

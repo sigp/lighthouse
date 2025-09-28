@@ -40,9 +40,7 @@ pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]
 #[context_deserialize(ForkName)]

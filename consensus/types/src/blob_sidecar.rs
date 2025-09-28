@@ -49,9 +49,7 @@ impl Ord for BlobIdentifier {
     derive(arbitrary::Arbitrary),
     arbitrary(bound = "E: EthSpec")
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Educe)]
 #[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
 #[educe(PartialEq, Eq, Hash(bound(E: EthSpec)))]

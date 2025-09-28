@@ -600,17 +600,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for Vec<Attestation<E>> 
 */
 
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Decode,
-    Encode,
-    TestRandom,
-    Educe,
-    TreeHash,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Decode, Encode, TestRandom, Educe, TreeHash)]
 #[educe(PartialEq)]
 #[context_deserialize(ForkName)]
 pub struct SingleAttestation {
