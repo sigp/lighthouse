@@ -13,6 +13,7 @@ pub enum HistoricalDataColumnError {
     // The provided data column sidecar pertains to a block that doesn't exist in the database.
     NoBlockFound {
         data_column_block_root: Hash256,
+        expected_block_root: Hash256,
     },
 
     /// Logic error: should never occur.
@@ -100,6 +101,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     if block_root != data_column.block_root() {
                         return Err(HistoricalDataColumnError::NoBlockFound {
                             data_column_block_root: data_column.block_root(),
+                            expected_block_root: block_root,
                         });
                     }
                     self.store.data_column_as_kv_store_ops(
@@ -138,7 +140,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.safely_backfill_data_column_custody_info(epoch)
             .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
 
-        debug!(total_imported, "Imported historical data columns");
+        debug!(?epoch, total_imported, "Imported historical data columns");
 
         Ok(total_imported)
     }

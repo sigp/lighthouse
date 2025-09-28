@@ -1,5 +1,6 @@
 use beacon_chain::{
-    block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
+    BeaconChain, BeaconChainTypes, block_verification_types::RpcBlock,
+    data_column_verification::CustodyDataColumn, get_block_root,
 };
 use lighthouse_network::{
     PeerAction, PeerId,
@@ -13,8 +14,8 @@ use std::{
 };
 use tracing::Span;
 use types::{
-    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    Hash256, RuntimeVariableList, SignedBeaconBlock,
+    BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec,
+    Hash256, RuntimeVariableList, SignedBeaconBlock, Slot,
 };
 
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
@@ -59,19 +60,25 @@ enum RangeBlockDataRequest<E: EthSpec> {
     },
 }
 
-pub struct RangeDataColumnBatchRequest<E: EthSpec> {
+pub struct RangeDataColumnBatchRequest<T: BeaconChainTypes> {
     requests: HashMap<
         DataColumnsByRangeRequestId,
-        ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<E>>,
+        ByRangeRequest<DataColumnsByRangeRequestId, DataColumnSidecarList<T::EthSpec>>,
     >,
     /// The column indices corresponding to the request
     column_peers: HashMap<DataColumnsByRangeRequestId, Vec<ColumnIndex>>,
     expected_custody_columns: HashSet<ColumnIndex>,
     attempt: usize,
+    beacon_chain: Arc<BeaconChain<T>>,
+    epoch: Epoch,
 }
 
-impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
-    pub fn new(by_range_requests: Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>) -> Self {
+impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
+    pub fn new(
+        by_range_requests: Vec<(DataColumnsByRangeRequestId, Vec<ColumnIndex>)>,
+        beacon_chain: Arc<BeaconChain<T>>,
+        epoch: Epoch,
+    ) -> Self {
         let requests = by_range_requests
             .clone()
             .into_iter()
@@ -89,6 +96,8 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
             requests,
             column_peers,
             expected_custody_columns,
+            beacon_chain,
+            epoch,
             attempt: 0,
         }
     }
@@ -96,7 +105,7 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
     pub fn add_custody_columns(
         &mut self,
         req_id: DataColumnsByRangeRequestId,
-        columns: Vec<Arc<DataColumnSidecar<E>>>,
+        columns: Vec<Arc<DataColumnSidecar<T::EthSpec>>>,
     ) -> Result<(), String> {
         let req = self
             .requests
@@ -108,14 +117,21 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
     pub fn responses(
         &mut self,
         _spec: &ChainSpec,
-    ) -> Option<Result<DataColumnSidecarList<E>, CouplingError>> {
-        let mut data_columns = vec![];
+    ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, CouplingError>> {
+        let mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList<T::EthSpec>> =
+            HashMap::new();
         let mut column_to_peer_id: HashMap<u64, PeerId> = HashMap::new();
-        for req in self.requests.values() {
-            let Some(data) = req.to_finished() else {
-                return None;
-            };
-            data_columns.extend(data.clone())
+
+        for column in self
+            .requests
+            .values()
+            .filter_map(|req| req.to_finished())
+            .flatten()
+        {
+            received_columns_for_slot
+                .entry(column.slot())
+                .or_default()
+                .push(column.clone());
         }
 
         // Note: this assumes that only 1 peer is responsible for a column
@@ -130,8 +146,8 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
         // requests we made. i.e. `req.to_finished()` returns Some for all requests.
         self.attempt += 1;
 
-        let resp = Self::responses_with_custody_columns(
-            data_columns,
+        let resp = self.responses_with_custody_columns(
+            received_columns_for_slot,
             column_to_peer_id,
             &self.expected_custody_columns,
             self.attempt,
@@ -151,65 +167,97 @@ impl<E: EthSpec> RangeDataColumnBatchRequest<E> {
                 self.requests.retain(|&k, _| k.peer != *peer);
             }
         }
-
         Some(resp)
     }
 
     fn responses_with_custody_columns(
-        data_columns: DataColumnSidecarList<E>,
+        &self,
+        mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList<T::EthSpec>>,
         column_to_peer: HashMap<u64, PeerId>,
         expected_custody_columns: &HashSet<ColumnIndex>,
         attempt: usize,
-    ) -> Result<DataColumnSidecarList<E>, CouplingError> {
+    ) -> Result<DataColumnSidecarList<T::EthSpec>, CouplingError> {
         let mut naughty_peers = vec![];
+        let mut result: DataColumnSidecarList<T::EthSpec> = vec![];
 
-        let mut slots_to_column_indices = data_columns
-            .iter()
-            .map(|col| (col.slot(), expected_custody_columns.clone()))
-            .collect::<HashMap<_, _>>();
+        let forward_blocks_iter = self
+            .beacon_chain
+            .forwards_iter_block_roots_until(
+                self.epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                self.epoch.end_slot(T::EthSpec::slots_per_epoch()),
+            )
+            .map_err(|_| {
+                CouplingError::InternalError("Failed to fetch block root iterator".to_string())
+            })?;
 
-        for data_column in data_columns.iter() {
-            if slots_to_column_indices
-                .remove(&data_column.slot())
-                .is_none()
-            {
-                let Some(naughty_peer) = column_to_peer.get(&data_column.index) else {
-                    return Err(CouplingError::InternalError(format!(
-                        "Internal error, no request made for column {}",
-                        data_column.index
-                    )));
-                };
+        for block_iter_result in forward_blocks_iter {
+            let (block_root, slot) = block_iter_result.map_err(|_| {
+                CouplingError::InternalError("Failed to iterate block roots".to_string())
+            })?;
 
-                naughty_peers.push((data_column.index, naughty_peer));
+            let Some(block) = self
+                .beacon_chain
+                .get_blinded_block(&block_root)
+                .ok()
+                .flatten()
+            else {
+                // The block root we are fetching is from the forwards block root iterator. This doesn't seem like a possible scenario.
+                return Err(CouplingError::InternalError(
+                    "Block root from forwards block iterator not found in db".to_string(),
+                ));
+            };
+
+            let Some(columns) = received_columns_for_slot.remove(&slot) else {
+                // If at least one blob is expected for this slot but none have been served, penalize all peers
+                // The slot check ensures we arent checking a skipped slot.
+                if block.num_expected_blobs() != 0 && block.slot() == slot {
+                    for column in expected_custody_columns {
+                        if let Some(naughty_peer) = column_to_peer.get(column) {
+                            naughty_peers.push((*column, *naughty_peer));
+                        }
+                    }
+                }
+                continue;
+            };
+
+            // If we're at a missed slot, but we received columns for that slot, penalize the peer.
+            if !columns.is_empty() && block.slot() != slot {
+                for column in expected_custody_columns {
+                    if let Some(naughty_peer) = column_to_peer.get(column) {
+                        naughty_peers.push((*column, *naughty_peer));
+                    }
+                }
             }
+
+            let received_columns = columns.iter().map(|c| c.index).collect::<HashSet<_>>();
+
+            let missing_columns = received_columns
+                .difference(expected_custody_columns)
+                .collect::<HashSet<_>>();
+
+            // blobs are expected for this slot but there is at least one missing columns
+            // penalize the peers responsible for those columns.
+            if block.num_expected_blobs() != 0 {
+                for column in missing_columns {
+                    if let Some(naughty_peer) = column_to_peer.get(column) {
+                        naughty_peers.push((*column, *naughty_peer));
+                    };
+                }
+            }
+
+            result.extend(columns);
         }
 
-        if !slots_to_column_indices.is_empty() {
-            let faulty_peers = slots_to_column_indices
-                .iter()
-                .flat_map(|(_, column_indices)| {
-                    column_indices.iter().filter_map(|column_index| {
-                        column_to_peer
-                            .get(column_index)
-                            .map(|faulty_peer| (*column_index, *faulty_peer))
-                    })
-                })
-                .collect::<Vec<_>>();
-
-            tracing::debug!(
-                missing_slots_and_columns = ?slots_to_column_indices,
-                "Missing columns for some slots"
-            );
-
+        if !naughty_peers.is_empty() {
             return Err(CouplingError::DataColumnPeerFailure {
                 error: "Missing columns for some slots".to_string(),
-                faulty_peers,
+                faulty_peers: naughty_peers,
                 action: PeerAction::LowToleranceError,
                 exceeded_retries: attempt >= MAX_COLUMN_RETRIES,
             });
         }
 
-        Ok(data_columns)
+        Ok(result)
     }
 }
 

@@ -459,10 +459,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 let peer_action: Option<PeerAction> = match &e {
                     HistoricalDataColumnError::NoBlockFound {
                         data_column_block_root,
+                        expected_block_root,
                     } => {
                         debug!(
                             error = "no_block_found",
                             ?data_column_block_root,
+                            ?expected_block_root,
                             "Custody backfill batch processing error"
                         );
                         // The peer is faulty if they send blocks with bad roots.

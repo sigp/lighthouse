@@ -221,7 +221,7 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
 
     /// A batch of data columns by range request for custody sync
     custody_backfill_data_column_batch_requests:
-        FnvHashMap<CustodyBackFillBatchRequestId, RangeDataColumnBatchRequest<T::EthSpec>>,
+        FnvHashMap<CustodyBackFillBatchRequestId, RangeDataColumnBatchRequest<T>>,
 
     /// Whether the ee is online. If it's not, we don't allow access to the
     /// `beacon_processor_send`.
@@ -1729,7 +1729,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             })
             .collect::<Vec<_>>();
 
-        let range_data_column_batch_request = RangeDataColumnBatchRequest::new(result);
+        let range_data_column_batch_request =
+            RangeDataColumnBatchRequest::new(result, self.chain.clone(), epoch);
 
         self.custody_backfill_data_column_batch_requests
             .insert(id, range_data_column_batch_request);

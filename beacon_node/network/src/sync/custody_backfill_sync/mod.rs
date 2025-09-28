@@ -379,7 +379,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             // This batch is being skipped, insert it into the skipped batches mapping.
             self.skipped_batches.insert(current_batch);
 
+            info!(?current_batch, "Skipped batch");
+
             if i == column_da_boundary {
+                info!("Are we at da boundary?");
                 return None;
             }
         }
