@@ -1893,7 +1893,7 @@ fn test_request_too_large(
                     _ => {}
                 }
             }
-        };
+        }.instrument(info_span!("Sender"));
 
         // Build the receiver future
         let receiver_future = async {
@@ -1903,7 +1903,7 @@ fn test_request_too_large(
                     unreachable!();
                 }
             }
-        };
+        }.instrument(info_span!("Receiver"));
 
         tokio::select! {
             _ = sender_future => {}
