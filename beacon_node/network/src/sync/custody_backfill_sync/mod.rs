@@ -491,6 +491,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         network: &mut SyncNetworkContext<T>,
         batch_id: BatchId,
     ) -> Result<ProcessResult, CustodyBackfillError> {
+        // Check if we need to restart custody backfill sync due to a recent cgc change
+        if self.restart_if_required() {
+            return Ok(ProcessResult::Successful);
+        }
+
         if self.state() != CustodyBackFillState::Syncing || self.current_processing_batch.is_some()
         {
             return Ok(ProcessResult::Successful);

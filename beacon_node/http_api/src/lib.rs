@@ -4152,8 +4152,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .canonical_head
                         .cached_head()
                         .head_slot()
-                        .epoch(T::EthSpec::slots_per_epoch())
-                        - 2;
+                        .epoch(T::EthSpec::slots_per_epoch());
 
                     let cgc = chain
                         .data_availability_checker
@@ -4168,6 +4167,8 @@ pub fn serve<T: BeaconChainTypes>(
                     let _ = chain.store.put_data_column_custody_info(Some(
                         (effective_epoch).end_slot(T::EthSpec::slots_per_epoch()),
                     ));
+
+                    tracing::info!(?cgc, "Cgc is going to increase plus one");
 
                     chain
                         .data_availability_checker

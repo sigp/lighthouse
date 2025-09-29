@@ -213,17 +213,17 @@ pub enum BatchProcessResult {
     NonFaultyFailure,
 }
 
-/// The result of processing multiple blocks (a chain segment).
+/// The result of processing multiple data columns.
 #[derive(Debug)]
 pub enum CustodyBatchProcessResult {
-    /// The custody batch was completed successfully. It carries whether the sent batch contained blocks.
+    /// The custody batch was completed successfully. It carries whether the sent batch contained data columns.
     Success {
         batch_id: Epoch,
         #[allow(dead_code)]
         sent_columns: usize,
         imported_columns: usize,
     },
-    /// The custody batch processing failed. It carries whether the processing imported any block.
+    /// The custody batch processing failed. It carries whether the processing imported any data columns.
     FaultyFailure {
         batch_id: Epoch,
         penalty: PeerAction,

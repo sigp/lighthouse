@@ -6952,8 +6952,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .custody_context()
             .custody_group_count_at_epoch(earliest_data_column_epoch, &self.spec);
 
-        let can_update_data_column_custody_info = cgc_at_earliest_data_colum_epoch
-            == cgc_at_effective_epoch
+        let can_update_data_column_custody_info = cgc_at_effective_epoch
+            == cgc_at_earliest_data_colum_epoch
             && effective_epoch == earliest_data_column_epoch - 1;
 
         if can_update_data_column_custody_info {
@@ -6961,7 +6961,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 effective_epoch.start_slot(T::EthSpec::slots_per_epoch()),
             ))?;
         } else {
-            info!(
+            debug!(
                 ?cgc_at_effective_epoch,
                 ?cgc_at_earliest_data_colum_epoch,
                 ?effective_epoch,

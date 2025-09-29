@@ -489,10 +489,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         Some(PeerAction::LowToleranceError)
                     }
                     HistoricalDataColumnError::BeaconChainError(e) => {
-                        warn!(
-                            error = ?e,
-                            "Custody ackfill batch processing error",
-                        );
+                        match &**e {
+                            beacon_chain::BeaconChainError::FailedColumnCustodyInfoUpdate => {}
+                            _ => {
+                                warn!(
+                                    error = ?e,
+                                    "Custody backfill batch processing error",
+                                );
+                            }
+                        }
 
                         // This is an interal error, don't penalize the peer
                         None
