@@ -1969,13 +1969,13 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 task_spawner.blocking_response_task(Priority::P1, move || {
                     let versioned_hashes = version_hashes_res?;
-                    let (blobs, execution_optimistic, finalized) =
+                    let response =
                         block_id.get_blobs_by_versioned_hashes(versioned_hashes, &chain)?;
 
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
-                            .body(blobs.as_ssz_bytes().into())
+                            .body(response.data.as_ssz_bytes().into())
                             .map(|res: Response<Body>| add_ssz_content_type_header(res))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
@@ -1984,17 +1984,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 ))
                             }),
                         _ => {
-                            let hex_blobs: Vec<String> = blobs
-                                .iter()
-                                // Serialize the blob string as a hex string
-                                .map(|blob| format!("0x{}", hex::encode(blob.as_ref())))
-                                .collect();
-
                             let res = execution_optimistic_finalized_beacon_response(
                                 ResponseIncludesVersion::No,
-                                execution_optimistic,
-                                finalized,
-                                &hex_blobs,
+                                response.metadata.execution_optimistic.unwrap_or(false),
+                                response.metadata.finalized.unwrap_or(false),
+                                response.data,
                             )?;
                             Ok(warp::reply::json(&res).into_response())
                         }

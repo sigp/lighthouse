@@ -1879,6 +1879,47 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_get_blobs(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+        let num_blobs = block.num_expected_blobs();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        let result = match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(response) => {
+                println!("response is: {:?}", response);
+                response.unwrap().into_data()
+            }
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        assert_eq!(
+            result.len(),
+            versioned_hashes.map_or(num_blobs, |versioned_hashes| versioned_hashes.len())
+        );
+
+        self
+    }
+
     /// Test fetching of blob sidecars that are not available in the database due to pruning.
     ///
     /// If `zero_blobs` is false, test a block with >0 blobs, which should be unavailable.
@@ -7761,6 +7802,10 @@ async fn get_blob_sidecars() {
         .test_get_blob_sidecars(false)
         .await
         .test_get_blob_sidecars(true)
+        .await
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
         .await;
 }
 

@@ -1346,7 +1346,7 @@ impl BeaconNodeHttpClient {
         Ok(path)
     }
 
-    /// Path for `/v/beacon/blobs/{blob_id}`
+    /// Path for `v1/beacon/blobs/{blob_id}`
     pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
@@ -1418,8 +1418,7 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         versioned_hashes: Option<&[Hash256]>,
-        spec: &ChainSpec,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Blob<E>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<Blobs<E>>>>, Error> {
         let mut path = self.get_blobs_path(block_id)?;
         if let Some(hashes) = versioned_hashes {
             let hashes_string = hashes
@@ -1430,13 +1429,10 @@ impl BeaconNodeHttpClient {
             path.query_pairs_mut()
                 .append_pair("versioned_hashes", &hashes_string);
         }
-        self.get_fork_contextual(path, |fork| {
-            // TODO(EIP-7892): this will overestimate the max number of blobs
-            // It would be better if we could get an epoch passed into this function
-            (fork, spec.max_blobs_per_block_within_fork(fork) as usize)
-        })
-        .await
-        .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+
+        self.get_opt(path)
+            .await
+            .map(|opt| opt.map(BeaconResponse::Unversioned))
     }
 
     /// `GET v1/beacon/blinded_blocks/{block_id}`

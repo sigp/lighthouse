@@ -4,14 +4,15 @@ use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
-use eth2::types::{BlobIndicesQuery, BlobsVersionedHashesQuery};
+use eth2::types::{BlobIndicesQuery, Blobs, BlobsVersionedHashesQuery};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    Blob, BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot,
+    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
+    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, UnversionedResponse,
+    beacon_response::ExecutionOptimisticFinalizedMetadata,
 };
 use warp::Rejection;
 
@@ -358,7 +359,10 @@ impl BlockId {
         &self,
         query: BlobsVersionedHashesQuery,
         chain: &BeaconChain<T>,
-    ) -> Result<(Vec<Blob<T::EthSpec>>, ExecutionOptimistic, Finalized), warp::Rejection> {
+    ) -> Result<
+        UnversionedResponse<Vec<Blobs<T::EthSpec>>, ExecutionOptimisticFinalizedMetadata>,
+        warp::Rejection,
+    > {
         let (root, execution_optimistic, finalized) = self.root(chain)?;
         let block = BlockId::blinded_block_by_root(&root, chain)?.ok_or_else(|| {
             warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
@@ -392,7 +396,9 @@ impl BlockId {
                     // Compute versioned hash from KZG commitment
                     let versioned_hash = kzg_commitment_to_versioned_hash(&sidecar.kzg_commitment);
                     if hashes.contains(&versioned_hash) {
-                        Some(sidecar.blob.clone())
+                        Some(Blobs::<T::EthSpec> {
+                            blob: sidecar.blob.clone(),
+                        })
                     } else {
                         None
                     }
@@ -402,11 +408,19 @@ impl BlockId {
             // Return all blobs if no version_hashes is provided
             blob_sidecar_list
                 .into_iter()
-                .map(|sidecar| sidecar.blob.clone())
+                .map(|sidecar| Blobs::<T::EthSpec> {
+                    blob: sidecar.blob.clone(),
+                })
                 .collect()
         };
 
-        Ok((blobs, execution_optimistic, finalized))
+        Ok(UnversionedResponse {
+            metadata: ExecutionOptimisticFinalizedMetadata {
+                execution_optimistic: Some(execution_optimistic),
+                finalized: Some(finalized),
+            },
+            data: blobs,
+        })
     }
 
     fn get_blobs<T: BeaconChainTypes>(

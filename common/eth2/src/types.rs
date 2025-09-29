@@ -2324,6 +2324,14 @@ pub struct StandardAttestationRewards {
     pub total_rewards: Vec<TotalAttestationRewards>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
+#[serde(bound = "E: EthSpec")]
+#[serde(transparent)]
+pub struct Blobs<E: EthSpec> {
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
+    pub blob: Blob<E>,
+}
+
 #[cfg(test)]
 mod test {
     use std::fmt::Debug;
