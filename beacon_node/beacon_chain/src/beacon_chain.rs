@@ -6562,9 +6562,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///   shuffling decision roots, e.g. `BeaconState::proposer_shuffling_decision_root_at_epoch`.
     /// - `proposal_epoch`: The epoch at which the proposer shuffling is required.
     /// - `accessor`: A closure to run against the proposers for the selected epoch. Usually this
-    ///    closure just grabs a single proposer, or takes the vec of proposers for the epoch.
+    ///   closure just grabs a single proposer, or takes the vec of proposers for the epoch.
     /// - `state_provider`: A closure to compute a state suitable for determining the shuffling.
-    ///    This closure is evaluated lazily ONLY in the case
+    ///   This closure is evaluated lazily ONLY in the case
     ///
     /// This function makes use of closures in order to efficiently handle concurrent accesses to
     /// the cache.
