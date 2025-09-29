@@ -294,10 +294,7 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
         let path = info.path();
         let method = info.method().to_string();
 
-        if status == StatusCode::OK
-            || status == StatusCode::NOT_FOUND
-            || status == StatusCode::PARTIAL_CONTENT
-        {
+        if status.is_success() {
             debug!(
                 elapsed_ms = %elapsed,
                 status = %status,

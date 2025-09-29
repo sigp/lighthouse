@@ -1,7 +1,5 @@
-use crate::beacon_proposer_cache::EpochBlockProposers;
 use crate::block_verification::{
-    BlockSlashInfo, cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache,
-    process_block_slash_info,
+    BlockSlashInfo, get_validator_pubkey_cache, process_block_slash_info,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{ObservationStrategy, Observe};
@@ -641,65 +639,34 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
     let block_root = data_column.block_root();
     let block_parent_root = data_column.block_parent_root();
 
-    let proposer_shuffling_root = if parent_block.slot.epoch(slots_per_epoch) == column_epoch {
-        parent_block
-            .next_epoch_shuffling_id
-            .shuffling_decision_block
-    } else {
-        parent_block.root
-    };
+    let proposer_shuffling_root =
+        parent_block.proposer_shuffling_root_for_child_block(column_epoch, &chain.spec);
 
-    // We lock the cache briefly to get or insert a OnceCell, then drop the lock
-    // before doing proposer shuffling calculation via `OnceCell::get_or_try_init`. This avoids
-    // holding the lock during the computation, while still ensuring the result is cached and
-    // initialised only once.
-    //
-    // This approach exposes the cache internals (`OnceCell` & `EpochBlockProposers`)
-    //  as a trade-off for avoiding lock contention.
-    let epoch_proposers_cell = chain
-        .beacon_proposer_cache
-        .lock()
-        .get_or_insert_key(column_epoch, proposer_shuffling_root);
-
-    let epoch_proposers = epoch_proposers_cell.get_or_try_init(move || {
-        debug!(
-            %block_root,
-            index = %column_index,
-            "Proposer shuffling cache miss for column verification"
-        );
-        let (parent_state_root, mut parent_state) = chain
-            .store
-            .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
-            .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
-            .ok_or_else(|| {
-                BeaconChainError::DBInconsistent(format!(
-                    "Missing state for parent block {block_parent_root:?}",
-                ))
-            })?;
-
-        let state = cheap_state_advance_to_obtain_committees::<_, GossipDataColumnError>(
-            &mut parent_state,
-            Some(parent_state_root),
-            column_slot,
-            &chain.spec,
-        )?;
-
-        let epoch = state.current_epoch();
-        let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
-        // Prime the proposer shuffling cache with the newly-learned value.
-        Ok::<_, GossipDataColumnError>(EpochBlockProposers {
-            epoch: column_epoch,
-            fork: state.fork(),
-            proposers: proposers.into(),
-        })
-    })?;
-
-    let proposer_index = *epoch_proposers
-        .proposers
-        .get(column_slot.as_usize() % slots_per_epoch as usize)
-        .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
-
-    let fork = epoch_proposers.fork;
+    let proposer = chain.with_proposer_cache(
+        proposer_shuffling_root,
+        column_epoch,
+        |proposers| proposers.get_slot::<T::EthSpec>(column_slot),
+        || {
+            debug!(
+                %block_root,
+                index = %column_index,
+                "Proposer shuffling cache miss for column verification"
+            );
+            chain
+                .store
+                .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
+                .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
+                .ok_or_else(|| {
+                    GossipDataColumnError::BeaconChainError(Box::new(
+                        BeaconChainError::DBInconsistent(format!(
+                            "Missing state for parent block {block_parent_root:?}",
+                        )),
+                    ))
+                })
+        },
+    )?;
+    let proposer_index = proposer.index;
+    let fork = proposer.fork;
 
     // Signature verify the signed block header.
     let signature_is_valid = {

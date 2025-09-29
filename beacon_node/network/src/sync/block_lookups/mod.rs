@@ -59,7 +59,7 @@ mod single_block_lookup;
 /// reaches the maximum depth it will force trigger range sync.
 pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE;
 
-const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
+const IGNORED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
 
 /// Maximum time we allow a lookup to exist before assuming it is stuck and will never make
@@ -110,8 +110,10 @@ enum Action {
 }
 
 pub struct BlockLookups<T: BeaconChainTypes> {
-    /// A cache of failed chain lookups to prevent duplicate searches.
-    failed_chains: LRUTimeCache<Hash256>,
+    /// A cache of block roots that must be ignored for some time to prevent useless searches. For
+    /// example if a chain is too long, its lookup chain is dropped, and range sync is expected to
+    /// eventually sync those blocks
+    ignored_chains: LRUTimeCache<Hash256>,
 
     // TODO: Why not index lookups by block_root?
     single_block_lookups: FnvHashMap<SingleLookupId, SingleBlockLookup<T>>,
@@ -128,21 +130,21 @@ pub(crate) type BlockLookupSummary = (Id, Hash256, Option<Hash256>, Vec<PeerId>)
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new() -> Self {
         Self {
-            failed_chains: LRUTimeCache::new(Duration::from_secs(
-                FAILED_CHAINS_CACHE_EXPIRY_SECONDS,
+            ignored_chains: LRUTimeCache::new(Duration::from_secs(
+                IGNORED_CHAINS_CACHE_EXPIRY_SECONDS,
             )),
             single_block_lookups: Default::default(),
         }
     }
 
     #[cfg(test)]
-    pub(crate) fn insert_failed_chain(&mut self, block_root: Hash256) {
-        self.failed_chains.insert(block_root);
+    pub(crate) fn insert_ignored_chain(&mut self, block_root: Hash256) {
+        self.ignored_chains.insert(block_root);
     }
 
     #[cfg(test)]
-    pub(crate) fn get_failed_chains(&mut self) -> Vec<Hash256> {
-        self.failed_chains.keys().cloned().collect()
+    pub(crate) fn get_ignored_chains(&mut self) -> Vec<Hash256> {
+        self.ignored_chains.keys().cloned().collect()
     }
 
     #[cfg(test)]
@@ -184,7 +186,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.search_parent_of_child(parent_root, block_root, &[peer_id], cx);
         // Only create the child lookup if the parent exists
         if parent_lookup_exists {
-            // `search_parent_of_child` ensures that parent root is not a failed chain
+            // `search_parent_of_child` ensures that the parent lookup exists so we can safely wait for it
             self.new_current_lookup(
                 block_root,
                 Some(block_component),
@@ -244,8 +246,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 debug!(block_root = ?block_root_to_search, "Parent lookup chain too long");
 
                 // Searching for this parent would extend a parent chain over the max
-                // Insert the tip only to failed chains
-                self.failed_chains.insert(parent_chain.tip);
+                // Insert the tip only to chains to ignore
+                self.ignored_chains.insert(parent_chain.tip);
 
                 // Note: Drop only the chain that's too long until it merges with another chain
                 // that's not too long. Consider this attack: there's a chain of valid unknown
@@ -330,12 +332,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        // If this block or it's parent is part of a known failed chain, ignore it.
-        if self.failed_chains.contains(&block_root) {
-            debug!(?block_root, "Block is from a past failed chain. Dropping");
-            for peer_id in peers {
-                cx.report_peer(*peer_id, PeerAction::MidToleranceError, "failed_chain");
-            }
+        // If this block or it's parent is part of a known ignored chain, ignore it.
+        if self.ignored_chains.contains(&block_root) {
+            debug!(?block_root, "Dropping lookup for block marked ignored");
             return false;
         }
 

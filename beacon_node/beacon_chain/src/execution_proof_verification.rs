@@ -11,11 +11,10 @@ use std::time::Duration;
 use crate::BeaconChainError;
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::execution_proof_generation;
-use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
+use crate::observed_data_sidecars::{ObservationStrategy, Observe};
 use slot_clock::SlotClock;
-use tracing::debug;
 use types::execution_proof_subnet_id::ExecutionProofSubnetId;
-use types::{EthSpec, ExecutionProof, Hash256, Slot};
+use types::{ExecutionProof, Hash256, Slot};
 
 /// An error occurred while validating a gossip execution proof.
 #[derive(Debug)]
@@ -37,12 +36,12 @@ pub enum GossipExecutionProofError {
     /// The execution proof is structurally invalid.
     InvalidStructure { reason: String },
     /// Some other error occurred.
-    BeaconChainError(BeaconChainError),
+    BeaconChainError(Box<BeaconChainError>),
 }
 
 impl From<BeaconChainError> for GossipExecutionProofError {
     fn from(e: BeaconChainError) -> Self {
-        Self::BeaconChainError(e)
+        Self::BeaconChainError(e.into())
     }
 }
 
@@ -161,7 +160,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedExecutionProof<T
 fn validate_execution_proof_for_gossip<T: BeaconChainTypes, O: ObservationStrategy>(
     proof: Arc<ExecutionProof>,
     subnet_id: ExecutionProofSubnetId,
-    chain: &BeaconChain<T>,
+    _chain: &BeaconChain<T>,
 ) -> Result<(), GossipExecutionProofError> {
     // Check subnet ID matches
     if proof.subnet_id != subnet_id {
@@ -179,7 +178,9 @@ fn validate_execution_proof_for_gossip<T: BeaconChainTypes, O: ObservationStrate
     }
 
     // TODO: Add timing validation based on slot
-    // TODO: Add duplicate proof detection
+    if O::observe() {
+        // TODO: Add duplicate proof detection
+    }
     // TODO: Add block existence validation
 
     Ok(())

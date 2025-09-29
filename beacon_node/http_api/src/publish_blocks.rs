@@ -3,7 +3,7 @@ use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::execution_proof_network;
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
@@ -29,10 +29,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
-    AbstractExecPayload, BeaconBlockRef, BeaconStateError, BlobSidecar, BlobsList,
-    BlockImportSource, DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash,
-    ExecutionPayload, ForkName, FullPayload, FullPayloadBellatrix, FullPayloadRef, Hash256,
-    KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
+    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
+    FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
 };
 use warp::http::StatusCode;
 use warp::{Rejection, Reply, reply::Response};
@@ -444,7 +443,7 @@ fn build_data_columns<T: BeaconChainTypes>(
             error!(
                 error = ?e,
                 %slot,
-                "Invalid data column - not publishing block"
+                "Invalid data column - not publishing data columns"
             );
             warp_utils::reject::custom_bad_request(format!("{e:?}"))
         })?;

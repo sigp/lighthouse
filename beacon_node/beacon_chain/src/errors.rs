@@ -231,6 +231,23 @@ pub enum BeaconChainError {
     },
     FailedToReconstructBlobs(String),
     ExecutionProofError(String),
+    ProposerCacheIncorrectState {
+        state_decision_block_root: Hash256,
+        requested_decision_block_root: Hash256,
+    },
+    ProposerCacheAccessorFailure {
+        decision_block_root: Hash256,
+        proposal_epoch: Epoch,
+    },
+    ProposerCacheOutOfBounds {
+        slot: Slot,
+        epoch: Epoch,
+    },
+    ProposerCacheWrongEpoch {
+        request_epoch: Epoch,
+        cache_epoch: Epoch,
+    },
+    SkipProposerPreparation,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

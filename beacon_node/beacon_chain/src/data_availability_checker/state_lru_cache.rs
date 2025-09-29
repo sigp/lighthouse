@@ -10,7 +10,6 @@ use state_processing::BlockReplayer;
 use std::sync::Arc;
 use store::OnDiskConsensusContext;
 use tracing::{Span, debug_span, instrument};
-use types::beacon_block_body::KzgCommitments;
 use types::{BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock};
 
 /// This mirrors everything in the `AvailabilityPendingExecutedBlock`, except
@@ -41,15 +40,6 @@ impl<E: EthSpec> DietAvailabilityPendingExecutedBlock<E> {
             .body()
             .blob_kzg_commitments()
             .map_or(0, |commitments| commitments.len())
-    }
-
-    pub fn get_commitments(&self) -> KzgCommitments<E> {
-        self.as_block()
-            .message()
-            .body()
-            .blob_kzg_commitments()
-            .cloned()
-            .unwrap_or_default()
     }
 
     /// Returns the epoch corresponding to `self.slot()`.

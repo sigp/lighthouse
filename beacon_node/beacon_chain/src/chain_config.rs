@@ -91,8 +91,6 @@ pub struct ChainConfig {
     /// Nodes that have this enabled will be used to bootstrap proofs into the subnets,
     /// whether they are a proposer or not.
     pub generate_execution_proofs: bool,
-    /// Maximum number of execution payload proofs to store in memory.
-    pub max_execution_payload_proofs: usize,
     /// Maximum number of execution proof subnets this node will participate in.
     ///
     /// This is a per-node configuration that must not exceed the protocol maximum
@@ -116,6 +114,8 @@ pub struct ChainConfig {
     /// If using a weak-subjectivity sync, whether we should download blocks all the way back to
     /// genesis.
     pub genesis_backfill: bool,
+    /// EXPERIMENTAL: backfill blobs and data columns beyond the data availability window.
+    pub complete_blob_backfill: bool,
     /// Whether to send payload attributes every slot, regardless of connected proposers.
     ///
     /// This is useful for block builders and testing.
@@ -174,11 +174,11 @@ impl Default for ChainConfig {
             optimistic_finalized_sync: true,
             stateless_validation: false,
             generate_execution_proofs: false,
-            max_execution_payload_proofs: 10_000,
             max_execution_proof_subnets: 8,
             stateless_min_proofs_required: 1,
             shuffling_cache_size: crate::shuffling_cache::DEFAULT_CACHE_SIZE,
             genesis_backfill: false,
+            complete_blob_backfill: false,
             always_prepare_payload: false,
             epochs_per_migration: crate::migrate::DEFAULT_EPOCHS_PER_MIGRATION,
             enable_light_client_server: true,
