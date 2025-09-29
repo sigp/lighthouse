@@ -43,7 +43,7 @@ struct PeerSubnetInfo<E: EthSpec> {
     attestation_subnets: HashSet<SubnetId>,
     sync_committees: HashSet<SyncSubnetId>,
     custody_subnets: HashSet<DataColumnSubnetId>,
-    // TODO: handle this properly
+    // TODO(zkproofs): handle this properly
     execution_proof_subnets: HashSet<ExecutionProofSubnetId>,
 }
 

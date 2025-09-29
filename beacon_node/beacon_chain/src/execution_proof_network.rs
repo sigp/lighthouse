@@ -119,12 +119,12 @@ pub fn spawn_proof_generation_task_with_publishing<T, F>(
 
 /// Get configured proof subnets for this node
 pub fn get_configured_proof_subnets<T: BeaconChainTypes>(chain: &Arc<BeaconChain<T>>) -> Vec<u64> {
-    // TODO: For now, the node will generate proofs for all available subnets.
-    // TODO: In the future, they should be able to configure this for proofs
-    // TODO: they can generate for. Mainly for altruistic nodes that want to
-    // TODO: seed the network.
-    // TODO(question): Check if there are any assumptions on the proof being deterministic
-    // TODO: ie whether its okay that two nodes generate two valid proofs for the same payload.
+    // TODO(zkproofs): For now, the node will generate proofs for all available subnets. In the
+    // future, they should be able to configure this for proofs they can generate for. Mainly for
+    // altruistic nodes that want to seed the network.
+    //
+    // TODO(zkproofs): Check if there are any assumptions on the proof being deterministic ie
+    // whether its okay that two nodes generate two valid proofs for the same payload.
     if chain.config.generate_execution_proofs {
         (0..types::execution_proof_subnet_id::MAX_EXECUTION_PROOF_SUBNETS).collect()
     } else {

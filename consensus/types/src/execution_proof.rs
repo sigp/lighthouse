@@ -49,12 +49,10 @@ impl ExecutionProof {
 
     /// Check if this proof version is supported
     pub fn is_version_supported(&self) -> bool {
-        // TODO: We want each subnet to be able to update
-        // TODO: their version independently, for now it just supports 1
-        // TODO: Think of the best structure to use here, noting that there
-        // TODO: could be quite a lot of subnets, if we consider the different
-        // TODO: zkVM and EL combos. So maybe the versioning comes from the
-        // TODO: middleware that verifies proofs.
+        // TODO(zkproofs): We want each subnet to be able to update their version independently,
+        // for now it just supports 1. Think of the best structure to use here, noting that there
+        // could be quite a lot of subnets, if we consider the different zkVM and EL combos. So
+        // maybe the versioning comes from the middleware that verifies proofs.
         matches!(self.version, 1)
     }
 

@@ -210,11 +210,11 @@ impl<E: EthSpec> PendingComponents<E> {
         &mut self,
         execution_proofs: I,
     ) {
-        for vproof in execution_proofs {
-            let subnet_id = vproof.as_proof().subnet_id;
+        for execution_proof in execution_proofs {
+            let subnet_id = execution_proof.as_proof().subnet_id;
             self.verified_execution_proofs
                 .entry(subnet_id)
-                .or_insert(vproof);
+                .or_insert(execution_proof);
         }
     }
 
@@ -320,10 +320,28 @@ impl<E: EthSpec> PendingComponents<E> {
         };
 
         // Check execution proof requirements
-        let proof_data =
-            self.check_proof_availability(spec, block, min_execution_proofs_required)?;
-        let Some(proof_data) = proof_data else {
-            return Ok(None); // Missing execution proofs
+        let proof_data = if let Some(num_expected_proofs) = min_execution_proofs_required {
+            // TODO(zkproofs): consider waving the proofs requirements during sync
+            let num_received_proofs = self.verified_execution_proofs.len();
+            match num_received_proofs.cmp(&num_expected_proofs) {
+                Ordering::Greater | Ordering::Equal => {
+                    // More proofs than required (fine), we have enough proofs to mark the block as
+                    // validated
+                    ImportableProofData::Proofs(
+                        self.verified_execution_proofs
+                            .values()
+                            .map(|vp| vp.clone().into_inner())
+                            .collect(),
+                    )
+                }
+                Ordering::Less => {
+                    // Execution proofs are required but we don't have enough yet
+                    return Ok(None);
+                }
+            }
+        } else {
+            // Node not configured for execution proof requirements
+            ImportableProofData::NoneRequired
         };
 
         // Block is available, construct `AvailableExecutedBlock`
@@ -343,20 +361,20 @@ impl<E: EthSpec> PendingComponents<E> {
         let AvailabilityPendingExecutedBlock {
             block,
             import_data,
-            payload_verification_outcome,
+            mut payload_verification_outcome,
         } = recover(*block.clone(), &self.span)?;
 
         // If execution proofs were required and are now present, upgrade the payload
         // verification status to Verified so fork choice reflects proof-backed validity.
-        let payload_verification_outcome = match &proof_data {
+        match &proof_data {
+            // TODO(zkproofs): we should persist the proofs in the DB if they must be served over
+            // RPC for other nodes to sync.
             ImportableProofData::Proofs(_) => {
-                let mut outcome = payload_verification_outcome.clone();
-                outcome.payload_verification_status =
+                payload_verification_outcome.payload_verification_status =
                     fork_choice::PayloadVerificationStatus::Verified;
-                outcome
             }
-            ImportableProofData::NoneRequired => payload_verification_outcome,
-        };
+            ImportableProofData::NoneRequired => {}
+        }
 
         let available_block = AvailableBlock {
             block_root: self.block_root,
@@ -375,60 +393,6 @@ impl<E: EthSpec> PendingComponents<E> {
             import_data,
             payload_verification_outcome,
         )))
-    }
-
-    /// Check execution proof availability
-    ///
-    /// TODO: Currently uses DA epoch to determine if proofs should be allowed
-    /// TODO: availability here might be confusing because it uses the literal meaning "available"
-    /// TODO: whereas its not the same data availability
-    fn check_proof_availability(
-        &self,
-        spec: &Arc<ChainSpec>,
-        block: &DietAvailabilityPendingExecutedBlock<E>,
-        min_execution_proofs_required: Option<usize>,
-    ) -> Result<Option<ImportableProofData>, AvailabilityCheckError> {
-        // Check DA boundary like blobs/columns do
-        let current_epoch = block.epoch();
-        let da_boundary = spec.min_epoch_data_availability_boundary(current_epoch);
-        let within_da_boundary = da_boundary.is_some_and(|da_epoch| block.epoch() >= da_epoch);
-
-        if !within_da_boundary {
-            // Historical block outside DA boundary - no execution proofs required (allows sync)
-            return Ok(Some(ImportableProofData::NoneRequired));
-        }
-
-        let Some(num_expected_proofs) = min_execution_proofs_required else {
-            // Node not configured for execution proof requirements
-            return Ok(Some(ImportableProofData::NoneRequired));
-        };
-
-        let num_received_proofs = self.verified_execution_proofs.len();
-
-        match num_received_proofs.cmp(&num_expected_proofs) {
-            Ordering::Greater => {
-                // More proofs than required (fine)
-                Ok(Some(ImportableProofData::Proofs(
-                    self.verified_execution_proofs
-                        .values()
-                        .map(|vp| vp.clone().into_inner())
-                        .collect(),
-                )))
-            }
-            Ordering::Equal => {
-                // Exact number of proofs required
-                Ok(Some(ImportableProofData::Proofs(
-                    self.verified_execution_proofs
-                        .values()
-                        .map(|vp| vp.clone().into_inner())
-                        .collect(),
-                )))
-            }
-            Ordering::Less => {
-                // Not enough execution proofs yet
-                Ok(None)
-            }
-        }
     }
 
     /// Returns an empty `PendingComponents` object with the given block root.
@@ -686,6 +650,10 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         execution_proofs: I,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut execution_proofs = execution_proofs.into_iter().peekable();
+
+        // TODO(zkproofs): Re-write in the style of put_kzg_verified_data_columns once either:
+        // - We don't need the `epoch` argument for `update_or_insert_pending_components` or
+        // - The ExecutionProof includes the block slot
 
         let Some(epoch) = execution_proofs.peek().and_then(|_proof| {
             // Try to determine epoch from existing cached block if available

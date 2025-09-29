@@ -191,8 +191,6 @@ where
             Kzg::new_from_trusted_setup_no_precomp(&config.trusted_setup).map_err(kzg_err_msg)?
         };
 
-        // Channel for locally generated execution proofs
-
         let builder = BeaconChainBuilder::new(eth_spec_instance, Arc::new(kzg))
             .store(store)
             .task_executor(context.executor.clone())

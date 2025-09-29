@@ -463,8 +463,8 @@ where
 
     // Check for stateless validation mode
     if chain.config.stateless_validation {
-        // TODO: We could return an empty payload here until we hook up mev-boost
-        eprintln!(
+        // TODO(zkproofs): We could return an empty payload here until we hook up mev-boost
+        debug!(
             "ERROR: Cannot produce blocks in stateless validation mode - no execution layer attached. \
             TODO: Use MEV-boost for block production in stateless validation mode."
         );

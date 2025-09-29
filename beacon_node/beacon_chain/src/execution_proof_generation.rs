@@ -12,7 +12,7 @@ use types::{
 
 /// Generate a proof for an execution payload
 ///
-/// TODO: Currently generates dummy proofs. Will be replaced with actual proof generation
+/// TODO(zkproofs): Currently generates dummy proofs. Will be replaced with actual proof generation
 /// from zkVMs or other proof systems.
 ///
 /// This accepts the concrete ExecutionPayload<E> type which is what the EL expects
@@ -59,7 +59,7 @@ pub async fn generate_proof<T: EthSpec>(
 
 /// Validate a proof (placeholder implementation)
 ///
-/// TODO: Implement actual cryptographic proof validation based on version and type
+/// TODO(zkproofs): Implement actual cryptographic proof validation based on version and type
 pub fn validate_proof(proof: &ExecutionProof) -> bool {
     // Placeholder validation - in reality this would verify cryptographic proofs
     // based on both proof_id and version
