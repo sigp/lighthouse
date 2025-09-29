@@ -200,7 +200,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)?;
 
     let dependent_root = state
-        .proposer_shuffling_decision_root(head_block_root, &chain.spec)
+        .proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root, &chain.spec)
         .map_err(BeaconChainError::from)?;
 
     Ok((indices, dependent_root, execution_status, state.fork()))
