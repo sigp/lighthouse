@@ -1273,19 +1273,34 @@ async fn proposer_shuffling_root_consistency_test(
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_same_epoch() {
     let spec = test_spec::<E>();
-    proposer_shuffling_root_consistency_test(spec, 32, 39).await;
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        5 * E::slots_per_epoch() - 1,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_next_epoch() {
     let spec = test_spec::<E>();
-    proposer_shuffling_root_consistency_test(spec, 32, 47).await;
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        6 * E::slots_per_epoch() - 1,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_two_epochs() {
     let spec = test_spec::<E>();
-    proposer_shuffling_root_consistency_test(spec, 32, 55).await;
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        7 * E::slots_per_epoch() - 1,
+    )
+    .await;
 }
 
 #[tokio::test]

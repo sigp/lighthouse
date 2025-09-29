@@ -6553,6 +6553,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// This function provides safe and efficient multi-threaded access to the beacon proposer cache.
+    ///
+    /// The arguments are:
+    ///
+    /// - `shuffling_decision_block`: The block root of the decision block for the desired proposer
+    ///   shuffling. This should be computed using one of the methods for computing proposer
+    ///   shuffling decision roots, e.g. `BeaconState::proposer_shuffling_decision_root_at_epoch`.
+    /// - `proposal_epoch`: The epoch at which the proposer shuffling is required.
+    /// - `accessor`: A closure to run against the proposers for the selected epoch. Usually this
+    ///    closure just grabs a single proposer, or takes the vec of proposers for the epoch.
+    /// - `state_provider`: A closure to compute a state suitable for determining the shuffling.
+    ///    This closure is evaluated lazily ONLY in the case
+    ///
+    /// This function makes use of closures in order to efficiently handle concurrent accesses to
+    /// the cache.
+    ///
+    /// The error type is polymorphic, if in doubt you can use `BeaconChainError`. You might need
+    /// to use a turbofish if type inference can't work it out.
     pub fn with_proposer_cache<V, E: From<BeaconChainError> + From<BeaconStateError>>(
         &self,
         shuffling_decision_block: Hash256,
