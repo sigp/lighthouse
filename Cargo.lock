@@ -862,6 +862,7 @@ dependencies = [
  "bitvec 1.0.1",
  "bls",
  "criterion",
+ "dashmap",
  "derivative",
  "eth2",
  "eth2_network_config",
@@ -2138,6 +2139,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57cebb5bde66eecdd30ddc4b9cd208238b15db4982ccc72db59d699ea10867c1"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.5",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core 0.9.10",
 ]
 
 [[package]]

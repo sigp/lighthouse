@@ -18,6 +18,7 @@ test_backfill = []
 alloy-primitives = { workspace = true }
 bitvec = { workspace = true }
 bls = { workspace = true }
+dashmap = { workspace = true }
 derivative = { workspace = true }
 eth2 = { workspace = true }
 eth2_network_config = { workspace = true }

@@ -129,6 +129,7 @@ context_deserialize = { path = "consensus/context_deserialize/context_deserializ
 ] }
 context_deserialize_derive = { path = "consensus/context_deserialize/context_deserialize_derive" }
 criterion = "0.5"
+dashmap = "6.1"
 delay_map = "0.4"
 deposit_contract = { path = "common/deposit_contract" }
 derivative = "2"

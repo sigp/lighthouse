@@ -11,6 +11,7 @@ mod beacon_snapshot;
 pub mod bellatrix_readiness;
 pub mod blob_verification;
 pub mod block_reward;
+pub mod block_status_table;
 mod block_times_cache;
 mod block_verification;
 pub mod block_verification_types;
