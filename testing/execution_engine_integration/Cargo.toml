@@ -9,10 +9,8 @@ portable = ["types/portable"]
 [dependencies]
 async-channel = { workspace = true }
 deposit_contract = { workspace = true }
-ethers-core = { workspace = true }
-ethers-middleware = { workspace = true }
-ethers-providers = { workspace = true }
-ethers-signers = { workspace = true }
+alloy = { version = "1.0.37", features = ["providers", "signers", "rpc-types", "network", "transports"] }
+alloy-primitives = { workspace = true }
 execution_layer = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }

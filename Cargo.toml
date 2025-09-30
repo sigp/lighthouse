@@ -99,7 +99,7 @@ edition = "2024"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
-alloy-consensus = { version = "0.14.0", default-features = false }
+alloy-consensus = { version = "1.0", default-features = false }
 alloy-primitives = { version = "1.0", features = ["rlp", "getrandom"] }
 alloy-rlp = "0.3.4"
 anyhow = "1"
