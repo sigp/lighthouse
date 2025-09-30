@@ -322,7 +322,7 @@ mod test {
             let mut spec = ChainSpec::mainnet();
             spec.shard_committee_period = 1;
             spec.altair_fork_epoch = Some(Epoch::new(0));
-            spec.bellatrix_fork_epoch = Some(Epoch::new(1));
+            spec.bellatrix_fork_epoch = Some(Epoch::new(0));
             spec.capella_fork_epoch = Some(Epoch::new(2));
             spec.deneb_fork_epoch = Some(Epoch::new(3));
 

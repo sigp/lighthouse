@@ -24,10 +24,7 @@ use execution_layer::test_utils::generate_genesis_header;
 use execution_layer::{
     ExecutionLayer,
     auth::JwtKey,
-    test_utils::{
-        DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, ExecutionBlockGenerator, MockBuilder,
-        MockExecutionLayer,
-    },
+    test_utils::{DEFAULT_JWT_SECRET, ExecutionBlockGenerator, MockBuilder, MockExecutionLayer},
 };
 use futures::channel::mpsc::Receiver;
 pub use genesis::{DEFAULT_ETH1_BLOCK_HASH, InteropGenesisBuilder};
@@ -186,7 +183,8 @@ pub fn test_spec<E: EthSpec>() -> ChainSpec {
         let fork = ForkName::from_str(fork_name.as_str()).unwrap();
         fork.make_genesis_spec(E::default_spec())
     } else {
-        E::default_spec()
+        // We no longer support starting test networks prior to Bellatrix.
+        ForkName::Bellatrix.make_genesis_spec(E::default_spec())
     };
 
     // Set target aggregators to a high value by default.
@@ -242,6 +240,11 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
                     builder.get_spec(),
                 )
                 .expect("should generate interop state");
+            assert!(
+                state_processing::per_block_processing::is_merge_transition_complete(
+                    &genesis_state
+                )
+            );
             builder
                 .genesis_state(genesis_state)
                 .expect("should build state using recent genesis")
@@ -401,6 +404,12 @@ where
     }
 
     pub fn spec_or_default(mut self, spec: Option<Arc<ChainSpec>>) -> Self {
+        if let Some(spec) = &spec {
+            assert!(
+                spec.bellatrix_fork_epoch.unwrap() <= 0,
+                "all tests must start from Bellatrix or later"
+            );
+        }
         self.spec = Some(spec.unwrap_or_else(|| Arc::new(test_spec::<E>())));
         self
     }
@@ -642,7 +651,7 @@ pub fn mock_execution_layer_from_parts<E: EthSpec>(
 
     MockExecutionLayer::new(
         task_executor,
-        DEFAULT_TERMINAL_BLOCK,
+        0,
         shanghai_time,
         cancun_time,
         prague_time,

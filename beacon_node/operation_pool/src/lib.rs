@@ -1849,8 +1849,10 @@ mod release_tests {
         let mut spec = E::default_spec();
 
         // Give some room to sign surround slashings.
-        spec.altair_fork_epoch = Some(Epoch::new(3));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(6));
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        spec.capella_fork_epoch = Some(Epoch::new(3));
+        spec.deneb_fork_epoch = Some(Epoch::new(6));
 
         // To make exits immediately valid.
         spec.shard_committee_period = 0;

@@ -414,6 +414,11 @@ where
         // Ensure that `fork_choice.forkchoice_update_parameters.head_root` is updated.
         fork_choice.get_head(current_slot, spec)?;
 
+        tracing::info!(
+            params = ?fork_choice.forkchoice_update_parameters,
+            "Fork choice params"
+        );
+
         Ok(fork_choice)
     }
 
