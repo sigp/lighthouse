@@ -7,10 +7,10 @@ edition = { workspace = true }
 portable = ["types/portable"]
 
 [dependencies]
-async-channel = { workspace = true }
-deposit_contract = { workspace = true }
 alloy = { version = "1.0.37", features = ["providers", "signers", "rpc-types", "network", "transports"] }
 alloy-primitives = { workspace = true }
+async-channel = { workspace = true }
+deposit_contract = { workspace = true }
 execution_layer = { workspace = true }
 fork_choice = { workspace = true }
 futures = { workspace = true }
