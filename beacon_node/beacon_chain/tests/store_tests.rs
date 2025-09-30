@@ -13,6 +13,7 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
+    beacon_proposer_cache::compute_proposer_duties_from_head,
     data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
@@ -1514,6 +1515,46 @@ async fn proposer_shuffling_changing_with_lookahead() {
         unsafe_get_proposer_indices(&current_epoch_state, current_epoch),
         proposer_shuffling,
     );
+}
+
+#[tokio::test]
+async fn proposer_duties_from_head_fulu() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    let initial_blocks = E::slots_per_epoch() * 3;
+
+    // Build chain out to parent block.
+    let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, head_block_root, head_state) = harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
+
+    // Compute the proposer duties at the next epoch from the head
+    let next_epoch = head_state.next_epoch().unwrap();
+    let (_indices, dependent_root, _, fork) =
+        compute_proposer_duties_from_head(next_epoch, &harness.chain).unwrap();
+
+    assert_eq!(
+        dependent_root,
+        head_state
+            .proposer_shuffling_decision_root_at_epoch(next_epoch, head_block_root.into(), spec)
+            .unwrap()
+    );
+    assert_eq!(fork, head_state.fork());
 }
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB

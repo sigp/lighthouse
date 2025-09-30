@@ -476,15 +476,23 @@ impl ChainSpec {
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
-        let previous_fork_name = current_fork_name.previous_fork().unwrap_or(ForkName::Base);
-        let epoch = self
+
+        let fork_epoch = self
             .fork_epoch(current_fork_name)
             .unwrap_or_else(|| Epoch::new(0));
+
+        // At genesis the Fork is initialised with two copies of the same value for both
+        // `previous_version` and `current_version` (see `initialize_beacon_state_from_eth1`).
+        let previous_fork_name = if fork_epoch == 0 {
+            current_fork_name
+        } else {
+            current_fork_name.previous_fork().unwrap_or(ForkName::Base)
+        };
 
         Fork {
             previous_version: self.fork_version_for_name(previous_fork_name),
             current_version: self.fork_version_for_name(current_fork_name),
-            epoch,
+            epoch: fork_epoch,
         }
     }
 
