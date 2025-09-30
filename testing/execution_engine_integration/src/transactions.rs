@@ -60,11 +60,13 @@ impl Transaction {
                 let mut bytecode = String::from_utf8(BYTECODE.to_vec()).unwrap();
                 bytecode.retain(|c| c.is_ascii_hexdigit());
                 let bytecode = hex::decode(&bytecode[1..]).unwrap();
-                TransactionRequest::default()
+                let mut req = TransactionRequest::default()
                     .from(*addr)
                     .with_input(bytecode)
                     .with_gas_limit(CONTRACT_DEPLOY_GAS.try_into().unwrap())
-                    .with_gas_price(1_000_000_000u128) // 1 gwei
+                    .with_gas_price(1_000_000_000u128); // 1 gwei
+                req.set_create();
+                req
             }
             Self::DepositDepositContract {
                 sender,
