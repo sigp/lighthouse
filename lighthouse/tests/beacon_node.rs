@@ -423,8 +423,6 @@ fn complete_blob_backfill_and_prune_blobs_true() {
         });
 }
 
-
-
 // Tests for Bellatrix flags.
 fn run_bellatrix_execution_endpoints_flag_test(flag: &str) {
     use sensitive_url::SensitiveUrl;
@@ -760,7 +758,6 @@ fn jwt_optional_flags() {
 fn jwt_optional_alias_flags() {
     run_jwt_optional_flags_test("jwt-secrets", "jwt-id", "jwt-version");
 }
-
 
 // Tests for Network flags.
 #[test]
@@ -2478,9 +2475,6 @@ fn logfile_format_flag() {
             )
         });
 }
-
-
-
 
 #[test]
 fn light_client_server_default() {

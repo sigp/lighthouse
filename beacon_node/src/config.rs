@@ -170,8 +170,6 @@ pub fn get_config<E: EthSpec>(
             parse_required(cli_args, "http-duplicate-block-status")?;
     }
 
-
-
     if cli_args.get_flag("disable-light-client-server") {
         client_config.chain.enable_light_client_server = false;
     }
@@ -256,8 +254,6 @@ pub fn get_config<E: EthSpec>(
     if cli_args.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
         client_config.http_metrics.allocator_metrics_enabled = false;
     }
-
-
 
     // `--execution-endpoint` is required now.
     let endpoints: String = clap_utils::parse_required(cli_args, "execution-endpoint")?;
@@ -751,8 +747,6 @@ pub fn get_config<E: EthSpec>(
                     .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
         }
     }
-
-
 
     client_config.chain.prepare_payload_lookahead =
         clap_utils::parse_optional(cli_args, "prepare-payload-lookahead")?

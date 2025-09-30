@@ -733,8 +733,6 @@ fn run<E: EthSpec>(
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
 
-
-
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
         tracing::warn!(
@@ -742,8 +740,6 @@ fn run<E: EthSpec>(
             "CPU seems incompatible with optimized Lighthouse build"
         );
     }
-
-
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator
     // client at the same time.
