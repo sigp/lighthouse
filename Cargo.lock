@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "7.1.0"
+version = "8.0.0-rc.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -980,7 +980,6 @@ dependencies = [
  "metrics",
  "num_cpus",
  "parking_lot 0.12.3",
- "rayon",
  "serde",
  "slot_clock",
  "strum",
@@ -1194,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "7.1.0"
+version = "8.0.0-rc.0"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -5052,7 +5051,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "7.1.0"
+version = "8.0.0-rc.0"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5562,7 +5561,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "7.1.0"
+version = "8.0.0-rc.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -9066,16 +9065,16 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "superstruct"
-version = "0.8.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf0f31f730ad9e579364950e10d6172b4a9bd04b447edf5988b066a860cc340e"
+checksum = "3b986e4a629907f20a2c2a639a75bc22a8b5d99b444e0d83c395f4cb309022bf"
 dependencies = [
- "darling 0.13.4",
- "itertools 0.10.5",
+ "darling 0.20.10",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "smallvec",
- "syn 1.0.109",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -9232,6 +9231,8 @@ dependencies = [
  "async-channel 1.9.0",
  "futures",
  "metrics",
+ "num_cpus",
+ "rayon",
  "tokio",
  "tracing",
 ]
@@ -11165,7 +11166,7 @@ dependencies = [
 [[package]]
 name = "xdelta3"
 version = "0.1.5"
-source = "git+http://github.com/sigp/xdelta3-rs?rev=4db64086bb02e9febb584ba93b9d16bb2ae3825a#4db64086bb02e9febb584ba93b9d16bb2ae3825a"
+source = "git+https://github.com/sigp/xdelta3-rs?rev=4db64086bb02e9febb584ba93b9d16bb2ae3825a#4db64086bb02e9febb584ba93b9d16bb2ae3825a"
 dependencies = [
  "bindgen",
  "cc",
