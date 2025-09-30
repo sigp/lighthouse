@@ -51,7 +51,6 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
 
-#[derive(Debug)]
 pub struct RangeSyncBatchConfig<E: EthSpec> {
     marker: PhantomData<E>,
 }

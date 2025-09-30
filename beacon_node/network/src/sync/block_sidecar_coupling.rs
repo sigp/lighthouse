@@ -173,7 +173,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
     fn responses_with_custody_columns(
         &self,
         mut received_columns_for_slot: HashMap<Slot, DataColumnSidecarList<T::EthSpec>>,
-        column_to_peer: HashMap<u64, PeerId>,
+        column_to_peer: HashMap<ColumnIndex, PeerId>,
         expected_custody_columns: &HashSet<ColumnIndex>,
         attempt: usize,
     ) -> Result<DataColumnSidecarList<T::EthSpec>, CouplingError> {

@@ -944,7 +944,6 @@ dependencies = [
  "store",
  "strum",
  "task_executor",
- "tokio",
  "tracing",
  "types",
 ]

@@ -154,17 +154,19 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// - The earliest data column epoch's custodied columns != previous epoch's custodied columns
     /// - The earliest data column epoch is a finalied epoch
     pub fn should_start_custody_backfill_sync(&mut self) -> bool {
-        let Some(earliest_column_epoch) = self.beacon_chain.get_column_da_boundary() else {
+        let Some(da_boundary_epoch) = self.beacon_chain.get_column_da_boundary() else {
             return false;
         };
 
+        // This is the epoch in which we have met our current custody requirements
         let Some(earliest_data_column_epoch) =
             self.beacon_chain.earliest_custodied_data_column_epoch()
         else {
             return false;
         };
 
-        let missing_columns = self.get_missing_columns_for_epoch(earliest_column_epoch);
+        // Check if we have missing columns between the da boundary and `earliest_data_column_epoch`
+        let missing_columns = self.get_missing_columns_for_epoch(da_boundary_epoch);
 
         if !missing_columns.is_empty() {
             let latest_finalized_epoch = self
@@ -239,13 +241,11 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     self.set_state(CustodyBackFillState::Completed);
                     return Ok(SyncStart::NotSyncing);
                 }
-
                 self.set_cgc();
 
                 if !self.should_start_custody_backfill_sync() {
                     return Ok(SyncStart::NotSyncing);
                 }
-
                 self.set_start_epoch()?;
                 if self
                     .network_globals

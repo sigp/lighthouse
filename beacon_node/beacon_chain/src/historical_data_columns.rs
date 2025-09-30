@@ -44,7 +44,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Store a batch of historical data columns in the database.
     ///
     /// The data columns block roots and proposer signatures are verified with the existing
-    /// block stored in the DB. This function assumes that KZG proofs have already been verified.
+    /// block stored in the DB. This function also verifies the columns KZG committments.
     ///
     /// This function requires that the data column sidecar list contains columns for a full epoch.
     ///
@@ -120,22 +120,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store.blobs_db.do_atomically(ops)?;
 
         if !slot_and_column_index_to_data_columns.is_empty() {
-            warn!(
+            debug!(
                 ?epoch,
-                missing_slots = ?slot_and_column_index_to_data_columns.keys().map(|(slot, _)| slot),
-                "Some data columns are missing from the batch"
+                extra_data = ?slot_and_column_index_to_data_columns.keys().map(|(slot, _)| slot),
+                "We've received unexpected extra data columns, these will not be imported"
             );
-            return Err(HistoricalDataColumnError::MissingDataColumns {
-                missing_slots_and_data_columns: slot_and_column_index_to_data_columns
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>(),
-            });
         }
 
         self.data_availability_checker
             .custody_context()
-            .backfill_custody_count_at_epoch(epoch);
+            .update_and_backfill_custody_count_at_epoch(epoch);
 
         self.safely_backfill_data_column_custody_info(epoch)
             .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;

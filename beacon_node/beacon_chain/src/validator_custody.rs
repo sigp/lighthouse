@@ -403,7 +403,7 @@ impl<E: EthSpec> CustodyContext<E> {
         &all_columns_ordered[..custody_group_count]
     }
 
-    pub fn backfill_custody_count_at_epoch(&self, effective_epoch: Epoch) {
+    pub fn update_and_backfill_custody_count_at_epoch(&self, effective_epoch: Epoch) {
         self.validator_registrations
             .write()
             .backfill_validator_custody_requirements(effective_epoch);
