@@ -257,6 +257,9 @@ pub struct WorkQueues<E: EthSpec> {
 
 impl<E: EthSpec> WorkQueues<E> {
     pub fn new(queue_lengths: BeaconProcessorQueueLengths) -> Self {
+        // Using LIFO queues for attestations since validator profits rely upon getting fresh
+        // attestations into blocks. Additionally, later attestations contain more information than
+        // earlier ones, so we consider them more valuable.
         let aggregate_queue = LifoQueue::new(queue_lengths.aggregate_queue);
         let aggregate_debounce = TimeLatch::default();
         let attestation_queue = LifoQueue::new(queue_lengths.attestation_queue);
