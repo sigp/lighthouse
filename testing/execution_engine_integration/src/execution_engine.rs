@@ -1,4 +1,4 @@
-use alloy::providers::ProviderBuilder;
+use alloy_provider::ProviderBuilder;
 use execution_layer::DEFAULT_JWT_FILE;
 use network_utils::unused_port::unused_tcp4_port;
 use reqwest::Url;
@@ -35,7 +35,7 @@ pub struct ExecutionEngine<E> {
     http_port: u16,
     http_auth_port: u16,
     child: Child,
-    pub provider: Box<dyn alloy::providers::Provider + Send + Sync>,
+    pub provider: Box<dyn alloy_provider::Provider + Send + Sync>,
 }
 
 impl<E> Drop for ExecutionEngine<E> {

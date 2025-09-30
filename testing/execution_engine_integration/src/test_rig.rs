@@ -2,10 +2,10 @@ use crate::execution_engine::{
     ACCOUNT1, ACCOUNT2, ExecutionEngine, GenericExecutionEngine, KEYSTORE_PASSWORD, PRIVATE_KEYS,
 };
 use crate::transactions::transactions;
-use alloy::network::{EthereumWallet, TransactionBuilder};
-use alloy::providers::{Provider, ProviderBuilder};
-use alloy::signers::local::PrivateKeySigner;
+use alloy_network::{EthereumWallet, TransactionBuilder};
 use alloy_primitives::Address as AlloyAddress;
+use alloy_provider::{Provider, ProviderBuilder};
+use alloy_signer_local::PrivateKeySigner;
 use execution_layer::test_utils::DEFAULT_GAS_LIMIT;
 use execution_layer::{
     BlockProposalContentsType, BuilderParams, ChainHealth, ExecutionLayer, PayloadAttributes,
