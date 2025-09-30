@@ -22,7 +22,7 @@ use tree_hash_derive::TreeHash;
             TestRandom,
             Educe,
         ),
-        educe(PartialEq, Hash(bound("E: EthSpec"))),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",

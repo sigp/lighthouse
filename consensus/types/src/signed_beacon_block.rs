@@ -54,7 +54,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
             Educe,
             TestRandom
         ),
-        educe(PartialEq, Hash(bound("E: EthSpec"))),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec, Payload: AbstractExecPayload<E>"),
         cfg_attr(
             feature = "arbitrary",

@@ -163,7 +163,7 @@ pub trait AbstractExecPayload<E: EthSpec>:
             TreeHash,
             Educe,
         ),
-        educe(PartialEq, Hash(bound("E: EthSpec"))),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -174,7 +174,7 @@ pub trait AbstractExecPayload<E: EthSpec>:
     ),
     ref_attributes(
         derive(Debug, Educe, TreeHash),
-        educe(PartialEq, Hash(bound("E: EthSpec"))),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         tree_hash(enum_behaviour = "transparent"),
     ),
     map_into(ExecutionPayload),
@@ -533,7 +533,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
             TreeHash,
             Educe,
         ),
-        educe(PartialEq, Hash(bound("E: EthSpec"))),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec", deny_unknown_fields),
         cfg_attr(
             feature = "arbitrary",
@@ -544,7 +544,7 @@ impl<E: EthSpec> TryFrom<ExecutionPayloadHeader<E>> for FullPayload<E> {
     ),
     ref_attributes(
         derive(Debug, Educe, TreeHash),
-        educe(PartialEq, Hash(bound("E: EthSpec"))),
+        educe(PartialEq, Hash(bound(E: EthSpec))),
         tree_hash(enum_behaviour = "transparent"),
     ),
     map_into(ExecutionPayloadHeader),

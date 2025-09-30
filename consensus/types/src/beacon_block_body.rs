@@ -41,7 +41,7 @@ pub const BLOB_KZG_COMMITMENTS_INDEX: usize = 11;
             TestRandom,
             Educe,
         ),
-        educe(PartialEq, Hash(bound("E: EthSpec, Payload: AbstractExecPayload<E>"))),
+        educe(PartialEq, Hash(bound(E: EthSpec, Payload: AbstractExecPayload<E>))),
         serde(
             bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
             deny_unknown_fields

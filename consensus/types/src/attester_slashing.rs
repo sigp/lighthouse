@@ -27,7 +27,7 @@ use tree_hash_derive::TreeHash;
             TestRandom,
         ),
         context_deserialize(ForkName),
-        educe(PartialEq, Eq, Hash(bound("E: EthSpec"))),
+        educe(PartialEq, Eq, Hash(bound(E: EthSpec))),
         serde(bound = "E: EthSpec"),
         cfg_attr(
             feature = "arbitrary",

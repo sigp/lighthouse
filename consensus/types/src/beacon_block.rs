@@ -29,7 +29,7 @@ use self::indexed_attestation::IndexedAttestationBase;
             TestRandom,
             Educe,
         ),
-        educe(PartialEq, Hash(bound("E: EthSpec, Payload: AbstractExecPayload<E>"))),
+        educe(PartialEq, Hash(bound(E: EthSpec, Payload: AbstractExecPayload<E>))),
         serde(
             bound = "E: EthSpec, Payload: AbstractExecPayload<E>",
             deny_unknown_fields
