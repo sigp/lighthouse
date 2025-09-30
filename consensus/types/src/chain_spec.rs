@@ -869,7 +869,13 @@ impl ChainSpec {
     ///
     /// The block root at this slot can be used to key the proposer shuffling for the given epoch.
     pub fn proposer_shuffling_decision_slot<E: EthSpec>(&self, epoch: Epoch) -> Slot {
-        if self.fork_name_at_epoch(epoch).fulu_enabled() {
+        // At the Fulu fork epoch itself, the shuffling is computed "the old way" with no lookahead.
+        // Therefore for `epoch == fulu_fork_epoch` we must take the `else` branch. Checking if Fulu
+        // is enabled at `epoch - 1` accomplishes this neatly.
+        if self
+            .fork_name_at_epoch(epoch.saturating_sub(1_u64))
+            .fulu_enabled()
+        {
             // Post-Fulu the proposer shuffling decision slot for epoch N is the slot at the end
             // of epoch N - 2 (note: min_seed_lookahead=1 in all current configs).
             epoch
@@ -2998,5 +3004,33 @@ mod yaml_tests {
             Some(expected_data_column_retention_epoch),
             spec.min_epoch_data_availability_boundary(current_epoch)
         );
+    }
+
+    #[test]
+    fn proposer_shuffling_decision_root_around_epoch_boundary() {
+        type E = MainnetEthSpec;
+        let fulu_fork_epoch = 5;
+        let spec = {
+            let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+            spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch));
+            Arc::new(spec)
+        };
+
+        // For epochs prior to AND including the Fulu fork epoch, the decision slot is the end
+        // of the previous epoch (i.e. only 1 slot lookahead).
+        for epoch in (0..=fulu_fork_epoch).map(Epoch::new) {
+            assert_eq!(
+                spec.proposer_shuffling_decision_slot::<E>(epoch),
+                epoch.start_slot(E::slots_per_epoch()) - 1
+            );
+        }
+
+        // For epochs after Fulu, the decision slot is the end of the epoch two epochs prior.
+        for epoch in ((fulu_fork_epoch + 1)..(fulu_fork_epoch + 10)).map(Epoch::new) {
+            assert_eq!(
+                spec.proposer_shuffling_decision_slot::<E>(epoch),
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1
+            );
+        }
     }
 }
