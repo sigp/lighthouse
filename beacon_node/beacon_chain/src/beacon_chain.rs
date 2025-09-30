@@ -6624,11 +6624,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             let proposers = state.get_beacon_proposer_indices(proposal_epoch, &self.spec)?;
-            Ok::<_, E>(EpochBlockProposers::new(
-                proposal_epoch,
-                state.fork(),
-                proposers,
-            ))
+
+            // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have
+            // advanced the state completely into the new epoch.
+            let fork = self.spec.fork_at_epoch(proposal_epoch);
+
+            Ok::<_, E>(EpochBlockProposers::new(proposal_epoch, fork, proposers))
         })?;
 
         // Run the accessor function on the computed epoch proposers.
