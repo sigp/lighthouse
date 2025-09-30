@@ -98,7 +98,7 @@ pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Encode
     let functions = abi
         .function("deposit")
         .ok_or(EncodeError::FunctionNotFound)?;
-    let function = &functions[0]; // Get the first (and likely only) deposit function
+    let function = &functions.first().ok_or(EncodeError::FunctionNotFound)?; // Get the first (and likely only) deposit function
 
     Ok(function.abi_encode_input(&params)?)
 }
@@ -111,13 +111,10 @@ pub fn decode_eth1_tx_data(
     let functions = abi
         .function("deposit")
         .ok_or(DecodeError::FunctionNotFound)?;
-    let function = &functions[0]; // Get the first (and likely only) deposit function
+    let function = &functions.first().ok_or(DecodeError::FunctionNotFound)?;
 
     let input_data = bytes.get(4..).ok_or(DecodeError::InadequateBytes)?;
     let mut tokens = function.abi_decode_input(input_data)?;
-
-    // Reverse the order since we're popping from the end
-    tokens.reverse();
 
     macro_rules! decode_token {
         ($type: ty) => {{
@@ -131,14 +128,7 @@ pub fn decode_eth1_tx_data(
         }};
     }
 
-    let root = {
-        let token = tokens.pop().ok_or(DecodeError::MissingToken)?;
-        let bytes_data = match token {
-            DynSolValue::FixedBytes(b, _) => b.to_vec(),
-            _ => return Err(DecodeError::UnableToGetBytes),
-        };
-        Hash256::from_ssz_bytes(&bytes_data)?
-    };
+    let root = decode_token!(Hash256);
 
     let deposit_data = DepositData {
         amount,
