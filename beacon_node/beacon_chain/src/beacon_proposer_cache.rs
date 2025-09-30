@@ -234,8 +234,14 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     if state.current_epoch() > maximum_epoch {
         Err(BeaconStateError::SlotOutOfBounds.into())
     } else if state.current_epoch() >= minimum_epoch {
-        // Fulu allows us to access shufflings in multiple epochs (thanks to lookahead).
-        // Pre-Fulu we expect `minimum_epoch == maximum_epoch`, and this branch covers that case.
+        if target_epoch > state.current_epoch() {
+            let target_slot = target_epoch.start_slot(E::slots_per_epoch());
+
+            // Advance the state into the same epoch as the block. Use the "partial" method since state
+            // roots are not important for proposer/attester shuffling.
+            partial_state_advance(state, Some(state_root), target_slot, spec)
+                .map_err(BeaconChainError::from)?;
+        }
         Ok(())
     } else {
         // State's current epoch is less than the minimum epoch.
