@@ -5,7 +5,7 @@ use crate::{
     data_column_verification::verify_kzg_for_data_column_list,
 };
 use store::{Error as StoreError, KeyValueStore};
-use tracing::{debug, warn};
+use tracing::debug;
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
