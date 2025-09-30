@@ -239,8 +239,9 @@ mod fork_version_response_tests {
         assert!(result.is_err());
     }
 
+    // The following test should only pass by having the attribute #[serde(flatten)] on the metadata
     #[test]
-    fn serialize_dezerialize_round_trip_test() {
+    fn unversioned_response_serialize_dezerialize_round_trip_test() {
         // Create an UnversionedResponse with some data
         let data = UnversionedResponse {
             metadata: ExecutionOptimisticFinalizedMetadata {
@@ -250,10 +251,8 @@ mod fork_version_response_tests {
             data: "some_test_data".to_string(),
         };
 
-        // Serialize to JSON string
         let serialized = serde_json::to_string(&data);
 
-        // Deserialize back from JSON string
         let deserialized =
             serde_json::from_str(&serialized.unwrap()).expect("Failed to deserialize");
 

@@ -375,13 +375,30 @@ impl BlockId {
             )
         })?;
 
+        let blob_indices = if let Some(versioned_hashes) = &query.versioned_hashes {
+            versioned_hashes
+                .iter()
+                .filter_map(|versioned_hash| {
+                    blob_kzg_commitments
+                        .iter()
+                        .position(|c| kzg_commitment_to_versioned_hash(c) == *versioned_hash)
+                        .map(|index| index as u64)
+                })
+                .collect::<Vec<u64>>()
+        } else {
+            // If no versioned_hashes is provided, return all indices
+            (0..blob_kzg_commitments.len())
+                .map(|index| index as u64)
+                .collect::<Vec<u64>>()
+        };
+
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-                Self::get_blobs_from_data_columns(chain, root, None, &block)?
+                Self::get_blobs_from_data_columns(chain, root, Some(blob_indices), &block)?
             } else {
                 //  // Use "None" for indices to get all blobs
-                Self::get_blobs(chain, root, None, max_blobs_per_block)?
+                Self::get_blobs(chain, root, Some(blob_indices), max_blobs_per_block)?
             }
         } else {
             BlobSidecarList::new(vec![], max_blobs_per_block)
@@ -460,7 +477,7 @@ impl BlockId {
         blob_indices: Option<Vec<u64>>,
         block: &SignedBlindedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
     ) -> Result<BlobSidecarList<T::EthSpec>, Rejection> {
-        let column_indices = chain.store.get_data_column_keys(root).map_err(|e| {
+        let column_indices: Vec<u64> = chain.store.get_data_column_keys(root).map_err(|e| {
             warp_utils::reject::custom_server_error(format!(
                 "Error fetching data columns keys: {e:?}"
             ))
