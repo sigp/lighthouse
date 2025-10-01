@@ -18,46 +18,24 @@ impl<E: EthSpec> SlasherDB<E> {
                 // Schema v3 changed the underlying database from LMDB to MDBX. Unless the user did
                 // some manual hacking it should be impossible to read an MDBX schema version < 3.
                 (from, _) if from < 3 => {
-                    tracing::info!(
-                        "SlasherDB schema v{} is older than the supported minimum; refusing to run",
-                        from
-                    );
                     Err(Error::IncompatibleSchemaVersion {
                         database_schema_version: schema_version,
                         software_schema_version: CURRENT_SCHEMA_VERSION,
                     })
                 }
                 (x, y) if x == y => {
-                    tracing::info!(
-                        "SlasherDB schema already at target version v{}; no migration required",
-                        y
-                    );
                     Ok(self)
                 }
 
                 (from, to) if from + 1 == to && self.env.is_redb() => {
-                    tracing::info!(
-                        "Detected Redb SlasherDB schema v{} -> upgrading to v{}",
-                        from,
-                        to
-                    );
                     self.env.upgrade()?;
                     let mut txn = self.begin_rw_txn()?;
                     self.store_schema_version(&mut txn)?;
                     txn.commit()?;
-                    tracing::info!(
-                        "Redb SlasherDB schema upgrade to v{} completed successfully",
-                        to
-                    );
                     Ok(self)
                 }
 
                 (from, to) => {
-                    tracing::info!(
-                        "SlasherDB schema upgrade path from v{} to v{} is unsupported; refusing to run",
-                        from,
-                        to
-                    );
                     Err(Error::IncompatibleSchemaVersion {
                         database_schema_version: from,
                         software_schema_version: to,
@@ -65,11 +43,6 @@ impl<E: EthSpec> SlasherDB<E> {
                 }
             };
         }
-
-        tracing::info!(
-            "No schema version found, assuming fresh DB at target version v{}",
-            CURRENT_SCHEMA_VERSION
-        );
 
         // Store the schema version for future runs
         let mut txn = self.begin_rw_txn()?;
