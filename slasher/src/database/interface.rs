@@ -30,7 +30,7 @@ pub enum RwTransaction<'env> {
     #[cfg(feature = "lmdb")]
     Lmdb(lmdb_impl::RwTransaction<'env>),
     #[cfg(feature = "redb")]
-    Redb(Box<redb_impl::RwTransaction<'env>>),
+    Redb(redb_impl::RwTransaction<'env>),
     Disabled(PhantomData<&'env ()>),
 }
 
@@ -104,9 +104,7 @@ impl Environment {
             #[cfg(feature = "lmdb")]
             Self::Lmdb(env) => env.begin_rw_txn().map(RwTransaction::Lmdb),
             #[cfg(feature = "redb")]
-            Self::Redb(env) => env
-                .begin_rw_txn()
-                .map(|txn| RwTransaction::Redb(Box::new(txn))),
+            Self::Redb(env) => env.begin_rw_txn().map(RwTransaction::Redb),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }

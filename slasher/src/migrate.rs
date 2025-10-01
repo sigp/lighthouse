@@ -17,15 +17,11 @@ impl<E: EthSpec> SlasherDB<E> {
             return match (schema_version, CURRENT_SCHEMA_VERSION) {
                 // Schema v3 changed the underlying database from LMDB to MDBX. Unless the user did
                 // some manual hacking it should be impossible to read an MDBX schema version < 3.
-                (from, _) if from < 3 => {
-                    Err(Error::IncompatibleSchemaVersion {
-                        database_schema_version: schema_version,
-                        software_schema_version: CURRENT_SCHEMA_VERSION,
-                    })
-                }
-                (x, y) if x == y => {
-                    Ok(self)
-                }
+                (from, _) if from < 3 => Err(Error::IncompatibleSchemaVersion {
+                    database_schema_version: schema_version,
+                    software_schema_version: CURRENT_SCHEMA_VERSION,
+                }),
+                (x, y) if x == y => Ok(self),
 
                 (from, to) if from + 1 == to && self.env.is_redb() => {
                     self.env.upgrade()?;
@@ -35,12 +31,10 @@ impl<E: EthSpec> SlasherDB<E> {
                     Ok(self)
                 }
 
-                (from, to) => {
-                    Err(Error::IncompatibleSchemaVersion {
-                        database_schema_version: from,
-                        software_schema_version: to,
-                    })
-                }
+                (from, to) => Err(Error::IncompatibleSchemaVersion {
+                    database_schema_version: from,
+                    software_schema_version: to,
+                }),
             };
         }
 
