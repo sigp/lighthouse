@@ -242,7 +242,7 @@ ssz_types = "0.11.0"
 state_processing = { path = "consensus/state_processing" }
 store = { path = "beacon_node/store" }
 strum = { version = "0.24", features = ["derive"] }
-superstruct = "0.8"
+superstruct = "0.10"
 swap_or_not_shuffle = { path = "consensus/swap_or_not_shuffle" }
 syn = "1"
 sysinfo = "0.26"
