@@ -150,18 +150,8 @@ impl Environment {
         {
             matches!(self, Self::Redb(_))
         }
-
-        #[cfg(not(feature = "redb"))]
-        {
-            false
-        }
+        false
     }
-    //     if cfg!(feature = "redb") {
-    //         matches!(self, Self::Redb(_))
-    //     } else {
-    //         false
-    //     }
-    // }
 }
 
 impl<'env> RwTransaction<'env> {
