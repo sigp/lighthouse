@@ -4726,6 +4726,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // efficient packing of execution blocks.
                     Err(Error::SkipProposerPreparation)
                 } else {
+                    debug!(
+                        ?shuffling_decision_root,
+                        epoch = %proposal_epoch,
+                        "Proposer shuffling cache miss for proposer prep"
+                    );
                     let head = self.canonical_head.cached_head();
                     Ok((
                         head.head_state_root(),
@@ -6564,7 +6569,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - `accessor`: A closure to run against the proposers for the selected epoch. Usually this
     ///   closure just grabs a single proposer, or takes the vec of proposers for the epoch.
     /// - `state_provider`: A closure to compute a state suitable for determining the shuffling.
-    ///   This closure is evaluated lazily ONLY in the case
+    ///   This closure is evaluated lazily ONLY in the case that a cache miss occurs. It is
+    ///   recommended for code that wants to keep track of cache misses to produce a log and/or
+    ///   increment a metric inside this closure .
     ///
     /// This function makes use of closures in order to efficiently handle concurrent accesses to
     /// the cache.
@@ -6589,12 +6596,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If it is already initialised, then `get_or_try_init` will return immediately without
         // executing the initialisation code at all.
         let epoch_block_proposers = cache_entry.get_or_try_init(|| {
-            debug!(
-                ?shuffling_decision_block,
-                %proposal_epoch,
-                "Proposer shuffling cache miss"
-            );
-
             // Fetch the state on-demand if the required epoch was missing from the cache.
             // If the caller wants to not compute the state they must return an error here and then
             // catch it at the call site.
@@ -6628,6 +6629,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have
             // advanced the state completely into the new epoch.
             let fork = self.spec.fork_at_epoch(proposal_epoch);
+
+            debug!(
+                ?shuffling_decision_block,
+                epoch = %proposal_epoch,
+                "Priming proposer shuffling cache"
+            );
 
             Ok::<_, E>(EpochBlockProposers::new(proposal_epoch, fork, proposers))
         })?;

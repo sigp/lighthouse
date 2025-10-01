@@ -382,7 +382,14 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
             current_epoch_decision_root,
             state.current_epoch(),
             |_| Ok(()),
-            || Ok::<_, Error>((advanced_state_root, state.clone())),
+            || {
+                debug!(
+                    shuffling_decision_root = ?current_epoch_decision_root,
+                    epoch = %state.current_epoch(),
+                    "Computing current epoch proposer shuffling in state advance"
+                );
+                Ok::<_, Error>((advanced_state_root, state.clone()))
+            },
         )?;
 
         // For epochs *greater than* the Fulu fork epoch, we have also determined the proposer
@@ -397,7 +404,14 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
             next_epoch_decision_root,
             next_epoch,
             |_| Ok(()),
-            || Ok::<_, Error>((advanced_state_root, state.clone())),
+            || {
+                debug!(
+                    shuffling_decision_root = ?next_epoch_decision_root,
+                    epoch = %next_epoch,
+                    "Computing next epoch proposer shuffling in state advance"
+                );
+                Ok::<_, Error>((advanced_state_root, state.clone()))
+            },
         )?;
 
         // Update the attester cache.
