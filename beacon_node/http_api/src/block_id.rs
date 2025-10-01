@@ -375,29 +375,43 @@ impl BlockId {
             )
         })?;
 
-        let blob_indices = if let Some(versioned_hashes) = &query.versioned_hashes {
+        let blob_indices: Vec<_> = if let Some(versioned_hashes) = &query.versioned_hashes {
+            println!("Number of versioned_hashes is: {}", versioned_hashes.len());
             versioned_hashes
                 .iter()
-                .filter_map(|versioned_hash| {
-                    blob_kzg_commitments
+                .flat_map(|versioned_hash| {
+                    println!("Processing versioned_hash: {:?}", versioned_hash);
+                    let matches: Vec<_> = blob_kzg_commitments
                         .iter()
-                        .position(|c| kzg_commitment_to_versioned_hash(c) == *versioned_hash)
-                        .map(|index| index as u64)
+                        .enumerate()
+                        .filter_map(move |(index, commitment)| {
+                            let computed_hash = kzg_commitment_to_versioned_hash(commitment);
+                            let is_match = computed_hash == *versioned_hash;
+                            if is_match {
+                                println!("Match found at index {}: {:?}", index, computed_hash);
+                                Some(index as u64)
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    println!("Matched indices for this hash: {:?}", matches);
+                    matches
                 })
-                .collect::<Vec<u64>>()
+                .collect()
         } else {
             // If no versioned_hashes is provided, return all indices
             (0..blob_kzg_commitments.len())
                 .map(|index| index as u64)
-                .collect::<Vec<u64>>()
+                .collect()
         };
+        println!("blob_indices are: {blob_indices:?}");
 
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 Self::get_blobs_from_data_columns(chain, root, Some(blob_indices), &block)?
             } else {
-                //  // Use "None" for indices to get all blobs
                 Self::get_blobs(chain, root, Some(blob_indices), max_blobs_per_block)?
             }
         } else {
@@ -405,31 +419,12 @@ impl BlockId {
                 .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
         };
 
-        // Get blobs by versioned_hashes if provided
-        let blobs = if let Some(hashes) = query.versioned_hashes {
-            blob_sidecar_list
-                .into_iter()
-                .filter_map(|sidecar| {
-                    // Compute versioned hash from KZG commitment
-                    let versioned_hash = kzg_commitment_to_versioned_hash(&sidecar.kzg_commitment);
-                    if hashes.contains(&versioned_hash) {
-                        Some(Blobs::<T::EthSpec> {
-                            blob: sidecar.blob.clone(),
-                        })
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            // Return all blobs if no version_hashes is provided
-            blob_sidecar_list
-                .into_iter()
-                .map(|sidecar| Blobs::<T::EthSpec> {
-                    blob: sidecar.blob.clone(),
-                })
-                .collect()
-        };
+        let blobs = blob_sidecar_list
+            .into_iter()
+            .map(|sidecar| Blobs::<T::EthSpec> {
+                blob: sidecar.blob.clone(),
+            })
+            .collect();
 
         Ok(UnversionedResponse {
             metadata: ExecutionOptimisticFinalizedMetadata {
