@@ -295,6 +295,10 @@ impl<E: EthSpec> AvailableExecutedBlock<E> {
         }
         blob_ids
     }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.import_data.block_root
+    }
 }
 
 /// A block that has completed all pre-deneb block processing checks, verification

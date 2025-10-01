@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::broadcast;
 use types::Hash256;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Error {
     BlockNotFound,
     InvalidStatusTransition {
@@ -16,7 +16,7 @@ pub enum Error {
 }
 
 /// Represents the status of a block during the data availability import process.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum BlockStatus {
     /// Block is pending processing
@@ -61,6 +61,11 @@ impl BlockStatus {
     /// Returns true if the status represents a terminal state
     pub fn is_terminal(&self) -> bool {
         matches!(self, BlockStatus::Invalid | BlockStatus::Imported)
+    }
+
+    // Returns true if the status is past pending
+    pub fn is_past_pending(&self) -> bool {
+        self > &BlockStatus::Pending
     }
 }
 
@@ -120,17 +125,16 @@ impl BlockStatusEntry {
 /// This table uses DashMap for lock-free concurrent access and AtomicU8 values for
 /// efficient atomic operations on status transitions to prevent race conditions during
 /// block processing.
-#[derive(Clone)]
 pub struct BlockStatusTable {
     /// The underlying concurrent hash map storing block status as AtomicU8
-    table: Arc<DashMap<Hash256, Arc<BlockStatusEntry>>>,
+    table: DashMap<Hash256, Arc<BlockStatusEntry>>,
 }
 
 impl BlockStatusTable {
     /// Creates a new empty status table.
     pub fn new() -> Self {
         Self {
-            table: Arc::new(DashMap::new()),
+            table: DashMap::new(),
         }
     }
 
@@ -203,6 +207,15 @@ impl BlockStatusTable {
             .map(|guard| guard.clone())?;
 
         entry.status().ok()
+    }
+
+    /// Gets the status of a block or inserts it as pending if it doesn't exist.
+    /// Returns an error but this should never happen.
+    pub fn get_status_or_insert_pending(&self, block_hash: Hash256) -> Result<BlockStatus, Error> {
+        match self.table.entry(block_hash) {
+            Entry::Occupied(o) => o.get().status(),
+            Entry::Vacant(entry) => entry.insert(Arc::new(BlockStatusEntry::new())).status(),
+        }
     }
 
     /// Removes a block from the status table.
@@ -475,6 +488,32 @@ mod tests {
         ] {
             assert_eq!(BlockStatus::from_u8(status.to_u8()), Some(status));
         }
+    }
+
+    #[test]
+    fn test_get_status_or_insert_pending() {
+        let table = BlockStatusTable::new();
+        let hash = test_hash(1);
+        assert_eq!(
+            table.get_status_or_insert_pending(hash),
+            Ok(BlockStatus::Pending)
+        );
+        assert_eq!(table.get_status(&hash), Some(BlockStatus::Pending));
+
+        // transition to executing
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Pending, BlockStatus::Executing)
+                .is_ok()
+        );
+        assert_eq!(table.get_status(&hash), Some(BlockStatus::Executing));
+
+        // get status should return executing
+        assert_eq!(
+            table.get_status_or_insert_pending(hash),
+            Ok(BlockStatus::Executing)
+        );
+        assert_eq!(table.get_status(&hash), Some(BlockStatus::Executing));
     }
 
     #[test]

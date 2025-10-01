@@ -4,6 +4,7 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::block_status_table::BlockStatusTable;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
@@ -1011,6 +1012,7 @@ where
             slasher: self.slasher.clone(),
             validator_monitor: RwLock::new(validator_monitor),
             genesis_backfill_slot,
+            block_status_table: Arc::new(BlockStatusTable::new()),
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
                     complete_blob_backfill,

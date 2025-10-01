@@ -9,6 +9,7 @@ use crate::beacon_proposer_cache::{
     BeaconProposerCache, EpochBlockProposers, ensure_state_can_determine_proposers_for_epoch,
 };
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
+use crate::block_status_table::{BlockStatus, BlockStatusTable, Error as BlockStatusTableError};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
 use crate::block_verification::{
@@ -475,6 +476,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
     /// The slot at which blocks are downloaded back to.
     pub genesis_backfill_slot: Slot,
+    //// A table to track the status of blocks during data availability import
+    pub block_status_table: Arc<BlockStatusTable>,
     /// Provides a KZG verification and temporary storage for blocks and blobs as
     /// they are collected and combined.
     pub data_availability_checker: Arc<DataAvailabilityChecker<T>>,
@@ -3019,20 +3022,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_root = blob.block_root();
 
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its blobs again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
-            return Err(BlockError::DuplicateFullyImported(blob.block_root()));
+        // TODO: if somehow this blob is older than finalization, we need to not insert it - where is this checked?
+        let status = self
+            .block_status_table
+            .get_status_or_insert_pending(block_root)
+            .map_err(|e| {
+                BlockError::InternalError(format!(
+                    "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
+                    e
+                ))
+            })?;
+
+        if status.is_past_pending() {
+            return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
         // No need to process and import blobs beyond the PeerDAS epoch.
         if self.spec.is_peer_das_enabled_for_epoch(blob.epoch()) {
             return Err(BlockError::BlobNotRequired(blob.slot()));
         }
+
+        // TODO: there appears to be no check on the parent block being in fork choice here..
+        // TODO: again.. this could be a check on the block status table rather than fork choice
 
         self.emit_sse_blob_sidecar_events(&block_root, std::iter::once(blob.as_blob()));
 
@@ -3058,15 +3069,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         };
 
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its samples again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        let status = self
+            .block_status_table
+            .get_status_or_insert_pending(block_root)
+            .map_err(|e| {
+                BlockError::InternalError(format!(
+                    "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
+                    e
+                ))
+            })?;
+
+        // If this block is already available, we don't need to process its columns again.
+        if status.is_past_pending() {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
+
+        // TODO: there appears to be no check on the parent block being in fork choice here..
+        // TODO: again.. this could be a check on the block status table rather than fork choice
 
         self.emit_sse_data_column_sidecar_events(
             &block_root,
@@ -3091,13 +3110,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its blobs again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        // TODO: if somehow this blob is older than finalization, we need to not insert it - where is this checked?
+        let status = self
+            .block_status_table
+            .get_status_or_insert_pending(block_root)
+            .map_err(|e| {
+                BlockError::InternalError(format!(
+                    "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
+                    e
+                ))
+            })?;
+
+        if status.is_past_pending() {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3113,6 +3137,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_choice_read_lock()
                 .contains_block(&parent_root)
         {
+            // TODO: This could be a check on the block status table rather than fork choice
             return Err(BlockError::ParentUnknown { parent_root });
         }
 
@@ -3131,13 +3156,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         // If this block has already been imported to forkchoice it must have been available, so
         // we don't need to process its blobs again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        let status = self
+            .block_status_table
+            .get_status_or_insert_pending(block_root)
+            .map_err(|e| {
+                BlockError::InternalError(format!(
+                    "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
+                    e
+                ))
+            })?;
+        if status.is_past_pending() {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
+
+        // TODO do we need to check if the parent block is in fork choice here?
+        // TODO this could be a check on the block status table rather than fork choice
 
         match &engine_get_blobs_output {
             EngineGetBlobsOutput::Blobs(blobs) => {
@@ -3218,13 +3251,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         };
 
-        // If this block has already been imported to forkchoice it must have been available, so
-        // we don't need to process its columns again.
-        if self
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&block_root)
-        {
+        // TODO: if somehow this column is older than finalization, we need to not insert it - where is this checked?
+        let status = self
+            .block_status_table
+            .get_status_or_insert_pending(block_root)
+            .map_err(|e| {
+                BlockError::InternalError(format!(
+                    "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
+                    e
+                ))
+            })?;
+
+        // If this block is already available, we don't need to process its columns again.        // we don't need to process its columns again.
+        if status.is_past_pending() {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
@@ -3237,6 +3276,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_choice_read_lock()
                 .contains_block(&parent_root)
         {
+            // TODO: This could be a check on the block status table rather than fork choice
             return Err(BlockError::ParentUnknown { parent_root });
         }
 
@@ -3339,6 +3379,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_slot = unverified_block.block().slot();
+
+        // ensure the block is in the status table
+        self.block_status_table.insert_pending(block_root);
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
@@ -3614,6 +3657,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         engine_get_blobs_output: EngineGetBlobsOutput<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        let status = self
+            .block_status_table
+            .get_status_or_insert_pending(block_root)
+            .map_err(|e| {
+                BlockError::InternalError(format!(
+                    "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
+                    e
+                ))
+            })?;
+        if status.is_past_pending() {
+            return Err(BlockError::DuplicateFullyImported(block_root));
+        }
+
         let availability = match engine_get_blobs_output {
             EngineGetBlobsOutput::Blobs(blobs) => {
                 self.check_blobs_for_slashability(block_root, blobs.iter().map(|b| b.as_blob()))?;
@@ -3702,8 +3758,58 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match availability {
             Availability::Available(block) => {
                 publish_fn()?;
-                // Block is fully available, import into fork choice
-                self.import_available_block(block).await
+                let block_root = block.block_root();
+                match self.block_status_table.transition(
+                    &block_root,
+                    BlockStatus::Pending,
+                    BlockStatus::Importing,
+                ) {
+                    Ok(_) => {
+                        let result = self.import_available_block(block).await;
+                        if let Ok(AvailabilityProcessingStatus::Imported(_)) = result.as_ref() {
+                            self.block_status_table
+                                .transition(
+                                    &block_root,
+                                    BlockStatus::Importing,
+                                    BlockStatus::Imported,
+                                )
+                                .map_err(|e| {
+                                    BlockError::InternalError(format!(
+                                        "BlockStatusTable failed on transition: {:?}",
+                                        e
+                                    ))
+                                })?;
+                        } else {
+                            // something went wrong on import, mutate the status table back to pending
+                            // TODO: determine when we would mutate this to Invalid!
+                            self.block_status_table
+                                .transition(
+                                    &block_root,
+                                    BlockStatus::Importing,
+                                    BlockStatus::Pending,
+                                )
+                                .map_err(|e| {
+                                    BlockError::InternalError(format!(
+                                        "BlockStatusTable failed on transition: {:?}",
+                                        e
+                                    ))
+                                })?;
+                        }
+
+                        result
+                    }
+                    Err(e) => match e {
+                        // someone beat us to it - the block is already being imported
+                        BlockStatusTableError::InvalidStatusTransition { .. } => {
+                            Err(BlockError::DuplicateFullyImported(block_root))
+                        }
+                        // other errors should not occur
+                        e => Err(BlockError::InternalError(format!(
+                            "BlockStatusTable failed on transition: {:?}",
+                            e
+                        ))),
+                    },
+                }
             }
             Availability::MissingComponents(block_root) => Ok(
                 AvailabilityProcessingStatus::MissingComponents(slot, block_root),
