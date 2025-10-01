@@ -11,7 +11,7 @@ alloy-dyn-abi = "1.4"
 alloy-json-abi = "1.4"
 alloy-primitives = { workspace = true }
 ethereum_ssz = { workspace = true }
-serde_json = "1.0"
+serde_json = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
 
