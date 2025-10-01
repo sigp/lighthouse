@@ -32,7 +32,7 @@ pub enum Error {
     UnableToReadDepositAmount(io::Error),
     UnableToParseDepositAmount(std::num::ParseIntError),
     DepositAmountIsNotUtf8(std::string::FromUtf8Error),
-    UnableToParseDepositData(deposit_contract::DecodeError),
+    UnableToParseDepositData(deposit_contract::Error),
     Eth1TxHashExists(PathBuf),
     UnableToWriteEth1TxHash(io::Error),
     /// The deposit root in the deposit data file does not match the one generated locally. This is
