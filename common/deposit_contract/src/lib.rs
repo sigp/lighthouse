@@ -81,8 +81,10 @@ pub fn encode_eth1_tx_data(deposit_data: &DepositData) -> Result<Vec<u8>, Error>
 
 pub fn decode_eth1_tx_data(bytes: &[u8], amount: u64) -> Result<(DepositData, Hash256), Error> {
     let abi: JsonAbi = serde_json::from_slice(ABI)?;
-    let functions = abi.function("deposit").ok_or(Error::FunctionNotFound)?;
-    let function = &functions.first().ok_or(Error::FunctionNotFound)?;
+    let function = abi
+        .function("deposit")
+        .and_then(|functions| functions.first())
+        .ok_or(Error::FunctionNotFound)?;
 
     let input_data = bytes.get(4..).ok_or(Error::InadequateBytes)?;
     let mut tokens = function.abi_decode_input(input_data)?;
