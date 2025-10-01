@@ -103,8 +103,9 @@ impl Environment {
         })
     }
 
+    /// Upgrade the underlying Redb environment if necessary
+    /// Currently a no-op because schema versioning is handled in `SlasherDB::migrate`
     pub fn upgrade(&self) -> Result<(), Error> {
-        tracing::info!("Checking SlasherDB Redb internals for upgrade");
         Ok(())
     }
 }

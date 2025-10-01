@@ -107,7 +107,6 @@ impl Environment {
             Self::Redb(env) => env
                 .begin_rw_txn()
                 .map(|txn| RwTransaction::Redb(Box::new(txn))),
-            // Self::Redb(env) => env.begin_rw_txn().map(RwTransaction::Redb),
             _ => Err(Error::MismatchedDatabaseVariant),
         }
     }
