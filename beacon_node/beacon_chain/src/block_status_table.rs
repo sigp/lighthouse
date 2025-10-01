@@ -1,8 +1,19 @@
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::broadcast;
 use types::Hash256;
+
+#[derive(Debug)]
+pub enum Error {
+    BlockNotFound,
+    InvalidStatusTransition {
+        expected: BlockStatus,
+        found: BlockStatus,
+    },
+    InvalidStatus(u8),
+}
 
 /// Represents the status of a block during the data availability import process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,6 +32,9 @@ pub enum BlockStatus {
 }
 
 impl BlockStatus {
+    /// Channel capacity - sufficient for all possible state transitions
+    pub const CHANNEL_CAPACITY: usize = 8;
+
     /// Converts a u8 value to a Status enum.
     /// Returns None if the value is invalid.
     pub fn from_u8(value: u8) -> Option<Self> {
@@ -50,32 +64,114 @@ impl BlockStatus {
     }
 }
 
+struct BlockStatusEntry {
+    status: AtomicU8,
+    sender: broadcast::Sender<BlockStatus>,
+}
+
+impl BlockStatusEntry {
+    pub fn new() -> Self {
+        let (sender, _rx) = broadcast::channel(BlockStatus::CHANNEL_CAPACITY);
+        Self {
+            status: AtomicU8::new(BlockStatus::Pending.to_u8()),
+            sender,
+        }
+    }
+
+    pub fn status(&self) -> Result<BlockStatus, Error> {
+        let value = self.status.load(Ordering::Acquire);
+        BlockStatus::from_u8(value).ok_or(Error::InvalidStatus(value))
+    }
+
+    pub fn transition(&self, expected: BlockStatus, new: BlockStatus) -> Result<(), Error> {
+        match self.status.compare_exchange_weak(
+            expected.to_u8(),
+            new.to_u8(),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => {
+                // Notify subscribers of the new status
+                // Ignore send errors - means no active receivers
+                let _ = self.sender.send(new);
+                Ok(())
+            }
+            Err(actual_value) => {
+                let found =
+                    BlockStatus::from_u8(actual_value).ok_or(Error::InvalidStatus(actual_value))?;
+                Err(Error::InvalidStatusTransition { expected, found })
+            }
+        }
+    }
+
+    pub fn subscribe(&self) -> Result<(BlockStatus, broadcast::Receiver<BlockStatus>), Error> {
+        // by subscribing before reading the current status, a race condition is possible where
+        // the subscribing thread receives a status and then when they await the channel, they receive
+        // the same status again. This is preferable to the reverse race condition where an old status is
+        // read and the subscriber doesn't send the update to the latest status.
+        let rx = self.sender.subscribe();
+        let current_status = self.status()?;
+        Ok((current_status, rx))
+    }
+}
+
 /// A thread-safe status tracking table for Ethereum blocks during data availability import.
 ///
 /// This table uses DashMap for lock-free concurrent access and AtomicU8 values for
 /// efficient atomic operations on status transitions to prevent race conditions during
 /// block processing.
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct BlockStatusTable {
     /// The underlying concurrent hash map storing block status as AtomicU8
-    table: DashMap<Hash256, AtomicU8>,
-    /// Broadcast channels for notifying subscribers of status changes
-    notifiers: DashMap<Hash256, broadcast::Sender<BlockStatus>>,
-    /// Counter for tracking the number of entries (for metrics/debugging)
-    entry_count: AtomicUsize,
+    table: Arc<DashMap<Hash256, Arc<BlockStatusEntry>>>,
 }
 
 impl BlockStatusTable {
-    /// Channel capacity - sufficient for all possible state transitions
-    const CHANNEL_CAPACITY: usize = 16;
-
     /// Creates a new empty status table.
     pub fn new() -> Self {
         Self {
-            table: DashMap::new(),
-            notifiers: DashMap::new(),
-            entry_count: AtomicUsize::new(0),
+            table: Arc::new(DashMap::new()),
         }
+    }
+
+    /// Inserts a new block with Pending status.
+    ///
+    /// Returns `true` if the block was inserted (i.e., it wasn't already present),
+    /// `false` if the block already exists in the table.
+    pub fn insert_pending(&self, block_hash: Hash256) -> bool {
+        match self.table.entry(block_hash) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(Arc::new(BlockStatusEntry::new()));
+                true
+            }
+        }
+    }
+
+    /// Atomically compares and swaps the status of a block.
+    ///
+    /// This operation is atomic and will only succeed if the current status
+    /// matches the expected status. Returns `Ok(())` if the swap succeeded,
+    /// `Err` otherwise.
+    ///
+    /// # Arguments
+    /// * `block_hash` - The hash of the block to update
+    /// * `expected` - The expected current status
+    /// * `new` - The new status to set
+    pub fn transition(
+        &self,
+        block_hash: &Hash256,
+        expected: BlockStatus,
+        new: BlockStatus,
+    ) -> Result<(), Error> {
+        let entry = self
+            .table
+            .get(block_hash)
+            // clone the arc and drop the dashmap guard quickly
+            .map(|guard| guard.clone())
+            .ok_or(Error::BlockNotFound)?;
+
+        entry.transition(expected, new)
     }
 
     /// Subscribe to status updates for a specific block.
@@ -85,106 +181,39 @@ impl BlockStatusTable {
     pub fn subscribe(
         &self,
         block_hash: &Hash256,
-    ) -> Option<(BlockStatus, broadcast::Receiver<BlockStatus>)> {
-        // by subscribing before reading the current status, a race condition is possible where
-        // the subscribing thread receives a status and then when they await the channel, they receive
-        // the same status again. This is preferable to the reverse race condition where an old status is
-        // read and the subscriber doesn't send the update to the latest status.
-        let rx = self.notifiers.get(block_hash)?.subscribe();
-        let current_status = self.get_status(block_hash)?;
-        Some((current_status, rx))
+    ) -> Result<(BlockStatus, broadcast::Receiver<BlockStatus>), Error> {
+        let entry = self
+            .table
+            .get(block_hash)
+            // clone the arc and drop the dashmap guard quickly
+            .map(|guard| guard.clone())
+            .ok_or(Error::BlockNotFound)?;
+
+        entry.subscribe()
     }
 
     /// Gets the current status of a block.
     ///
     /// Returns `None` if the block is not tracked in the table.
     pub fn get_status(&self, block_hash: &Hash256) -> Option<BlockStatus> {
-        self.table.get(block_hash).and_then(|entry| {
-            let value = entry.value().load(Ordering::Acquire);
-            BlockStatus::from_u8(value)
-        })
-    }
+        let entry = self
+            .table
+            .get(block_hash)
+            // clone the arc and quickly drop dashmap guard
+            .map(|guard| guard.clone())?;
 
-    /// Atomically compares and swaps the status of a block.
-    ///
-    /// This operation is atomic and will only succeed if the current status
-    /// matches the expected status. Returns `true` if the swap succeeded,
-    /// `false` otherwise.
-    ///
-    /// # Arguments
-    /// * `block_hash` - The hash of the block to update
-    /// * `expected` - The expected current status
-    /// * `new` - The new status to set
-    pub fn compare_and_swap_status(
-        &self,
-        block_hash: &Hash256,
-        expected: BlockStatus,
-        new: BlockStatus,
-    ) -> bool {
-        let success = match self.table.get(block_hash) {
-            Some(entry) => {
-                let atomic_value = entry.value();
-                atomic_value
-                    .compare_exchange_weak(
-                        expected.to_u8(),
-                        new.to_u8(),
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    )
-                    .is_ok()
-            }
-            None => false,
-        };
-
-        // Notify subscribers if the transition succeeded
-        if success && let Some(tx) = self.notifiers.get(block_hash) {
-            // Ignore send errors - means no active receivers
-            let _ = tx.send(new);
-        }
-
-        success
-    }
-
-    /// Inserts a new block with Pending status.
-    ///
-    /// Returns `true` if the block was inserted (i.e., it wasn't already present),
-    /// `false` if the block already exists in the table.
-    pub fn insert_pending(&self, block_hash: Hash256) -> bool {
-        // Create the broadcast channel
-        let (tx, _rx) = broadcast::channel(Self::CHANNEL_CAPACITY);
-
-        match self.table.entry(block_hash) {
-            Entry::Occupied(_) => false,
-            Entry::Vacant(entry) => {
-                entry.insert(AtomicU8::new(BlockStatus::Pending.to_u8()));
-                self.notifiers.insert(block_hash, tx);
-                self.entry_count.fetch_add(1, Ordering::Relaxed);
-                true
-            }
-        }
+        entry.status().ok()
     }
 
     /// Removes a block from the status table.
     ///
     /// Returns the previous status if the block was present, `None` otherwise.
     pub fn remove(&self, block_hash: &Hash256) -> Option<BlockStatus> {
-        // Remove from both maps
-        let status = self
-            .table
+        // Remove entry from table
+        self.table
             .remove(block_hash)
-            .and_then(|(_, atomic_status)| {
-                let status_value = atomic_status.load(Ordering::Acquire);
-                BlockStatus::from_u8(status_value)
-            });
-
-        // Clean up the notifier channel
-        self.notifiers.remove(block_hash);
-
-        if status.is_some() {
-            self.entry_count.fetch_sub(1, Ordering::Relaxed);
-        }
-
-        status
+            .map(|(_, entry)| entry)
+            .and_then(|entry| entry.status().ok())
     }
 
     /// Returns the number of entries currently in the table.
@@ -192,7 +221,7 @@ impl BlockStatusTable {
     /// Note: This is an approximate count that may be slightly inaccurate
     /// due to concurrent operations, but is useful for monitoring and debugging.
     pub fn len(&self) -> usize {
-        self.entry_count.load(Ordering::Relaxed)
+        self.table.len()
     }
 
     /// Returns true if the table is empty.
@@ -200,35 +229,11 @@ impl BlockStatusTable {
         self.table.is_empty()
     }
 
-    /// Returns the number of entries in each status state.
-    ///
-    /// This method is primarily intended for debugging and monitoring purposes.
-    /// The counts are approximate due to the concurrent nature of the table.
-    pub fn status_counts(&self) -> BlockStatusCounts {
-        let mut counts = BlockStatusCounts::default();
-
-        for entry in self.table.iter() {
-            let status_value = entry.value().load(Ordering::Acquire);
-            if let Some(status) = BlockStatus::from_u8(status_value) {
-                match status {
-                    BlockStatus::Pending => counts.pending += 1,
-                    BlockStatus::Executing => counts.executing += 1,
-                    BlockStatus::Invalid => counts.invalid += 1,
-                    BlockStatus::Importing => counts.importing += 1,
-                    BlockStatus::Imported => counts.imported += 1,
-                }
-            }
-        }
-
-        counts
-    }
-
     /// Clears all entries from the table.
     ///
     /// This method should be used with caution as it removes all tracking information.
     pub fn clear(&self) {
         self.table.clear();
-        self.entry_count.store(0, Ordering::Relaxed);
     }
 }
 
@@ -316,34 +321,42 @@ mod tests {
     }
 
     #[test]
-    fn test_compare_and_swap_status() {
+    fn test_transition() {
         let table = BlockStatusTable::new();
         let hash = test_hash(1);
 
         // CAS on non-existent entry should fail
-        assert!(!table.compare_and_swap_status(
-            &hash,
-            BlockStatus::Pending,
-            BlockStatus::Executing
-        ));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Pending, BlockStatus::Executing)
+                .is_err()
+        );
 
         // Insert entry
         table.insert_pending(hash);
 
         // Successful CAS
-        assert!(table.compare_and_swap_status(&hash, BlockStatus::Pending, BlockStatus::Executing));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Pending, BlockStatus::Executing)
+                .is_ok()
+        );
         assert_eq!(table.get_status(&hash), Some(BlockStatus::Executing));
 
         // Failed CAS with wrong expected value
-        assert!(!table.compare_and_swap_status(&hash, BlockStatus::Pending, BlockStatus::Invalid));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Pending, BlockStatus::Invalid)
+                .is_err()
+        );
         assert_eq!(table.get_status(&hash), Some(BlockStatus::Executing));
 
         // Successful CAS to terminal state
-        assert!(table.compare_and_swap_status(
-            &hash,
-            BlockStatus::Executing,
-            BlockStatus::Imported
-        ));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Executing, BlockStatus::Imported)
+                .is_ok()
+        );
         assert_eq!(table.get_status(&hash), Some(BlockStatus::Imported));
     }
 
@@ -361,33 +374,6 @@ mod tests {
         assert_eq!(table.remove(&hash), Some(BlockStatus::Pending));
         assert_eq!(table.len(), 0);
         assert_eq!(table.get_status(&hash), None);
-    }
-
-    #[test]
-    fn test_status_counts() {
-        let table = BlockStatusTable::new();
-        let hashes: Vec<Hash256> = (1..=5).map(test_hash).collect();
-
-        // Insert and set different statuses
-        for &hash in &hashes {
-            table.insert_pending(hash);
-        }
-
-        table.compare_and_swap_status(&hashes[0], BlockStatus::Pending, BlockStatus::Executing);
-        table.compare_and_swap_status(&hashes[1], BlockStatus::Pending, BlockStatus::Invalid);
-        table.compare_and_swap_status(&hashes[2], BlockStatus::Pending, BlockStatus::Importing);
-        table.compare_and_swap_status(&hashes[3], BlockStatus::Pending, BlockStatus::Imported);
-        // hashes[4] remains Pending
-
-        let counts = table.status_counts();
-        assert_eq!(counts.pending, 1);
-        assert_eq!(counts.executing, 1);
-        assert_eq!(counts.invalid, 1);
-        assert_eq!(counts.importing, 1);
-        assert_eq!(counts.imported, 1);
-        assert_eq!(counts.total(), 5);
-        assert_eq!(counts.terminal(), 2);
-        assert_eq!(counts.active(), 2);
     }
 
     #[test]
@@ -441,19 +427,19 @@ mod tests {
                     table_clone.insert_pending(hash);
 
                     // Try to transition through states
-                    table_clone.compare_and_swap_status(
-                        &hash,
-                        BlockStatus::Pending,
-                        BlockStatus::Executing,
+                    assert!(
+                        table_clone
+                            .transition(&hash, BlockStatus::Pending, BlockStatus::Executing,)
+                            .is_ok()
                     );
 
                     // Small delay to increase chance of contention
                     thread::sleep(Duration::from_nanos(1));
 
-                    table_clone.compare_and_swap_status(
-                        &hash,
-                        BlockStatus::Executing,
-                        BlockStatus::Imported,
+                    assert!(
+                        table_clone
+                            .transition(&hash, BlockStatus::Executing, BlockStatus::Imported,)
+                            .is_ok()
                     );
                 }
             });
@@ -467,16 +453,6 @@ mod tests {
 
         // Verify final state
         assert_eq!(table.len(), num_threads * operations_per_thread);
-
-        // All entries should be in either Executing or Imported state
-        let counts = table.status_counts();
-        assert_eq!(counts.pending, 0);
-        assert_eq!(counts.invalid, 0);
-        assert_eq!(counts.importing, 0);
-        assert_eq!(
-            counts.executing + counts.imported,
-            num_threads * operations_per_thread
-        );
     }
 
     #[test]
@@ -489,16 +465,16 @@ mod tests {
 
         // Test multiple rapid transitions
         for _ in 0..1000 {
-            assert!(table.compare_and_swap_status(
-                &hash,
-                BlockStatus::Pending,
-                BlockStatus::Executing
-            ));
-            assert!(table.compare_and_swap_status(
-                &hash,
-                BlockStatus::Executing,
-                BlockStatus::Pending
-            ));
+            assert!(
+                table
+                    .transition(&hash, BlockStatus::Pending, BlockStatus::Executing)
+                    .is_ok()
+            );
+            assert!(
+                table
+                    .transition(&hash, BlockStatus::Executing, BlockStatus::Pending)
+                    .is_ok()
+            );
         }
 
         // Verify final state
@@ -545,17 +521,16 @@ mod tests {
                 let mut successful_cas = 0;
                 for _ in 0..operations_per_thread {
                     // Try to transition from Pending to Executing
-                    if table_clone.compare_and_swap_status(
-                        &hash,
-                        BlockStatus::Pending,
-                        BlockStatus::Executing,
-                    ) {
+                    if table_clone
+                        .transition(&hash, BlockStatus::Pending, BlockStatus::Executing)
+                        .is_ok()
+                    {
                         successful_cas += 1;
                         // Immediately transition back to allow other threads to compete
-                        table_clone.compare_and_swap_status(
-                            &hash,
-                            BlockStatus::Executing,
-                            BlockStatus::Pending,
+                        assert!(
+                            table_clone
+                                .transition(&hash, BlockStatus::Executing, BlockStatus::Pending,)
+                                .is_ok()
                         );
                     }
                 }
@@ -596,28 +571,32 @@ mod tests {
         assert_eq!(current_status, BlockStatus::Pending);
 
         // Transition to Executing
-        assert!(table.compare_and_swap_status(&hash, BlockStatus::Pending, BlockStatus::Executing));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Pending, BlockStatus::Executing)
+                .is_ok()
+        );
 
         // Should receive notification
         let status = rx.recv().await.expect("Should receive notification");
         assert_eq!(status, BlockStatus::Executing);
 
         // Transition to Importing
-        assert!(table.compare_and_swap_status(
-            &hash,
-            BlockStatus::Executing,
-            BlockStatus::Importing
-        ));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Executing, BlockStatus::Importing)
+                .is_ok()
+        );
 
         let status = rx.recv().await.expect("Should receive notification");
         assert_eq!(status, BlockStatus::Importing);
 
         // Transition to Imported (terminal state)
-        assert!(table.compare_and_swap_status(
-            &hash,
-            BlockStatus::Importing,
-            BlockStatus::Imported
-        ));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Importing, BlockStatus::Imported)
+                .is_ok()
+        );
 
         let status = rx.recv().await.expect("Should receive notification");
         assert_eq!(status, BlockStatus::Imported);
@@ -634,10 +613,10 @@ mod tests {
         let table_clone = Arc::clone(&table);
         let transition_handle = tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            table_clone.compare_and_swap_status(
-                &hash,
-                BlockStatus::Pending,
-                BlockStatus::Executing,
+            assert!(
+                table_clone
+                    .transition(&hash, BlockStatus::Pending, BlockStatus::Executing,)
+                    .is_ok()
             );
         });
 
@@ -685,7 +664,11 @@ mod tests {
         assert_eq!(status3, BlockStatus::Pending);
 
         // Transition state
-        assert!(table.compare_and_swap_status(&hash, BlockStatus::Pending, BlockStatus::Executing));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Pending, BlockStatus::Executing)
+                .is_ok()
+        );
 
         // All subscribers should receive the notification
         let s1 = rx1.recv().await.expect("rx1 should receive");
@@ -703,7 +686,7 @@ mod tests {
         let hash = test_hash(999);
 
         // Should return None for non-existent block
-        assert!(table.subscribe(&hash).is_none());
+        assert!(table.subscribe(&hash).is_err());
     }
 
     #[tokio::test]
@@ -715,7 +698,11 @@ mod tests {
         let (_status, mut rx) = table.subscribe(&hash).expect("Should subscribe");
 
         // Transition to terminal state and remove
-        assert!(table.compare_and_swap_status(&hash, BlockStatus::Pending, BlockStatus::Imported));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Pending, BlockStatus::Imported)
+                .is_ok()
+        );
 
         // Receive the notification
         let status = rx.recv().await.expect("Should receive Imported");
@@ -744,12 +731,16 @@ mod tests {
         let (_status1, mut rx1) = table.subscribe(&hash).expect("Should subscribe");
 
         // Transition through multiple states
-        assert!(table.compare_and_swap_status(&hash, BlockStatus::Pending, BlockStatus::Executing));
-        assert!(table.compare_and_swap_status(
-            &hash,
-            BlockStatus::Executing,
-            BlockStatus::Importing
-        ));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Pending, BlockStatus::Executing)
+                .is_ok()
+        );
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Executing, BlockStatus::Importing)
+                .is_ok()
+        );
 
         // Late subscriber should get current state
         let (status2, mut rx2) = table.subscribe(&hash).expect("Should subscribe");
@@ -766,11 +757,11 @@ mod tests {
         );
 
         // Now both should receive future transitions
-        assert!(table.compare_and_swap_status(
-            &hash,
-            BlockStatus::Importing,
-            BlockStatus::Imported
-        ));
+        assert!(
+            table
+                .transition(&hash, BlockStatus::Importing, BlockStatus::Imported)
+                .is_ok()
+        );
 
         assert_eq!(
             rx1.recv().await.expect("Should receive"),
