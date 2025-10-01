@@ -49,17 +49,7 @@ enum Error {
     HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     BeaconState(#[allow(dead_code)] BeaconStateError),
     Store(#[allow(dead_code)] store::Error),
-    MaxDistanceExceeded {
-        current_slot: Slot,
-        head_slot: Slot,
-    },
-    StateAlreadyAdvanced {
-        block_root: Hash256,
-    },
-    BadStateSlot {
-        _state_slot: Slot,
-        _block_slot: Slot,
-    },
+    MaxDistanceExceeded { current_slot: Slot, head_slot: Slot },
 }
 
 impl From<BeaconChainError> for Error {
@@ -180,9 +170,6 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                             error = ?e,
                             "Failed to advance head state"
                         ),
-                        Err(Error::StateAlreadyAdvanced { block_root }) => {
-                            debug!(?block_root, "State already advanced on slot")
-                        }
                         Err(Error::MaxDistanceExceeded {
                             current_slot,
                             head_slot,
