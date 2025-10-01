@@ -243,33 +243,6 @@ impl Default for BlockStatusTable {
     }
 }
 
-/// Counts of entries in each status state.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct BlockStatusCounts {
-    pub pending: usize,
-    pub executing: usize,
-    pub invalid: usize,
-    pub importing: usize,
-    pub imported: usize,
-}
-
-impl BlockStatusCounts {
-    /// Returns the total number of entries across all statuses.
-    pub fn total(&self) -> usize {
-        self.pending + self.executing + self.invalid + self.importing + self.imported
-    }
-
-    /// Returns the number of entries in terminal states.
-    pub fn terminal(&self) -> usize {
-        self.invalid + self.imported
-    }
-
-    /// Returns the number of entries in active processing states.
-    pub fn active(&self) -> usize {
-        self.executing + self.importing
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
