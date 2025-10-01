@@ -3,7 +3,7 @@ use dashmap::mapref::entry::Entry;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::broadcast;
-use types::Hash256;
+use types::{Hash256, Slot};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
@@ -71,14 +71,16 @@ impl BlockStatus {
 
 struct BlockStatusEntry {
     status: AtomicU8,
+    slot: Slot,
     sender: broadcast::Sender<BlockStatus>,
 }
 
 impl BlockStatusEntry {
-    pub fn new() -> Self {
+    pub fn new(status: BlockStatus, slot: Slot) -> Self {
         let (sender, _rx) = broadcast::channel(BlockStatus::CHANNEL_CAPACITY);
         Self {
-            status: AtomicU8::new(BlockStatus::Pending.to_u8()),
+            status: AtomicU8::new(status.to_u8()),
+            slot,
             sender,
         }
     }
@@ -86,6 +88,10 @@ impl BlockStatusEntry {
     pub fn status(&self) -> Result<BlockStatus, Error> {
         let value = self.status.load(Ordering::Acquire);
         BlockStatus::from_u8(value).ok_or(Error::InvalidStatus(value))
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.slot
     }
 
     pub fn transition(&self, expected: BlockStatus, new: BlockStatus) -> Result<(), Error> {
@@ -142,11 +148,11 @@ impl BlockStatusTable {
     ///
     /// Returns `true` if the block was inserted (i.e., it wasn't already present),
     /// `false` if the block already exists in the table.
-    pub fn insert_pending(&self, block_hash: Hash256) -> bool {
+    pub fn insert_pending(&self, block_hash: Hash256, slot: Slot) -> bool {
         match self.table.entry(block_hash) {
             Entry::Occupied(_) => false,
             Entry::Vacant(entry) => {
-                entry.insert(Arc::new(BlockStatusEntry::new()));
+                entry.insert(Arc::new(BlockStatusEntry::new(BlockStatus::Pending, slot)));
                 true
             }
         }
@@ -211,10 +217,16 @@ impl BlockStatusTable {
 
     /// Gets the status of a block or inserts it as pending if it doesn't exist.
     /// Returns an error but this should never happen.
-    pub fn get_status_or_insert_pending(&self, block_hash: Hash256) -> Result<BlockStatus, Error> {
+    pub fn get_status_or_insert_pending(
+        &self,
+        block_hash: Hash256,
+        slot: Slot,
+    ) -> Result<BlockStatus, Error> {
         match self.table.entry(block_hash) {
             Entry::Occupied(o) => o.get().status(),
-            Entry::Vacant(entry) => entry.insert(Arc::new(BlockStatusEntry::new())).status(),
+            Entry::Vacant(entry) => entry
+                .insert(Arc::new(BlockStatusEntry::new(BlockStatus::Pending, slot)))
+                .status(),
         }
     }
 
@@ -227,6 +239,11 @@ impl BlockStatusTable {
             .remove(block_hash)
             .map(|(_, entry)| entry)
             .and_then(|entry| entry.status().ok())
+    }
+
+    /// Prunes entries with a slot lower than the given slot.
+    pub fn prune_finalized(&self, finalized_slot: Slot) {
+        self.table.retain(|_, entry| entry.slot() >= finalized_slot);
     }
 
     /// Returns the number of entries currently in the table.
@@ -282,14 +299,15 @@ mod tests {
     fn test_insert_pending() {
         let table = BlockStatusTable::new();
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
         // First insertion should succeed
-        assert!(table.insert_pending(hash));
+        assert!(table.insert_pending(hash, slot));
         assert_eq!(table.get_status(&hash), Some(BlockStatus::Pending));
         assert_eq!(table.len(), 1);
 
         // Second insertion of same hash should fail
-        assert!(!table.insert_pending(hash));
+        assert!(!table.insert_pending(hash, slot));
         assert_eq!(table.len(), 1);
     }
 
@@ -297,12 +315,13 @@ mod tests {
     fn test_get_status() {
         let table = BlockStatusTable::new();
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
         // Non-existent hash should return None
         assert_eq!(table.get_status(&hash), None);
 
         // Insert and verify
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
         assert_eq!(table.get_status(&hash), Some(BlockStatus::Pending));
     }
 
@@ -310,6 +329,7 @@ mod tests {
     fn test_transition() {
         let table = BlockStatusTable::new();
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
         // CAS on non-existent entry should fail
         assert!(
@@ -319,7 +339,7 @@ mod tests {
         );
 
         // Insert entry
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
 
         // Successful CAS
         assert!(
@@ -350,12 +370,13 @@ mod tests {
     fn test_remove() {
         let table = BlockStatusTable::new();
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
         // Remove non-existent entry
         assert_eq!(table.remove(&hash), None);
 
         // Insert and remove
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
         assert_eq!(table.len(), 1);
         assert_eq!(table.remove(&hash), Some(BlockStatus::Pending));
         assert_eq!(table.len(), 0);
@@ -382,9 +403,11 @@ mod tests {
         let table = BlockStatusTable::new();
         let hash1 = test_hash(1);
         let hash2 = test_hash(2);
+        let slot1 = Slot::new(1);
+        let slot2 = Slot::new(2);
 
-        table.insert_pending(hash1);
-        table.insert_pending(hash2);
+        table.insert_pending(hash1, slot1);
+        table.insert_pending(hash2, slot2);
         assert_eq!(table.len(), 2);
 
         table.clear();
@@ -392,6 +415,27 @@ mod tests {
         assert_eq!(table.len(), 0);
         assert_eq!(table.get_status(&hash1), None);
         assert_eq!(table.get_status(&hash2), None);
+    }
+
+    #[test]
+    fn test_prune_finalized() {
+        let table = BlockStatusTable::new();
+        let blocks = 32usize;
+        for i in 0..blocks {
+            let hash = test_hash(i as u64);
+            let slot = Slot::new(i as u64);
+            table.insert_pending(hash, slot);
+        }
+        table.prune_finalized(Slot::new(16));
+        assert_eq!(table.len(), 16);
+        for i in 0..blocks {
+            let hash = test_hash(i as u64);
+            if i < 16 {
+                assert_eq!(table.get_status(&hash), None);
+            } else {
+                assert_eq!(table.get_status(&hash), Some(BlockStatus::Pending));
+            }
+        }
     }
 
     #[test]
@@ -408,9 +452,10 @@ mod tests {
             let handle = thread::spawn(move || {
                 for op_id in 0..operations_per_thread {
                     let hash = test_hash((thread_id * operations_per_thread + op_id) as u64);
+                    let slot = Slot::new(1);
 
                     // Insert
-                    table_clone.insert_pending(hash);
+                    table_clone.insert_pending(hash, slot);
 
                     // Try to transition through states
                     assert!(
@@ -445,9 +490,10 @@ mod tests {
     fn test_atomic_operations_performance() {
         let table = BlockStatusTable::new();
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
         // Test that atomic operations work correctly
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
 
         // Test multiple rapid transitions
         for _ in 0..1000 {
@@ -494,8 +540,9 @@ mod tests {
     fn test_get_status_or_insert_pending() {
         let table = BlockStatusTable::new();
         let hash = test_hash(1);
+        let slot = Slot::new(1);
         assert_eq!(
-            table.get_status_or_insert_pending(hash),
+            table.get_status_or_insert_pending(hash, slot),
             Ok(BlockStatus::Pending)
         );
         assert_eq!(table.get_status(&hash), Some(BlockStatus::Pending));
@@ -510,7 +557,7 @@ mod tests {
 
         // get status should return executing
         assert_eq!(
-            table.get_status_or_insert_pending(hash),
+            table.get_status_or_insert_pending(hash, slot),
             Ok(BlockStatus::Executing)
         );
         assert_eq!(table.get_status(&hash), Some(BlockStatus::Executing));
@@ -520,7 +567,8 @@ mod tests {
     fn test_concurrent_cas_contention() {
         let table = Arc::new(BlockStatusTable::new());
         let hash = test_hash(1);
-        table.insert_pending(hash);
+        let slot = Slot::new(1);
+        table.insert_pending(hash, slot);
 
         let num_threads = 10;
         let operations_per_thread = 100;
@@ -574,9 +622,10 @@ mod tests {
     async fn test_subscribe_notifications() {
         let table = Arc::new(BlockStatusTable::new());
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
         // Insert pending block
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
 
         // Subscribe to updates
         let (current_status, mut rx) = table.subscribe(&hash).expect("Should be able to subscribe");
@@ -618,8 +667,9 @@ mod tests {
     async fn test_subscribe_race_condition() {
         let table = Arc::new(BlockStatusTable::new());
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
 
         // Spawn a task that will transition the status immediately
         let table_clone = Arc::clone(&table);
@@ -663,8 +713,9 @@ mod tests {
     async fn test_multiple_subscribers() {
         let table = Arc::new(BlockStatusTable::new());
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
 
         // Create multiple subscribers
         let (status1, mut rx1) = table.subscribe(&hash).expect("Should subscribe");
@@ -705,8 +756,9 @@ mod tests {
     async fn test_subscribe_after_removal() {
         let table = Arc::new(BlockStatusTable::new());
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
         let (_status, mut rx) = table.subscribe(&hash).expect("Should subscribe");
 
         // Transition to terminal state and remove
@@ -736,8 +788,9 @@ mod tests {
     async fn test_subscribe_with_late_subscriber() {
         let table = Arc::new(BlockStatusTable::new());
         let hash = test_hash(1);
+        let slot = Slot::new(1);
 
-        table.insert_pending(hash);
+        table.insert_pending(hash, slot);
 
         // First subscriber
         let (_status1, mut rx1) = table.subscribe(&hash).expect("Should subscribe");

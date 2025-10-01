@@ -3021,11 +3021,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         blob: GossipVerifiedBlob<T>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_root = blob.block_root();
+        let slot = blob.slot();
 
         // TODO: if somehow this blob is older than finalization, we need to not insert it - where is this checked?
         let status = self
             .block_status_table
-            .get_status_or_insert_pending(block_root)
+            .get_status_or_insert_pending(block_root, slot)
             .map_err(|e| {
                 BlockError::InternalError(format!(
                     "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
@@ -3071,7 +3072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let status = self
             .block_status_table
-            .get_status_or_insert_pending(block_root)
+            .get_status_or_insert_pending(block_root, slot)
             .map_err(|e| {
                 BlockError::InternalError(format!(
                     "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
@@ -3113,7 +3114,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO: if somehow this blob is older than finalization, we need to not insert it - where is this checked?
         let status = self
             .block_status_table
-            .get_status_or_insert_pending(block_root)
+            .get_status_or_insert_pending(block_root, slot)
             .map_err(|e| {
                 BlockError::InternalError(format!(
                     "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
@@ -3158,7 +3159,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // we don't need to process its blobs again.
         let status = self
             .block_status_table
-            .get_status_or_insert_pending(block_root)
+            .get_status_or_insert_pending(block_root, slot)
             .map_err(|e| {
                 BlockError::InternalError(format!(
                     "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
@@ -3254,7 +3255,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // TODO: if somehow this column is older than finalization, we need to not insert it - where is this checked?
         let status = self
             .block_status_table
-            .get_status_or_insert_pending(block_root)
+            .get_status_or_insert_pending(block_root, slot)
             .map_err(|e| {
                 BlockError::InternalError(format!(
                     "BlockStatusTable failed on get_status_or_insert_pending: {:?}",
@@ -3381,7 +3382,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_slot = unverified_block.block().slot();
 
         // ensure the block is in the status table
-        self.block_status_table.insert_pending(block_root);
+        self.block_status_table
+            .insert_pending(block_root, block_slot);
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
         // but just in case we set it again here (useful for tests).
@@ -3659,7 +3661,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let status = self
             .block_status_table
-            .get_status_or_insert_pending(block_root)
+            .get_status_or_insert_pending(block_root, slot)
             .map_err(|e| {
                 BlockError::InternalError(format!(
                     "BlockStatusTable failed on get_status_or_insert_pending: {:?}",

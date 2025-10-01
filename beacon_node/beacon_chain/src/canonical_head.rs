@@ -1020,6 +1020,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;
 
+        // kick off a task to prune the block status table in 2 minutes
+        let block_status_table = self.block_status_table.clone();
+        self.task_executor.spawn_handle(
+            async move {
+                tokio::time::sleep(Duration::from_secs(120)).await;
+                block_status_table.prune_finalized(new_finalized_slot);
+            },
+            "prune_block_status_table",
+        );
+
         Ok(())
     }
 
