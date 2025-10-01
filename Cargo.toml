@@ -99,9 +99,10 @@ edition = "2024"
 
 [workspace.dependencies]
 account_utils = { path = "common/account_utils" }
-alloy-consensus = { version = "0.14.0", default-features = false }
-alloy-primitives = { version = "1.0", features = ["rlp", "getrandom"] }
-alloy-rlp = "0.3.4"
+alloy-consensus = { version = "=1.0.37", default-features = false }
+alloy-primitives = { version = "=1.4.0", features = ["rlp", "getrandom"] }
+alloy-rlp = "=0.3.12"
+alloy-rpc-types = "=1.0.37"
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
