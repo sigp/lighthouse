@@ -379,13 +379,10 @@ impl BlockId {
             versioned_hashes
                 .iter()
                 .flat_map(|versioned_hash| {
-                    blob_kzg_commitments
-                        .iter()
-                        .enumerate()
-                        .position(move |(_index, commitment)| {
-                            let computed_hash = kzg_commitment_to_versioned_hash(commitment);
-                            computed_hash == *versioned_hash
-                        })
+                    blob_kzg_commitments.iter().position(move |commitment| {
+                        let computed_hash = kzg_commitment_to_versioned_hash(commitment);
+                        computed_hash == *versioned_hash
+                    })
                 })
                 .map(|index| index as u64)
                 .collect()
