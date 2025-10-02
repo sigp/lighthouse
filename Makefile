@@ -16,7 +16,7 @@ BUILD_PATH_RISCV64 = "target/$(RISCV64_TAG)/release"
 PINNED_NIGHTLY ?= nightly
 
 # List of features to use when cross-compiling. Can be overridden via the environment.
-CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb
+CROSS_FEATURES ?= gnosis,slasher-lmdb,slasher-mdbx,slasher-redb,beacon-node-leveldb,beacon-node-redb,beacon-node-postgres
 
 # Cargo profile for Cross builds. Default is for local builds, CI uses an override.
 CROSS_PROFILE ?= release
@@ -264,7 +264,7 @@ lint-fix:
 
 # Also run the lints on the optimized-only tests
 lint-full:
-	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
+	TEST_FEATURES="beacon-node-leveldb,beacon-node-redb,beacon-node-postgres,${TEST_FEATURES}"  RUSTFLAGS="-C debug-assertions=no $(RUSTFLAGS)" $(MAKE) lint
 
 # Runs the makefile in the `ef_tests` repo.
 #

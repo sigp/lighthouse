@@ -8,7 +8,7 @@ edition = { workspace = true }
 default = ["leveldb"]
 leveldb = ["dep:leveldb"]
 redb = ["dep:redb"]
-postgres = ["dep:postgres", "dep:tokio"]
+postgres = ["dep:sqlx", "dep:tokio"]
 
 [dependencies]
 bls = { workspace = true }

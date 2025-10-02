@@ -11,10 +11,12 @@ use types::EthSpec;
 use types::non_zero_usize::new_non_zero_usize;
 use zstd::{Decoder, Encoder};
 
-#[cfg(all(feature = "redb", not(feature = "leveldb")))]
+#[cfg(all(feature = "redb", not(feature = "leveldb"), not(feature = "postgres")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;
 #[cfg(feature = "leveldb")]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::LevelDb;
+#[cfg(all(feature = "postgres", not(feature = "leveldb"), not(feature = "redb")))]
+pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Postgres;
 
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;

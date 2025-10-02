@@ -33,6 +33,8 @@ slasher-redb = ["slasher/redb"]
 beacon-node-leveldb = ["store/leveldb"]
 # Supports beacon node redb backend.
 beacon-node-redb = ["store/redb"]
+# Supports beacon node postgres backedn
+beacon-node-postgres = ["store/postgres"]
 # Supports console subscriber for debugging
 console-subscriber = ["console-subscriber/default"]
 # Force the use of the system memory allocator rather than jemalloc.
