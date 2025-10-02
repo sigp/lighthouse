@@ -18,7 +18,6 @@ pub fn upgrade_to_fulu<E: EthSpec>(
     Ok(())
 }
 
-
 fn initialize_proposer_lookahead<E: EthSpec>(
     state: &BeaconState<E>,
     spec: &ChainSpec,
