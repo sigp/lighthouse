@@ -395,7 +395,6 @@ impl BlockId {
                 .map(|index| index as u64)
                 .collect()
         };
-        println!("blob_indices are: {blob_indices:?}");
 
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
@@ -462,7 +461,7 @@ impl BlockId {
         blob_indices: Option<Vec<u64>>,
         block: &SignedBlindedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
     ) -> Result<BlobSidecarList<T::EthSpec>, Rejection> {
-        let column_indices: Vec<u64> = chain.store.get_data_column_keys(root).map_err(|e| {
+        let column_indices = chain.store.get_data_column_keys(root).map_err(|e| {
             warp_utils::reject::custom_server_error(format!(
                 "Error fetching data columns keys: {e:?}"
             ))

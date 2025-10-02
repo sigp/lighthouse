@@ -340,11 +340,12 @@ pub fn reconstruct_blobs<E: EthSpec>(
             }
 
             let all_cells: Vec<_> = if data_columns.len() < E::number_of_columns() {
-                let recovered_cells = kzg
+                let (cells, _kzg_proofs) = kzg
                     .recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
-                    .map_err(|e| format!("Failed to recover cells and compute KZG proofs: {e:?}"))?
-                    .0;
-                recovered_cells.into_iter().collect()
+                    .map_err(|e| {
+                        format!("Failed to recover cells and compute KZG proofs: {e:?}")
+                    })?;
+                cells.into_iter().collect()
             } else {
                 cells.into_iter().map(|cell| (*cell).into()).collect()
             };
