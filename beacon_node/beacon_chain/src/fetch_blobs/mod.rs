@@ -32,7 +32,7 @@ use mockall_double::double;
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tracing::{Span, debug, instrument, warn};
+use tracing::{debug, instrument, warn};
 use types::blob_sidecar::BlobSidecarError;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::{
@@ -345,12 +345,10 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
     let custody_columns_indices = custody_columns_indices.to_vec();
-    let current_span = Span::current();
     chain_adapter
         .executor()
         .spawn_blocking_handle(
             move || {
-                let _guard = current_span.enter();
                 let mut timer = metrics::start_timer_vec(
                     &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
                     &[&blobs.len().to_string()],

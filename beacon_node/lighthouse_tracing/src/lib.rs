@@ -29,7 +29,7 @@ pub const SPAN_PROCESS_CHAIN_SEGMENT: &str = "process_chain_segment";
 pub const SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL: &str = "process_chain_segment_backfill";
 
 /// Fork choice root spans
-pub const SPAN_RECOMPUTE_HEAD: &str = "recompute_head_at_slot";
+pub const SPAN_RECOMPUTE_HEAD: &str = "recompute_head_at_slot_internal";
 
 /// RPC methods root spans
 pub const SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST: &str = "handle_blocks_by_range_request";

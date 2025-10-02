@@ -47,7 +47,6 @@ use fork_choice::{
     ResetPayloadStatuses,
 };
 use itertools::process_results;
-use lighthouse_tracing::SPAN_RECOMPUTE_HEAD;
 use logging::crit;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slot_clock::SlotClock;
@@ -58,7 +57,6 @@ use store::{
     Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig, iter::StateRootsIterator,
 };
 use task_executor::{JoinHandle, ShutdownReason};
-use tracing::info_span;
 use tracing::{debug, error, info, instrument, warn};
 use types::*;
 
@@ -513,21 +511,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// situation can be rectified. We avoid returning an error here so that calling functions
     /// can't abort block import because an error is returned here.
     pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) {
-        let span = info_span!(
-            SPAN_RECOMPUTE_HEAD,
-            slot = %current_slot
-        );
-
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
         let chain = self.clone();
         match self
             .spawn_blocking_handle(
-                move || {
-                    let _guard = span.enter();
-                    chain.recompute_head_at_slot_internal(current_slot)
-                },
+                move || chain.recompute_head_at_slot_internal(current_slot),
                 "recompute_head_internal",
             )
             .await
