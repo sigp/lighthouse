@@ -1418,7 +1418,8 @@ impl BeaconNodeHttpClient {
         &self,
         block_id: BlockId,
         versioned_hashes: Option<&[Hash256]>,
-    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<Blobs<E>>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<BlobWrapper<E>>>>, Error>
+    {
         let mut path = self.get_blobs_path(block_id)?;
         if let Some(hashes) = versioned_hashes {
             let hashes_string = hashes

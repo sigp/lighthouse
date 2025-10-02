@@ -4,7 +4,7 @@ use beacon_chain::kzg_utils::reconstruct_blobs;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
-use eth2::types::{BlobIndicesQuery, Blobs, BlobsVersionedHashesQuery};
+use eth2::types::{BlobIndicesQuery, BlobWrapper, BlobsVersionedHashesQuery};
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::fmt;
 use std::str::FromStr;
@@ -360,7 +360,7 @@ impl BlockId {
         query: BlobsVersionedHashesQuery,
         chain: &BeaconChain<T>,
     ) -> Result<
-        UnversionedResponse<Vec<Blobs<T::EthSpec>>, ExecutionOptimisticFinalizedMetadata>,
+        UnversionedResponse<Vec<BlobWrapper<T::EthSpec>>, ExecutionOptimisticFinalizedMetadata>,
         warp::Rejection,
     > {
         let (root, execution_optimistic, finalized) = self.root(chain)?;
@@ -376,28 +376,18 @@ impl BlockId {
         })?;
 
         let blob_indices: Vec<_> = if let Some(versioned_hashes) = &query.versioned_hashes {
-            println!("Number of versioned_hashes is: {}", versioned_hashes.len());
             versioned_hashes
                 .iter()
                 .flat_map(|versioned_hash| {
-                    println!("Processing versioned_hash: {:?}", versioned_hash);
-                    let matches: Vec<_> = blob_kzg_commitments
+                    blob_kzg_commitments
                         .iter()
                         .enumerate()
-                        .filter_map(move |(index, commitment)| {
+                        .position(move |(_index, commitment)| {
                             let computed_hash = kzg_commitment_to_versioned_hash(commitment);
-                            let is_match = computed_hash == *versioned_hash;
-                            if is_match {
-                                println!("Match found at index {}: {:?}", index, computed_hash);
-                                Some(index as u64)
-                            } else {
-                                None
-                            }
+                            computed_hash == *versioned_hash
                         })
-                        .collect();
-                    println!("Matched indices for this hash: {:?}", matches);
-                    matches
                 })
+                .map(|index| index as u64)
                 .collect()
         } else {
             // If no versioned_hashes is provided, return all indices
@@ -421,7 +411,7 @@ impl BlockId {
 
         let blobs = blob_sidecar_list
             .into_iter()
-            .map(|sidecar| Blobs::<T::EthSpec> {
+            .map(|sidecar| BlobWrapper::<T::EthSpec> {
                 blob: sidecar.blob.clone(),
             })
             .collect();
@@ -452,9 +442,9 @@ impl BlockId {
 
         let blob_sidecar_list_filtered = match indices {
             Some(vec) => {
-                let list: Vec<_> = blob_sidecar_list
+                let list: Vec<_> = vec
                     .into_iter()
-                    .filter(|blob_sidecar| vec.contains(&blob_sidecar.index))
+                    .flat_map(|index| blob_sidecar_list.get(index as usize).cloned())
                     .collect();
 
                 BlobSidecarList::new(list, max_blobs_per_block)

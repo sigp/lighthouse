@@ -2327,7 +2327,7 @@ pub struct StandardAttestationRewards {
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode)]
 #[serde(bound = "E: EthSpec")]
 #[serde(transparent)]
-pub struct Blobs<E: EthSpec> {
+pub struct BlobWrapper<E: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub blob: Blob<E>,
 }
