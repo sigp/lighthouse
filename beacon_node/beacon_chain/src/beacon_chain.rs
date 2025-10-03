@@ -3035,7 +3035,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return Err(BlockError::DuplicateFullyImported(block_root));
                 }
                 if status.is_past_pending() {
-                    return Err(BlockError::DuplicateImportStatusUnknown(block_root));
+                    return Err(BlockError::DuplicateImportStatusKnown(block_root, status));
                 }
             }
         }
@@ -3086,7 +3086,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return Err(BlockError::DuplicateFullyImported(block_root));
                 }
                 if status.is_past_pending() {
-                    return Err(BlockError::DuplicateImportStatusUnknown(block_root));
+                    return Err(BlockError::DuplicateImportStatusKnown(block_root, status));
                 }
             }
         }
@@ -3131,7 +3131,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return Err(BlockError::DuplicateFullyImported(block_root));
                 }
                 if status.is_past_pending() {
-                    return Err(BlockError::DuplicateImportStatusUnknown(block_root));
+                    return Err(BlockError::DuplicateImportStatusKnown(block_root, status));
                 }
             }
         }
@@ -3181,7 +3181,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return Err(BlockError::DuplicateFullyImported(block_root));
                 }
                 if status.is_past_pending() {
-                    return Err(BlockError::DuplicateImportStatusUnknown(block_root));
+                    return Err(BlockError::DuplicateImportStatusKnown(block_root, status));
                 }
             }
         }
@@ -3282,7 +3282,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return Err(BlockError::DuplicateFullyImported(block_root));
                 }
                 if status.is_past_pending() {
-                    return Err(BlockError::DuplicateImportStatusUnknown(block_root));
+                    return Err(BlockError::DuplicateImportStatusKnown(block_root, status));
                 }
             }
         }
@@ -3730,7 +3730,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return Err(BlockError::DuplicateFullyImported(block_root));
                 }
                 if status.is_past_pending() {
-                    return Err(BlockError::DuplicateImportStatusUnknown(block_root));
+                    return Err(BlockError::DuplicateImportStatusKnown(block_root, status));
                 }
             }
         }

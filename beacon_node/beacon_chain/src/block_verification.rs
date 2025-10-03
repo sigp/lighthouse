@@ -1800,6 +1800,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
     // Do not process a block from a finalized slot.
     check_block_against_finalized_slot(block, block_root, chain)?;
 
+    // TODO: this could be a check on the block status table rather than fork choice
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice.
     if chain
