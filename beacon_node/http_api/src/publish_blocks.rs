@@ -133,7 +133,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         );
 
         crate::publish_pubsub_message(&sender, PubsubMessage::BeaconBlock(block.clone())).map_err(
-            |_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)),
+            |_| BlockError::BeaconChainError(Arc::new(BeaconChainError::UnableToPublish)),
         )?;
 
         Ok(())
@@ -494,7 +494,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
 ) -> Result<(), BlockError> {
     let pubsub_message = PubsubMessage::BlobSidecar(Box::new((blob.index(), blob.clone_blob())));
     crate::publish_pubsub_message(sender_clone, pubsub_message)
-        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
+        .map_err(|_| BlockError::BeaconChainError(Arc::new(BeaconChainError::UnableToPublish)))
 }
 
 fn publish_column_sidecars<T: BeaconChainTypes>(
@@ -527,7 +527,7 @@ fn publish_column_sidecars<T: BeaconChainTypes>(
         })
         .collect::<Vec<_>>();
     crate::publish_pubsub_messages(sender_clone, pubsub_messages)
-        .map_err(|_| BlockError::BeaconChainError(Box::new(BeaconChainError::UnableToPublish)))
+        .map_err(|_| BlockError::BeaconChainError(Arc::new(BeaconChainError::UnableToPublish)))
 }
 
 async fn post_block_import_logging_and_response<T: BeaconChainTypes>(
@@ -798,7 +798,7 @@ fn check_slashable<T: BeaconChainTypes>(
             block_clone.message().proposer_index(),
             block_root,
         )
-        .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
+        .map_err(|e| BlockError::BeaconChainError(Arc::new(e.into())))?
     {
         warn!(
             slot = %block_clone.slot(),

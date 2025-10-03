@@ -651,14 +651,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             // Note: currenlty only InvalidColumn errors have index granularity,
                             // but future errors may follow the same pattern. Generalize this
                             // pattern with https://github.com/sigp/lighthouse/pull/6321
-                            BlockError::AvailabilityCheck(
-                                AvailabilityCheckError::InvalidColumn((index_opt, _)),
-                            ) => {
-                                match index_opt {
-                                    Some(index) => peer_group.of_index(index as usize).collect(),
-                                    // If no index supplied this is an un-attributable fault. In practice
-                                    // this should never happen.
-                                    None => vec![],
+                            BlockError::AvailabilityCheck(arc_err) => {
+                                match arc_err.as_ref() {
+                                    AvailabilityCheckError::InvalidColumn((index_opt, _)) => {
+                                        match index_opt {
+                                            Some(index) => {
+                                                peer_group.of_index(*index as usize).collect()
+                                            }
+                                            // If no index supplied this is an un-attributable fault. In practice
+                                            // this should never happen.
+                                            None => vec![],
+                                        }
+                                    }
+                                    _ => peer_group.all().collect(),
                                 }
                             }
                             _ => peer_group.all().collect(),

@@ -50,6 +50,7 @@
 
 use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::blob_verification::GossipBlobError;
+use crate::block_status_table::BlockStatus;
 use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
@@ -138,7 +139,7 @@ const WRITE_BLOCK_PROCESSING_SSZ: bool = cfg!(feature = "write_ssz_files");
 ///
 /// - The block is malformed/invalid (indicated by all results other than `BeaconChainError`.
 /// - We encountered an error whilst trying to verify the block (a `BeaconChainError`).
-#[derive(Debug, AsRefStr)]
+#[derive(Debug, AsRefStr, Clone)]
 pub enum BlockError {
     /// The parent block was unknown.
     ///
@@ -193,6 +194,12 @@ pub enum BlockError {
     ///
     /// The block could be valid, or invalid. We don't know.
     DuplicateImportStatusUnknown(Hash256),
+    /// Block has already been imported by another thread but has not necessarily finished being imported.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block could be valid, or invalid. We don't know.
+    DuplicateImportStatusKnown(Hash256, BlockStatus),
     /// The block slot exceeds the MAXIMUM_BLOCK_SLOT_NUMBER.
     ///
     /// ## Peer scoring
@@ -245,14 +252,14 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty.
-    PerBlockProcessingError(BlockProcessingError),
+    PerBlockProcessingError(Arc<BlockProcessingError>),
     /// There was an error whilst processing the block. It is not necessarily invalid.
     ///
     /// ## Peer scoring
     ///
     /// We were unable to process this block due to an internal error. It's unclear if the block is
     /// valid.
-    BeaconChainError(Box<BeaconChainError>),
+    BeaconChainError(Arc<BeaconChainError>),
     /// There was an error whilst verifying weak subjectivity. This block conflicts with the
     /// configured weak subjectivity checkpoint and was not imported.
     ///
@@ -271,7 +278,7 @@ pub enum BlockError {
     /// ## Peer scoring
     ///
     /// See `ExecutionPayloadError` for scoring information
-    ExecutionPayloadError(ExecutionPayloadError),
+    ExecutionPayloadError(Arc<ExecutionPayloadError>),
     /// The block references an parent block which has an execution payload which was found to be
     /// invalid.
     ///
@@ -308,7 +315,7 @@ pub enum BlockError {
     ///
     /// TODO: We may need to penalize the peer that gave us a potentially invalid rpc blob.
     /// https://github.com/sigp/lighthouse/issues/4546
-    AvailabilityCheck(AvailabilityCheckError),
+    AvailabilityCheck(Arc<AvailabilityCheckError>),
     /// A Blob with a slot after PeerDAS is received and is not required to be imported.
     /// This can happen because we stay subscribed to the blob subnet after 2 epochs, as we could
     /// still receive valid blobs from a Deneb epoch after PeerDAS is activated.
@@ -337,7 +344,7 @@ pub enum BlockError {
 }
 
 /// Which specific signature(s) are invalid in a SignedBeaconBlock
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InvalidSignature {
     // The outer signature in a SignedBeaconBlock
     ProposerSignature,
@@ -349,7 +356,7 @@ pub enum InvalidSignature {
 
 impl From<AvailabilityCheckError> for BlockError {
     fn from(e: AvailabilityCheckError) -> Self {
-        Self::AvailabilityCheck(e)
+        Self::AvailabilityCheck(Arc::new(e))
     }
 }
 
@@ -457,7 +464,7 @@ impl From<execution_layer::Error> for ExecutionPayloadError {
 
 impl From<ExecutionPayloadError> for BlockError {
     fn from(e: ExecutionPayloadError) -> Self {
-        BlockError::ExecutionPayloadError(e)
+        BlockError::ExecutionPayloadError(Arc::new(e))
     }
 }
 
@@ -494,31 +501,31 @@ impl From<BlockSignatureVerifierError> for BlockError {
 
 impl From<BeaconChainError> for BlockError {
     fn from(e: BeaconChainError) -> Self {
-        BlockError::BeaconChainError(e.into())
+        BlockError::BeaconChainError(Arc::new(e.into()))
     }
 }
 
 impl From<BeaconStateError> for BlockError {
     fn from(e: BeaconStateError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::BeaconStateError(e).into())
+        BlockError::BeaconChainError(Arc::new(BeaconChainError::BeaconStateError(e).into()))
     }
 }
 
 impl From<SlotProcessingError> for BlockError {
     fn from(e: SlotProcessingError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::SlotProcessingError(e).into())
+        BlockError::BeaconChainError(Arc::new(BeaconChainError::SlotProcessingError(e).into()))
     }
 }
 
 impl From<DBError> for BlockError {
     fn from(e: DBError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::DBError(e).into())
+        BlockError::BeaconChainError(Arc::new(BeaconChainError::DBError(e).into()))
     }
 }
 
 impl From<ArithError> for BlockError {
     fn from(e: ArithError) -> Self {
-        BlockError::BeaconChainError(BeaconChainError::ArithError(e).into())
+        BlockError::BeaconChainError(Arc::new(BeaconChainError::ArithError(e).into()))
     }
 }
 
@@ -1002,7 +1009,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .observed_slashable
             .write()
             .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
-            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+            .map_err(|e| BlockError::BeaconChainError(Arc::new(e.into())))?;
         // Now the signature is valid, store the proposal so we don't accept another from this
         // validator and slot.
         //
@@ -1012,7 +1019,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             .observed_block_producers
             .write()
             .observe_proposal(block_root, block.message())
-            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
+            .map_err(|e| BlockError::BeaconChainError(Arc::new(e.into())))?
         {
             SeenBlock::Slashable => {
                 return Err(BlockError::Slashable);
@@ -1299,10 +1306,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for RpcBlock<T::EthSpec> 
             .data_availability_checker
             .verify_kzg_for_rpc_block(self.clone())
             .map_err(|e| {
-                BlockSlashInfo::SignatureNotChecked(
-                    self.signed_block_header(),
-                    BlockError::AvailabilityCheck(e),
-                )
+                BlockSlashInfo::SignatureNotChecked(self.signed_block_header(), e.into())
             })?;
         SignatureVerifiedBlock::check_slashable(maybe_available, block_root, chain)?
             .into_execution_pending_block_slashable(block_root, chain, notify_execution_layer)
@@ -1338,13 +1342,13 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             .observed_slashable
             .write()
             .observe_slashable(block.slot(), block.message().proposer_index(), block_root)
-            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+            .map_err(|e| BlockError::BeaconChainError(Arc::new(e.into())))?;
 
         chain
             .observed_block_producers
             .write()
             .observe_proposal(block_root, block.message())
-            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+            .map_err(|e| BlockError::BeaconChainError(Arc::new(e.into())))?;
 
         if let Some(parent) = chain
             .canonical_head
@@ -1598,7 +1602,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // Capture `BeaconStateError` so that we can easily distinguish between a block
                 // that's invalid and one that caused an internal error.
                 BlockProcessingError::BeaconStateError(e) => return Err(e.into()),
-                other => return Err(BlockError::PerBlockProcessingError(other)),
+                other => return Err(BlockError::PerBlockProcessingError(Arc::new(other))),
             }
         };
 
@@ -1645,7 +1649,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         for (i, attestation) in block.message().body().attestations().enumerate() {
             let indexed_attestation = consensus_context
                 .get_indexed_attestation(&state, attestation)
-                .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i)))?;
+                .map_err(|e| BlockError::PerBlockProcessingError(e.into_with_index(i).into()))?;
 
             match fork_choice.on_attestation(
                 current_slot,
@@ -1656,7 +1660,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // Ignore invalid attestations whilst importing attestations from a block. The
                 // block might be very old and therefore the attestations useless to fork choice.
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
-                Err(e) => Err(BlockError::BeaconChainError(Box::new(e.into()))),
+                Err(e) => Err(BlockError::BeaconChainError(Arc::new(e.into()))),
             }?;
         }
         drop(fork_choice);
@@ -1747,7 +1751,7 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
         if chain
             .store
             .block_exists(&block.parent_root())
-            .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?
+            .map_err(|e| BlockError::BeaconChainError(Arc::new(e.into())))?
         {
             Err(BlockError::NotFinalizedDescendant {
                 block_parent_root: block.parent_root(),
@@ -1894,7 +1898,7 @@ fn load_parent<T: BeaconChainTypes, B: AsBlock<T::EthSpec>>(
         let root = block.parent_root();
         let parent_block = chain
             .get_blinded_block(&block.parent_root())
-            .map_err(|e| BlockError::BeaconChainError(Box::new(e)))?
+            .map_err(|e| BlockError::BeaconChainError(Arc::new(e)))?
             .ok_or_else(|| {
                 // Return a `MissingBeaconBlock` error instead of a `ParentUnknown` error since
                 // we've already checked fork choice for this block.

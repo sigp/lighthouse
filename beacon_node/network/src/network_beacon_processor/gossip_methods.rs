@@ -1289,7 +1289,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(
                 BlockError::DuplicateFullyImported(_)
-                | BlockError::DuplicateImportStatusUnknown(..),
+                | BlockError::DuplicateImportStatusUnknown(..)
+                | BlockError::DuplicateImportStatusKnown(..),
             ) => {
                 debug!(
                     %block_root,

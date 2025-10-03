@@ -76,7 +76,7 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 block_message.body(),
                 &chain.spec,
             )
-            .map_err(BlockError::PerBlockProcessingError)?;
+            .map_err(|e| BlockError::PerBlockProcessingError(Arc::new(e)))?;
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
@@ -319,18 +319,18 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
                 .slot_clock
                 .start_of(block.slot())
                 .map(|d| d.as_secs())
-                .ok_or(BlockError::BeaconChainError(Box::new(
+                .ok_or(BlockError::BeaconChainError(Arc::new(
                     BeaconChainError::UnableToComputeTimeAtSlot,
                 )))?;
 
             // The block's execution payload timestamp is correct with respect to the slot
             if execution_payload.timestamp() != expected_timestamp {
-                return Err(BlockError::ExecutionPayloadError(
+                return Err(BlockError::ExecutionPayloadError(Arc::new(
                     ExecutionPayloadError::InvalidPayloadTimestamp {
                         expected: expected_timestamp,
                         found: execution_payload.timestamp(),
                     },
-                ));
+                )));
             }
         }
     }
