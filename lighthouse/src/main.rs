@@ -376,10 +376,6 @@ fn main() {
                 .global(true)
                 .display_order(0)
         )
-
-
-
-
         .arg(
             Arg::new("genesis-state-url")
                 .long("genesis-state-url")

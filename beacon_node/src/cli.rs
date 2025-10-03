@@ -699,13 +699,6 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
-
-        /*
-         * Eth1 Integration
-         */
-
-
-
         .arg(
             Arg::new("slots-per-restore-point")
                 .long("slots-per-restore-point")
