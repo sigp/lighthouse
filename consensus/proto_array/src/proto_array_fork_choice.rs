@@ -414,13 +414,13 @@ impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
         current_slot: Slot,
-        finalized_block_slot: Slot,
-        finalized_block_state_root: Hash256,
+        anchor_block_slot: Slot,
+        anchor_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-        current_epoch_shuffling_id: AttestationShufflingId,
-        next_epoch_shuffling_id: AttestationShufflingId,
-        execution_status: ExecutionStatus,
+        anchor_block_current_epoch_shuffling_id: AttestationShufflingId,
+        anchor_block_next_epoch_shuffling_id: AttestationShufflingId,
+        anchor_block_execution_status: ExecutionStatus,
     ) -> Result<Self, String> {
         let mut proto_array = ProtoArray {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
@@ -432,18 +432,18 @@ impl ProtoArrayForkChoice {
         };
 
         let block = Block {
-            slot: finalized_block_slot,
+            slot: anchor_block_slot,
             root: finalized_checkpoint.root,
             parent_root: None,
-            state_root: finalized_block_state_root,
+            state_root: anchor_block_state_root,
             // We are using the finalized_root as the target_root, since it always lies on an
             // epoch boundary.
             target_root: finalized_checkpoint.root,
-            current_epoch_shuffling_id,
-            next_epoch_shuffling_id,
+            current_epoch_shuffling_id: anchor_block_current_epoch_shuffling_id,
+            next_epoch_shuffling_id: anchor_block_next_epoch_shuffling_id,
             justified_checkpoint,
             finalized_checkpoint,
-            execution_status,
+            execution_status: anchor_block_execution_status,
             unrealized_justified_checkpoint: Some(justified_checkpoint),
             unrealized_finalized_checkpoint: Some(finalized_checkpoint),
         };

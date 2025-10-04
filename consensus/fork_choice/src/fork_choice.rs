@@ -341,6 +341,12 @@ where
     E: EthSpec,
 {
     /// Instantiates `Self` from an anchor (genesis or another finalized checkpoint).
+    ///
+    /// # Parameters
+    /// - `anchor_block_root`: Hash of the `anchor_block`.
+    /// - `anchor_block`: The most recent block for `anchor_state` (the block that produced it).
+    /// - `anchor_state`: Beacon state **after** applying `anchor_block` and advanced to the closest
+    ///                   epoch boundary.
     pub fn from_anchor(
         fc_store: T,
         anchor_block_root: Hash256,
@@ -357,16 +363,16 @@ where
             });
         }
 
-        let finalized_block_slot = anchor_block.slot();
-        let finalized_block_state_root = anchor_block.state_root();
-        let current_epoch_shuffling_id =
+        let anchor_block_slot = anchor_block.slot();
+        let anchor_block_state_root = anchor_block.state_root();
+        let anchor_block_current_epoch_shuffling_id =
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Current)
                 .map_err(Error::BeaconStateError)?;
-        let next_epoch_shuffling_id =
+        let anchor_block_next_epoch_shuffling_id =
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
-        let execution_status = anchor_block.message().execution_payload().map_or_else(
+        let anchor_block_execution_status = anchor_block.message().execution_payload().map_or_else(
             // If the block doesn't have an execution payload then it can't have
             // execution enabled.
             |_| ExecutionStatus::irrelevant(),
@@ -387,13 +393,13 @@ where
 
         let proto_array = ProtoArrayForkChoice::new::<E>(
             current_slot,
-            finalized_block_slot,
-            finalized_block_state_root,
+            anchor_block_slot,
+            anchor_block_state_root,
             *fc_store.justified_checkpoint(),
             *fc_store.finalized_checkpoint(),
-            current_epoch_shuffling_id,
-            next_epoch_shuffling_id,
-            execution_status,
+            anchor_block_current_epoch_shuffling_id,
+            anchor_block_next_epoch_shuffling_id,
+            anchor_block_execution_status,
         )?;
 
         let mut fork_choice = Self {
