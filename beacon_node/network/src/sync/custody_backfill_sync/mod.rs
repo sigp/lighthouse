@@ -201,7 +201,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.last_batch_downloaded = false;
         self.current_processing_batch = None;
         self.validated_batches = 0;
-        self.cgc = 0;
+
+
+        self.set_start_epoch();
+        self.set_cgc();
     }
 
     fn restart_if_required(&mut self) -> bool {
@@ -246,7 +249,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 if !self.should_start_custody_backfill_sync() {
                     return Ok(SyncStart::NotSyncing);
                 }
-                self.set_start_epoch()?;
+                self.set_start_epoch();
                 if self
                     .network_globals
                     .peers
@@ -294,7 +297,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             .custody_group_count_at_head(&self.beacon_chain.spec);
     }
 
-    fn set_start_epoch(&mut self) -> Result<(), CustodyBackfillError> {
+    fn set_start_epoch(&mut self) {
         let earliest_data_column_epoch = self
             .beacon_chain
             .earliest_custodied_data_column_epoch()
@@ -303,7 +306,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.current_start = earliest_data_column_epoch + 1;
         self.processing_target = self.current_start;
         self.to_be_downloaded = self.current_start;
-        Ok(())
     }
 
     /// Attempts to request the next required batches from the peer pool. It will exhaust the peer
@@ -451,37 +453,27 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     }
 
     fn get_missing_columns_for_epoch(&self, epoch: Epoch) -> HashSet<ColumnIndex> {
-        let mut missing_columns = HashSet::new();
-        if let Some(earliest_data_column_epoch) =
-            self.beacon_chain.earliest_custodied_data_column_epoch()
-        {
-            let custody_context = self
-                .beacon_chain
-                .data_availability_checker
-                .custody_context();
+        let custody_context = self
+            .beacon_chain
+            .data_availability_checker
+            .custody_context();
 
-            let columns_required = custody_context
-                .custody_columns_for_epoch(
-                    Some(earliest_data_column_epoch),
-                    &self.beacon_chain.spec,
-                )
-                .iter()
-                .cloned()
-                .collect::<HashSet<_>>();
+        let columns_required = custody_context
+            .custody_columns_for_epoch(None, &self.beacon_chain.spec)
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
 
-            let current_columns_at_epoch = custody_context
-                .custody_columns_for_epoch(Some(epoch), &self.beacon_chain.spec)
-                .iter()
-                .cloned()
-                .collect::<HashSet<_>>();
+        let current_columns_at_epoch = custody_context
+            .custody_columns_for_epoch(Some(epoch), &self.beacon_chain.spec)
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
 
-            missing_columns = columns_required
-                .difference(&current_columns_at_epoch)
-                .cloned()
-                .collect::<HashSet<_>>();
-        }
-
-        missing_columns
+        columns_required
+            .difference(&current_columns_at_epoch)
+            .cloned()
+            .collect::<HashSet<_>>()
     }
 
     /// Processes the batch with the given id.
@@ -864,7 +856,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             match batch.state() {
                 BatchState::Downloading(..) | BatchState::AwaitingValidation(..) => {}
                 BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => {
-                    crit!("batch indicates inconsistent data columns while advancing custody sync")
+                    crit!("Batch indicates inconsistent data columns while advancing custody sync")
                 }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
@@ -1058,6 +1050,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.to_be_downloaded = self.current_start;
         self.last_batch_downloaded = false;
         self.current_processing_batch = None;
+        self.restart_sync();
 
         Err(error)
     }

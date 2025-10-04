@@ -220,13 +220,19 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 continue;
             };
 
-            // If we're at a missed slot, but we received columns for that slot, penalize the peer.
-            if !columns.is_empty() && block.slot() != slot {
-                for column in expected_custody_columns {
-                    if let Some(naughty_peer) = column_to_peer.get(column) {
-                        naughty_peers.push((*column, *naughty_peer));
+            // This is a skipped slot, skip to the next slot after we verify that peers
+            // didn't serve us columns for a skipped slot
+            if block.slot() != slot {
+                // If we received columns for a skipped slot, punish the peer
+                if !columns.is_empty() {
+                    for column in expected_custody_columns {
+                        if let Some(naughty_peer) = column_to_peer.get(column) {
+                            naughty_peers.push((*column, *naughty_peer));
+                        }
                     }
                 }
+
+                continue;
             }
 
             let received_columns = columns.iter().map(|c| c.index).collect::<HashSet<_>>();
@@ -237,7 +243,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
             // blobs are expected for this slot but there is at least one missing columns
             // penalize the peers responsible for those columns.
-            if block.num_expected_blobs() != 0 {
+            if block.num_expected_blobs() != 0 && !missing_columns.is_empty() {
                 for column in missing_columns {
                     if let Some(naughty_peer) = column_to_peer.get(column) {
                         naughty_peers.push((*column, *naughty_peer));

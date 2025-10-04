@@ -67,10 +67,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|data_column| ((data_column.slot(), data_column.index), data_column))
             .collect::<HashMap<_, _>>();
 
-        if historical_data_column_sidecar_list.is_empty() {
-            return Ok(total_imported);
-        }
-
         let forward_blocks_iter = self
             .forwards_iter_block_roots_until(
                 epoch.start_slot(T::EthSpec::slots_per_epoch()),
@@ -114,10 +110,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        verify_kzg_for_data_column_list(historical_data_column_sidecar_list.iter(), &self.kzg)
-            .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
+        // If we've made it to here with no columns to import, this is a valid situation
+        // as `block_sidecar_coupling` logic should have caught any bad peers withholding columns
+        if historical_data_column_sidecar_list.is_empty() {
+            if !ops.is_empty() {
+                // This shouldn't be a valid case. If there are no columns to import,
+                // there should be no generated db operations.
+                return Err(HistoricalDataColumnError::IndexOutOfBounds)
+            }
+        } else {
+            verify_kzg_for_data_column_list(historical_data_column_sidecar_list.iter(), &self.kzg)
+                .map_err(|_| HistoricalDataColumnError::InvalidKzg)?;
 
-        self.store.blobs_db.do_atomically(ops)?;
+            self.store.blobs_db.do_atomically(ops)?;
+        }
+
 
         if !slot_and_column_index_to_data_columns.is_empty() {
             debug!(
