@@ -13,9 +13,10 @@ use zstd::{Decoder, Encoder};
 
 #[cfg(all(feature = "redb", not(feature = "leveldb"), not(feature = "postgres")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;
-#[cfg(feature = "leveldb")]
+
+#[cfg(all(feature = "leveldb", not(feature = "postgres"), not(feature = "redb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::LevelDb;
-#[cfg(all(feature = "postgres", not(feature = "leveldb"), not(feature = "redb")))]
+#[cfg(feature = "postgres")]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Postgres;
 
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
@@ -277,4 +278,6 @@ pub enum DatabaseBackend {
     LevelDb,
     #[cfg(feature = "redb")]
     Redb,
+    #[cfg(feature = "postgres")]
+    Postgres,
 }

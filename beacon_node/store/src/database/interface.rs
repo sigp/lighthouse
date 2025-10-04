@@ -2,6 +2,8 @@
 use crate::database::leveldb_impl;
 #[cfg(feature = "redb")]
 use crate::database::redb_impl;
+#[cfg(feature = "postgres")]
+use crate::database::postgres_impl;
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore, metrics};
 use crate::{KeyValueStoreOp, StoreConfig, config::DatabaseBackend};
 use std::collections::HashSet;
@@ -13,6 +15,8 @@ pub enum BeaconNodeBackend<E: EthSpec> {
     LevelDb(leveldb_impl::LevelDB<E>),
     #[cfg(feature = "redb")]
     Redb(redb_impl::Redb<E>),
+    // #[cfg(feature = "postgres")]
+    // Postgres(postgres_impl::Postgres<E>)
 }
 
 impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
@@ -193,6 +197,8 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             }
             #[cfg(feature = "redb")]
             DatabaseBackend::Redb => redb_impl::Redb::open(path).map(BeaconNodeBackend::Redb),
+            #[cfg(feature = "postgres")]
+            DatabaseBackend::Postgres => todo!(),
         }
     }
 }

@@ -12,7 +12,7 @@ rust-version = "1.88.0"
 normal = ["target_check"]
 
 [features]
-default = ["slasher-lmdb", "beacon-node-leveldb"]
+default = ["slasher-lmdb", "beacon-node-postgres"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -33,7 +33,7 @@ slasher-redb = ["slasher/redb"]
 beacon-node-leveldb = ["store/leveldb"]
 # Supports beacon node redb backend.
 beacon-node-redb = ["store/redb"]
-# Supports beacon node postgres backedn
+# Supports beacon node postgres backend
 beacon-node-postgres = ["store/postgres"]
 # Supports console subscriber for debugging
 console-subscriber = ["console-subscriber/default"]
