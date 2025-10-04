@@ -415,6 +415,7 @@ impl ProtoArrayForkChoice {
     pub fn new<E: EthSpec>(
         current_slot: Slot,
         anchor_block_slot: Slot,
+        anchor_block_root: Hash256,
         anchor_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
@@ -429,11 +430,12 @@ impl ProtoArrayForkChoice {
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             previous_proposer_boost: ProposerBoost::default(),
+            anchor_block_root,
         };
 
         let block = Block {
             slot: anchor_block_slot,
-            root: finalized_checkpoint.root,
+            root: anchor_block_root,
             parent_root: None,
             state_root: anchor_block_state_root,
             // We are using the finalized_root as the target_root, since it always lies on an
@@ -957,6 +959,11 @@ impl ProtoArrayForkChoice {
     pub fn heads_descended_from_finalization<E: EthSpec>(&self) -> Vec<&ProtoNode> {
         self.proto_array.heads_descended_from_finalization::<E>()
     }
+
+    /// Returns the anchor_block_root
+    pub fn get_anchor_block_root(&self) -> Hash256 {
+        self.proto_array.anchor_block_root
+    }
 }
 
 /// Returns a list of `deltas`, where there is one delta for each of the indices in
@@ -1098,6 +1105,7 @@ mod test_compute_deltas {
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
             genesis_slot,
+            genesis_checkpoint.root,
             state_root,
             genesis_checkpoint,
             genesis_checkpoint,
@@ -1224,6 +1232,7 @@ mod test_compute_deltas {
         let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
             genesis_slot,
+            genesis_checkpoint.root,
             junk_state_root,
             genesis_checkpoint,
             genesis_checkpoint,

@@ -98,59 +98,49 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     current_slot: Option<Slot>,
     spec: &ChainSpec,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
-    // Fetch finalized block.
-    let finalized_checkpoint = head_state.finalized_checkpoint();
-    let finalized_block_root = finalized_checkpoint.root;
-    let finalized_block = store
-        .get_full_block(&finalized_block_root)
-        .map_err(|e| format!("Error loading finalized block: {:?}", e))?
+    // Fetch the store split as the most recent state internally considered finalized. If the node
+    // started with checkpoint sync and before its first finalization the split state does not equal
+    // to the last finalized state; and the last finalized state is unavailable.
+    let split = store.get_split_info();
+    let new_anchor_block_root = split.block_root;
+    let new_anchor_slot = split.slot;
+    let new_anchor_block = store
+        .get_full_block(&new_anchor_block_root)
+        .map_err(|e| format!("Error loading split block: {:?}", e))?
         .ok_or_else(|| {
             format!(
-                "Finalized block missing for revert: {:?}",
-                finalized_block_root
+                "Split block missing for revert: {:?}",
+                new_anchor_block_root
             )
         })?;
 
     // Advance finalized state to finalized epoch (to handle skipped slots).
-    let finalized_state_root = finalized_block.state_root();
+    let new_anchor_state_root = split.state_root;
     // The enshrined finalized state should be in the state cache.
-    let mut finalized_state = store
-        .get_state(&finalized_state_root, Some(finalized_block.slot()), true)
-        .map_err(|e| format!("Error loading finalized state: {:?}", e))?
+    let new_anchor_state = store
+        .get_state(&new_anchor_state_root, Some(new_anchor_slot), true)
+        .map_err(|e| format!("Error loading split state: {:?}", e))?
         .ok_or_else(|| {
             format!(
-                "Finalized block state missing from database: {:?}",
-                finalized_state_root
+                "Split block state missing from database: {:?}",
+                new_anchor_state_root
             )
         })?;
-    let finalized_slot = finalized_checkpoint.epoch.start_slot(E::slots_per_epoch());
-    complete_state_advance(
-        &mut finalized_state,
-        Some(finalized_state_root),
-        finalized_slot,
-        spec,
-    )
-    .map_err(|e| {
-        format!(
-            "Error advancing finalized state to finalized epoch: {:?}",
-            e
-        )
-    })?;
-    let finalized_snapshot = BeaconSnapshot {
-        beacon_block_root: finalized_block_root,
-        beacon_block: Arc::new(finalized_block),
-        beacon_state: finalized_state,
+    let new_anchor_snapshot = BeaconSnapshot {
+        beacon_block_root: new_anchor_block_root,
+        beacon_block: Arc::new(new_anchor_block),
+        beacon_state: new_anchor_state,
     };
 
     let fc_store =
-        BeaconForkChoiceStore::get_forkchoice_store(store.clone(), finalized_snapshot.clone())
+        BeaconForkChoiceStore::get_forkchoice_store(store.clone(), new_anchor_snapshot.clone())
             .map_err(|e| format!("Unable to reset fork choice store for revert: {e:?}"))?;
 
     let mut fork_choice = ForkChoice::from_anchor(
         fc_store,
-        finalized_block_root,
-        &finalized_snapshot.beacon_block,
-        &finalized_snapshot.beacon_state,
+        new_anchor_block_root,
+        &new_anchor_snapshot.beacon_block,
+        &new_anchor_snapshot.beacon_state,
         current_slot,
         spec,
     )
@@ -160,10 +150,10 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     // We do not replay attestations presently, relying on the absence of other blocks
     // to guarantee `head_block_root` as the head.
     let blocks = store
-        .load_blocks_to_replay(finalized_slot + 1, head_state.slot(), head_block_root)
+        .load_blocks_to_replay(new_anchor_slot + 1, head_state.slot(), head_block_root)
         .map_err(|e| format!("Error loading blocks to replay for fork choice: {:?}", e))?;
 
-    let mut state = finalized_snapshot.beacon_state;
+    let mut state = new_anchor_snapshot.beacon_state;
     for block in blocks {
         complete_state_advance(&mut state, None, block.slot(), spec)
             .map_err(|e| format!("State advance failed: {:?}", e))?;

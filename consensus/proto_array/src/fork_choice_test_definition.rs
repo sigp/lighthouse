@@ -82,6 +82,7 @@ impl ForkChoiceTestDefinition {
         let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             self.finalized_block_slot,
             self.finalized_block_slot,
+            self.finalized_checkpoint.root,
             Hash256::zero(),
             self.justified_checkpoint,
             self.finalized_checkpoint,

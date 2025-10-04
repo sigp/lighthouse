@@ -135,6 +135,12 @@ pub struct ProtoArray {
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
     pub previous_proposer_boost: ProposerBoost,
+    /// The block hash of the block used to initialize the ProtoArray. Invariants:
+    /// - At initialization there is always a ProtoNode for `anchor_block_root`
+    /// - After pruning there may not be a ProtoNode for `anchor_block_root`
+    /// - At any point there is either or both ProtoNodes for `anchor_block_root` and
+    ///   `finalized_checkpoint.root`
+    pub anchor_block_root: Hash256,
 }
 
 impl ProtoArray {

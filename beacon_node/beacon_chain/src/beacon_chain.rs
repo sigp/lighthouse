@@ -5874,7 +5874,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     chain
                         .canonical_head
                         .fork_choice_read_lock()
-                        .get_justified_block()
+                        .get_justified_or_anchor_block()
                 },
                 "invalid_payload_fork_choice_get_justified",
             )

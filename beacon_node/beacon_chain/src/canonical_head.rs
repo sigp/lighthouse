@@ -608,7 +608,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Check to ensure that the finalized block hasn't been marked as invalid. If it has,
         // shut down Lighthouse.
-        let finalized_proto_block = fork_choice_read_lock.get_finalized_block()?;
+        let finalized_proto_block = fork_choice_read_lock.get_finalized_or_anchor_block()?;
         check_finalized_payload_validity(self, &finalized_proto_block)?;
 
         // Sanity check the finalized checkpoint.

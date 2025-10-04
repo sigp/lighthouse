@@ -53,6 +53,19 @@ impl TryFrom<(SszContainer, JustifiedBalances)> for ProtoArrayForkChoice {
     type Error = Error;
 
     fn try_from((from, balances): (SszContainer, JustifiedBalances)) -> Result<Self, Error> {
+        let anchor_block_root = if from
+            .nodes
+            .iter()
+            .any(|node| node.root == from.finalized_checkpoint.root)
+        {
+            // There's a node for the finalized checkpoint, use that as anchor block
+            from.finalized_checkpoint.root
+        } else {
+            // Otherwise we initialized fork-choice from a block more recent than finalization and
+            // have not finalized yet. Use the first node as anchor block.
+            from.nodes.first().ok_or(Error::EmptyNodes)?.root
+        };
+
         let proto_array = ProtoArray {
             prune_threshold: from.prune_threshold,
             justified_checkpoint: from.justified_checkpoint,
@@ -60,6 +73,7 @@ impl TryFrom<(SszContainer, JustifiedBalances)> for ProtoArrayForkChoice {
             nodes: from.nodes,
             indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
             previous_proposer_boost: from.previous_proposer_boost,
+            anchor_block_root,
         };
 
         Ok(Self {

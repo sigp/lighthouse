@@ -320,12 +320,6 @@ pub struct ForkChoice<T, E> {
     queued_attestations: Vec<QueuedAttestation>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: ForkchoiceUpdateParameters,
-    /// The block hash of the block used to initialize the ForkChoice. Invariants:
-    /// - At initialization there is always a ProtoNode for `anchor_block_root`
-    /// - After pruning there may not be a ProtoNode for `anchor_block_root`
-    /// - At any point there is either or both ProtoNodes for `anchor_block_root` and
-    ///   `finalized_checkpoint.root`
-    anchor_block_root: Hash256,
     _phantom: PhantomData<E>,
 }
 
@@ -352,7 +346,7 @@ where
     /// - `anchor_block_root`: Hash of the `anchor_block`.
     /// - `anchor_block`: The most recent block for `anchor_state` (the block that produced it).
     /// - `anchor_state`: Beacon state **after** applying `anchor_block` and advanced to the closest
-    ///                   epoch boundary.
+    ///   epoch boundary.
     pub fn from_anchor(
         fc_store: T,
         anchor_block_root: Hash256,
@@ -400,6 +394,7 @@ where
         let proto_array = ProtoArrayForkChoice::new::<E>(
             current_slot,
             anchor_block_slot,
+            anchor_block_root,
             anchor_block_state_root,
             *fc_store.justified_checkpoint(),
             *fc_store.finalized_checkpoint(),
@@ -420,7 +415,6 @@ where
                 // This will be updated during the next call to `Self::get_head`.
                 head_root: Hash256::zero(),
             },
-            anchor_block_root,
             _phantom: PhantomData,
         };
 
@@ -1286,7 +1280,7 @@ where
     pub fn get_justified_or_anchor_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
         let justified_checkpoint = self.justified_checkpoint();
         self.get_block(&justified_checkpoint.root)
-            .ok_or_else(|| self.get_block(&self.anchor_block_root))
+            .or_else(|| self.get_anchor_block())
             .ok_or(Error::MissingJustifiedBlock {
                 justified_checkpoint,
             })
@@ -1298,10 +1292,16 @@ where
     pub fn get_finalized_or_anchor_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
         let finalized_checkpoint = self.finalized_checkpoint();
         self.get_block(&finalized_checkpoint.root)
-            .ok_or_else(|| self.get_block(&self.anchor_block_root))
+            .or_else(|| self.get_anchor_block())
             .ok_or(Error::MissingFinalizedBlock {
                 finalized_checkpoint,
             })
+    }
+
+    /// Returns the `ProtoBlock` of `anchor_block_root`. May return None after the fork-choice has
+    /// finalized and been pruned.
+    fn get_anchor_block(&self) -> Option<ProtoBlock> {
+        self.get_block(&self.proto_array.get_anchor_block_root())
     }
 
     /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
@@ -1332,7 +1332,7 @@ where
             Ok(status.is_optimistic_or_invalid())
         } else {
             Ok(self
-                .get_finalized_block()?
+                .get_finalized_or_anchor_block()?
                 .execution_status
                 .is_optimistic_or_invalid())
         }
