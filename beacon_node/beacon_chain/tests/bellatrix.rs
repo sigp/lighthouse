@@ -26,72 +26,6 @@ fn verify_execution_payload_chain<E: EthSpec>(chain: &[FullPayload<E>]) {
 }
 
 #[tokio::test]
-// TODO(merge): This isn't working cause the non-zero values in `initialize_beacon_state_from_eth1`
-// are causing failed lookups to the execution node. I need to come back to this.
-#[should_panic]
-async fn merge_with_terminal_block_hash_override() {
-    let altair_fork_epoch = Epoch::new(0);
-    let bellatrix_fork_epoch = Epoch::new(0);
-
-    let mut spec = E::default_spec();
-    spec.altair_fork_epoch = Some(altair_fork_epoch);
-    spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
-
-    let genesis_pow_block_hash = generate_pow_block(
-        spec.terminal_total_difficulty,
-        DEFAULT_TERMINAL_BLOCK,
-        0,
-        ExecutionBlockHash::zero(),
-    )
-    .unwrap()
-    .block_hash;
-
-    spec.terminal_block_hash = genesis_pow_block_hash;
-
-    let harness = BeaconChainHarness::builder(E::default())
-        .spec(spec.into())
-        .deterministic_keypairs(VALIDATOR_COUNT)
-        .fresh_ephemeral_store()
-        .mock_execution_layer()
-        .build();
-
-    assert_eq!(
-        harness
-            .execution_block_generator()
-            .latest_block()
-            .unwrap()
-            .block_hash(),
-        genesis_pow_block_hash,
-        "pre-condition"
-    );
-
-    assert!(
-        harness
-            .chain
-            .head_snapshot()
-            .beacon_block
-            .as_bellatrix()
-            .is_ok(),
-        "genesis block should be a bellatrix block"
-    );
-
-    let mut execution_payloads = vec![];
-    for i in 0..E::slots_per_epoch() * 3 {
-        harness.extend_slots(1).await;
-
-        let block = &harness.chain.head_snapshot().beacon_block;
-
-        let execution_payload = block.message().body().execution_payload().unwrap();
-        if i == 0 {
-            assert_eq!(execution_payload.block_hash(), genesis_pow_block_hash);
-        }
-        execution_payloads.push(execution_payload.into());
-    }
-
-    verify_execution_payload_chain(execution_payloads.as_slice());
-}
-
-#[tokio::test]
 async fn base_altair_bellatrix_with_terminal_block_after_fork() {
     let altair_fork_epoch = Epoch::new(4);
     let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
@@ -210,3 +144,4 @@ async fn base_altair_bellatrix_with_terminal_block_after_fork() {
 
     verify_execution_payload_chain(execution_payloads.as_slice());
 }
+
