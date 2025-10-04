@@ -5,7 +5,7 @@ use crate::{
     data_column_verification::verify_kzg_for_data_column_list,
 };
 use store::{Error as StoreError, KeyValueStore};
-use tracing::debug;
+use tracing::{Span, debug, instrument};
 use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
@@ -49,6 +49,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This function requires that the data column sidecar list contains columns for a full epoch.
     ///
     /// Return the number of `data_columns` successfully imported.
+    #[instrument(skip_all, fields(columns_imported_count = tracing::field::Empty ))]
     pub fn import_historical_data_column_batch(
         &self,
         epoch: Epoch,
@@ -116,7 +117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if !ops.is_empty() {
                 // This shouldn't be a valid case. If there are no columns to import,
                 // there should be no generated db operations.
-                return Err(HistoricalDataColumnError::IndexOutOfBounds)
+                return Err(HistoricalDataColumnError::IndexOutOfBounds);
             }
         } else {
             verify_kzg_for_data_column_list(historical_data_column_sidecar_list.iter(), &self.kzg)
@@ -124,7 +125,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             self.store.blobs_db.do_atomically(ops)?;
         }
-
 
         if !slot_and_column_index_to_data_columns.is_empty() {
             debug!(
@@ -142,6 +142,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
 
         debug!(?epoch, total_imported, "Imported historical data columns");
+
+        let current_span = Span::current();
+        current_span.record("columns_imported_count", total_imported);
 
         Ok(total_imported)
     }

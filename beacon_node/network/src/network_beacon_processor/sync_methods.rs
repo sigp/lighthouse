@@ -21,14 +21,15 @@ use beacon_processor::{
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
 use lighthouse_tracing::{
-    SPAN_PROCESS_CHAIN_SEGMENT, SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL, SPAN_PROCESS_RPC_BLOBS,
-    SPAN_PROCESS_RPC_BLOCK, SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
+    SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS, SPAN_PROCESS_CHAIN_SEGMENT,
+    SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL, SPAN_PROCESS_RPC_BLOBS, SPAN_PROCESS_RPC_BLOCK,
+    SPAN_PROCESS_RPC_CUSTODY_COLUMNS,
 };
 use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
-use tracing::{debug, error, info, instrument, warn};
+use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};
@@ -436,6 +437,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         process_id: Epoch,
         downloaded_columns: DataColumnSidecarList<T::EthSpec>,
     ) {
+        let _guard = debug_span!(
+            SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS,
+            epoch = ?process_id,
+            columns_received_count = downloaded_columns.len()
+        )
+        .entered();
+
         let sent_columns = downloaded_columns.len();
         let result = match self
             .chain

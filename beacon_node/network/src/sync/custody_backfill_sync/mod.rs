@@ -202,7 +202,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.current_processing_batch = None;
         self.validated_batches = 0;
 
-
         self.set_start_epoch();
         self.set_cgc();
     }
