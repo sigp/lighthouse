@@ -29,7 +29,7 @@ use logging::crit;
 use std::sync::Arc;
 use std::time::Duration;
 use store::KzgCommitment;
-use tracing::{Span, debug, debug_span, error, info, instrument, warn};
+use tracing::{debug, debug_span, error, info, instrument, warn};
 use types::beacon_block_body::format_kzg_commitments;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{BlockImportSource, DataColumnSidecarList, Epoch, Hash256};

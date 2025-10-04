@@ -6961,7 +6961,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 effective_epoch.start_slot(T::EthSpec::slots_per_epoch()),
             ))?;
         } else {
-            debug!(
+            info!(
                 ?cgc_at_effective_epoch,
                 ?cgc_at_earliest_data_colum_epoch,
                 ?effective_epoch,
