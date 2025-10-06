@@ -16,8 +16,8 @@ use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use itertools::Itertools;
-use logging::crit;
 use logging::TimeLatch;
+use logging::crit;
 use slot_clock::SlotClock;
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -37,7 +37,9 @@ const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
+const ATTESTATIONS_PER_ROOT: &str = "attestations_per_root";
 const LIGHT_CLIENT_UPDATES: &str = "lc_updates";
+const LIGHT_CLIENT_UPDATES_PER_PARENT_ROOT: &str = "lc_updates_per_parent_root";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
 /// This is to account for any slight drift in the system clock.
@@ -69,10 +71,6 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 /// How many light client updates we keep before new ones get dropped.
 const MAXIMUM_QUEUED_LIGHT_CLIENT_UPDATES: usize = 128;
 
-/// How many sampling requests we queue before new ones get dropped.
-/// TODO(das): choose a sensible value
-const MAXIMUM_QUEUED_SAMPLING_REQUESTS: usize = 16_384;
-
 // Process backfill batch 50%, 60%, 80% through each slot.
 //
 // Note: use caution to set these fractions in a way that won't cause panic-y
@@ -85,6 +83,9 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
     // Four fifths: 9.6s on mainnet, 4s on Gnosis.
     (4, 5),
 ];
+
+/// Trigger reconstruction if we are this many seconds into the current slot
+pub const RECONSTRUCTION_DEADLINE: Duration = Duration::from_millis(3000);
 
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
@@ -109,8 +110,6 @@ pub enum ReprocessQueueMessage {
     UnknownBlockAggregate(QueuedAggregate),
     /// A light client optimistic update that references a parent root that has not been seen as a parent.
     UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate),
-    /// A sampling request that references an unknown block.
-    UnknownBlockSamplingRequest(QueuedSamplingRequest),
     /// A new backfill batch that needs to be scheduled for processing.
     BackfillSync(QueuedBackfillBatch),
     /// A delayed column reconstruction that needs checking
@@ -125,7 +124,6 @@ pub enum ReadyWork {
     Unaggregate(QueuedUnaggregate),
     Aggregate(QueuedAggregate),
     LightClientUpdate(QueuedLightClientUpdate),
-    SamplingRequest(QueuedSamplingRequest),
     BackfillSync(QueuedBackfillBatch),
     ColumnReconstruction(QueuedColumnReconstruction),
 }
@@ -148,12 +146,6 @@ pub struct QueuedAggregate {
 /// queued for later.
 pub struct QueuedLightClientUpdate {
     pub parent_root: Hash256,
-    pub process_fn: BlockingFn,
-}
-
-/// A sampling request for which the corresponding block is not known while processing.
-pub struct QueuedSamplingRequest {
-    pub beacon_block_root: Hash256,
     pub process_fn: BlockingFn,
 }
 
@@ -181,10 +173,11 @@ pub struct IgnoredRpcBlock {
 }
 
 /// A backfill batch work that has been queued for processing later.
-pub struct QueuedBackfillBatch(pub AsyncFn);
+pub struct QueuedBackfillBatch(pub BlockingFn);
 
 pub struct QueuedColumnReconstruction {
     pub block_root: Hash256,
+    pub slot: Slot,
     pub process_fn: AsyncFn,
 }
 
@@ -246,8 +239,6 @@ struct ReprocessQueue<S> {
     attestations_delay_queue: DelayQueue<QueuedAttestationId>,
     /// Queue to manage scheduled light client updates.
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
-    /// Queue to manage scheduled sampling requests
-    sampling_requests_delay_queue: DelayQueue<QueuedSamplingRequestId>,
     /// Queue to manage scheduled column reconstructions.
     column_reconstructions_delay_queue: DelayQueue<QueuedColumnReconstruction>,
 
@@ -264,10 +255,6 @@ struct ReprocessQueue<S> {
     queued_lc_updates: FnvHashMap<usize, (QueuedLightClientUpdate, DelayKey)>,
     /// Light Client Updates per parent_root.
     awaiting_lc_updates_per_parent_root: HashMap<Hash256, Vec<QueuedLightClientUpdateId>>,
-    /// Queued sampling requests.
-    queued_sampling_requests: FnvHashMap<usize, (QueuedSamplingRequest, DelayKey)>,
-    /// Sampling requests per block root.
-    awaiting_sampling_requests_per_block_root: HashMap<Hash256, Vec<QueuedSamplingRequestId>>,
     /// Column reconstruction per block root.
     queued_column_reconstructions: HashMap<Hash256, DelayKey>,
     /// Queued backfill batches
@@ -277,18 +264,15 @@ struct ReprocessQueue<S> {
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
     next_lc_update: usize,
-    next_sampling_request_update: usize,
     early_block_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
     attestation_delay_debounce: TimeLatch,
     lc_update_delay_debounce: TimeLatch,
-    sampling_request_delay_debounce: TimeLatch,
     next_backfill_batch_event: Option<Pin<Box<tokio::time::Sleep>>>,
     slot_clock: Arc<S>,
 }
 
 pub type QueuedLightClientUpdateId = usize;
-pub type QueuedSamplingRequestId = usize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum QueuedAttestationId {
@@ -436,26 +420,21 @@ impl<S: SlotClock> ReprocessQueue<S> {
             rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
-            sampling_requests_delay_queue: <_>::default(),
             column_reconstructions_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
             queued_unaggregates: FnvHashMap::default(),
-            queued_sampling_requests: <_>::default(),
             awaiting_attestations_per_root: HashMap::new(),
             awaiting_lc_updates_per_parent_root: HashMap::new(),
-            awaiting_sampling_requests_per_block_root: <_>::default(),
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
             next_attestation: 0,
             next_lc_update: 0,
-            next_sampling_request_update: 0,
             early_block_debounce: TimeLatch::default(),
             rpc_block_debounce: TimeLatch::default(),
             attestation_delay_debounce: TimeLatch::default(),
             lc_update_delay_debounce: TimeLatch::default(),
-            sampling_request_delay_debounce: <_>::default(),
             next_backfill_batch_event: None,
             slot_clock,
         }
@@ -507,15 +486,14 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     // This logic is slightly awkward since `SlotClock::duration_to_slot`
                     // doesn't distinguish between a slot that has already arrived and an
                     // error reading the slot clock.
-                    if let Some(now) = self.slot_clock.now() {
-                        if block_slot <= now
-                            && self
-                                .ready_work_tx
-                                .try_send(ReadyWork::Block(early_block))
-                                .is_err()
-                        {
-                            error!("Failed to send block");
-                        }
+                    if let Some(now) = self.slot_clock.now()
+                        && block_slot <= now
+                        && self
+                            .ready_work_tx
+                            .try_send(ReadyWork::Block(early_block))
+                            .is_err()
+                    {
+                        error!("Failed to send block");
                     }
                 }
             }
@@ -664,34 +642,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
 
                 self.next_lc_update += 1;
             }
-            InboundEvent::Msg(UnknownBlockSamplingRequest(queued_sampling_request)) => {
-                if self.sampling_requests_delay_queue.len() >= MAXIMUM_QUEUED_SAMPLING_REQUESTS {
-                    if self.sampling_request_delay_debounce.elapsed() {
-                        error!(
-                            queue_size = MAXIMUM_QUEUED_SAMPLING_REQUESTS,
-                            "Sampling requests delay queue is full"
-                        );
-                    }
-                    // Drop the inbound message.
-                    return;
-                }
-
-                let id: QueuedSamplingRequestId = self.next_sampling_request_update;
-                self.next_sampling_request_update += 1;
-
-                // Register the delay.
-                let delay_key = self
-                    .sampling_requests_delay_queue
-                    .insert(id, QUEUED_SAMPLING_REQUESTS_DELAY);
-
-                self.awaiting_sampling_requests_per_block_root
-                    .entry(queued_sampling_request.beacon_block_root)
-                    .or_default()
-                    .push(id);
-
-                self.queued_sampling_requests
-                    .insert(id, (queued_sampling_request, delay_key));
-            }
             InboundEvent::Msg(BlockImported {
                 block_root,
                 parent_root,
@@ -751,48 +701,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
                 }
-                // Unqueue the sampling requests we have for this root, if any.
-                if let Some(queued_ids) = self
-                    .awaiting_sampling_requests_per_block_root
-                    .remove(&block_root)
-                {
-                    let mut sent_count = 0;
-                    let mut failed_to_send_count = 0;
-
-                    for id in queued_ids {
-                        metrics::inc_counter(
-                            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_MATCHED_SAMPLING_REQUESTS,
-                        );
-
-                        if let Some((queued, delay_key)) = self.queued_sampling_requests.remove(&id)
-                        {
-                            // Remove the delay.
-                            self.sampling_requests_delay_queue.remove(&delay_key);
-
-                            // Send the work.
-                            let work = ReadyWork::SamplingRequest(queued);
-
-                            if self.ready_work_tx.try_send(work).is_err() {
-                                failed_to_send_count += 1;
-                            } else {
-                                sent_count += 1;
-                            }
-                        } else {
-                            // This should never happen.
-                            error!(?block_root, ?id, "Unknown sampling request for block root");
-                        }
-                    }
-
-                    if failed_to_send_count > 0 {
-                        error!(
-                            hint = "system may be overloaded",
-                            ?block_root,
-                            failed_to_send_count,
-                            sent_count,
-                            "Ignored scheduled sampling requests for block"
-                        );
-                    }
-                }
             }
             InboundEvent::Msg(NewLightClientOptimisticUpdate { parent_root }) => {
                 // Unqueue the light client optimistic updates we have for this root, if any.
@@ -847,16 +755,26 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
+                let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
+                if let Some(seconds_from_current_slot) =
+                    self.slot_clock.seconds_from_current_slot_start()
+                    && let Some(current_slot) = self.slot_clock.now()
+                    && seconds_from_current_slot >= RECONSTRUCTION_DEADLINE
+                    && current_slot == request.slot
+                {
+                    // If we are at least `RECONSTRUCTION_DEADLINE` seconds into the current slot,
+                    // and the reconstruction request is for the current slot, process reconstruction immediately.
+                    reconstruction_delay = Duration::from_secs(0);
+                }
                 match self.queued_column_reconstructions.entry(request.block_root) {
                     Entry::Occupied(key) => {
-                        // Push back the reattempted reconstruction
                         self.column_reconstructions_delay_queue
-                            .reset(key.get(), QUEUED_RECONSTRUCTION_DELAY)
+                            .reset(key.get(), reconstruction_delay);
                     }
                     Entry::Vacant(vacant) => {
                         let delay_key = self
                             .column_reconstructions_delay_queue
-                            .insert(request, QUEUED_RECONSTRUCTION_DELAY);
+                            .insert(request, reconstruction_delay);
                         vacant.insert(delay_key);
                     }
                 }
@@ -913,9 +831,18 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         );
                     }
 
-                    if let Some(queued_atts) = self.awaiting_attestations_per_root.get_mut(&root) {
-                        if let Some(index) = queued_atts.iter().position(|&id| id == queued_id) {
-                            queued_atts.swap_remove(index);
+                    if let Entry::Occupied(mut queued_atts) =
+                        self.awaiting_attestations_per_root.entry(root)
+                        && let Some(index) =
+                            queued_atts.get().iter().position(|&id| id == queued_id)
+                    {
+                        let queued_atts_mut = queued_atts.get_mut();
+                        queued_atts_mut.swap_remove(index);
+
+                        // If the vec is empty after this attestation's removal, we need to delete
+                        // the entry to prevent bloating the hashmap indefinitely.
+                        if queued_atts_mut.is_empty() {
+                            queued_atts.remove_entry();
                         }
                     }
                 }
@@ -937,14 +864,18 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         error!("Failed to send scheduled light client optimistic update");
                     }
 
-                    if let Some(queued_lc_updates) = self
-                        .awaiting_lc_updates_per_parent_root
-                        .get_mut(&parent_root)
+                    if let Entry::Occupied(mut queued_lc_updates) =
+                        self.awaiting_lc_updates_per_parent_root.entry(parent_root)
+                        && let Some(index) = queued_lc_updates
+                            .get()
+                            .iter()
+                            .position(|&id| id == queued_id)
                     {
-                        if let Some(index) =
-                            queued_lc_updates.iter().position(|&id| id == queued_id)
-                        {
-                            queued_lc_updates.swap_remove(index);
+                        let queued_lc_updates_mut = queued_lc_updates.get_mut();
+                        queued_lc_updates_mut.swap_remove(index);
+
+                        if queued_lc_updates_mut.is_empty() {
+                            queued_lc_updates.remove_entry();
                         }
                     }
                 }
@@ -1017,8 +948,18 @@ impl<S: SlotClock> ReprocessQueue<S> {
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[ATTESTATIONS_PER_ROOT],
+            self.awaiting_attestations_per_root.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[LIGHT_CLIENT_UPDATES],
             self.lc_updates_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[LIGHT_CLIENT_UPDATES_PER_PARENT_ROOT],
+            self.awaiting_lc_updates_per_parent_root.len() as i64,
         );
     }
 
@@ -1065,6 +1006,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BeaconProcessorConfig;
     use logging::create_test_tracing_subscriber;
     use slot_clock::{ManualSlotClock, TestingSlotClock};
     use std::ops::Add;
@@ -1142,7 +1084,7 @@ mod tests {
         // Now queue a backfill sync batch.
         work_reprocessing_tx
             .try_send(ReprocessQueueMessage::BackfillSync(QueuedBackfillBatch(
-                Box::pin(async {}),
+                Box::new(|| {}),
             )))
             .unwrap();
         tokio::task::yield_now().await;
@@ -1186,5 +1128,98 @@ mod tests {
             Duration::from_secs(0),
             Duration::from_secs(slot_duration),
         )
+    }
+
+    fn test_queue() -> ReprocessQueue<ManualSlotClock> {
+        create_test_tracing_subscriber();
+
+        let config = BeaconProcessorConfig::default();
+        let (ready_work_tx, _) = mpsc::channel::<ReadyWork>(config.max_scheduled_work_queue_len);
+        let (_, reprocess_work_rx) =
+            mpsc::channel::<ReprocessQueueMessage>(config.max_scheduled_work_queue_len);
+        let slot_clock = Arc::new(testing_slot_clock(12));
+
+        ReprocessQueue::new(ready_work_tx, reprocess_work_rx, slot_clock)
+    }
+
+    // This is a regression test for a memory leak in `awaiting_attestations_per_root`.
+    // See: https://github.com/sigp/lighthouse/pull/8065
+    #[tokio::test]
+    async fn prune_awaiting_attestations_per_root() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let beacon_block_root = Hash256::repeat_byte(0xaf);
+
+        // Insert an attestation.
+        let att = ReprocessQueueMessage::UnknownBlockUnaggregate(QueuedUnaggregate {
+            beacon_block_root,
+            process_fn: Box::new(|| {}),
+        });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(att));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_attestations_per_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_attestations_per_root
+                .contains_key(&beacon_block_root)
+        );
+
+        // Advance time to expire the attestation.
+        advance_time(&queue.slot_clock, 2 * QUEUED_ATTESTATION_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyAttestation(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry for the block root should be gone.
+        assert!(queue.awaiting_attestations_per_root.is_empty());
+    }
+
+    // This is a regression test for a memory leak in `awaiting_lc_updates_per_parent_root`.
+    // See: https://github.com/sigp/lighthouse/pull/8065
+    #[tokio::test]
+    async fn prune_awaiting_lc_updates_per_parent_root() {
+        create_test_tracing_subscriber();
+
+        let mut queue = test_queue();
+
+        // Pause time so it only advances manually
+        tokio::time::pause();
+
+        let parent_root = Hash256::repeat_byte(0xaf);
+
+        // Insert an attestation.
+        let msg =
+            ReprocessQueueMessage::UnknownLightClientOptimisticUpdate(QueuedLightClientUpdate {
+                parent_root,
+                process_fn: Box::new(|| {}),
+            });
+
+        // Process the event to enter it into the delay queue.
+        queue.handle_message(InboundEvent::Msg(msg));
+
+        // Check that it is queued.
+        assert_eq!(queue.awaiting_lc_updates_per_parent_root.len(), 1);
+        assert!(
+            queue
+                .awaiting_lc_updates_per_parent_root
+                .contains_key(&parent_root)
+        );
+
+        // Advance time to expire the update.
+        advance_time(&queue.slot_clock, 2 * QUEUED_LIGHT_CLIENT_UPDATE_DELAY).await;
+        let ready_msg = queue.next().await.unwrap();
+        assert!(matches!(ready_msg, InboundEvent::ReadyLightClientUpdate(_)));
+        queue.handle_message(ready_msg);
+
+        // The entry for the block root should be gone.
+        assert!(queue.awaiting_lc_updates_per_parent_root.is_empty());
     }
 }

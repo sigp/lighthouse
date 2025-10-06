@@ -1,19 +1,19 @@
 use super::{
+    BehaviourAction, MAX_CONCURRENT_REQUESTS, Protocol, RPCSend, ReqId, RequestType,
     config::OutboundRateLimiterConfig,
     rate_limiter::{RPCRateLimiter as RateLimiter, RateLimitedErr},
-    BehaviourAction, Protocol, RPCSend, ReqId, RequestType, MAX_CONCURRENT_REQUESTS,
 };
 use crate::rpc::rate_limiter::RateLimiterItem;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
-    collections::{hash_map::Entry, HashMap, VecDeque},
+    collections::{HashMap, VecDeque, hash_map::Entry},
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
 
 use futures::FutureExt;
-use libp2p::{swarm::NotifyHandler, PeerId};
+use libp2p::{PeerId, swarm::NotifyHandler};
 use logging::crit;
 use smallvec::SmallVec;
 use tokio_util::time::DelayQueue;
@@ -130,24 +130,23 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         request_id: Id,
         req: RequestType<E>,
     ) -> Result<RPCSend<Id, E>, (QueuedRequest<Id, E>, Duration)> {
-        if let Some(active_request) = active_requests.get(&peer_id) {
-            if let Some(count) = active_request.get(&req.protocol()) {
-                if *count >= MAX_CONCURRENT_REQUESTS {
-                    debug!(
-                        %peer_id,
-                        protocol = %req.protocol(),
-                        "Self rate limiting due to the number of concurrent requests"
-                    );
-                    return Err((
-                        QueuedRequest {
-                            req,
-                            request_id,
-                            queued_at: timestamp_now(),
-                        },
-                        Duration::from_millis(WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS),
-                    ));
-                }
-            }
+        if let Some(active_request) = active_requests.get(&peer_id)
+            && let Some(count) = active_request.get(&req.protocol())
+            && *count >= MAX_CONCURRENT_REQUESTS
+        {
+            debug!(
+                %peer_id,
+                protocol = %req.protocol(),
+                "Self rate limiting due to the number of concurrent requests"
+            );
+            return Err((
+                QueuedRequest {
+                    req,
+                    request_id,
+                    queued_at: timestamp_now(),
+                },
+                Duration::from_millis(WAIT_TIME_DUE_TO_CONCURRENT_REQUESTS),
+            ));
         }
 
         if let Some(limiter) = rate_limiter.as_mut() {
@@ -258,13 +257,13 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
 
     /// Informs the limiter that a response has been received.
     pub fn request_completed(&mut self, peer_id: &PeerId, protocol: Protocol) {
-        if let Some(active_requests) = self.active_requests.get_mut(peer_id) {
-            if let Entry::Occupied(mut entry) = active_requests.entry(protocol) {
-                if *entry.get() > 1 {
-                    *entry.get_mut() -= 1;
-                } else {
-                    entry.remove();
-                }
+        if let Some(active_requests) = self.active_requests.get_mut(peer_id)
+            && let Entry::Occupied(mut entry) = active_requests.entry(protocol)
+        {
+            if *entry.get() > 1 {
+                *entry.get_mut() -= 1;
+            } else {
+                entry.remove();
             }
         }
     }
@@ -511,13 +510,17 @@ mod tests {
         }
 
         assert!(limiter.active_requests.contains_key(&peer1));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer1, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer1, Protocol::Ping))
+        );
         assert!(limiter.active_requests.contains_key(&peer2));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer2, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer2, Protocol::Ping))
+        );
 
         // Check that the limiter returns the IDs of pending requests and that the IDs are ordered correctly.
         let mut failed_requests = limiter.peer_disconnected(peer1);
@@ -533,13 +536,17 @@ mod tests {
 
         // Check that peer1’s active and delayed requests have been removed.
         assert!(!limiter.active_requests.contains_key(&peer1));
-        assert!(!limiter
-            .delayed_requests
-            .contains_key(&(peer1, Protocol::Ping)));
+        assert!(
+            !limiter
+                .delayed_requests
+                .contains_key(&(peer1, Protocol::Ping))
+        );
 
         assert!(limiter.active_requests.contains_key(&peer2));
-        assert!(limiter
-            .delayed_requests
-            .contains_key(&(peer2, Protocol::Ping)));
+        assert!(
+            limiter
+                .delayed_requests
+                .contains_key(&(peer2, Protocol::Ping))
+        );
     }
 }

@@ -1,7 +1,8 @@
 use beacon_chain::block_verification_types::RpcBlock;
+use derivative::Derivative;
+use lighthouse_network::PeerId;
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_network::PeerId;
 use std::collections::HashSet;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -89,13 +90,15 @@ pub enum BatchOperationOutcome {
     Failed { blacklist: bool },
 }
 
+#[derive(Debug)]
 pub enum BatchProcessingResult {
     Success,
     FaultyFailure,
     NonFaultyFailure,
 }
 
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 /// A segment of a chain.
 pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// Start slot of the batch.
@@ -113,6 +116,7 @@ pub struct BatchInfo<E: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// Whether this batch contains all blocks or all blocks and blobs.
     batch_type: ByRangeRequestType,
     /// Pin the generic
+    #[derivative(Debug = "ignore")]
     marker: std::marker::PhantomData<B>,
 }
 
@@ -364,14 +368,13 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         }
     }
 
-    #[must_use = "Batch may have failed"]
     pub fn processing_completed(
         &mut self,
-        procesing_result: BatchProcessingResult,
+        processing_result: BatchProcessingResult,
     ) -> Result<BatchOperationOutcome, WrongState> {
         match self.state.poison() {
             BatchState::Processing(attempt) => {
-                self.state = match procesing_result {
+                self.state = match processing_result {
                     BatchProcessingResult::Success => BatchState::AwaitingValidation(attempt),
                     BatchProcessingResult::FaultyFailure => {
                         // register the failed attempt
@@ -459,17 +462,15 @@ impl Attempt {
 impl<E: EthSpec> std::fmt::Debug for BatchState<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            BatchState::Processing(Attempt {
-                ref peer_id,
-                hash: _,
-            }) => write!(f, "Processing({})", peer_id),
-            BatchState::AwaitingValidation(Attempt {
-                ref peer_id,
-                hash: _,
-            }) => write!(f, "AwaitingValidation({})", peer_id),
+            BatchState::Processing(Attempt { peer_id, hash: _ }) => {
+                write!(f, "Processing({})", peer_id)
+            }
+            BatchState::AwaitingValidation(Attempt { peer_id, hash: _ }) => {
+                write!(f, "AwaitingValidation({})", peer_id)
+            }
             BatchState::AwaitingDownload => f.write_str("AwaitingDownload"),
             BatchState::Failed => f.write_str("Failed"),
-            BatchState::AwaitingProcessing(ref peer, ref blocks, _) => {
+            BatchState::AwaitingProcessing(peer, blocks, _) => {
                 write!(f, "AwaitingProcessing({}, {} blocks)", peer, blocks.len())
             }
             BatchState::Downloading(request_id) => {

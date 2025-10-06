@@ -1,5 +1,4 @@
-use context_deserialize::ContextDeserialize;
-use context_deserialize_derive::context_deserialize;
+use context_deserialize::{context_deserialize, ContextDeserialize};
 use serde::{Deserialize, Serialize};
 
 #[test]

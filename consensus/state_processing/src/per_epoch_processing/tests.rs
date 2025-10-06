@@ -3,13 +3,10 @@ use crate::per_epoch_processing::process_epoch;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_chain::types::{EthSpec, MinimalEthSpec};
 use bls::{FixedBytesExtended, Hash256};
-use env_logger::{Builder, Env};
 use types::Slot;
 
 #[tokio::test]
 async fn runs_without_error() {
-    Builder::from_env(Env::default().default_filter_or("error")).init();
-
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
         .default_spec()
         .deterministic_keypairs(8)
@@ -42,7 +39,7 @@ async fn runs_without_error() {
 mod release_tests {
     use super::*;
     use crate::{
-        per_slot_processing::per_slot_processing, EpochProcessingError, SlotProcessingError,
+        EpochProcessingError, SlotProcessingError, per_slot_processing::per_slot_processing,
     };
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
     use std::sync::Arc;

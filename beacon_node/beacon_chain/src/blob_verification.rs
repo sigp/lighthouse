@@ -5,16 +5,15 @@ use std::sync::Arc;
 
 use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
-    BlockSlashInfo,
+    BlockSlashInfo, get_validator_pubkey_cache, process_block_slash_info,
 };
 use crate::kzg_utils::{validate_blob, validate_blobs};
-use crate::observed_data_sidecars::{DoNotObserve, ObservationStrategy, Observe};
-use crate::{metrics, BeaconChainError};
+use crate::observed_data_sidecars::{ObservationStrategy, Observe};
+use crate::{BeaconChainError, metrics};
 use kzg::{Error as KzgError, Kzg, KzgCommitment};
 use ssz_derive::{Decode, Encode};
 use std::time::Duration;
-use tracing::debug;
+use tracing::{debug, instrument};
 use tree_hash::TreeHash;
 use types::blob_sidecar::BlobIdentifier;
 use types::{
@@ -96,7 +95,7 @@ pub enum GossipBlobError {
     /// ## Peer scoring
     ///
     /// We cannot process the blob without validating its parent, the peer isn't necessarily faulty.
-    BlobParentUnknown { parent_root: Hash256 },
+    ParentUnknown { parent_root: Hash256 },
 
     /// Invalid kzg commitment inclusion proof
     /// ## Peer scoring
@@ -304,6 +303,14 @@ impl<E: EthSpec> KzgVerifiedBlob<E> {
             seen_timestamp: Duration::from_secs(0),
         }
     }
+    /// Mark a blob as KZG verified. Caller must ONLY use this on blob sidecars constructed
+    /// from EL blobs.
+    pub fn from_execution_verified(blob: Arc<BlobSidecar<E>>, seen_timestamp: Duration) -> Self {
+        Self {
+            blob,
+            seen_timestamp,
+        }
+    }
 }
 
 /// Complete kzg verification for a `BlobSidecar`.
@@ -366,6 +373,7 @@ impl<E: EthSpec> IntoIterator for KzgVerifiedBlobList<E> {
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_blob`
 /// in a loop since this function kzg verifies a list of blobs more efficiently.
+#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_blob_list<'a, E: EthSpec, I>(
     blob_iter: I,
     kzg: &'a Kzg,
@@ -465,7 +473,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     // We have already verified that the blob is past finalization, so we can
     // just check fork choice for the block's parent.
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
-        return Err(GossipBlobError::BlobParentUnknown {
+        return Err(GossipBlobError::ParentUnknown {
             parent_root: block_parent_root,
         });
     };
@@ -485,59 +493,31 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     }
 
     let proposer_shuffling_root =
-        if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == blob_epoch {
-            parent_block
-                .next_epoch_shuffling_id
-                .shuffling_decision_block
-        } else {
-            parent_block.root
-        };
+        parent_block.proposer_shuffling_root_for_child_block(blob_epoch, &chain.spec);
 
-    let proposer_opt = chain
-        .beacon_proposer_cache
-        .lock()
-        .get_slot::<T::EthSpec>(proposer_shuffling_root, blob_slot);
-
-    let (proposer_index, fork) = if let Some(proposer) = proposer_opt {
-        (proposer.index, proposer.fork)
-    } else {
-        debug!(
-            %block_root,
-            %blob_index,
-            "Proposer shuffling cache miss for blob verification"
-        );
-        let (parent_state_root, mut parent_state) = chain
-            .store
-            .get_advanced_hot_state(block_parent_root, blob_slot, parent_block.state_root)
-            .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
-            .ok_or_else(|| {
-                BeaconChainError::DBInconsistent(format!(
-                    "Missing state for parent block {block_parent_root:?}",
-                ))
-            })?;
-
-        let state = cheap_state_advance_to_obtain_committees::<_, GossipBlobError>(
-            &mut parent_state,
-            Some(parent_state_root),
-            blob_slot,
-            &chain.spec,
-        )?;
-
-        let epoch = state.current_epoch();
-        let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
-        let proposer_index = *proposers
-            .get(blob_slot.as_usize() % T::EthSpec::slots_per_epoch() as usize)
-            .ok_or_else(|| BeaconChainError::NoProposerForSlot(blob_slot))?;
-
-        // Prime the proposer shuffling cache with the newly-learned value.
-        chain.beacon_proposer_cache.lock().insert(
-            blob_epoch,
-            proposer_shuffling_root,
-            proposers,
-            state.fork(),
-        )?;
-        (proposer_index, state.fork())
-    };
+    let proposer = chain.with_proposer_cache(
+        proposer_shuffling_root,
+        blob_epoch,
+        |proposers| proposers.get_slot::<T::EthSpec>(blob_slot),
+        || {
+            debug!(
+                %block_root,
+                index = %blob_index,
+                "Proposer shuffling cache miss for blob verification"
+            );
+            chain
+                .store
+                .get_advanced_hot_state(block_parent_root, blob_slot, parent_block.state_root)
+                .map_err(|e| GossipBlobError::BeaconChainError(Box::new(e.into())))?
+                .ok_or_else(|| {
+                    GossipBlobError::BeaconChainError(Box::new(BeaconChainError::DBInconsistent(
+                        format!("Missing state for parent block {block_parent_root:?}",),
+                    )))
+                })
+        },
+    )?;
+    let proposer_index = proposer.index;
+    let fork = proposer.fork;
 
     // Signature verify the signed block header.
     let signature_is_valid = {
@@ -594,21 +574,7 @@ pub fn validate_blob_sidecar_for_gossip<T: BeaconChainTypes, O: ObservationStrat
     })
 }
 
-impl<T: BeaconChainTypes> GossipVerifiedBlob<T, DoNotObserve> {
-    pub fn observe(
-        self,
-        chain: &BeaconChain<T>,
-    ) -> Result<GossipVerifiedBlob<T, Observe>, GossipBlobError> {
-        observe_gossip_blob(&self.blob.blob, chain)?;
-        Ok(GossipVerifiedBlob {
-            block_root: self.block_root,
-            blob: self.blob,
-            _phantom: PhantomData,
-        })
-    }
-}
-
-fn observe_gossip_blob<T: BeaconChainTypes>(
+pub fn observe_gossip_blob<T: BeaconChainTypes>(
     blob_sidecar: &BlobSidecar<T::EthSpec>,
     chain: &BeaconChain<T>,
 ) -> Result<(), GossipBlobError> {

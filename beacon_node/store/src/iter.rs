@@ -3,8 +3,8 @@ use crate::{Error, HotColdDB, ItemStore};
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use types::{
-    typenum::Unsigned, BeaconState, BeaconStateError, BlindedPayload, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BeaconState, BeaconStateError, BlindedPayload, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    typenum::Unsigned,
 };
 
 /// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.

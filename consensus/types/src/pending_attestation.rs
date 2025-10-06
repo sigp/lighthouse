@@ -9,19 +9,12 @@ use tree_hash_derive::TreeHash;
 /// An attestation that has been included in the state but not yet fully processed.
 ///
 /// Spec v0.12.1
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
-#[arbitrary(bound = "E: EthSpec")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[context_deserialize(ForkName)]
 pub struct PendingAttestation<E: EthSpec> {
     pub aggregation_bits: BitList<E::MaxValidatorsPerCommittee>,

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::sync::LazyLock;
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, EthSpec, Keypair, SignedBeaconBlock,
+    BeaconState, EthSpec, Keypair, SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
 };
 use types::{FixedBytesExtended, Hash256, MainnetEthSpec, Slot};
 

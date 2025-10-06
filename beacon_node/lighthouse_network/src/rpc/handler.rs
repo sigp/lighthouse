@@ -8,25 +8,25 @@ use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::OutboundFramed;
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
-use futures::prelude::*;
 use futures::SinkExt;
+use futures::prelude::*;
+use libp2p::PeerId;
 use libp2p::swarm::handler::{
     ConnectionEvent, ConnectionHandler, ConnectionHandlerEvent, DialUpgradeError,
     FullyNegotiatedInbound, FullyNegotiatedOutbound, StreamUpgradeError, SubstreamProtocol,
 };
 use libp2p::swarm::{ConnectionId, Stream};
-use libp2p::PeerId;
 use logging::crit;
 use smallvec::SmallVec;
 use std::{
-    collections::{hash_map::Entry, VecDeque},
+    collections::{VecDeque, hash_map::Entry},
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
     time::{Duration, Instant},
 };
-use tokio::time::{sleep, Sleep};
-use tokio_util::time::{delay_queue, DelayQueue};
+use tokio::time::{Sleep, sleep};
+use tokio_util::time::{DelayQueue, delay_queue};
 use tracing::{debug, trace};
 use types::{EthSpec, ForkContext, Slot};
 
@@ -38,6 +38,9 @@ const SHUTDOWN_TIMEOUT_SECS: u64 = 15;
 
 /// Maximum number of simultaneous inbound substreams we keep for this peer.
 const MAX_INBOUND_SUBSTREAMS: usize = 32;
+
+/// Timeout that will be used for inbound and outbound responses.
+const RESP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Identifier of inbound and outbound substreams from the handler's perspective.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -140,9 +143,6 @@ where
 
     /// Waker, to be sure the handler gets polled when needed.
     waker: Option<std::task::Waker>,
-
-    /// Timeout that will be used for inbound and outbound responses.
-    resp_timeout: Duration,
 }
 
 enum HandlerState {
@@ -224,7 +224,6 @@ where
     pub fn new(
         listen_protocol: SubstreamProtocol<RPCProtocol<E>, ()>,
         fork_context: Arc<ForkContext>,
-        resp_timeout: Duration,
         peer_id: PeerId,
         connection_id: ConnectionId,
     ) -> Self {
@@ -246,7 +245,6 @@ where
             outbound_io_error_retries: 0,
             fork_context,
             waker: None,
-            resp_timeout,
         }
     }
 
@@ -542,8 +540,7 @@ where
                                 // If this substream has not ended, we reset the timer.
                                 // Each chunk is allowed RESPONSE_TIMEOUT to be sent.
                                 if let Some(ref delay_key) = info.delay_key {
-                                    self.inbound_substreams_delay
-                                        .reset(delay_key, self.resp_timeout);
+                                    self.inbound_substreams_delay.reset(delay_key, RESP_TIMEOUT);
                                 }
 
                                 // The stream may be currently idle. Attempt to process more
@@ -712,7 +709,7 @@ where
                                     };
                                 substream_entry.max_remaining_chunks = Some(max_remaining_chunks);
                                 self.outbound_substreams_delay
-                                    .reset(delay_key, self.resp_timeout);
+                                    .reset(delay_key, RESP_TIMEOUT);
                             }
                         }
 
@@ -848,23 +845,22 @@ where
         }
 
         // Check if we have completed sending a goodbye, disconnect.
-        if let HandlerState::ShuttingDown(_) = self.state {
-            if self.dial_queue.is_empty()
-                && self.outbound_substreams.is_empty()
-                && self.inbound_substreams.is_empty()
-                && self.events_out.is_empty()
-                && self.dial_negotiated == 0
-            {
-                debug!(
-                    peer_id = %self.peer_id,
-                    connection_id = %self.connection_id,
-                    "Goodbye sent, Handler deactivated"
-                );
-                self.state = HandlerState::Deactivated;
-                return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
-                    HandlerEvent::Close(RPCError::Disconnected),
-                ));
-            }
+        if let HandlerState::ShuttingDown(_) = self.state
+            && self.dial_queue.is_empty()
+            && self.outbound_substreams.is_empty()
+            && self.inbound_substreams.is_empty()
+            && self.events_out.is_empty()
+            && self.dial_negotiated == 0
+        {
+            debug!(
+                peer_id = %self.peer_id,
+                connection_id = %self.connection_id,
+                "Goodbye sent, Handler deactivated"
+            );
+            self.state = HandlerState::Deactivated;
+            return Poll::Ready(ConnectionHandlerEvent::NotifyBehaviour(
+                HandlerEvent::Close(RPCError::Disconnected),
+            ));
         }
 
         Poll::Pending
@@ -912,7 +908,7 @@ where
         }
 
         let (req, substream) = substream;
-        let current_fork = self.fork_context.current_fork();
+        let current_fork = self.fork_context.current_fork_name();
         let spec = &self.fork_context.spec;
 
         match &req {
@@ -950,8 +946,10 @@ where
             _ => {}
         };
 
-        let max_responses =
-            req.max_responses(self.fork_context.current_fork(), &self.fork_context.spec);
+        let max_responses = req.max_responses(
+            self.fork_context.current_fork_epoch(),
+            &self.fork_context.spec,
+        );
 
         // store requests that expect responses
         if max_responses > 0 {
@@ -959,7 +957,7 @@ where
                 // Store the stream and tag the output.
                 let delay_key = self
                     .inbound_substreams_delay
-                    .insert(self.current_inbound_substream_id, self.resp_timeout);
+                    .insert(self.current_inbound_substream_id, RESP_TIMEOUT);
                 let awaiting_stream = InboundState::Idle(substream);
                 self.inbound_substreams.insert(
                     self.current_inbound_substream_id,
@@ -1021,8 +1019,10 @@ where
         }
 
         // add the stream to substreams if we expect a response, otherwise drop the stream.
-        let max_responses =
-            request.max_responses(self.fork_context.current_fork(), &self.fork_context.spec);
+        let max_responses = request.max_responses(
+            self.fork_context.current_fork_epoch(),
+            &self.fork_context.spec,
+        );
         if max_responses > 0 {
             let max_remaining_chunks = if request.expect_exactly_one_response() {
                 // Currently enforced only for multiple responses
@@ -1033,7 +1033,7 @@ where
             // new outbound request. Store the stream and tag the output.
             let delay_key = self
                 .outbound_substreams_delay
-                .insert(self.current_outbound_substream_id, self.resp_timeout);
+                .insert(self.current_outbound_substream_id, RESP_TIMEOUT);
             let awaiting_stream = OutboundSubstreamState::RequestPendingResponse {
                 substream: Box::new(substream),
                 request,

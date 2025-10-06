@@ -5,7 +5,7 @@ use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, Relativ
 use int_to_bytes::int_to_bytes32;
 use safe_arith::SafeArith;
 use state_processing::{
-    per_block_processing::{altair::sync_committee::process_sync_aggregate, VerifySignatures},
+    per_block_processing::{VerifySignatures, altair::sync_committee::process_sync_aggregate},
     state_advance::complete_state_advance,
 };
 use std::sync::LazyLock;

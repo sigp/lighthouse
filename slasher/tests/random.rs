@@ -1,16 +1,16 @@
 #![cfg(any(feature = "mdbx", feature = "lmdb", feature = "redb"))]
 
-use rand::prelude::*;
+use rand::{prelude::*, rng};
 use slasher::{
-    test_utils::{
-        block, chain_spec, indexed_att, slashed_validators_from_attestations,
-        slashed_validators_from_slashings, E,
-    },
     Config, Slasher, SlasherDB,
+    test_utils::{
+        E, block, chain_spec, indexed_att, slashed_validators_from_attestations,
+        slashed_validators_from_slashings,
+    },
 };
 use std::cmp::max;
 use std::sync::Arc;
-use tempfile::{tempdir, TempDir};
+use tempfile::{TempDir, tempdir};
 use types::{Epoch, EthSpec};
 
 #[derive(Debug)]
@@ -49,11 +49,11 @@ fn random_test(seed: u64, mut db: SlasherDB<E>, test_config: TestConfig) -> Slas
     let mut rng = StdRng::seed_from_u64(seed);
 
     let mut config = Config::new(db.get_config().database_path.clone());
-    config.validator_chunk_size = 1 << rng.gen_range(1..4);
+    config.validator_chunk_size = 1 << rng.random_range(1..4);
 
-    let chunk_size_exponent = rng.gen_range(1..4);
+    let chunk_size_exponent = rng.random_range(1..4);
     config.chunk_size = 1 << chunk_size_exponent;
-    config.history_length = 1 << rng.gen_range(chunk_size_exponent..chunk_size_exponent + 3);
+    config.history_length = 1 << rng.random_range(chunk_size_exponent..chunk_size_exponent + 3);
 
     let config = Arc::new(config);
     db.update_config(config.clone());
@@ -62,13 +62,13 @@ fn random_test(seed: u64, mut db: SlasherDB<E>, test_config: TestConfig) -> Slas
 
     let validators = (0..num_validators as u64).collect::<Vec<u64>>();
 
-    let num_attestations = rng.gen_range(2..max_attestations + 1);
+    let num_attestations = rng.random_range(2..max_attestations + 1);
 
     let mut current_epoch = Epoch::new(0);
     let mut attestations = vec![];
 
     for _ in 0..num_attestations {
-        let num_attesters = rng.gen_range(1..num_validators);
+        let num_attesters = rng.random_range(1..num_validators);
         let mut attesting_indices = validators
             .choose_multiple(&mut rng, num_attesters)
             .copied()
@@ -77,20 +77,20 @@ fn random_test(seed: u64, mut db: SlasherDB<E>, test_config: TestConfig) -> Slas
 
         // If checking slashings, generate valid attestations in range.
         let (source, target) = if check_slashings {
-            let source = rng.gen_range(
+            let source = rng.random_range(
                 current_epoch
                     .as_u64()
                     .saturating_sub(config.history_length as u64 - 1)
                     ..current_epoch.as_u64() + 1,
             );
-            let target = rng.gen_range(source..current_epoch.as_u64() + 1);
+            let target = rng.random_range(source..current_epoch.as_u64() + 1);
             (source, target)
         } else {
-            let source = rng.gen_range(0..max(3 * current_epoch.as_u64(), 1));
-            let target = rng.gen_range(source..max(3 * current_epoch.as_u64(), source + 1));
+            let source = rng.random_range(0..max(3 * current_epoch.as_u64(), 1));
+            let target = rng.random_range(source..max(3 * current_epoch.as_u64(), source + 1));
             (source, target)
         };
-        let target_root = rng.gen_range(0..3);
+        let target_root = rng.random_range(0..3);
         let attestation = indexed_att(&attesting_indices, source, target, target_root);
 
         if check_slashings {
@@ -101,25 +101,26 @@ fn random_test(seed: u64, mut db: SlasherDB<E>, test_config: TestConfig) -> Slas
         slasher.accept_attestation(attestation);
 
         // Maybe add a random block too
-        if test_config.add_blocks && rng.gen_bool(0.1) {
-            let slot = rng.gen_range(0..1 + 3 * current_epoch.as_u64() * E::slots_per_epoch() / 2);
-            let proposer = rng.gen_range(0..num_validators as u64);
-            let block_root = rng.gen_range(0..2);
+        if test_config.add_blocks && rng.random_bool(0.1) {
+            let slot =
+                rng.random_range(0..1 + 3 * current_epoch.as_u64() * E::slots_per_epoch() / 2);
+            let proposer = rng.random_range(0..num_validators as u64);
+            let block_root = rng.random_range(0..2);
             slasher.accept_block_header(block(slot, proposer, block_root));
         }
 
         // Maybe process
-        if rng.gen_bool(0.1) {
+        if rng.random_bool(0.1) {
             slasher.process_queued(current_epoch).unwrap();
 
             // Maybe prune
-            if rng.gen_bool(0.1) {
+            if rng.random_bool(0.1) {
                 slasher.prune_database(current_epoch).unwrap();
             }
         }
 
         // Maybe advance to the next epoch
-        if rng.gen_bool(0.5) {
+        if rng.random_bool(0.5) {
             if check_slashings {
                 slasher.process_queued(current_epoch).unwrap();
             }
@@ -147,10 +148,10 @@ fn random_test(seed: u64, mut db: SlasherDB<E>, test_config: TestConfig) -> Slas
 #[test]
 #[ignore]
 fn no_crash() {
-    let mut rng = thread_rng();
+    let mut rng = rng();
     let (_tempdir, mut db) = make_db();
     loop {
-        db = random_test(rng.gen(), db, TestConfig::default());
+        db = random_test(rng.random(), db, TestConfig::default());
     }
 }
 
@@ -158,11 +159,11 @@ fn no_crash() {
 #[test]
 #[ignore]
 fn no_crash_with_blocks() {
-    let mut rng = thread_rng();
+    let mut rng = rng();
     let (_tempdir, mut db) = make_db();
     loop {
         db = random_test(
-            rng.gen(),
+            rng.random(),
             db,
             TestConfig {
                 add_blocks: true,
@@ -176,11 +177,11 @@ fn no_crash_with_blocks() {
 #[test]
 #[ignore]
 fn check_slashings() {
-    let mut rng = thread_rng();
+    let mut rng = rng();
     let (_tempdir, mut db) = make_db();
     loop {
         db = random_test(
-            rng.gen(),
+            rng.random(),
             db,
             TestConfig {
                 check_slashings: true,

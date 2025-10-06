@@ -1,5 +1,7 @@
+use crate::ChainConfig;
+use crate::CustodyContext;
 use crate::beacon_chain::{
-    CanonicalHead, LightClientProducerEvent, BEACON_CHAIN_DB_KEY, OP_POOL_DB_KEY,
+    BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::data_availability_checker::DataAvailabilityChecker;
@@ -15,8 +17,6 @@ use crate::persisted_custody::load_custody_context;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::validator_monitor::{ValidatorMonitor, ValidatorMonitorConfig};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
-use crate::ChainConfig;
-use crate::CustodyContext;
 use crate::{
     BeaconChain, BeaconChainTypes, BeaconForkChoiceStore, BeaconSnapshot, ServerSentEventHandler,
 };
@@ -32,7 +32,7 @@ use rand::RngCore;
 use rayon::prelude::*;
 use slasher::Slasher;
 use slot_clock::{SlotClock, TestingSlotClock};
-use state_processing::{per_slot_processing, AllCaches};
+use state_processing::{AllCaches, per_slot_processing};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
@@ -394,7 +394,7 @@ where
                 .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
         );
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis)
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, genesis.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
 
@@ -514,9 +514,26 @@ where
             "Storing split from weak subjectivity state"
         );
 
-        // Set the store's split point *before* storing genesis so that genesis is stored
-        // immediately in the freezer DB.
+        // Set the store's split point *before* storing genesis so that if the genesis state
+        // is prior to the split slot, it will immediately be stored in the freezer DB.
         store.set_split(weak_subj_slot, weak_subj_state_root, weak_subj_block_root);
+
+        // It is also possible for the checkpoint state to be equal to the genesis state, in which
+        // case it will be stored in the hot DB. In this case, we need to ensure the store's anchor
+        // is initialised prior to storing the state, as the anchor is required for working out
+        // hdiff storage strategies.
+        let retain_historic_states = self.chain_config.reconstruct_historic_states;
+        self.pending_io_batch.push(
+            store
+                .init_anchor_info(
+                    weak_subj_block.parent_root(),
+                    weak_subj_block.slot(),
+                    weak_subj_slot,
+                    retain_historic_states,
+                )
+                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
+        );
+
         let (_, updated_builder) = self.set_genesis_state(genesis_state)?;
         self = updated_builder;
 
@@ -539,20 +556,6 @@ where
             to_excl = %weak_subj_state.slot(),
             block_root = ?weak_subj_block_root,
             "Stored frozen block roots at skipped slots"
-        );
-
-        // Write the anchor to memory before calling `put_state` otherwise hot hdiff can't store
-        // states that do not align with the `start_slot` grid.
-        let retain_historic_states = self.chain_config.reconstruct_historic_states;
-        self.pending_io_batch.push(
-            store
-                .init_anchor_info(
-                    weak_subj_block.parent_root(),
-                    weak_subj_block.slot(),
-                    weak_subj_slot,
-                    retain_historic_states,
-                )
-                .map_err(|e| format!("Failed to initialize anchor info: {:?}", e))?,
         );
 
         // Write the state, block and blobs non-atomically, it doesn't matter if they're forgotten
@@ -613,7 +616,7 @@ where
             beacon_state: weak_subj_state,
         };
 
-        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot)
+        let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, snapshot.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
 
         let fork_choice = ForkChoice::from_anchor(
@@ -884,8 +887,9 @@ where
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock,  E, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
-            &fork_choice
-        ));
+            &fork_choice,
+            store.get_config(),
+        ).map_err(|e| format!("Fork choice compression error: {e:?}"))?);
         store
             .hot_db
             .do_atomically(self.pending_io_batch)
@@ -895,6 +899,7 @@ where
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
         let shuffling_cache_size = self.chain_config.shuffling_cache_size;
+        let complete_blob_backfill = self.chain_config.complete_blob_backfill;
 
         // Calculate the weak subjectivity point in which to backfill blocks to.
         let genesis_backfill_slot = if self.chain_config.genesis_backfill {
@@ -993,7 +998,6 @@ where
             validator_pubkey_cache: RwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
-            reqresp_pre_import_cache: <_>::default(),
             light_client_server_cache: LightClientServerCache::new(),
             light_client_server_tx: self.light_client_server_tx,
             shutdown_sender: self
@@ -1009,6 +1013,7 @@ where
             genesis_backfill_slot,
             data_availability_checker: Arc::new(
                 DataAvailabilityChecker::new(
+                    complete_blob_backfill,
                     slot_clock,
                     self.kzg.clone(),
                     store,
@@ -1034,23 +1039,25 @@ where
             .map_err(|e| format!("Failed to prime attester cache: {:?}", e))?;
 
         // Only perform the check if it was configured.
-        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint {
-            if let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
+        if let Some(wss_checkpoint) = beacon_chain.config.weak_subjectivity_checkpoint
+            && let Err(e) = beacon_chain.verify_weak_subjectivity_checkpoint(
                 wss_checkpoint,
                 head.beacon_block_root,
                 &head.beacon_state,
-            ) {
-                crit!(
-                    head_block_root = %head.beacon_block_root,
-                    head_slot = %head.beacon_block.slot(),
-                    finalized_epoch = %head.beacon_state.finalized_checkpoint().epoch,
-                    wss_checkpoint_epoch = %wss_checkpoint.epoch,
-                    error = ?e,
-                    "Weak subjectivity checkpoint verification failed on startup!"
-                );
-                crit!("You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network.");
-                return Err(format!("Weak subjectivity verification failed: {:?}", e));
-            }
+            )
+        {
+            crit!(
+                head_block_root = %head.beacon_block_root,
+                head_slot = %head.beacon_block.slot(),
+                finalized_epoch = %head.beacon_state.finalized_checkpoint().epoch,
+                wss_checkpoint_epoch = %wss_checkpoint.epoch,
+                error = ?e,
+                "Weak subjectivity checkpoint verification failed on startup!"
+            );
+            crit!(
+                "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network."
+            );
+            return Err(format!("Weak subjectivity verification failed: {:?}", e));
         }
 
         info!(
@@ -1195,13 +1202,13 @@ fn build_data_columns_from_blobs<E: EthSpec>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::{get_kzg, EphemeralHarnessType};
+    use crate::test_utils::{EphemeralHarnessType, get_kzg};
     use ethereum_hashing::hash;
     use genesis::{
-        generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
+        DEFAULT_ETH1_BLOCK_HASH, generate_deterministic_keypairs, interop_genesis_state,
     };
-    use rand::rngs::StdRng;
     use rand::SeedableRng;
+    use rand::rngs::StdRng;
     use ssz::Encode;
     use std::time::Duration;
     use store::config::StoreConfig;

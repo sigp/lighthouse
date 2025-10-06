@@ -6,19 +6,19 @@ use crate::historic_state_cache::HistoricStateCache;
 use crate::iter::{BlockRootsIterator, ParentRootBlockIterator, RootsIterator};
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
-    AnchorInfo, BlobInfo, CompactionTimestamp, DataColumnInfo, SchemaVersion, ANCHOR_INFO_KEY,
-    ANCHOR_UNINITIALIZED, BLOB_INFO_KEY, COMPACTION_TIMESTAMP_KEY, CONFIG_KEY,
-    CURRENT_SCHEMA_VERSION, DATA_COLUMN_INFO_KEY, SCHEMA_VERSION_KEY, SPLIT_KEY,
-    STATE_UPPER_LIMIT_NO_RETAIN,
+    ANCHOR_INFO_KEY, ANCHOR_UNINITIALIZED, AnchorInfo, BLOB_INFO_KEY, BlobInfo,
+    COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, CompactionTimestamp,
+    DATA_COLUMN_CUSTODY_INFO_KEY, DATA_COLUMN_INFO_KEY, DataColumnCustodyInfo, DataColumnInfo,
+    SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion,
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
-    get_data_column_key,
+    BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp, StoreItem,
+    StoreOp, get_data_column_key,
     metrics::{self, COLD_METRIC, HOT_METRIC},
-    parse_data_column_key, BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error, ItemStore,
-    KeyValueStoreOp, StoreItem, StoreOp,
+    parse_data_column_key,
 };
-use itertools::{process_results, Itertools};
+use itertools::{Itertools, process_results};
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
@@ -26,10 +26,10 @@ use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    block_replayer::PreSlotHook, AllCaches, BlockProcessingError, BlockReplayer,
-    SlotProcessingError,
+    AllCaches, BlockProcessingError, BlockReplayer, SlotProcessingError,
+    block_replayer::PreSlotHook,
 };
-use std::cmp::{min, Ordering};
+use std::cmp::{Ordering, min};
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::marker::PhantomData;
@@ -37,7 +37,7 @@ use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, instrument, warn};
 use types::data_column_sidecar::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList};
 use types::*;
 use zstd::{Decoder, Encoder};
@@ -70,7 +70,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// The hot database also contains all blocks.
     pub hot_db: Hot,
     /// LRU cache of deserialized blocks and blobs. Updated whenever a block or blob is loaded.
-    block_cache: Mutex<BlockCache<E>>,
+    block_cache: Option<Mutex<BlockCache<E>>>,
     /// Cache of beacon states.
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
@@ -91,6 +91,7 @@ struct BlockCache<E: EthSpec> {
     block_cache: LruCache<Hash256, SignedBeaconBlock<E>>,
     blob_cache: LruCache<Hash256, BlobSidecarList<E>>,
     data_column_cache: LruCache<Hash256, HashMap<ColumnIndex, Arc<DataColumnSidecar<E>>>>,
+    data_column_custody_info_cache: Option<DataColumnCustodyInfo>,
 }
 
 impl<E: EthSpec> BlockCache<E> {
@@ -99,6 +100,7 @@ impl<E: EthSpec> BlockCache<E> {
             block_cache: LruCache::new(size),
             blob_cache: LruCache::new(size),
             data_column_cache: LruCache::new(size),
+            data_column_custody_info_cache: None,
         }
     }
     pub fn put_block(&mut self, block_root: Hash256, block: SignedBeaconBlock<E>) {
@@ -111,6 +113,12 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get_or_insert_mut(block_root, Default::default)
             .insert(data_column.index, data_column);
+    }
+    pub fn put_data_column_custody_info(
+        &mut self,
+        data_column_custody_info: Option<DataColumnCustodyInfo>,
+    ) {
+        self.data_column_custody_info_cache = data_column_custody_info;
     }
     pub fn get_block<'a>(&'a mut self, block_root: &Hash256) -> Option<&'a SignedBeaconBlock<E>> {
         self.block_cache.get(block_root)
@@ -128,6 +136,9 @@ impl<E: EthSpec> BlockCache<E> {
         self.data_column_cache
             .get(block_root)
             .and_then(|map| map.get(column_index).cloned())
+    }
+    pub fn get_data_column_custody_info(&self) -> Option<DataColumnCustodyInfo> {
+        self.data_column_custody_info_cache.clone()
     }
     pub fn delete_block(&mut self, block_root: &Hash256) {
         let _ = self.block_cache.pop(block_root);
@@ -218,7 +229,9 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             cold_db: MemoryStore::open(),
             blobs_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
-            block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
+            block_cache: NonZeroUsize::new(config.block_cache_size)
+                .map(BlockCache::new)
+                .map(Mutex::new),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -270,7 +283,9 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             blobs_db: BeaconNodeBackend::open(&config, blobs_db_path)?,
             cold_db: BeaconNodeBackend::open(&config, cold_path)?,
             hot_db,
-            block_cache: Mutex::new(BlockCache::new(config.block_cache_size)),
+            block_cache: NonZeroUsize::new(config.block_cache_size)
+                .map(BlockCache::new)
+                .map(Mutex::new),
             state_cache: Mutex::new(StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
@@ -477,14 +492,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn register_metrics(&self) {
         let hsc_metrics = self.historic_state_cache.lock().metrics();
 
-        metrics::set_gauge(
-            &metrics::STORE_BEACON_BLOCK_CACHE_SIZE,
-            self.block_cache.lock().block_cache.len() as i64,
-        );
-        metrics::set_gauge(
-            &metrics::STORE_BEACON_BLOB_CACHE_SIZE,
-            self.block_cache.lock().blob_cache.len() as i64,
-        );
+        if let Some(block_cache) = &self.block_cache {
+            let cache = block_cache.lock();
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_BLOCK_CACHE_SIZE,
+                cache.block_cache.len() as i64,
+            );
+            metrics::set_gauge(
+                &metrics::STORE_BEACON_BLOB_CACHE_SIZE,
+                cache.blob_cache.len() as i64,
+            );
+        }
         let state_cache = self.state_cache.lock();
         metrics::set_gauge(
             &metrics::STORE_BEACON_STATE_CACHE_SIZE,
@@ -542,7 +560,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let block = self.block_as_kv_store_ops(block_root, block, &mut ops)?;
         self.hot_db.do_atomically(ops)?;
         // Update cache.
-        self.block_cache.lock().put_block(*block_root, block);
+        self.block_cache
+            .as_ref()
+            .inspect(|cache| cache.lock().put_block(*block_root, block));
         Ok(())
     }
 
@@ -594,7 +614,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
         // Check the cache.
-        if let Some(block) = self.block_cache.lock().get_block(block_root) {
+        if let Some(cache) = &self.block_cache
+            && let Some(block) = cache.lock().get_block(block_root)
+        {
             metrics::inc_counter(&metrics::BEACON_BLOCK_CACHE_HIT_COUNT);
             return Ok(Some(DatabaseBlock::Full(block.clone())));
         }
@@ -619,8 +641,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             // Add to cache.
             self.block_cache
-                .lock()
-                .put_block(*block_root, full_block.clone());
+                .as_ref()
+                .inspect(|cache| cache.lock().put_block(*block_root, full_block.clone()));
 
             DatabaseBlock::Full(full_block)
         } else if !self.config.prune_payloads {
@@ -645,6 +667,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a full block with execution payload from the store.
+    #[instrument(skip_all)]
     pub fn get_full_block(
         &self,
         block_root: &Hash256,
@@ -890,7 +913,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Delete a block from the store and the block cache.
     pub fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
-        self.block_cache.lock().delete(block_root);
+        self.block_cache
+            .as_ref()
+            .inspect(|cache| cache.lock().delete(block_root));
         self.hot_db
             .key_delete(DBColumn::BeaconBlock, block_root.as_slice())?;
         self.hot_db
@@ -905,7 +930,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             block_root.as_slice(),
             &blobs.as_ssz_bytes(),
         )?;
-        self.block_cache.lock().put_blobs(*block_root, blobs);
+        self.block_cache
+            .as_ref()
+            .inspect(|cache| cache.lock().put_blobs(*block_root, blobs));
         Ok(())
     }
 
@@ -922,6 +949,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ));
     }
 
+    pub fn put_data_column_custody_info(
+        &self,
+        earliest_data_column_slot: Option<Slot>,
+    ) -> Result<(), Error> {
+        let data_column_custody_info = DataColumnCustodyInfo {
+            earliest_data_column_slot,
+        };
+
+        self.blobs_db
+            .put(&DATA_COLUMN_CUSTODY_INFO_KEY, &data_column_custody_info)?;
+
+        self.block_cache.as_ref().inspect(|cache| {
+            cache
+                .lock()
+                .put_data_column_custody_info(Some(data_column_custody_info))
+        });
+
+        Ok(())
+    }
+
     pub fn put_data_columns(
         &self,
         block_root: &Hash256,
@@ -934,8 +981,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 &data_column.as_ssz_bytes(),
             )?;
             self.block_cache
-                .lock()
-                .put_data_column(*block_root, data_column);
+                .as_ref()
+                .inspect(|cache| cache.lock().put_data_column(*block_root, data_column));
         }
         Ok(())
     }
@@ -1011,6 +1058,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// - `result_state_root == state.canonical_root()`
     /// - `state.slot() <= max_slot`
     /// - `state.get_latest_block_root(result_state_root) == block_root`
+    #[instrument(skip_all, fields(?block_root, %max_slot, ?state_root), level = "debug")]
     pub fn get_advanced_hot_state(
         &self,
         block_root: Hash256,
@@ -1082,6 +1130,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// If this function returns `Some(state)` then that `state` will always have
     /// `latest_block_header` matching `block_root` but may not be advanced all the way through to
     /// `max_slot`.
+    #[instrument(skip_all, fields(?block_root, %max_slot), level = "debug")]
     pub fn get_advanced_hot_state_from_cache(
         &self,
         block_root: Hash256,
@@ -1367,7 +1416,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Update database whilst holding a lock on cache, to ensure that the cache updates
         // atomically with the database.
-        let mut guard = self.block_cache.lock();
+        let guard = self.block_cache.as_ref().map(|cache| cache.lock());
 
         let blob_cache_ops = blobs_ops.clone();
         // Try to execute blobs store ops.
@@ -1414,56 +1463,67 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Err(e);
         }
 
-        for op in hot_db_cache_ops {
+        // Delete from the state cache.
+        for op in &hot_db_cache_ops {
             match op {
-                StoreOp::PutBlock(block_root, block) => {
-                    guard.put_block(block_root, (*block).clone());
-                }
-
-                StoreOp::PutBlobs(_, _) => (),
-
-                StoreOp::PutDataColumns(_, _) => (),
-
-                StoreOp::PutState(_, _) => (),
-
-                StoreOp::PutStateSummary(_, _) => (),
-
                 StoreOp::DeleteBlock(block_root) => {
-                    guard.delete_block(&block_root);
-                    self.state_cache.lock().delete_block_states(&block_root);
+                    self.state_cache.lock().delete_block_states(block_root);
                 }
-
                 StoreOp::DeleteState(state_root, _) => {
-                    self.state_cache.lock().delete_state(&state_root)
+                    self.state_cache.lock().delete_state(state_root)
                 }
-
-                StoreOp::DeleteBlobs(_) => (),
-
-                StoreOp::DeleteDataColumns(_, _) => (),
-
-                StoreOp::DeleteExecutionPayload(_) => (),
-
-                StoreOp::DeleteSyncCommitteeBranch(_) => (),
-
-                StoreOp::KeyValueOp(_) => (),
-            }
-        }
-
-        for op in blob_cache_ops {
-            match op {
-                StoreOp::PutBlobs(block_root, blobs) => {
-                    guard.put_blobs(block_root, blobs);
-                }
-
-                StoreOp::DeleteBlobs(block_root) => {
-                    guard.delete_blobs(&block_root);
-                }
-
                 _ => (),
             }
         }
 
-        drop(guard);
+        // If the block cache is enabled, also delete from the block cache.
+        if let Some(mut guard) = guard {
+            for op in hot_db_cache_ops {
+                match op {
+                    StoreOp::PutBlock(block_root, block) => {
+                        guard.put_block(block_root, (*block).clone());
+                    }
+
+                    StoreOp::PutBlobs(_, _) => (),
+
+                    StoreOp::PutDataColumns(_, _) => (),
+
+                    StoreOp::PutState(_, _) => (),
+
+                    StoreOp::PutStateSummary(_, _) => (),
+
+                    StoreOp::DeleteBlock(block_root) => {
+                        guard.delete_block(&block_root);
+                    }
+
+                    StoreOp::DeleteState(_, _) => (),
+
+                    StoreOp::DeleteBlobs(_) => (),
+
+                    StoreOp::DeleteDataColumns(_, _) => (),
+
+                    StoreOp::DeleteExecutionPayload(_) => (),
+
+                    StoreOp::DeleteSyncCommitteeBranch(_) => (),
+
+                    StoreOp::KeyValueOp(_) => (),
+                }
+            }
+
+            for op in blob_cache_ops {
+                match op {
+                    StoreOp::PutBlobs(block_root, blobs) => {
+                        guard.put_blobs(block_root, blobs);
+                    }
+
+                    StoreOp::DeleteBlobs(block_root) => {
+                        guard.delete_blobs(&block_root);
+                    }
+
+                    _ => (),
+                }
+            }
+        }
 
         Ok(())
     }
@@ -2389,6 +2449,29 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             })
     }
 
+    /// Fetch custody info from the cache.
+    /// If custody info doesn't exist in the cache,
+    /// try to fetch from the DB and prime the cache.
+    pub fn get_data_column_custody_info(&self) -> Result<Option<DataColumnCustodyInfo>, Error> {
+        if let Some(cache) = &self.block_cache
+            && let Some(data_column_custody_info) = cache.lock().get_data_column_custody_info()
+        {
+            return Ok(Some(data_column_custody_info));
+        }
+        let data_column_custody_info = self
+            .blobs_db
+            .get::<DataColumnCustodyInfo>(&DATA_COLUMN_CUSTODY_INFO_KEY)?;
+
+        // Update the cache
+        self.block_cache.as_ref().inspect(|cache| {
+            cache
+                .lock()
+                .put_data_column_custody_info(data_column_custody_info.clone())
+        });
+
+        Ok(data_column_custody_info)
+    }
+
     /// Fetch all columns for a given block from the store.
     pub fn get_data_columns(
         &self,
@@ -2407,9 +2490,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Fetch blobs for a given block from the store.
     pub fn get_blobs(&self, block_root: &Hash256) -> Result<BlobSidecarListFromRoot<E>, Error> {
         // Check the cache.
-        if let Some(blobs) = self.block_cache.lock().get_blobs(block_root) {
+        if let Some(blobs) = self
+            .block_cache
+            .as_ref()
+            .and_then(|cache| cache.lock().get_blobs(block_root).cloned())
+        {
             metrics::inc_counter(&metrics::BEACON_BLOBS_CACHE_HIT_COUNT);
-            return Ok(blobs.clone().into());
+            return Ok(blobs.into());
         }
 
         match self
@@ -2426,10 +2513,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .first()
                     .map(|blob| self.spec.max_blobs_per_block(blob.epoch()))
                 {
-                    let blobs = BlobSidecarList::from_vec(blobs, max_blobs_per_block as usize);
+                    let blobs = BlobSidecarList::new(blobs, max_blobs_per_block as usize)?;
                     self.block_cache
-                        .lock()
-                        .put_blobs(*block_root, blobs.clone());
+                        .as_ref()
+                        .inspect(|cache| cache.lock().put_blobs(*block_root, blobs.clone()));
 
                     Ok(BlobSidecarListFromRoot::Blobs(blobs))
                 } else {
@@ -2462,8 +2549,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // Check the cache.
         if let Some(data_column) = self
             .block_cache
-            .lock()
-            .get_data_column(block_root, column_index)
+            .as_ref()
+            .and_then(|cache| cache.lock().get_data_column(block_root, column_index))
         {
             metrics::inc_counter(&metrics::BEACON_DATA_COLUMNS_CACHE_HIT_COUNT);
             return Ok(Some(data_column));
@@ -2475,9 +2562,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )? {
             Some(ref data_column_bytes) => {
                 let data_column = Arc::new(DataColumnSidecar::from_ssz_bytes(data_column_bytes)?);
-                self.block_cache
-                    .lock()
-                    .put_data_column(*block_root, data_column.clone());
+                self.block_cache.as_ref().inspect(|cache| {
+                    cache
+                        .lock()
+                        .put_data_column(*block_root, data_column.clone())
+                });
                 Ok(Some(data_column))
             }
             None => Ok(None),
@@ -3074,18 +3163,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
     /// Try to prune blobs, approximating the current epoch from the split slot.
     pub fn try_prune_most_blobs(&self, force: bool) -> Result<(), Error> {
-        let Some(deneb_fork_epoch) = self.spec.deneb_fork_epoch else {
-            debug!("Deneb fork is disabled");
-            return Ok(());
-        };
         // The current epoch is >= split_epoch + 2. It could be greater if the database is
         // configured to delay updating the split or finalization has ceased. In this instance we
         // choose to also delay the pruning of blobs (we never prune without finalization anyway).
         let min_current_epoch = self.get_split_slot().epoch(E::slots_per_epoch()) + 2;
-        let min_data_availability_boundary = std::cmp::max(
-            deneb_fork_epoch,
-            min_current_epoch.saturating_sub(self.spec.min_epochs_for_blob_sidecars_requests),
-        );
+        let Some(min_data_availability_boundary) = self
+            .spec
+            .min_epoch_data_availability_boundary(min_current_epoch)
+        else {
+            debug!("Deneb fork is disabled");
+            return Ok(());
+        };
 
         self.try_prune_blobs(force, min_data_availability_boundary)
     }
@@ -3212,11 +3300,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Remove deleted blobs from the cache.
-        let mut block_cache = self.block_cache.lock();
-        for block_root in removed_block_roots {
-            block_cache.delete_blobs(&block_root);
+        if let Some(mut block_cache) = self.block_cache.as_ref().map(|cache| cache.lock()) {
+            for block_root in removed_block_roots {
+                block_cache.delete_blobs(&block_root);
+            }
         }
-        drop(block_cache);
 
         let new_blob_info = BlobInfo {
             oldest_blob_slot: Some(end_slot + 1),
@@ -3590,15 +3678,15 @@ pub fn get_ancestor_state_root<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStor
             .ok_or(StateSummaryIteratorError::MissingSummary(state_root))?;
 
         // Protect against infinite loops if the state summaries are not strictly descending
-        if let Some(previous_slot) = previous_slot {
-            if state_summary.slot >= previous_slot {
-                drop(split);
-                return Err(StateSummaryIteratorError::CircularSummaries {
-                    state_root,
-                    state_slot: state_summary.slot,
-                    previous_slot,
-                });
-            }
+        if let Some(previous_slot) = previous_slot
+            && state_summary.slot >= previous_slot
+        {
+            drop(split);
+            return Err(StateSummaryIteratorError::CircularSummaries {
+                state_root,
+                state_slot: state_summary.slot,
+                previous_slot,
+            });
         }
         previous_slot = Some(state_summary.slot);
 

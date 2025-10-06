@@ -6,9 +6,9 @@ mod block_rewards;
 pub mod sync_state;
 
 use crate::{
+    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
     lighthouse::sync_state::SyncState,
     types::{AdminPeer, Epoch, GenericResponse, ValidatorId},
-    BeaconNodeHttpClient, DepositData, Error, Hash256, Slot,
 };
 use proto_array::core::ProtoArray;
 use serde::{Deserialize, Serialize};

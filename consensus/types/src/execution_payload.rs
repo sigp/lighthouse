@@ -15,7 +15,7 @@ pub type Transactions<E> = VariableList<
 pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawalsPerPayload>;
 
 #[superstruct(
-    variants(Bellatrix, Capella, Deneb, Electra, Fulu),
+    variants(Bellatrix, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             Default,
@@ -28,24 +28,29 @@ pub type Withdrawals<E> = VariableList<Withdrawal, <E as EthSpec>::MaxWithdrawal
             TreeHash,
             TestRandom,
             Derivative,
-            arbitrary::Arbitrary
         ),
         context_deserialize(ForkName),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec")
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
     ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     map_into(FullPayload, BlindedPayload),
     map_ref_into(ExecutionPayloadHeader)
 )]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative, arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(bound = "E: EthSpec", untagged)]
-#[arbitrary(bound = "E: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 #[tree_hash(enum_behaviour = "transparent")]
 pub struct ExecutionPayload<E: EthSpec> {
@@ -83,12 +88,12 @@ pub struct ExecutionPayload<E: EthSpec> {
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
     pub transactions: Transactions<E>,
-    #[superstruct(only(Capella, Deneb, Electra, Fulu))]
+    #[superstruct(only(Capella, Deneb, Electra, Fulu, Gloas))]
     pub withdrawals: Withdrawals<E>,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub blob_gas_used: u64,
-    #[superstruct(only(Deneb, Electra, Fulu), partial_getter(copy))]
+    #[superstruct(only(Deneb, Electra, Fulu, Gloas), partial_getter(copy))]
     #[serde(with = "serde_utils::quoted_u64")]
     pub excess_blob_gas: u64,
 }
@@ -117,6 +122,7 @@ impl<E: EthSpec> ForkVersionDecode for ExecutionPayload<E> {
             ForkName::Deneb => ExecutionPayloadDeneb::from_ssz_bytes(bytes).map(Self::Deneb),
             ForkName::Electra => ExecutionPayloadElectra::from_ssz_bytes(bytes).map(Self::Electra),
             ForkName::Fulu => ExecutionPayloadFulu::from_ssz_bytes(bytes).map(Self::Fulu),
+            ForkName::Gloas => ExecutionPayloadGloas::from_ssz_bytes(bytes).map(Self::Gloas),
         }
     }
 }
@@ -147,7 +153,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayload<E> 
                 return Err(serde::de::Error::custom(format!(
                     "ExecutionPayload failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Bellatrix => {
                 Self::Bellatrix(Deserialize::deserialize(deserializer).map_err(convert_err)?)
@@ -164,6 +170,9 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for ExecutionPayload<E> 
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
+            ForkName::Gloas => {
+                Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
         })
     }
 }
@@ -176,6 +185,7 @@ impl<E: EthSpec> ExecutionPayload<E> {
             ExecutionPayload::Deneb(_) => ForkName::Deneb,
             ExecutionPayload::Electra(_) => ForkName::Electra,
             ExecutionPayload::Fulu(_) => ForkName::Fulu,
+            ExecutionPayload::Gloas(_) => ForkName::Gloas,
         }
     }
 }

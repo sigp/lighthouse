@@ -1,9 +1,9 @@
 use crate::data_availability_checker::{AvailableBlock, AvailableBlockData};
-use crate::{metrics, BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainTypes, metrics};
 use itertools::Itertools;
 use state_processing::{
     per_block_processing::ParallelSignatureSets,
-    signature_sets::{block_proposal_signature_set_from_parts, Error as SignatureSetError},
+    signature_sets::{Error as SignatureSetError, block_proposal_signature_set_from_parts},
 };
 use std::borrow::Cow;
 use std::iter;
@@ -11,7 +11,7 @@ use std::time::Duration;
 use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
-use tracing::debug;
+use tracing::{debug, instrument};
 use types::{FixedBytesExtended, Hash256, Slot};
 
 /// Use a longer timeout on the pubkey cache.
@@ -63,6 +63,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// would violate consistency then an `AnchorInfoConcurrentMutation` error will be returned.
     ///
     /// Return the number of blocks successfully imported.
+    #[instrument(skip_all)]
     pub fn import_historical_block_batch(
         &self,
         mut blocks: Vec<AvailableBlock<T::EthSpec>>,
@@ -201,7 +202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let signature_set = signed_blocks
             .iter()
             .zip_eq(block_roots)
-            .filter(|&(_block, block_root)| (block_root != self.genesis_block_root))
+            .filter(|&(_block, block_root)| block_root != self.genesis_block_root)
             .map(|(block, block_root)| {
                 block_proposal_signature_set_from_parts(
                     block,
@@ -236,30 +237,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut anchor_and_blob_batch = Vec::with_capacity(3);
 
         // Update the blob info.
-        if new_oldest_blob_slot != blob_info.oldest_blob_slot {
-            if let Some(oldest_blob_slot) = new_oldest_blob_slot {
-                let new_blob_info = BlobInfo {
-                    oldest_blob_slot: Some(oldest_blob_slot),
-                    ..blob_info.clone()
-                };
-                anchor_and_blob_batch.push(
-                    self.store
-                        .compare_and_set_blob_info(blob_info, new_blob_info)?,
-                );
-            }
+        if new_oldest_blob_slot != blob_info.oldest_blob_slot
+            && let Some(oldest_blob_slot) = new_oldest_blob_slot
+        {
+            let new_blob_info = BlobInfo {
+                oldest_blob_slot: Some(oldest_blob_slot),
+                ..blob_info.clone()
+            };
+            anchor_and_blob_batch.push(
+                self.store
+                    .compare_and_set_blob_info(blob_info, new_blob_info)?,
+            );
         }
 
         // Update the data column info.
-        if new_oldest_data_column_slot != data_column_info.oldest_data_column_slot {
-            if let Some(oldest_data_column_slot) = new_oldest_data_column_slot {
-                let new_data_column_info = DataColumnInfo {
-                    oldest_data_column_slot: Some(oldest_data_column_slot),
-                };
-                anchor_and_blob_batch.push(
-                    self.store
-                        .compare_and_set_data_column_info(data_column_info, new_data_column_info)?,
-                );
-            }
+        if new_oldest_data_column_slot != data_column_info.oldest_data_column_slot
+            && let Some(oldest_data_column_slot) = new_oldest_data_column_slot
+        {
+            let new_data_column_info = DataColumnInfo {
+                oldest_data_column_slot: Some(oldest_data_column_slot),
+            };
+            anchor_and_blob_batch.push(
+                self.store
+                    .compare_and_set_data_column_info(data_column_info, new_data_column_info)?,
+            );
         }
 
         // Update the anchor.

@@ -18,21 +18,15 @@ pub type WithdrawalRequests<E> =
 pub type ConsolidationRequests<E> =
     VariableList<ConsolidationRequest, <E as EthSpec>::MaxConsolidationRequestsPerPayload>;
 
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
 #[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    Derivative,
-    Default,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
+    Debug, Derivative, Default, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 #[context_deserialize(ForkName)]
 pub struct ExecutionRequests<E: EthSpec> {

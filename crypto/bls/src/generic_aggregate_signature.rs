@@ -1,8 +1,8 @@
 use crate::{
+    Error, Hash256, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
     generic_aggregate_public_key::TAggregatePublicKey,
     generic_public_key::{GenericPublicKey, TPublicKey},
     generic_signature::{GenericSignature, TSignature},
-    Error, Hash256, INFINITY_SIGNATURE, SIGNATURE_BYTES_LEN,
 };
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};

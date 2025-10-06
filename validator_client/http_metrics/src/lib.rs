@@ -16,7 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::info;
 use types::EthSpec;
 use validator_services::duties_service::DutiesService;
-use warp::{http::Response, Filter};
+use warp::{Filter, http::Response};
 
 #[derive(Debug)]
 pub enum Error {
@@ -169,34 +169,34 @@ pub fn gather_prometheus_metrics<E: EthSpec>(
     {
         let shared = ctx.shared.read();
 
-        if let Some(genesis_time) = shared.genesis_time {
-            if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                let distance = now.as_secs() as i64 - genesis_time as i64;
-                set_gauge(&GENESIS_DISTANCE, distance);
-            }
+        if let Some(genesis_time) = shared.genesis_time
+            && let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH)
+        {
+            let distance = now.as_secs() as i64 - genesis_time as i64;
+            set_gauge(&GENESIS_DISTANCE, distance);
         }
 
-        if let Some(duties_service) = &shared.duties_service {
-            if let Some(slot) = duties_service.slot_clock.now() {
-                let current_epoch = slot.epoch(E::slots_per_epoch());
-                let next_epoch = current_epoch + 1;
+        if let Some(duties_service) = &shared.duties_service
+            && let Some(slot) = duties_service.slot_clock.now()
+        {
+            let current_epoch = slot.epoch(E::slots_per_epoch());
+            let next_epoch = current_epoch + 1;
 
-                set_int_gauge(
-                    &PROPOSER_COUNT,
-                    &[CURRENT_EPOCH],
-                    duties_service.proposer_count(current_epoch) as i64,
-                );
-                set_int_gauge(
-                    &ATTESTER_COUNT,
-                    &[CURRENT_EPOCH],
-                    duties_service.attester_count(current_epoch) as i64,
-                );
-                set_int_gauge(
-                    &ATTESTER_COUNT,
-                    &[NEXT_EPOCH],
-                    duties_service.attester_count(next_epoch) as i64,
-                );
-            }
+            set_int_gauge(
+                &PROPOSER_COUNT,
+                &[CURRENT_EPOCH],
+                duties_service.proposer_count(current_epoch) as i64,
+            );
+            set_int_gauge(
+                &ATTESTER_COUNT,
+                &[CURRENT_EPOCH],
+                duties_service.attester_count(current_epoch) as i64,
+            );
+            set_int_gauge(
+                &ATTESTER_COUNT,
+                &[NEXT_EPOCH],
+                duties_service.attester_count(next_epoch) as i64,
+            );
         }
     }
 

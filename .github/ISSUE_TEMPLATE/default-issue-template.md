@@ -1,3 +1,12 @@
+---
+name: Default issue template
+about: Use this template for all issues
+title: ''
+labels: ''
+assignees: ''
+
+---
+
 ## Description
 
 Please provide a brief description of the issue.

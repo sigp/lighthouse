@@ -6,7 +6,7 @@ use crate::{
 use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use serde::{Deserialize, Serialize};
 use std::borrow::Borrow;
-use std::collections::{btree_map::Entry, BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, btree_map::Entry};
 use std::io::Read;
 use std::sync::Arc;
 use types::{AttesterSlashing, Epoch, EthSpec, IndexedAttestation};

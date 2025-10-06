@@ -1,4 +1,4 @@
-use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
+use super::{EpochProcessingSummary, Error, process_registry_updates, process_slashings};
 use crate::epoch_cache::initialize_epoch_cache;
 use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,

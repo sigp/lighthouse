@@ -1,7 +1,7 @@
 //! Identifies each shard by an integer identifier.
 use crate::SingleAttestation;
 use crate::{AttestationRef, ChainSpec, CommitteeIndex, EthSpec, Slot};
-use alloy_primitives::{bytes::Buf, U256};
+use alloy_primitives::{U256, bytes::Buf};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
@@ -11,7 +11,7 @@ const MAX_SUBNET_ID: usize = 64;
 
 /// The number of bits in a Discovery `NodeId`. This is used for binary operations on the node-id
 /// data.
-const NODE_ID_BITS: u64 = 256;
+const NODE_ID_BITS: u32 = 256;
 
 static SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
     let mut v = Vec::with_capacity(MAX_SUBNET_ID);
@@ -22,7 +22,8 @@ static SUBNET_ID_TO_STRING: LazyLock<Vec<String>> = LazyLock::new(|| {
     v
 });
 
-#[derive(arbitrary::Arbitrary, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SubnetId(#[serde(with = "serde_utils::quoted_u64")] u64);
 
@@ -101,7 +102,7 @@ impl SubnetId {
         spec: &ChainSpec,
     ) -> impl Iterator<Item = SubnetId> {
         // The bits of the node-id we are using to define the subnets.
-        let prefix_bits = spec.attestation_subnet_prefix_bits as u64;
+        let prefix_bits = spec.attestation_subnet_prefix_bits as u32;
 
         let node_id = U256::from_be_slice(&raw_node_id);
         // calculate the prefixes used to compute the subnet and shuffling
