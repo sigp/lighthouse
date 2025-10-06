@@ -3,7 +3,7 @@ use crate::database::leveldb_impl;
 #[cfg(feature = "redb")]
 use crate::database::redb_impl;
 #[cfg(feature = "postgres")]
-use crate::database::postgres_impl;
+use crate::database::postgres_impl::{self, PostgresDB};
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore, metrics};
 use crate::{KeyValueStoreOp, StoreConfig, config::DatabaseBackend};
 use std::collections::HashSet;
@@ -15,8 +15,8 @@ pub enum BeaconNodeBackend<E: EthSpec> {
     LevelDb(leveldb_impl::LevelDB<E>),
     #[cfg(feature = "redb")]
     Redb(redb_impl::Redb<E>),
-    // #[cfg(feature = "postgres")]
-    // Postgres(postgres_impl::Postgres<E>)
+    #[cfg(feature = "postgres")]
+    Postgres(PostgresDB<E>)
 }
 
 impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
@@ -28,6 +28,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::get_bytes(txn, column, key),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::get_bytes(txn, column, key),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -49,6 +50,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 value,
                 txn.write_options(),
             ),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -70,6 +72,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 value,
                 txn.write_options_sync(),
             ),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -79,6 +82,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::sync(txn),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::sync(txn),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -88,6 +92,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_exists(txn, column, key),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_exists(txn, column, key),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -97,6 +102,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::key_delete(txn, column, key),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_delete(txn, column, key),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -106,6 +112,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::do_atomically(txn, batch),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::do_atomically(txn, batch),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -115,6 +122,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact(txn),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -132,6 +140,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => {
                 redb_impl::Redb::iter_column_keys_from(txn, _column, from)
             }
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -141,6 +150,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column_keys(txn, column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_keys(txn, column),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -152,6 +162,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             }
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -161,6 +172,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact_column(txn, _column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -170,6 +182,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_batch(txn, col, ops),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_batch(txn, col, ops),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 
@@ -183,6 +196,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_if(txn, column, f),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_if(txn, column, f),
+            _ => todo!("Postgres backend not implemented yet"),
         }
     }
 }
@@ -198,7 +212,10 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             DatabaseBackend::Redb => redb_impl::Redb::open(path).map(BeaconNodeBackend::Redb),
             #[cfg(feature = "postgres")]
-            DatabaseBackend::Postgres => todo!(),
+            // DatabaseBackend::Postgres => todo!(),
+            DatabaseBackend::Postgres => {
+                postgres_impl::PostgresDB::open(path).map(BeaconNodeBackend::Postgres)
+            }
         }
     }
 }
