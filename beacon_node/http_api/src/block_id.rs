@@ -375,30 +375,25 @@ impl BlockId {
             )
         })?;
 
-        let blob_indices: Vec<_> = if let Some(versioned_hashes) = &query.versioned_hashes {
+        let blob_indices_opt = query.versioned_hashes.map(|versioned_hashes| {
             versioned_hashes
                 .iter()
                 .flat_map(|versioned_hash| {
-                    blob_kzg_commitments.iter().position(move |commitment| {
+                    blob_kzg_commitments.iter().position(|commitment| {
                         let computed_hash = kzg_commitment_to_versioned_hash(commitment);
                         computed_hash == *versioned_hash
                     })
                 })
                 .map(|index| index as u64)
-                .collect()
-        } else {
-            // If no versioned_hashes is provided, return all indices
-            (0..blob_kzg_commitments.len())
-                .map(|index| index as u64)
-                .collect()
-        };
+                .collect::<Vec<_>>()
+        });
 
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-                Self::get_blobs_from_data_columns(chain, root, Some(blob_indices), &block)?
+                Self::get_blobs_from_data_columns(chain, root, blob_indices_opt, &block)?
             } else {
-                Self::get_blobs(chain, root, Some(blob_indices), max_blobs_per_block)?
+                Self::get_blobs(chain, root, blob_indices_opt, max_blobs_per_block)?
             }
         } else {
             BlobSidecarList::new(vec![], max_blobs_per_block)
