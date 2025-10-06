@@ -5,7 +5,6 @@ use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkip
 use eth2::types::BlockId as CoreBlockId;
 use eth2::types::DataColumnIndicesQuery;
 use eth2::types::{BlobIndicesQuery, BlobWrapper, BlobsVersionedHashesQuery};
-use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -380,7 +379,7 @@ impl BlockId {
                 .iter()
                 .flat_map(|versioned_hash| {
                     blob_kzg_commitments.iter().position(|commitment| {
-                        let computed_hash = kzg_commitment_to_versioned_hash(commitment);
+                        let computed_hash = commitment.calculate_versioned_hash();
                         computed_hash == *versioned_hash
                     })
                 })
