@@ -2,7 +2,7 @@
 
 use beacon_chain::test_utils::BeaconChainHarness;
 use execution_layer::test_utils::Block;
-use types::consts::bellatrix::BASIS_POINTS;
+use types::consts::bellatrix::MS_TO_SEC;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -104,8 +104,7 @@ async fn base_altair_bellatrix_capella() {
         .unwrap();
 
     // Add a slot duration to get to the next slot
-    let timestamp =
-        harness.get_timestamp_at_slot() + (harness.spec.slot_duration_ms / BASIS_POINTS);
+    let timestamp = harness.get_timestamp_at_slot() + (harness.spec.slot_duration_ms / MS_TO_SEC);
     harness
         .execution_block_generator()
         .modify_last_block(|block| {

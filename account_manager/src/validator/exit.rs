@@ -30,7 +30,6 @@ pub const PRESIGN: &str = "presign";
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/validator_voluntary_exit.html";
-pub const BASIS_POINTS: u64 = 10_000;
 
 pub fn cli_app() -> Command {
     Command::new("exit")
@@ -252,7 +251,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 eprintln!("Please keep your validator running till exit epoch");
                 eprintln!(
                     "Exit epoch in approximately {} secs",
-                    (exit_epoch - current_epoch) * spec.slot_duration_ms / BASIS_POINTS
+                    (exit_epoch - current_epoch) * spec.slot_duration_ms / 1_000
                         * E::slots_per_epoch()
                 );
                 break;

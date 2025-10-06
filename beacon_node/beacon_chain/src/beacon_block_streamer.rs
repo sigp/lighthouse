@@ -689,7 +689,7 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::consts::bellatrix::BASIS_POINTS;
+    use types::consts::bellatrix::MS_TO_SEC;
     use types::{
         ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MinimalEthSpec, Slot,
     };
@@ -751,7 +751,7 @@ mod tests {
             .move_to_terminal_block()
             .expect("should move to terminal block");
         let timestamp =
-            harness.get_timestamp_at_slot() + (harness.spec.slot_duration_ms / BASIS_POINTS);
+            harness.get_timestamp_at_slot() + (harness.spec.slot_duration_ms / MS_TO_SEC);
         harness
             .execution_block_generator()
             .modify_last_block(|block| {

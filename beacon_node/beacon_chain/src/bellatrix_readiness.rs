@@ -6,7 +6,7 @@ use execution_layer::BlockByNumberQuery;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::fmt::Write;
-use types::consts::bellatrix::BASIS_POINTS;
+use types::consts::bellatrix::MS_TO_SEC;
 use types::*;
 
 /// The time before the Bellatrix fork when we will start issuing warnings about preparation.
@@ -148,7 +148,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if let Some(bellatrix_epoch) = self.spec.bellatrix_fork_epoch {
             let bellatrix_slot = bellatrix_epoch.start_slot(T::EthSpec::slots_per_epoch());
             let bellatrix_readiness_preparation_slots =
-                BELLATRIX_READINESS_PREPARATION_SECONDS / self.spec.slot_duration_ms / BASIS_POINTS;
+                BELLATRIX_READINESS_PREPARATION_SECONDS / self.spec.slot_duration_ms / MS_TO_SEC;
 
             if self.execution_layer.is_some() {
                 // The user has already configured an execution layer, start checking for readiness

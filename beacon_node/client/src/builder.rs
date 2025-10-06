@@ -42,7 +42,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tracing::{debug, info, warn};
-use types::consts::bellatrix::BASIS_POINTS;
+use types::consts::bellatrix::MS_TO_SEC;
 use types::data_column_custody_group::get_custody_groups_ordered;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
@@ -308,7 +308,7 @@ where
                         + (deneb_fork_epoch.as_u64()
                             * E::slots_per_epoch()
                             * spec.slot_duration_ms
-                            / BASIS_POINTS);
+                            / MS_TO_SEC);
 
                     // Shrink the blob availability window so users don't start
                     // a sync right before blobs start to disappear from the P2P
@@ -319,7 +319,7 @@ where
                     let blob_availability_window = reduced_p2p_availability_epochs
                         * E::slots_per_epoch()
                         * spec.slot_duration_ms
-                        / BASIS_POINTS;
+                        / MS_TO_SEC;
 
                     if now > deneb_time + blob_availability_window {
                         return Err(
