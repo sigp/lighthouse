@@ -458,12 +458,6 @@ pub static BEACON_EARLY_ATTESTER_CACHE_HITS: LazyLock<Result<IntCounter>> = Lazy
     )
 });
 
-pub static BEACON_REQRESP_PRE_IMPORT_CACHE_SIZE: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
-    try_create_int_gauge(
-        "beacon_reqresp_pre_import_cache_size",
-        "Current count of items of the reqresp pre import cache",
-    )
-});
 pub static BEACON_REQRESP_PRE_IMPORT_CACHE_HITS: LazyLock<Result<IntCounter>> =
     LazyLock::new(|| {
         try_create_int_counter(
@@ -1965,17 +1959,11 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     }
 
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
-    let chain_metrics = beacon_chain.metrics();
 
     // Kept duplicated for backwards compatibility
     set_gauge_by_usize(
         &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
         beacon_chain.store.state_cache_len(),
-    );
-
-    set_gauge_by_usize(
-        &BEACON_REQRESP_PRE_IMPORT_CACHE_SIZE,
-        chain_metrics.reqresp_pre_import_cache_len,
     );
 
     let da_checker_metrics = beacon_chain.data_availability_checker.metrics();

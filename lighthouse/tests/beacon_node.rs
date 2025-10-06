@@ -833,6 +833,19 @@ fn network_subscribe_all_data_column_subnets_flag() {
         .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
 }
 #[test]
+fn network_supernode_flag() {
+    CommandLineTest::new()
+        .flag("supernode", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
+}
+#[test]
+fn network_subscribe_all_data_column_subnets_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.network.subscribe_all_data_column_subnets));
+}
+#[test]
 fn blob_publication_batches() {
     CommandLineTest::new()
         .flag("blob-publication-batches", Some("3"))

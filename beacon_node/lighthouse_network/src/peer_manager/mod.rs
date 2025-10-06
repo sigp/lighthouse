@@ -23,6 +23,7 @@ pub use libp2p::identity::Keypair;
 pub mod peerdb;
 
 use crate::peer_manager::peerdb::client::ClientKind;
+use crate::types::GossipKind;
 use libp2p::multiaddr;
 use network_utils::discovery_metrics;
 use network_utils::enr_ext::{EnrExt, peer_id_to_node_id};
@@ -1434,8 +1435,16 @@ impl<E: EthSpec> PeerManager<E> {
         // Update peer score metrics;
         self.update_peer_score_metrics();
 
-        // Maintain minimum count for custody peers.
-        self.maintain_custody_peers();
+        // Maintain minimum count for custody peers if we are subscribed to any data column topics (i.e. PeerDAS activated)
+        let peerdas_enabled = self
+            .network_globals
+            .gossipsub_subscriptions
+            .read()
+            .iter()
+            .any(|topic| matches!(topic.kind(), &GossipKind::DataColumnSidecar(_)));
+        if peerdas_enabled {
+            self.maintain_custody_peers();
+        }
 
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
@@ -3139,5 +3148,61 @@ mod tests {
                 )
             })
         }
+    }
+
+    #[tokio::test]
+    async fn test_custody_peer_logic_only_runs_when_peerdas_enabled() {
+        use crate::types::{GossipEncoding, GossipTopic};
+
+        let mut peer_manager = build_peer_manager(5).await;
+
+        // Set up sampling subnets so maintain_custody_peers would have work to do
+        *peer_manager.network_globals.sampling_subnets.write() = std::collections::HashSet::from([
+            DataColumnSubnetId::new(0),
+            DataColumnSubnetId::new(1),
+        ]);
+
+        // Test 1: No data column subscriptions - custody peer logic should NOT run
+        peer_manager.heartbeat();
+
+        // Should be no new DiscoverSubnetPeers events since PeerDAS is not enabled
+        let discovery_events: Vec<_> = peer_manager
+            .events
+            .iter()
+            .filter(|event| matches!(event, PeerManagerEvent::DiscoverSubnetPeers(_)))
+            .collect();
+        assert!(
+            discovery_events.is_empty(),
+            "Should not generate discovery events when PeerDAS is disabled, but found: {:?}",
+            discovery_events
+        );
+
+        // Test 2: Add data column subscription - custody peer logic should run
+        let data_column_topic = GossipTopic::new(
+            GossipKind::DataColumnSidecar(DataColumnSubnetId::new(0)),
+            GossipEncoding::SSZSnappy,
+            [0, 0, 0, 0], // fork_digest
+        );
+        peer_manager
+            .network_globals
+            .gossipsub_subscriptions
+            .write()
+            .insert(data_column_topic);
+
+        // Clear any existing events to isolate the test
+        peer_manager.events.clear();
+
+        peer_manager.heartbeat();
+
+        // Should now have DiscoverSubnetPeers events since PeerDAS is enabled
+        let discovery_events: Vec<_> = peer_manager
+            .events
+            .iter()
+            .filter(|event| matches!(event, PeerManagerEvent::DiscoverSubnetPeers(_)))
+            .collect();
+        assert!(
+            !discovery_events.is_empty(),
+            "Should generate discovery events when PeerDAS is enabled, but found no discovery events"
+        );
     }
 }
