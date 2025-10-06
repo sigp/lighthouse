@@ -339,20 +339,21 @@ pub fn reconstruct_blobs<E: EthSpec>(
                 cell_ids.push(data_column.index);
             }
 
-            let all_cells: Vec<_> = if data_columns.len() < E::number_of_columns() {
-                let (cells, _kzg_proofs) = kzg
-                    .recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
-                    .map_err(|e| {
-                        format!("Failed to recover cells and compute KZG proofs: {e:?}")
-                    })?;
-                cells.into_iter().collect()
-            } else {
-                cells.into_iter().map(|cell| (*cell).into()).collect()
-            };
+            let len = cells.len() / 2;
+            let (all_cells, num_cells_original_blob): (Box<dyn Iterator<Item = _>>, usize) =
+                if data_columns.len() < E::number_of_columns() {
+                    let (cells, _kzg_proofs) = kzg
+                        .recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
+                        .map_err(|e| {
+                            format!("Failed to recover cells and compute KZG proofs: {e:?}")
+                        })?;
 
-            let num_cells_original_blob = all_cells.len() / 2;
+                    (Box::new(cells.into_iter()), len)
+                } else {
+                    (Box::new(cells.into_iter().map(|cell| (*cell).into())), len)
+                };
+
             let blob_bytes = all_cells
-                .into_iter()
                 .take(num_cells_original_blob)
                 .flat_map(|cell| cell.into_iter())
                 .collect();
