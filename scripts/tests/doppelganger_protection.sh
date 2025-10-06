@@ -56,7 +56,7 @@ GENESIS_DELAY=`curl -s $BN1_HTTP_ADDRESS/eth/v1/config/spec | jq '.data.GENESIS_
 CURRENT_TIME=`date +%s`
 # Note: doppelganger protection can only be started post epoch 0
 echo "Waiting until next epoch before starting the next validator client..."
-DELAY=$((($SLOT_DURATION_MS / 10000 * 32) + $GENESIS_DELAY + $MIN_GENESIS_TIME - $CURRENT_TIME))
+DELAY=$(( $SECONDS_PER_SLOT * 32 + $GENESIS_DELAY + $MIN_GENESIS_TIME - $CURRENT_TIME))
 sleep $DELAY
 
 # Use BN2 for the next validator client
@@ -148,7 +148,7 @@ EOF
     #
     # See: https://lighthouse-book.sigmaprime.io/api_validator_inclusion.html
     echo "Waiting three epochs..."
-    sleep $(( $SLOT_DURATION_MS / 10000 * 32 * 3 ))
+    sleep $(( $SLOT_DURATION_MS / 1000 * 32 * 3 ))
 
     # Get VC4 validator keys
     keys_path=$SCRIPT_DIR/$ENCLAVE_NAME/node_4/validators
@@ -176,7 +176,7 @@ EOF
     #
     # See: https://lighthouse-book.sigmaprime.io/api_validator_inclusion.html
     echo "Waiting two more epochs..."
-    sleep $(( $SLOT_DURATION_MS / 10000 * 32 * 2 ))
+    sleep $(( $SLOT_DURATION_MS / 1000 * 32 * 2 ))
     for val in 0x*; do
         [[ -e $val ]] || continue
         is_attester=$(run_command_without_exit "curl -s $BN1_HTTP_ADDRESS/lighthouse/validator_inclusion/5/$val | jq | grep -q '\"is_previous_epoch_target_attester\": true'")
