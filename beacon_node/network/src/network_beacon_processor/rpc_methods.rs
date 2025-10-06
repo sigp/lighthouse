@@ -437,12 +437,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     }
                 }
                 Err(e) => {
-                    // TODO(das): lower log level when feature is stabilized
-                    error!(
+                    // The node is expected to be able to serve these columns, but it fails to retrieve them.
+                    warn!(
                         block_root = ?data_column_ids_by_root.block_root,
                         %peer_id,
                         error = ?e,
-                        "Error getting data column"
+                        "Error getting data column for by root request "
                     );
                     return Err((RpcErrorResponse::ServerError, "Error getting data column"));
                 }
