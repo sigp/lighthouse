@@ -975,7 +975,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }));
         }
 
-        // The store migration task and op pool pruning require the *state at the slot of the
+        // The store migration task and op pool pruning require the *state at the first slot of the
         // finalized epoch*, rather than the state of the latest finalized block. These two values
         // will only differ when the first slot of the finalized epoch is a skip slot.
         //
