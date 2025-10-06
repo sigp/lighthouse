@@ -472,7 +472,8 @@ impl<E: EthSpec> Tester<E> {
         let since_genesis = tick
             .checked_sub(genesis_time)
             .ok_or_else(|| Error::FailedToParseTest("tick is prior to genesis".into()))?;
-        let slots_since_genesis = since_genesis / self.spec.slot_duration_ms / MS_TO_SEC;
+        let since_genesis_ms = since_genesis * MS_TO_SEC;
+        let slots_since_genesis = since_genesis_ms / self.spec.slot_duration_ms;
         Ok(self.spec.genesis_slot + slots_since_genesis)
     }
 
