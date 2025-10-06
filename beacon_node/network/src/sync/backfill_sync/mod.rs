@@ -558,19 +558,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             }
         };
 
-        let Some(batch_peers) = batch.processing_peers() else {
-            self.fail_sync(BackFillError::BatchInvalidState(
-                batch_id,
-                String::from("Peer does not exist"),
-            ))?;
-            return Ok(ProcessResult::Successful);
-        };
-
         debug!(
             ?result,
             %batch,
             batch_epoch = %batch_id,
-            ?batch_peers,
             // client = %network.client_type(peer),
             "Backfill batch processed"
         );

@@ -545,32 +545,33 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 penalty,
                 faulty_component,
             } => {
-                let Some(batch_peers) = batch.processing_peers() else {
+                if let Some(batch_peers) = batch.processing_peers() {
+                    // Penalize the peer appropriately.
+                    match faulty_component {
+                        Some(FaultyComponent::Blocks) | Some(FaultyComponent::Blobs) => {
+                            network.report_peer(
+                                batch_peers.block_and_blob,
+                                *penalty,
+                                "faulty_batch",
+                            );
+                        }
+                        Some(FaultyComponent::Columns(faulty_columns)) => {
+                            for (peer, columns) in batch_peers.data_columns.iter() {
+                                for faulty_column in faulty_columns {
+                                    if columns.contains(faulty_column) {
+                                        network.report_peer(*peer, *penalty, "faulty_batch");
+                                    }
+                                }
+                            }
+                        }
+                        None => {}
+                    }
+                } else {
                     warn!(
                         current_state = ?batch.state(),
                         "Inconsistent state, batch must have been in processing state"
                     );
-                    return Err(RemoveChain::ChainFailed {
-                        blacklist: false,
-                        failing_batch: batch_id,
-                    });
                 };
-                // Penalize the peer appropriately.
-                match faulty_component {
-                    Some(FaultyComponent::Blocks) | Some(FaultyComponent::Blobs) => {
-                        network.report_peer(batch_peers.block_and_blob, *penalty, "faulty_batch");
-                    }
-                    Some(FaultyComponent::Columns(faulty_columns)) => {
-                        for (peer, columns) in batch_peers.data_columns.iter() {
-                            for faulty_column in faulty_columns {
-                                if columns.contains(faulty_column) {
-                                    network.report_peer(*peer, *penalty, "faulty_batch");
-                                }
-                            }
-                        }
-                    }
-                    None => {}
-                }
 
                 // Check if this batch is allowed to continue
                 match batch.processing_completed(BatchProcessingResult::FaultyFailure)? {
