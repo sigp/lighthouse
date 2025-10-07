@@ -5,8 +5,9 @@ use crate::attestation_verification::{
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
 use crate::beacon_block_streamer::{BeaconBlockStreamer, CheckCaches};
-use crate::beacon_proposer_cache::BeaconProposerCache;
-use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
+use crate::beacon_proposer_cache::{
+    BeaconProposerCache, EpochBlockProposers, ensure_state_can_determine_proposers_for_epoch,
+};
 use crate::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::POS_PANDA_BANNER;
@@ -124,7 +125,7 @@ use store::{
     BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
     KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
-use task_executor::{ShutdownReason, TaskExecutor};
+use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
 use tree_hash::TreeHash;
@@ -334,14 +335,10 @@ pub enum BlockProcessStatus<E: EthSpec> {
     /// Block is not in any pre-import cache. Block may be in the data-base or in the fork-choice.
     Unknown,
     /// Block is currently processing but not yet validated.
-    NotValidated(Arc<SignedBeaconBlock<E>>),
+    NotValidated(Arc<SignedBeaconBlock<E>>, BlockImportSource),
     /// Block is fully valid, but not yet imported. It's cached in the da_checker while awaiting
     /// missing block components.
     ExecutionValidated(Arc<SignedBeaconBlock<E>>),
-}
-
-pub struct BeaconChainMetrics {
-    pub reqresp_pre_import_cache_len: usize,
 }
 
 pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
@@ -362,9 +359,6 @@ pub type BeaconStore<T> = Arc<
         <T as BeaconChainTypes>::ColdStore,
     >,
 >;
-
-/// Cache gossip verified blocks to serve over ReqResp before they are imported
-type ReqRespPreImportCache<E> = HashMap<Hash256, Arc<SignedBeaconBlock<E>>>;
 
 /// Represents the "Beacon Chain" component of Ethereum 2.0. Allows import of blocks and block
 /// operations and chooses a canonical head.
@@ -462,8 +456,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
     pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
-    /// Cache gossip verified blocks to serve over ReqResp before they are imported
-    pub reqresp_pre_import_cache: Arc<RwLock<ReqRespPreImportCache<T::EthSpec>>>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A cache used to track pre-finalization block roots for quick rejection.
@@ -1289,18 +1281,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// chain. Used by sync to learn the status of a block and prevent repeated downloads /
     /// processing attempts.
     pub fn get_block_process_status(&self, block_root: &Hash256) -> BlockProcessStatus<T::EthSpec> {
-        if let Some(block) = self
-            .data_availability_checker
-            .get_execution_valid_block(block_root)
-        {
-            return BlockProcessStatus::ExecutionValidated(block);
-        }
-
-        if let Some(block) = self.reqresp_pre_import_cache.read().get(block_root) {
-            // A block is on the `reqresp_pre_import_cache` but NOT in the
-            // `data_availability_checker` only if it is actively processing. We can expect a future
-            // event with the result of processing
-            return BlockProcessStatus::NotValidated(block.clone());
+        if let Some(cached_block) = self.data_availability_checker.get_cached_block(block_root) {
+            return cached_block;
         }
 
         BlockProcessStatus::Unknown
@@ -3054,8 +3036,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.emit_sse_blob_sidecar_events(&block_root, std::iter::once(blob.as_blob()));
 
-        let r = self.check_gossip_blob_availability_and_import(blob).await;
-        self.remove_notified(&block_root, r)
+        self.check_gossip_blob_availability_and_import(blob).await
     }
 
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
@@ -3092,15 +3073,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             data_columns.iter().map(|column| column.as_data_column()),
         );
 
-        let r = self
-            .check_gossip_data_columns_availability_and_import(
-                slot,
-                block_root,
-                data_columns,
-                publish_fn,
-            )
-            .await;
-        self.remove_notified(&block_root, r)
+        self.check_gossip_data_columns_availability_and_import(
+            slot,
+            block_root,
+            data_columns,
+            publish_fn,
+        )
+        .await
     }
 
     /// Cache the blobs in the processing cache, process it, then evict it from the cache if it was
@@ -3139,10 +3118,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
 
-        let r = self
-            .check_rpc_blob_availability_and_import(slot, block_root, blobs)
-            .await;
-        self.remove_notified(&block_root, r)
+        self.check_rpc_blob_availability_and_import(slot, block_root, blobs)
+            .await
     }
 
     /// Process blobs retrieved from the EL and returns the `AvailabilityProcessingStatus`.
@@ -3174,10 +3151,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let r = self
-            .check_engine_blobs_availability_and_import(slot, block_root, engine_get_blobs_output)
-            .await;
-        self.remove_notified(&block_root, r)
+        self.check_engine_blobs_availability_and_import(slot, block_root, engine_get_blobs_output)
+            .await
     }
 
     fn emit_sse_blob_sidecar_events<'a, I>(self: &Arc<Self>, block_root: &Hash256, blobs_iter: I)
@@ -3270,10 +3245,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             custody_columns.iter().map(|column| column.as_ref()),
         );
 
-        let r = self
-            .check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
-            .await;
-        self.remove_notified(&block_root, r)
+        self.check_rpc_custody_columns_availability_and_import(slot, block_root, custody_columns)
+            .await
     }
 
     pub async fn reconstruct_data_columns(
@@ -3302,16 +3275,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let current_span = Span::current();
         let result = self
             .task_executor
-            .spawn_blocking_handle(
-                move || {
-                    let _guard = current_span.enter();
-                    data_availability_checker.reconstruct_data_columns(&block_root)
-                },
-                "reconstruct_data_columns",
-            )
-            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .spawn_blocking_with_rayon_async(RayonPoolType::HighPriority, move || {
+                let _guard = current_span.enter();
+                data_availability_checker.reconstruct_data_columns(&block_root)
+            })
             .await
-            .map_err(BeaconChainError::TokioJoin)??;
+            .map_err(|_| BeaconChainError::RuntimeShutdown)??;
 
         match result {
             DataColumnReconstructionResult::Success((availability, data_columns_to_publish)) => {
@@ -3320,10 +3289,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     return Ok(None);
                 };
 
-                let r = self
-                    .process_availability(slot, availability, || Ok(()))
-                    .await;
-                self.remove_notified(&block_root, r)
+                self.process_availability(slot, availability, || Ok(()))
+                    .await
                     .map(|availability_processing_status| {
                         Some((availability_processing_status, data_columns_to_publish))
                     })
@@ -3338,46 +3305,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(None)
             }
         }
-    }
-
-    /// Remove any block components from the *processing cache* if we no longer require them. If the
-    /// block was imported full or erred, we no longer require them.
-    fn remove_notified(
-        &self,
-        block_root: &Hash256,
-        r: Result<AvailabilityProcessingStatus, BlockError>,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        let has_missing_components =
-            matches!(r, Ok(AvailabilityProcessingStatus::MissingComponents(_, _)));
-        if !has_missing_components {
-            self.reqresp_pre_import_cache.write().remove(block_root);
-        }
-        r
-    }
-
-    /// Wraps `process_block` in logic to cache the block's commitments in the processing cache
-    /// and evict if the block was imported or errored.
-    pub async fn process_block_with_early_caching<B: IntoExecutionPendingBlock<T>>(
-        self: &Arc<Self>,
-        block_root: Hash256,
-        unverified_block: B,
-        block_source: BlockImportSource,
-        notify_execution_layer: NotifyExecutionLayer,
-    ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.reqresp_pre_import_cache
-            .write()
-            .insert(block_root, unverified_block.block_cloned());
-
-        let r = self
-            .process_block(
-                block_root,
-                unverified_block,
-                notify_execution_layer,
-                block_source,
-                || Ok(()),
-            )
-            .await;
-        self.remove_notified(&block_root, r)
     }
 
     /// Check for known and configured invalid block roots before processing.
@@ -3411,12 +3338,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), BlockError>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        // Start the Prometheus timer.
-        let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
-
-        // Increment the Prometheus counter for block processing requests.
-        metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
-
         let block_slot = unverified_block.block().slot();
 
         // Set observed time if not already set. Usually this should be set by gossip or RPC,
@@ -3430,6 +3351,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 None,
             );
         }
+
+        self.data_availability_checker.put_pre_execution_block(
+            block_root,
+            unverified_block.block_cloned(),
+            block_source,
+        )?;
+
+        // Start the Prometheus timer.
+        let _full_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_TIMES);
+
+        // Increment the Prometheus counter for block processing requests.
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_REQUESTS);
 
         // A small closure to group the verification and import errors.
         let chain = self.clone();
@@ -3448,7 +3381,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .set_time_consensus_verified(block_root, block_slot, timestamp)
             }
 
-            let executed_block = chain.into_executed_block(execution_pending).await?;
+            let executed_block = chain
+                .into_executed_block(execution_pending)
+                .await
+                .inspect_err(|_| {
+                    // If the block fails execution for whatever reason (e.g. engine offline),
+                    // and we keep it in the cache, then the node will NOT perform lookup and
+                    // reprocess this block until the block is evicted from DA checker, causing the
+                    // chain to get stuck temporarily if the block is canonical. Therefore we remove
+                    // it from the cache if execution fails.
+                    self.data_availability_checker
+                        .remove_block_on_execution_error(&block_root);
+                })?;
 
             // Record the *additional* time it took to wait for execution layer verification.
             if let Some(timestamp) = self.slot_clock.now_duration() {
@@ -3574,9 +3518,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: AvailabilityPendingExecutedBlock<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = block.block.slot();
-        let availability = self
-            .data_availability_checker
-            .put_pending_executed_block(block)?;
+        let availability = self.data_availability_checker.put_executed_block(block)?;
         self.process_availability(slot, availability, || Ok(()))
             .await
     }
@@ -4757,65 +4699,54 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Compute the proposer index.
         let head_epoch = cached_head.head_slot().epoch(T::EthSpec::slots_per_epoch());
-        let shuffling_decision_root = if head_epoch == proposal_epoch {
-            cached_head
-                .snapshot
-                .beacon_state
-                .proposer_shuffling_decision_root(proposer_head)?
-        } else {
-            proposer_head
-        };
-        let cached_proposer = self
-            .beacon_proposer_cache
-            .lock()
-            .get_slot::<T::EthSpec>(shuffling_decision_root, proposal_slot);
-        let proposer_index = if let Some(proposer) = cached_proposer {
-            proposer.index as u64
-        } else {
-            if head_epoch + self.config.sync_tolerance_epochs < proposal_epoch {
-                warn!(
-                    msg = "this is a non-critical issue that can happen on unhealthy nodes or \
-                              networks.",
-                    %proposal_epoch,
-                    %head_epoch,
-                    "Skipping proposer preparation"
-                );
+        let shuffling_decision_root = cached_head
+            .snapshot
+            .beacon_state
+            .proposer_shuffling_decision_root_at_epoch(proposal_epoch, proposer_head, &self.spec)?;
 
-                // Don't skip the head forward more than two epochs. This avoids burdening an
-                // unhealthy node.
-                //
-                // Although this node might miss out on preparing for a proposal, they should still
-                // be able to propose. This will prioritise beacon chain health over efficient
-                // packing of execution blocks.
-                return Ok(None);
+        let Some(proposer_index) = self.with_proposer_cache(
+            shuffling_decision_root,
+            proposal_epoch,
+            |proposers| proposers.get_slot::<T::EthSpec>(proposal_slot).map(|p| p.index as u64),
+            || {
+                if head_epoch + self.config.sync_tolerance_epochs < proposal_epoch {
+                    warn!(
+                        msg = "this is a non-critical issue that can happen on unhealthy nodes or \
+                               networks",
+                        %proposal_epoch,
+                        %head_epoch,
+                        "Skipping proposer preparation"
+                    );
+
+                    // Don't skip the head forward too many epochs. This avoids burdening an
+                    // unhealthy node.
+                    //
+                    // Although this node might miss out on preparing for a proposal, they should
+                    // still be able to propose. This will prioritise beacon chain health over
+                    // efficient packing of execution blocks.
+                    Err(Error::SkipProposerPreparation)
+                } else {
+                    let head = self.canonical_head.cached_head();
+                    Ok((
+                        head.head_state_root(),
+                        head.snapshot.beacon_state.clone(),
+                    ))
+                }
+            },
+        ).map_or_else(|e| {
+            match e {
+                Error::ProposerCacheIncorrectState { .. } => {
+                    warn!("Head changed during proposer preparation");
+                    Ok(None)
+                }
+                Error::SkipProposerPreparation => {
+                    // Warning logged for this above.
+                    Ok(None)
+                }
+                e => Err(e)
             }
-
-            let (proposers, decision_root, _, fork) =
-                compute_proposer_duties_from_head(proposal_epoch, self)?;
-
-            let proposer_offset = (proposal_slot % T::EthSpec::slots_per_epoch()).as_usize();
-            let proposer = *proposers
-                .get(proposer_offset)
-                .ok_or(BeaconChainError::NoProposerForSlot(proposal_slot))?;
-
-            self.beacon_proposer_cache.lock().insert(
-                proposal_epoch,
-                decision_root,
-                proposers,
-                fork,
-            )?;
-
-            // It's possible that the head changes whilst computing these duties. If so, abandon
-            // this routine since the change of head would have also spawned another instance of
-            // this routine.
-            //
-            // Exit now, after updating the cache.
-            if decision_root != shuffling_decision_root {
-                warn!("Head changed during proposer preparation");
-                return Ok(None);
-            }
-
-            proposer as u64
+        }, |value| Ok(Some(value)))? else {
+            return Ok(None);
         };
 
         // Get the `prev_randao` and parent block number.
@@ -4975,14 +4906,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Only attempt a re-org if we have a proposer registered for the re-org slot.
         let proposing_at_re_org_slot = {
-            // The proposer shuffling has the same decision root as the next epoch attestation
-            // shuffling. We know our re-org block is not on the epoch boundary, so it has the
-            // same proposer shuffling as the head (but not necessarily the parent which may lie
-            // in the previous epoch).
-            let shuffling_decision_root = info
-                .head_node
-                .next_epoch_shuffling_id
-                .shuffling_decision_block;
+            // We know our re-org block is not on the epoch boundary, so it has the same proposer
+            // shuffling as the head (but not necessarily the parent which may lie in the previous
+            // epoch).
+            let shuffling_decision_root = if self
+                .spec
+                .fork_name_at_slot::<T::EthSpec>(re_org_block_slot)
+                .fulu_enabled()
+            {
+                info.head_node.current_epoch_shuffling_id
+            } else {
+                info.head_node.next_epoch_shuffling_id
+            }
+            .shuffling_decision_block;
             let proposer_index = self
                 .beacon_proposer_cache
                 .lock()
@@ -6617,6 +6553,70 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    pub fn with_proposer_cache<V, E: From<BeaconChainError> + From<BeaconStateError>>(
+        &self,
+        shuffling_decision_block: Hash256,
+        proposal_epoch: Epoch,
+        accessor: impl Fn(&EpochBlockProposers) -> Result<V, BeaconChainError>,
+        state_provider: impl FnOnce() -> Result<(Hash256, BeaconState<T::EthSpec>), E>,
+    ) -> Result<V, E> {
+        let cache_entry = self
+            .beacon_proposer_cache
+            .lock()
+            .get_or_insert_key(proposal_epoch, shuffling_decision_block);
+
+        // If the cache entry is not initialised, run the code to initialise it inside a OnceCell.
+        // This prevents duplication of work across multiple threads.
+        //
+        // If it is already initialised, then `get_or_try_init` will return immediately without
+        // executing the initialisation code at all.
+        let epoch_block_proposers = cache_entry.get_or_try_init(|| {
+            debug!(
+                ?shuffling_decision_block,
+                %proposal_epoch,
+                "Proposer shuffling cache miss"
+            );
+
+            // Fetch the state on-demand if the required epoch was missing from the cache.
+            // If the caller wants to not compute the state they must return an error here and then
+            // catch it at the call site.
+            let (state_root, mut state) = state_provider()?;
+
+            // Ensure the state can compute proposer duties for `epoch`.
+            ensure_state_can_determine_proposers_for_epoch(
+                &mut state,
+                state_root,
+                proposal_epoch,
+                &self.spec,
+            )?;
+
+            // Sanity check the state.
+            let latest_block_root = state.get_latest_block_root(state_root);
+            let state_decision_block_root = state.proposer_shuffling_decision_root_at_epoch(
+                proposal_epoch,
+                latest_block_root,
+                &self.spec,
+            )?;
+            if state_decision_block_root != shuffling_decision_block {
+                return Err(Error::ProposerCacheIncorrectState {
+                    state_decision_block_root,
+                    requested_decision_block_root: shuffling_decision_block,
+                }
+                .into());
+            }
+
+            let proposers = state.get_beacon_proposer_indices(proposal_epoch, &self.spec)?;
+            Ok::<_, E>(EpochBlockProposers::new(
+                proposal_epoch,
+                state.fork(),
+                proposers,
+            ))
+        })?;
+
+        // Run the accessor function on the computed epoch proposers.
+        accessor(epoch_block_proposers).map_err(Into::into)
+    }
+
     /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
     /// `head_block_root`. The `map_fn` will be supplied two values:
     ///
@@ -7154,12 +7154,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             finalized_period,
             &self.spec,
         )
-    }
-
-    pub fn metrics(&self) -> BeaconChainMetrics {
-        BeaconChainMetrics {
-            reqresp_pre_import_cache_len: self.reqresp_pre_import_cache.read().len(),
-        }
     }
 
     pub(crate) fn get_blobs_or_columns_store_op(

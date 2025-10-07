@@ -1,9 +1,7 @@
 use crate::common::update_progressive_balances_cache::initialize_progressive_balances_cache;
 use crate::epoch_cache::initialize_epoch_cache;
 use tracing::instrument;
-use types::{
-    BeaconState, ChainSpec, EpochCacheError, EthSpec, FixedBytesExtended, Hash256, RelativeEpoch,
-};
+use types::{BeaconState, ChainSpec, EpochCacheError, EthSpec, Hash256, RelativeEpoch};
 
 /// Mixin trait for the beacon state that provides operations on *all* caches.
 ///
@@ -34,8 +32,7 @@ impl<E: EthSpec> AllCaches for BeaconState<E> {
 
     fn all_caches_built(&self) -> bool {
         let current_epoch = self.current_epoch();
-        let Ok(epoch_cache_decision_block_root) =
-            self.proposer_shuffling_decision_root(Hash256::zero())
+        let Ok(epoch_cache_decision_block_root) = self.epoch_cache_decision_root(Hash256::ZERO)
         else {
             return false;
         };

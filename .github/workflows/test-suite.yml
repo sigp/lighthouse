@@ -225,6 +225,7 @@ jobs:
         TEST_FEATURES: portable
         CI_LOGGER_DIR: ${{ runner.temp }}/network_test_logs
     - name: Upload logs
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: network_test_logs
@@ -328,6 +329,7 @@ jobs:
     - name: Run a basic beacon chain sim that starts from Deneb
       run: cargo run --release --bin simulator basic-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/basic_simulator_logs
     - name: Upload logs
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: basic_simulator_logs
@@ -349,6 +351,7 @@ jobs:
     - name: Run a beacon chain sim which tests VC fallback behaviour
       run: cargo run --release --bin simulator fallback-sim --disable-stdout-logging --log-dir ${{ runner.temp }}/fallback_simulator_logs
     - name: Upload logs
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: fallback_simulator_logs
