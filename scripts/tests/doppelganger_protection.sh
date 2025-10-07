@@ -56,7 +56,7 @@ GENESIS_DELAY=`curl -s $BN1_HTTP_ADDRESS/eth/v1/config/spec | jq '.data.GENESIS_
 CURRENT_TIME=`date +%s`
 # Note: doppelganger protection can only be started post epoch 0
 echo "Waiting until next epoch before starting the next validator client..."
-DELAY=$(( $SECONDS_PER_SLOT * 32 + $GENESIS_DELAY + $MIN_GENESIS_TIME - $CURRENT_TIME))
+DELAY=$((($SLOT_DURATION_MS / 1000) * 32 + $GENESIS_DELAY + $MIN_GENESIS_TIME - $CURRENT_TIME))
 sleep $DELAY
 
 # Use BN2 for the next validator client
