@@ -155,7 +155,7 @@ pub trait Handler {
 macro_rules! bls_eth_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
         #[derive(Educe)]
-        #[educe(Default())]
+        #[educe(Default)]
         pub struct $runner_name;
 
         impl Handler for $runner_name {
@@ -175,7 +175,7 @@ macro_rules! bls_eth_handler {
 macro_rules! bls_handler {
     ($runner_name: ident, $case_name:ident, $handler_name:expr) => {
         #[derive(Educe)]
-        #[educe(Default())]
+        #[educe(Default)]
         pub struct $runner_name;
 
         impl Handler for $runner_name {
@@ -336,7 +336,7 @@ impl<T, E> SszStaticHandler<T, E> {
 
 /// Handler for SSZ types that implement `CachedTreeHash`.
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct SszStaticTHCHandler<T, E>(PhantomData<(T, E)>);
 
 /// Handler for SSZ types that don't implement `ssz::Decode`.
@@ -437,7 +437,7 @@ where
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct ShufflingHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
@@ -461,7 +461,7 @@ impl<E: EthSpec + TypeName> Handler for ShufflingHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct SanityBlocksHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
@@ -487,7 +487,7 @@ impl<E: EthSpec + TypeName> Handler for SanityBlocksHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct SanitySlotsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
@@ -512,7 +512,7 @@ impl<E: EthSpec + TypeName> Handler for SanitySlotsHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct RandomHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
@@ -532,7 +532,7 @@ impl<E: EthSpec + TypeName> Handler for RandomHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct EpochProcessingHandler<E, T>(PhantomData<(E, T)>);
 
 impl<E: EthSpec + TypeName, T: EpochTransition<E>> Handler for EpochProcessingHandler<E, T> {
@@ -582,7 +582,7 @@ impl<E: EthSpec + TypeName> Handler for RewardsHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct ForkHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
@@ -602,7 +602,7 @@ impl<E: EthSpec + TypeName> Handler for ForkHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct TransitionHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for TransitionHandler<E> {
@@ -622,7 +622,7 @@ impl<E: EthSpec + TypeName> Handler for TransitionHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct FinalityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
@@ -706,7 +706,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct OptimisticSyncHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
@@ -735,7 +735,7 @@ impl<E: EthSpec + TypeName> Handler for OptimisticSyncHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
@@ -755,7 +755,7 @@ impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct GenesisInitializationHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
@@ -775,7 +775,7 @@ impl<E: EthSpec + TypeName> Handler for GenesisInitializationHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGBlobToKZGCommitmentHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGBlobToKZGCommitmentHandler<E> {
@@ -795,7 +795,7 @@ impl<E: EthSpec> Handler for KZGBlobToKZGCommitmentHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGComputeBlobKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeBlobKZGProofHandler<E> {
@@ -815,7 +815,7 @@ impl<E: EthSpec> Handler for KZGComputeBlobKZGProofHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGComputeKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeKZGProofHandler<E> {
@@ -835,7 +835,7 @@ impl<E: EthSpec> Handler for KZGComputeKZGProofHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGVerifyBlobKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofHandler<E> {
@@ -855,7 +855,7 @@ impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGVerifyBlobKZGProofBatchHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofBatchHandler<E> {
@@ -875,7 +875,7 @@ impl<E: EthSpec> Handler for KZGVerifyBlobKZGProofBatchHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGVerifyKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
@@ -895,7 +895,7 @@ impl<E: EthSpec> Handler for KZGVerifyKZGProofHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct GetCustodyGroupsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
@@ -915,7 +915,7 @@ impl<E: EthSpec + TypeName> Handler for GetCustodyGroupsHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct ComputeColumnsForCustodyGroupHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> {
@@ -935,7 +935,7 @@ impl<E: EthSpec + TypeName> Handler for ComputeColumnsForCustodyGroupHandler<E> 
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGComputeCellsHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
@@ -955,7 +955,7 @@ impl<E: EthSpec> Handler for KZGComputeCellsHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGComputeCellsAndKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
@@ -975,7 +975,7 @@ impl<E: EthSpec> Handler for KZGComputeCellsAndKZGProofHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGVerifyCellKZGProofBatchHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
@@ -995,7 +995,7 @@ impl<E: EthSpec> Handler for KZGVerifyCellKZGProofBatchHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KZGRecoverCellsAndKZGProofHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
@@ -1015,7 +1015,7 @@ impl<E: EthSpec> Handler for KZGRecoverCellsAndKZGProofHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct KzgInclusionMerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E> {
@@ -1039,7 +1039,7 @@ impl<E: EthSpec + TypeName> Handler for KzgInclusionMerkleProofValidityHandler<E
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct MerkleProofValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
@@ -1063,7 +1063,7 @@ impl<E: EthSpec + TypeName> Handler for MerkleProofValidityHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct LightClientUpdateHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
@@ -1089,7 +1089,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct OperationsHandler<E, O>(PhantomData<(E, O)>);
 
 impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O> {
@@ -1109,7 +1109,7 @@ impl<E: EthSpec + TypeName, O: Operation<E>> Handler for OperationsHandler<E, O>
 }
 
 #[derive(Educe)]
-#[educe(Default())]
+#[educe(Default)]
 pub struct SszGenericHandler<H>(PhantomData<H>);
 
 impl<H: TypeName> Handler for SszGenericHandler<H> {
