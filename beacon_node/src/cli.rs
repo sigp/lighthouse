@@ -1466,7 +1466,6 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
-
         .arg(
             Arg::new("disable-optimistic-finalized-sync")
                 .long("disable-optimistic-finalized-sync")
@@ -1477,7 +1476,6 @@ pub fn cli_app() -> Command {
                        Lighthouse and only passed to the EL if initial verification fails.")
                 .display_order(0)
         )
-
         .arg(
             Arg::new("disable-light-client-server")
                 .long("disable-light-client-server")

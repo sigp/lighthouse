@@ -126,7 +126,6 @@ fn main() {
                 .global(true)
                 .display_order(0),
         )
-
         .arg(
             Arg::new("logfile-dir")
                 .long("logfile-dir")
