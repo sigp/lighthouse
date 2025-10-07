@@ -1854,7 +1854,41 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         }
 
         if let Some(Err(RpcResponseError::VerifyError(e))) = &resp {
-            self.report_peer(peer_id, PeerAction::LowToleranceError, e.into());
+            warn!(?e, "Verification error on rpc response");
+            match e {
+                LookupVerifyError::NotEnoughResponsesReturned { .. } => {
+                    // This is a special case because in the case of a columns by root requests, there are 3 cases
+                    // 1. the columns peer is honest and doesn't have the columns that we requested from it
+                    // because its on a different chain.
+                    // 2. the columns peer is honest but the block peer maliciously fed us bogus blocks for which
+                    //  there are no corresponding columns.
+                    // 3. The column peer is buggy but non-malicious
+                    //
+                    // There is no way to differentiate between these 3 cases until we can verify the block
+                    // before requesting the columns.
+                    // Hence, we currently do not downscore them with a `LowToleranceError`.
+                    //
+                    // However, since majority of these errors are of type 3 currently, we downscore these errors with a
+                    // HighTolerance error to avoid getting stuck in sync with buggy peers.
+                    if method.contains("DataColumns") {
+                        self.report_peer(peer_id, PeerAction::HighToleranceError, e.into())
+                    } else {
+                        self.report_peer(peer_id, PeerAction::LowToleranceError, e.into())
+                    }
+                }
+                LookupVerifyError::UnrequestedSlot(_)
+                | LookupVerifyError::DuplicatedData(_, _)
+                | LookupVerifyError::TooManyResponses
+                | LookupVerifyError::UnrequestedBlockRoot(_)
+                | LookupVerifyError::UnrequestedIndex(_) => {
+                    // Recoverable errors, don't downscore heavily
+                    self.report_peer(peer_id, PeerAction::HighToleranceError, e.into())
+                }
+                LookupVerifyError::InternalError(_) => {} // do not downscore peer for internal errors
+                LookupVerifyError::InvalidInclusionProof => {
+                    self.report_peer(peer_id, PeerAction::LowToleranceError, e.into())
+                }
+            }
         }
         resp
     }

@@ -595,7 +595,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         error: format!("No columns for block {block_root:?} with data"),
                         faulty_peers: responsible_peers,
                         // The block peer might be malcicious so don't downscore the column peer too bad
-                        action: PeerAction::MidToleranceError,
+                        action: PeerAction::HighToleranceError,
                         exceeded_retries,
 
                     });
@@ -621,7 +621,7 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                         error: format!("Peers did not return column for block_root {block_root:?} {naughty_peers:?}"),
                         faulty_peers: naughty_peers,
                         // The block peer might be malcicious so don't downscore the column peer too bad
-                        action: PeerAction::MidToleranceError,
+                        action: PeerAction::HighToleranceError,
                         exceeded_retries
                     });
                 }
