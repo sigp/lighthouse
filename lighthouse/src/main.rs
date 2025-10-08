@@ -28,7 +28,7 @@ use std::path::PathBuf;
 use std::process::exit;
 use std::sync::LazyLock;
 use task_executor::ShutdownReason;
-use tracing::{Level, info, warn};
+use tracing::{Level, info};
 use tracing_subscriber::{Layer, filter::EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -125,16 +125,6 @@ fn main() {
                 .hide(cfg!(windows))
                 .global(true)
                 .display_order(0),
-        )
-        .arg(
-            Arg::new("logfile")
-                .long("logfile")
-                .value_name("PATH")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .global(true)
-                .hide(true)
-                .display_order(0)
         )
         .arg(
             Arg::new("logfile-dir")
@@ -384,48 +374,6 @@ fn main() {
                 .help_heading(FLAG_HEADER)
                 .global(true)
                 .display_order(0)
-        )
-        .arg(
-            Arg::new("terminal-total-difficulty-override")
-                .long("terminal-total-difficulty-override")
-                .value_name("INTEGER")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .global(true)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("terminal-block-hash-override")
-                .long("terminal-block-hash-override")
-                .value_name("TERMINAL_BLOCK_HASH")
-                .help("DEPRECATED")
-                .requires("terminal-block-hash-epoch-override")
-                .action(ArgAction::Set)
-                .global(true)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("terminal-block-hash-epoch-override")
-                .long("terminal-block-hash-epoch-override")
-                .value_name("EPOCH")
-                .help("DEPRECATED")
-                .requires("terminal-block-hash-override")
-                .action(ArgAction::Set)
-                .global(true)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("safe-slots-to-import-optimistically")
-                .long("safe-slots-to-import-optimistically")
-                .value_name("INTEGER")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .global(true)
-                .display_order(0)
-                .hide(true)
         )
         .arg(
             Arg::new("genesis-state-url")
@@ -780,31 +728,12 @@ fn run<E: EthSpec>(
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
 
-    // DEPRECATED: can be removed in v7.2.0/v8.0.0.
-    if clap_utils::parse_optional::<PathBuf>(matches, "logfile")?.is_some() {
-        warn!("The --logfile flag is deprecated and replaced by --logfile-dir");
-    }
-
     #[cfg(all(feature = "modern", target_arch = "x86_64"))]
     if !std::is_x86_feature_detected!("adx") {
         tracing::warn!(
             advice = "If you get a SIGILL, please try Lighthouse portable build",
             "CPU seems incompatible with optimized Lighthouse build"
         );
-    }
-
-    // Warn for DEPRECATED global flags. This code should be removed when we finish deleting these
-    // flags.
-    let deprecated_flags = [
-        "terminal-total-difficulty-override",
-        "terminal-block-hash-override",
-        "terminal-block-hash-epoch-override",
-        "safe-slots-to-import-optimistically",
-    ];
-    for flag in deprecated_flags {
-        if matches.get_one::<String>(flag).is_some() {
-            warn!("The {} flag is deprecated and does nothing", flag);
-        }
     }
 
     // Note: the current code technically allows for starting a beacon node _and_ a validator

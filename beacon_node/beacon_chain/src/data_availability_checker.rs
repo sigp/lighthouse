@@ -21,8 +21,8 @@ use task_executor::TaskExecutor;
 use tracing::{debug, error, instrument};
 use types::blob_sidecar::{BlobIdentifier, BlobSidecar, FixedBlobSidecarList};
 use types::{
-    BlobSidecarList, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Hash256,
-    SignedBeaconBlock, Slot,
+    BlobSidecarList, BlockImportSource, ChainSpec, DataColumnSidecar, DataColumnSidecarList, Epoch,
+    EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
 
 mod error;
@@ -354,9 +354,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        source: BlockImportSource,
     ) -> Result<(), Error> {
         self.availability_cache
-            .put_pre_execution_block(block_root, block)
+            .put_pre_execution_block(block_root, block, source)
     }
 
     /// Removes a pre-execution block from the cache.

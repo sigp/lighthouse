@@ -843,6 +843,7 @@ impl<'de, E: EthSpec, Payload: AbstractExecPayload<E>> ContextDeserialize<'de, F
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum BlockImportSource {
     Gossip,
     Lookup,

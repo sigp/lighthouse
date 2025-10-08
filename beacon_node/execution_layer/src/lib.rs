@@ -1914,9 +1914,19 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<SubmitBlindedBlockResponse<E>, Error> {
         debug!(?block_root, "Sending block to builder");
         if spec.is_fulu_scheduled() {
-            self.post_builder_blinded_blocks_v2(block_root, block)
+            let resp = self
+                .post_builder_blinded_blocks_v2(block_root, block)
                 .await
-                .map(|()| SubmitBlindedBlockResponse::V2)
+                .map(|()| SubmitBlindedBlockResponse::V2);
+            // Fallback to v1 if v2 fails because the relay doesn't support it.
+            // Note: we should remove the fallback post fulu when all relays have support for v2.
+            if resp.is_err() {
+                self.post_builder_blinded_blocks_v1(block_root, block)
+                    .await
+                    .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
+            } else {
+                resp
+            }
         } else {
             self.post_builder_blinded_blocks_v1(block_root, block)
                 .await
