@@ -11,7 +11,6 @@ pub static PRESENT_EPOCH: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
 pub static SLOTS_PER_EPOCH: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge("slotclock_slots_per_epoch", "Slots per epoch (constant)")
 });
-// TODO: deprecate
 pub static SECONDS_PER_SLOT: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "slotclock_slot_time_seconds",

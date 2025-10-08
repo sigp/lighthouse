@@ -20,7 +20,6 @@ pub mod altair {
     pub const NUM_FLAG_INDICES: usize = 3;
 }
 pub mod bellatrix {
-    // TODO: deprecate
     pub const INTERVALS_PER_SLOT: u64 = 3;
     pub const BASIS_POINTS: u64 = 10_000;
 }

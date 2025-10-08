@@ -87,7 +87,6 @@ pub struct ChainSpec {
      * Time parameters
      */
     pub genesis_delay: u64,
-    // TODO: deprecate
     pub seconds_per_slot: u64,
     pub slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
@@ -999,7 +998,7 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 604800, // 7 days
-            seconds_per_slot: 12,  // TODO: deprecate
+            seconds_per_slot: 12,
             slot_duration_ms: 12000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -1236,7 +1235,7 @@ impl ChainSpec {
             genesis_fork_version: [0x00, 0x00, 0x00, 0x01],
             shard_committee_period: 64,
             genesis_delay: 300,
-            seconds_per_slot: 6, // TODO: deprecate
+            seconds_per_slot: 6,
             slot_duration_ms: 6000,
             inactivity_penalty_quotient: u64::checked_pow(2, 25).expect("pow does not overflow"),
             min_slashing_penalty_quotient: 64,
@@ -1352,7 +1351,7 @@ impl ChainSpec {
              * Time parameters
              */
             genesis_delay: 6000, // 100 minutes
-            seconds_per_slot: 5, // TODO: deprecate
+            seconds_per_slot: 5,
             slot_duration_ms: 5000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
@@ -1777,7 +1776,7 @@ pub struct Config {
     pub gloas_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "serde_utils::quoted_u64")]
-    seconds_per_slot: u64, // TODO: deprecate
+    seconds_per_slot: u64,
     #[serde(with = "serde_utils::quoted_u64")]
     slot_duration_ms: u64,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -2244,7 +2243,7 @@ impl Config {
                 .gloas_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
-            seconds_per_slot: spec.seconds_per_slot, // TODO: deprecate
+            seconds_per_slot: spec.seconds_per_slot,
             slot_duration_ms: spec.slot_duration_ms,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
             min_validator_withdrawability_delay: spec.min_validator_withdrawability_delay,
@@ -2336,7 +2335,7 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch,
-            seconds_per_slot, // TODO: deprecate
+            seconds_per_slot,
             slot_duration_ms,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2410,7 +2409,7 @@ impl Config {
             fulu_fork_version,
             gloas_fork_version,
             gloas_fork_epoch: gloas_fork_epoch.map(|q| q.value),
-            seconds_per_slot, // TODO: deprecate
+            seconds_per_slot,
             slot_duration_ms,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -2661,7 +2660,6 @@ mod yaml_tests {
 
     #[test]
     fn blob_schedule_max_blobs_per_block() {
-        // TODO: deprecate SECONDS_PER_SLOT
         let spec_contents = r#"
         PRESET_BASE: 'mainnet'
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
@@ -2812,7 +2810,6 @@ mod yaml_tests {
 
     #[test]
     fn blob_schedule_fork_digest() {
-        // TODO: deprecate SECONDS_PER_SLOT
         let spec_contents = r#"
         PRESET_BASE: 'mainnet'
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 384
@@ -2916,7 +2913,6 @@ mod yaml_tests {
 
     #[test]
     fn test_defaults() {
-        // TODO: deprecate SECONDS_PER_SLOT
         // Spec yaml string. Fields that serialize/deserialize with a default value are commented out.
         let spec = r#"
         PRESET_BASE: 'mainnet'
