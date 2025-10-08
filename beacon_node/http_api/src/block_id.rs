@@ -488,7 +488,7 @@ impl BlockId {
                         "Error reconstructing data columns: {e:?}"
                     ))
                 })
-                .map(|list| list.into_iter().map(|sidecar| (*sidecar).clone()).collect())
+                .map(|list| list.into_iter().map(|arc| (*arc).clone()).collect())
         } else {
             Err(warp_utils::reject::custom_server_error(format!(
                 "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found."
