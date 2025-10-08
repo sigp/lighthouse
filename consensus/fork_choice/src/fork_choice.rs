@@ -725,7 +725,7 @@ where
             }));
         }
 
-        let attestation_threshold = spec.get_slot_component_duration(spec.attestation_due_bps);
+        let attestation_threshold = spec.get_unaggregated_attestation_due();
 
         // Add proposer score boost if the block is timely.
         let is_before_attesting_interval = block_delay < attestation_threshold;

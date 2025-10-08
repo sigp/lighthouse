@@ -873,7 +873,28 @@ impl ChainSpec {
         )
     }
 
-    pub fn get_slot_component_duration(&self, component_basis_points: u64) -> Duration {
+    /// Get the duration into a slot in which an unaggregated attestation is due
+    pub fn get_unaggregated_attestation_due(&self) -> Duration {
+        self.get_slot_component_duration(self.attestation_due_bps)
+    }
+
+    /// Get the duration into a slot in which an aggregated attestation is due
+    pub fn get_aggregate_attestation_due(&self) -> Duration {
+        self.get_slot_component_duration(self.aggregate_due_bps)
+    }
+
+    /// Get the duration into a slot in which a `SignedContributionAndProof` is due
+    pub fn get_contribution_message_due(&self) -> Duration {
+        self.get_slot_component_duration(self.contribution_due_bps)
+    }
+
+    /// Get the duration into a slot in which a sync committee message is due
+    pub fn get_sync_message_due(&self) -> Duration {
+        self.get_slot_component_duration(self.sync_message_due_bps)
+    }
+
+    /// Calculate the duration into a slot for a given slot component
+    fn get_slot_component_duration(&self, component_basis_points: u64) -> Duration {
         Duration::from_millis(
             component_basis_points
                 .safe_mul(self.slot_duration_ms)
