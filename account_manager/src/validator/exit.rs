@@ -252,7 +252,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 eprintln!(
                     "Exit epoch in approximately {} secs",
                     (exit_epoch - current_epoch)
-                        * spec.get_slot_duration().as_secs_f64()
+                        * spec.get_slot_duration().as_secs()
                         * E::slots_per_epoch()
                 );
                 break;
