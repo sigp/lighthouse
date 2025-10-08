@@ -251,7 +251,8 @@ async fn publish_voluntary_exit<E: EthSpec>(
                 eprintln!("Please keep your validator running till exit epoch");
                 eprintln!(
                     "Exit epoch in approximately {} secs",
-                    (exit_epoch - current_epoch) * spec.get_slot_duration().as_secs_f64()
+                    (exit_epoch - current_epoch)
+                        * spec.get_slot_duration().as_secs_f64()
                         * E::slots_per_epoch()
                 );
                 break;

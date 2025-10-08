@@ -468,8 +468,8 @@ fn find_next_fork_to_prepare<T: BeaconChainTypes>(
         // Find the first fork that is scheduled and close to happen
         if let Some(fork_epoch) = fork_epoch {
             let fork_slot = fork_epoch.start_slot(T::EthSpec::slots_per_epoch());
-            let preparation_slots =
-                FORK_READINESS_PREPARATION_SECONDS / beacon_chain.spec.get_slot_duration().as_secs();
+            let preparation_slots = FORK_READINESS_PREPARATION_SECONDS
+                / beacon_chain.spec.get_slot_duration().as_secs();
             let in_fork_preparation_period = current_slot + preparation_slots > fork_slot;
             if in_fork_preparation_period {
                 return Some(*fork);

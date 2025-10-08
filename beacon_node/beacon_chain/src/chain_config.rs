@@ -167,8 +167,6 @@ impl ChainConfig {
     pub fn re_org_cutoff(&self, slot_duration: Duration) -> Duration {
         self.re_org_cutoff_millis
             .map(Duration::from_millis)
-            .unwrap_or_else(|| {
-                slot_duration / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
-            })
+            .unwrap_or_else(|| slot_duration / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR)
     }
 }

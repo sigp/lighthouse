@@ -307,7 +307,7 @@ where
                     let deneb_time = genesis_time
                         + (deneb_fork_epoch.as_u64()
                             * E::slots_per_epoch()
-                            * spec.get_slot_duration().as_secs())
+                            * spec.get_slot_duration().as_secs());
 
                     // Shrink the blob availability window so users don't start
                     // a sync right before blobs start to disappear from the P2P

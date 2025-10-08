@@ -4609,7 +4609,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 1. It seems we have time to propagate and still receive the proposer boost.
         // 2. The current head block was seen late.
         // 3. The `get_proposer_head` conditions from fork choice pass.
-        let proposing_on_time = slot_delay < self.config.re_org_cutoff(self.spec.get_slot_duration().as_millis());
+        let proposing_on_time = slot_delay
+            < self
+                .config
+                .re_org_cutoff(self.spec.get_slot_duration().as_millis());
         if !proposing_on_time {
             debug!(reason = "not proposing on time", "Not attempting re-org");
             return None;
