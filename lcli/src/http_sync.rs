@@ -1,9 +1,8 @@
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
 use environment::Environment;
-use eth2::Error;
 use eth2::{
-    BeaconNodeHttpClient, SensitiveUrl, Timeouts,
+    BeaconNodeHttpClient, Error, SensitiveUrl, Timeouts,
     types::{BlockId, ChainSpec, ForkName, PublishBlockRequest, SignedBlockContents},
 };
 use eth2_network_config::Eth2NetworkConfig;
