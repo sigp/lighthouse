@@ -1772,6 +1772,8 @@ checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 [[package]]
 name = "context_deserialize"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8af5929fa85d5e9775a2674a7d8653386d87d9046ec01955bb88eda06db09fe"
 dependencies = [
  "context_deserialize_derive",
  "milhouse",
@@ -1782,11 +1784,10 @@ dependencies = [
 [[package]]
 name = "context_deserialize_derive"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1128f0946e42aebda0fb69b8b25d07d68e6c685141cae63ce2af030f593d26e2"
 dependencies = [
- "context_deserialize",
  "quote",
- "serde",
- "serde_json",
  "syn 1.0.109",
 ]
 
