@@ -1296,11 +1296,10 @@ dependencies = [
 
 [[package]]
 name = "c-kzg"
-version = "2.1.0"
+version = "2.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e7e3c397401eb76228c89561cf22f85f41c95aa799ee9d860de3ea1cbc728fc"
+checksum = "e00bf4b112b07b505472dbefd19e37e53307e2bfed5a79e0cc161d58ccd0e687"
 dependencies = [
- "arbitrary",
  "blst",
  "cc",
  "glob",
@@ -2163,7 +2162,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18e4fdb82bd54a12e42fb58a800dcae6b9e13982238ce2296dc3570b92148e1f"
 dependencies = [
  "data-encoding",
- "syn 2.0.100",
+ "syn 1.0.109",
 ]
 
 [[package]]
