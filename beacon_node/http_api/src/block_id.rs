@@ -9,8 +9,8 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use types::{
-    BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName, Hash256,
-    SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, UnversionedResponse,
+    BlobSidecar, BlobSidecarList, DataColumnSidecarList, EthSpec, FixedBytesExtended, ForkName,
+    Hash256, SignedBeaconBlock, SignedBlindedBeaconBlock, Slot, UnversionedResponse,
     beacon_response::ExecutionOptimisticFinalizedMetadata,
 };
 use warp::Rejection;
@@ -341,9 +341,20 @@ impl BlockId {
         let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
-                Self::get_blobs_from_data_columns(chain, root, query.indices, &block)?
+                let blob_sidecar =
+                    Self::get_blobs_from_data_columns(chain, root, query.indices, &block)?;
+                BlobSidecarList::new(
+                    blob_sidecar.into_iter().map(Arc::new).collect(),
+                    max_blobs_per_block,
+                )
+                .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
             } else {
-                Self::get_blobs(chain, root, query.indices, max_blobs_per_block)?
+                let blob_sidecar = Self::get_blobs(chain, root, query.indices)?;
+                BlobSidecarList::new(
+                    blob_sidecar.into_iter().map(Arc::new).collect(),
+                    max_blobs_per_block,
+                )
+                .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
             }
         } else {
             BlobSidecarList::new(vec![], max_blobs_per_block)
@@ -387,23 +398,19 @@ impl BlockId {
                 .collect::<Vec<_>>()
         });
 
-        let max_blobs_per_block = chain.spec.max_blobs_per_block(block.epoch()) as usize;
         let blob_sidecar_list = if !blob_kzg_commitments.is_empty() {
             if chain.spec.is_peer_das_enabled_for_epoch(block.epoch()) {
                 Self::get_blobs_from_data_columns(chain, root, blob_indices_opt, &block)?
             } else {
-                Self::get_blobs(chain, root, blob_indices_opt, max_blobs_per_block)?
+                Self::get_blobs(chain, root, blob_indices_opt)?
             }
         } else {
-            BlobSidecarList::new(vec![], max_blobs_per_block)
-                .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
+            vec![]
         };
 
         let blobs = blob_sidecar_list
             .into_iter()
-            .map(|sidecar| BlobWrapper::<T::EthSpec> {
-                blob: sidecar.blob.clone(),
-            })
+            .map(|sidecar| BlobWrapper::<T::EthSpec> { blob: sidecar.blob })
             .collect();
 
         Ok(UnversionedResponse {
@@ -419,8 +426,7 @@ impl BlockId {
         chain: &BeaconChain<T>,
         root: Hash256,
         indices: Option<Vec<u64>>,
-        max_blobs_per_block: usize,
-    ) -> Result<BlobSidecarList<T::EthSpec>, Rejection> {
+    ) -> Result<Vec<BlobSidecar<T::EthSpec>>, Rejection> {
         let blob_sidecar_list = chain
             .store
             .get_blobs(&root)
@@ -431,16 +437,15 @@ impl BlockId {
             })?;
 
         let blob_sidecar_list_filtered = match indices {
-            Some(vec) => {
-                let list: Vec<_> = vec
-                    .into_iter()
-                    .flat_map(|index| blob_sidecar_list.get(index as usize).cloned())
-                    .collect();
-
-                BlobSidecarList::new(list, max_blobs_per_block)
-                    .map_err(|e| warp_utils::reject::custom_server_error(format!("{:?}", e)))?
-            }
-            None => blob_sidecar_list,
+            Some(vec) => vec
+                .into_iter()
+                .flat_map(|index| blob_sidecar_list.get(index as usize).cloned())
+                .map(|sidecar| (*sidecar).clone())
+                .collect(),
+            None => blob_sidecar_list
+                .into_iter()
+                .map(|sidecar| (*sidecar).clone())
+                .collect(),
         };
 
         Ok(blob_sidecar_list_filtered)
@@ -451,7 +456,7 @@ impl BlockId {
         root: Hash256,
         blob_indices: Option<Vec<u64>>,
         block: &SignedBlindedBeaconBlock<<T as BeaconChainTypes>::EthSpec>,
-    ) -> Result<BlobSidecarList<T::EthSpec>, Rejection> {
+    ) -> Result<Vec<BlobSidecar<T::EthSpec>>, Rejection> {
         let column_indices = chain.store.get_data_column_keys(root).map_err(|e| {
             warp_utils::reject::custom_server_error(format!(
                 "Error fetching data columns keys: {e:?}"
@@ -474,13 +479,13 @@ impl BlockId {
                 )
                 .collect::<Result<Vec<_>, _>>()?;
 
-            reconstruct_blobs(&chain.kzg, &data_columns, blob_indices, block, &chain.spec).map_err(
-                |e| {
+            reconstruct_blobs(&chain.kzg, &data_columns, blob_indices, block, &chain.spec)
+                .map_err(|e| {
                     warp_utils::reject::custom_server_error(format!(
                         "Error reconstructing data columns: {e:?}"
                     ))
-                },
-            )
+                })
+                .map(|list| list.into_iter().map(|sidecar| (*sidecar).clone()).collect())
         } else {
             Err(warp_utils::reject::custom_server_error(format!(
                 "Insufficient data columns to reconstruct blobs: required {num_required_columns}, but only {num_found_column_keys} were found."
