@@ -9199,6 +9199,7 @@ dependencies = [
  "directory",
  "ethereum_ssz",
  "ethereum_ssz_derive",
+ "heck 0.4.1",
  "itertools 0.10.5",
  "leveldb",
  "logging",

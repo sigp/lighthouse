@@ -16,6 +16,7 @@ db-key = "0.0.5"
 directory = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
+heck = "0.4"
 itertools = { workspace = true }
 leveldb = { version = "0.8.6", optional = true, default-features = false }
 logging = { workspace = true }
