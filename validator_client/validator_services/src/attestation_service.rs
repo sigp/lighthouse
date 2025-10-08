@@ -180,14 +180,24 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
-    /// For each each required attestation, spawn a new task that downloads, signs and uploads the
-    /// attestation to the beacon node.
+    /// Spawn only one new task for attestation post-Electra
+    /// For each required aggregates, spawn a new task that downloads, signs and uploads the
+    /// aggregates to the beacon node.
     fn spawn_attestation_tasks(&self, slot_duration: Duration) -> Result<(), String> {
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
             .duration_to_next_slot()
             .ok_or("Unable to determine duration to next slot")?;
+
+        // Create and publish an `Attestation` for all validators only once
+        // as the committee_index is the same (index 0) post-Electra
+        let attestation_duties = self.duties_service.attesters(slot).into_iter().collect();
+
+        self.inner.executor.spawn_ignoring_error(
+            self.clone().publish_attestations(slot, attestation_duties),
+            "attestation publish",
+        );
 
         // If a validator needs to publish an aggregate attestation, they must do so at 2/3
         // through the slot. This delay triggers at this time
@@ -196,7 +206,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-        let duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
+        let aggregate_duties_by_committee_index: HashMap<CommitteeIndex, Vec<DutyAndProof>> = self
             .duties_service
             .attesters(slot)
             .into_iter()
@@ -208,23 +218,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             });
 
         // For each committee index for this slot:
-        //
-        // - Create and publish an `Attestation` for all required validators.
-        // - Create and publish `SignedAggregateAndProof` for all aggregating validators.
-        duties_by_committee_index
-            .into_iter()
-            .for_each(|(committee_index, validator_duties)| {
+        // Create and publish `SignedAggregateAndProof` for all aggregating validators.
+        aggregate_duties_by_committee_index.into_iter().for_each(
+            |(committee_index, validator_duties)| {
                 // Spawn a separate task for each attestation.
                 self.inner.executor.spawn_ignoring_error(
-                    self.clone().publish_attestations_and_aggregates(
+                    self.clone().publish_aggregates(
                         slot,
                         committee_index,
                         validator_duties,
                         aggregate_production_instant,
                     ),
-                    "attestation publish",
+                    "aggregate publish",
                 );
-            });
+            },
+        );
 
         // Schedule pruning of the slashing protection database once all unaggregated
         // attestations have (hopefully) been signed, i.e. at the same time as aggregate
@@ -234,84 +242,101 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
-    /// Performs the first step of the attesting process: downloading `Attestation` objects,
-    /// signing them and returning them to the validator.
-    ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/validator.md#attesting
-    ///
-    /// ## Detail
-    ///
-    /// The given `validator_duties` should already be filtered to only contain those that match
-    /// `slot` and `committee_index`. Critical errors will be logged if this is not the case.
-    async fn publish_attestations_and_aggregates(
+    /// Produce and publish unaggregated attestations for all validators.
+    /// This is only called once per slot post-Electra as the committee index will be 0.
+    async fn publish_attestations(
         self,
         slot: Slot,
-        committee_index: CommitteeIndex,
         validator_duties: Vec<DutyAndProof>,
-        aggregate_production_instant: Instant,
     ) -> Result<(), ()> {
         let attestations_timer = validator_metrics::start_timer_vec(
             &validator_metrics::ATTESTATION_SERVICE_TIMES,
             &[validator_metrics::ATTESTATIONS],
         );
 
-        // There's not need to produce `Attestation` or `SignedAggregateAndProof` if we do not have
-        // any validators for the given `slot` and `committee_index`.
+        // There's not need to produce `Attestation` if we do not have
+        // any validators for the given `slot`.
         if validator_duties.is_empty() {
             return Ok(());
         }
 
-        // Step 1.
-        //
-        // Download, sign and publish an `Attestation` for each validator.
-        let attestation_opt = self
-            .produce_and_publish_attestations(slot, committee_index, &validator_duties)
+        // Download, sign and publish an `Attestation` for all validators at once
+        self.produce_and_publish_attestations(slot, &validator_duties)
             .await
             .map_err(move |e| {
                 crit!(
                     error = format!("{:?}", e),
-                    committee_index,
                     slot = slot.as_u64(),
                     "Error during attestation routine"
                 )
             })?;
 
         drop(attestations_timer);
+        Ok(())
+    }
 
-        // Step 2.
-        //
-        // If an attestation was produced, make an aggregate.
-        if let Some(attestation_data) = attestation_opt {
-            // First, wait until the `aggregation_production_instant` (2/3rds
-            // of the way though the slot). As verified in the
-            // `delay_triggers_when_in_the_past` test, this code will still run
-            // even if the instant has already elapsed.
-            sleep_until(aggregate_production_instant).await;
+    /// Produce and publish aggregated attestations for validators
+    async fn publish_aggregates(
+        self,
+        slot: Slot,
+        committee_index: CommitteeIndex,
+        validator_duties: Vec<DutyAndProof>,
+        aggregate_production_instant: Instant,
+    ) -> Result<(), ()> {
+        // There's not need to produce `SignedAggregateAndProof` if we do not have
+        // any validators for the given `slot` and `committee_index`.
+        if validator_duties.is_empty() {
+            return Ok(());
+        }
 
-            // Start the metrics timer *after* we've done the delay.
-            let _aggregates_timer = validator_metrics::start_timer_vec(
-                &validator_metrics::ATTESTATION_SERVICE_TIMES,
-                &[validator_metrics::AGGREGATES],
-            );
+        // Wait until the `aggregation_production_instant` (2/3rds
+        // of the way though the slot). As verified in the
+        // `delay_triggers_when_in_the_past` test, this code will still run
+        // even if the instant has already elapsed.
+        sleep_until(aggregate_production_instant).await;
 
-            // Then download, sign and publish a `SignedAggregateAndProof` for each
-            // validator that is elected to aggregate for this `slot` and
-            // `committee_index`.
-            self.produce_and_publish_aggregates(
-                &attestation_data,
-                committee_index,
-                &validator_duties,
-            )
+        // Start the metrics timer *after* we've done the delay.
+        let _aggregates_timer = validator_metrics::start_timer_vec(
+            &validator_metrics::ATTESTATION_SERVICE_TIMES,
+            &[validator_metrics::AGGREGATES],
+        );
+
+        let attestation_data = self
+            .beacon_nodes
+            .first_success(|beacon_node| async move {
+                beacon_node
+                    .get_validator_attestation_data(slot, 0)
+                    .await
+                    .map_err(|e| {
+                        format!(
+                            "Failed to produce attestation data for aggregation: {:?}",
+                            e
+                        )
+                    })
+                    .map(|result| result.data)
+            })
+            .await
+            .map_err(|e| {
+                error!(
+                    error = %e,
+                    slot = slot.as_u64(),
+                    "Failed to produce attestation data for aggregation"
+                );
+            })?;
+
+        // Download, sign and publish a `SignedAggregateAndProof` for each
+        // validator that is elected to aggregate for this `slot` and
+        // `committee_index`.
+        self.produce_and_publish_aggregates(&attestation_data, committee_index, &validator_duties)
             .await
             .map_err(move |e| {
                 crit!(
                     error = format!("{:?}", e),
                     committee_index,
                     slot = slot.as_u64(),
-                    "Error during attestation routine"
+                    "Error during aggregate attestation routine"
                 )
             })?;
-        }
 
         Ok(())
     }
@@ -331,7 +356,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     async fn produce_and_publish_attestations(
         &self,
         slot: Slot,
-        committee_index: CommitteeIndex,
         validator_duties: &[DutyAndProof],
     ) -> Result<Option<AttestationData>, String> {
         if validator_duties.is_empty() {
@@ -352,7 +376,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     &[validator_metrics::ATTESTATIONS_HTTP_GET],
                 );
                 beacon_node
-                    .get_validator_attestation_data(slot, committee_index)
+                    // Post-Electra, the request to beacon node for AttestationData must have a committee_index of 0
+                    .get_validator_attestation_data(slot, 0)
                     .await
                     .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
                     .map(|result| result.data)
@@ -372,7 +397,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     validator = ?duty.pubkey,
                     duty_slot = %duty.slot,
                     attestation_slot = %attestation_data.slot,
-                    duty_index = duty.committee_index,
                     attestation_index = attestation_data.index,
                     "Inconsistent validator duties during signing"
                 );
@@ -418,7 +442,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         info = "a validator may have recently been removed from this VC",
                         pubkey = ?pubkey,
                         validator = ?duty.pubkey,
-                        committee_index = committee_index,
                         slot = slot.as_u64(),
                         "Missing pubkey for attestation"
                     );
@@ -428,7 +451,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     crit!(
                         error = ?e,
                         validator = ?duty.pubkey,
-                        committee_index,
                         slot = slot.as_u64(),
                         "Failed to sign attestation"
                     );
