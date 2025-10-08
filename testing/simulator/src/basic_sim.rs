@@ -175,8 +175,8 @@ pub fn run_basic_sim(matches: &ArgMatches) -> Result<(), String> {
     let latest_fork_version = spec.electra_fork_version;
     let latest_fork_start_epoch = ELECTRA_FORK_EPOCH;
 
-    spec.seconds_per_slot /= speed_up_factor;
-    spec.seconds_per_slot = max(1, spec.seconds_per_slot);
+    spec.slot_duration_ms /= speed_up_factor;
+    spec.slot_duration_ms = max(1_000, spec.seconds_per_slot);
     spec.genesis_delay = genesis_delay;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;

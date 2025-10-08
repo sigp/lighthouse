@@ -904,6 +904,11 @@ impl ChainSpec {
         )
     }
 
+    /// Get the duration of a slot
+    pub fn get_slot_duration(&self) -> Duration {
+        Duration::from_millis(self.slot_duration_ms)
+    }
+
     /// Returns the slot at which the proposer shuffling was decided.
     ///
     /// The block root at this slot can be used to key the proposer shuffling for the given epoch.

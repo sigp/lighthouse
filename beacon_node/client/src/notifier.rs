@@ -45,10 +45,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     executor: task_executor::TaskExecutor,
     beacon_chain: Arc<BeaconChain<T>>,
     network: Arc<NetworkGlobals<T::EthSpec>>,
-    slot_duration_ms: u64,
+    slot_duration: Duration,
 ) -> Result<(), String> {
-    let slot_duration = Duration::from_millis(slot_duration_ms);
-
     let speedo = Mutex::new(Speedo::default());
 
     // Keep track of sync state and reset the speedo on specific sync state changes.
@@ -471,7 +469,7 @@ fn find_next_fork_to_prepare<T: BeaconChainTypes>(
         if let Some(fork_epoch) = fork_epoch {
             let fork_slot = fork_epoch.start_slot(T::EthSpec::slots_per_epoch());
             let preparation_slots =
-                FORK_READINESS_PREPARATION_SECONDS / beacon_chain.spec.slot_duration_ms / MS_TO_SEC;
+                FORK_READINESS_PREPARATION_SECONDS / beacon_chain.spec.get_slot_duration().as_secs();
             let in_fork_preparation_period = current_slot + preparation_slots > fork_slot;
             if in_fork_preparation_period {
                 return Some(*fork);

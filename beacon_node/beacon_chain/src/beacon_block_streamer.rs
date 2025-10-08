@@ -751,7 +751,7 @@ mod tests {
             .move_to_terminal_block()
             .expect("should move to terminal block");
         let timestamp =
-            harness.get_timestamp_at_slot() + (harness.spec.slot_duration_ms / MS_TO_SEC);
+            harness.get_timestamp_at_slot() + harness.spec.get_slot_duration().as_secs();
         harness
             .execution_block_generator()
             .modify_last_block(|block| {

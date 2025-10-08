@@ -307,8 +307,7 @@ where
                     let deneb_time = genesis_time
                         + (deneb_fork_epoch.as_u64()
                             * E::slots_per_epoch()
-                            * spec.slot_duration_ms
-                            / MS_TO_SEC);
+                            * spec.get_slot_duration().as_secs())
 
                     // Shrink the blob availability window so users don't start
                     // a sync right before blobs start to disappear from the P2P
@@ -318,8 +317,7 @@ where
                         .saturating_sub(BLOB_AVAILABILITY_REDUCTION_EPOCHS);
                     let blob_availability_window = reduced_p2p_availability_epochs
                         * E::slots_per_epoch()
-                        * spec.slot_duration_ms
-                        / MS_TO_SEC;
+                        * spec.get_slot_duration().as_secs();
 
                     if now > deneb_time + blob_availability_window {
                         return Err(
@@ -578,17 +576,17 @@ where
             .network_globals
             .clone()
             .ok_or("slot_notifier requires a libp2p network")?;
-        let slot_duration_ms = self
+        let slot_duration = self
             .chain_spec
             .as_ref()
             .ok_or("slot_notifier requires a chain spec")?
-            .slot_duration_ms;
+            .get_slot_duration();
 
         spawn_notifier(
             context.executor,
             beacon_chain,
             network_globals,
-            slot_duration_ms,
+            slot_duration,
         )
         .map_err(|e| format!("Unable to start slot notifier: {}", e))?;
 
@@ -906,7 +904,7 @@ where
         let slot_clock = SystemTimeSlotClock::new(
             spec.genesis_slot,
             Duration::from_secs(genesis_time),
-            Duration::from_millis(spec.slot_duration_ms),
+            spec.get_slot_duration(),
         );
 
         self.slot_clock = Some(slot_clock);
