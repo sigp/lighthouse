@@ -15,7 +15,6 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use types::consts::bellatrix::MS_TO_SEC;
 use types::{ChainSpec, Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
@@ -74,7 +73,7 @@ fn default_mock_execution_config<E: EthSpec>(
     if let Some(capella_fork_epoch) = spec.capella_fork_epoch {
         mock_execution_config.shanghai_time = Some(
             genesis_time
-                + (spec.slot_duration_ms / MS_TO_SEC)
+                + (spec.get_slot_duration().as_secs())
                     * E::slots_per_epoch()
                     * capella_fork_epoch.as_u64(),
         )
@@ -82,7 +81,7 @@ fn default_mock_execution_config<E: EthSpec>(
     if let Some(deneb_fork_epoch) = spec.deneb_fork_epoch {
         mock_execution_config.cancun_time = Some(
             genesis_time
-                + (spec.slot_duration_ms / MS_TO_SEC)
+                + (spec.get_slot_duration().as_secs())
                     * E::slots_per_epoch()
                     * deneb_fork_epoch.as_u64(),
         )
@@ -90,7 +89,7 @@ fn default_mock_execution_config<E: EthSpec>(
     if let Some(electra_fork_epoch) = spec.electra_fork_epoch {
         mock_execution_config.prague_time = Some(
             genesis_time
-                + (spec.slot_duration_ms / MS_TO_SEC)
+                + (spec.get_slot_duration().as_secs())
                     * E::slots_per_epoch()
                     * electra_fork_epoch.as_u64(),
         )
@@ -98,7 +97,7 @@ fn default_mock_execution_config<E: EthSpec>(
     if let Some(fulu_fork_epoch) = spec.fulu_fork_epoch {
         mock_execution_config.osaka_time = Some(
             genesis_time
-                + (spec.slot_duration_ms / MS_TO_SEC)
+                + (spec.get_slot_duration().as_secs())
                     * E::slots_per_epoch()
                     * fulu_fork_epoch.as_u64(),
         )

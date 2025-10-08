@@ -232,7 +232,7 @@ impl<E: EthSpec> Network<E> {
             config.network_load,
             ctx.fork_context.clone(),
             gossipsub_config_params,
-            ctx.chain_spec.slot_duration_ms,
+            ctx.chain_spec.get_slot_duration(),
             E::slots_per_epoch(),
             config.idontwant_message_size_threshold,
         );

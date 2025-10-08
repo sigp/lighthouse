@@ -29,7 +29,6 @@ use types::builder_bid::{
     BuilderBid, BuilderBidBellatrix, BuilderBidCapella, BuilderBidDeneb, BuilderBidElectra,
     BuilderBidFulu, BuilderBidGloas, SignedBuilderBid,
 };
-use types::consts::bellatrix::MS_TO_SEC;
 use types::{
     Address, BeaconState, ChainSpec, Epoch, EthSpec, ExecPayload, ExecutionPayload,
     ExecutionPayloadHeaderRefMut, ExecutionRequests, ForkName, ForkVersionDecode,
@@ -892,7 +891,7 @@ impl<E: EthSpec> MockBuilder<E> {
                 .genesis_time
         };
         let timestamp =
-            (slots_since_genesis * self.spec.slot_duration_ms / MS_TO_SEC) + genesis_time;
+            (slots_since_genesis * self.spec.get_slot_duration().as_secs()) + genesis_time;
 
         let head_state: BeaconState<E> = self
             .beacon_client

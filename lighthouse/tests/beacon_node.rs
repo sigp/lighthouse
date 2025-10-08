@@ -2351,7 +2351,7 @@ fn enable_proposer_re_orgs_default() {
                 DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
             );
             assert_eq!(
-                config.chain.re_org_cutoff(12_000),
+                config.chain.re_org_cutoff(Duration::from_secs(12)),
                 Duration::from_secs(12) / DEFAULT_RE_ORG_CUTOFF_DENOMINATOR
             );
         });
@@ -2403,7 +2403,10 @@ fn proposer_re_org_cutoff() {
         .flag("proposer-reorg-cutoff", Some("500"))
         .run_with_zero_port()
         .with_config(|config| {
-            assert_eq!(config.chain.re_org_cutoff(12), Duration::from_millis(500))
+            assert_eq!(
+                config.chain.re_org_cutoff(Duration::from_secs(12)),
+                Duration::from_millis(500)
+            )
         });
 }
 

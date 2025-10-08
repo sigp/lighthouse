@@ -6,7 +6,6 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::atomic::{AtomicU64, Ordering},
 };
-use types::consts::bellatrix::MS_TO_SEC;
 use types::data_column_custody_group::{CustodyIndex, compute_columns_for_custody_group};
 use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
 

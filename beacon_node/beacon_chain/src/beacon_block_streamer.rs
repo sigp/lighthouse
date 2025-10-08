@@ -689,7 +689,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::LazyLock;
     use tokio::sync::mpsc;
-    use types::consts::bellatrix::MS_TO_SEC;
     use types::{
         ChainSpec, Epoch, EthSpec, FixedBytesExtended, Hash256, Keypair, MinimalEthSpec, Slot,
     };

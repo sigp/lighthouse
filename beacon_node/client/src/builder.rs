@@ -42,7 +42,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::database::interface::BeaconNodeBackend;
 use timer::spawn_timer;
 use tracing::{debug, info, warn};
-use types::consts::bellatrix::MS_TO_SEC;
 use types::data_column_custody_group::get_custody_groups_ordered;
 use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,

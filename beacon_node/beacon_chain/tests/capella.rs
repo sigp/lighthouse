@@ -2,7 +2,6 @@
 
 use beacon_chain::test_utils::BeaconChainHarness;
 use execution_layer::test_utils::Block;
-use types::consts::bellatrix::MS_TO_SEC;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;

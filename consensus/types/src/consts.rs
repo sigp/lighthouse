@@ -23,7 +23,6 @@ pub mod bellatrix {
     // TODO: deprecate
     pub const INTERVALS_PER_SLOT: u64 = 3;
     pub const BASIS_POINTS: u64 = 10_000;
-    pub const MS_TO_SEC: u64 = 1_000;
 }
 pub mod deneb {
     pub use crate::VERSIONED_HASH_VERSION_KZG;

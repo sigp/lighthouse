@@ -58,7 +58,6 @@ use store::{HotColdDB, ItemStore, MemoryStore, config::StoreConfig};
 use task_executor::TaskExecutor;
 use task_executor::{ShutdownReason, test_utils::TestRuntime};
 use tree_hash::TreeHash;
-use types::consts::bellatrix::MS_TO_SEC;
 use types::indexed_attestation::IndexedAttestationBase;
 use types::payload::BlockProductionVersion;
 use types::test_utils::TestRandom;

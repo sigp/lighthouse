@@ -32,8 +32,6 @@ use types::{
     ProposerPreparationData, SignedBeaconBlock, Slot, Uint256,
 };
 
-use types::consts::bellatrix::MS_TO_SEC;
-
 // When set to true, cache any states fetched from the db.
 pub const CACHE_STATE_IN_TESTS: bool = true;
 
@@ -472,8 +470,7 @@ impl<E: EthSpec> Tester<E> {
         let since_genesis = tick
             .checked_sub(genesis_time)
             .ok_or_else(|| Error::FailedToParseTest("tick is prior to genesis".into()))?;
-        let since_genesis_ms = since_genesis * MS_TO_SEC;
-        let slots_since_genesis = since_genesis_ms / self.spec.slot_duration_ms;
+        let slots_since_genesis = since_genesis / self.spec.get_slot_duration().as_secs();
         Ok(self.spec.genesis_slot + slots_since_genesis)
     }
 
