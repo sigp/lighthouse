@@ -439,12 +439,15 @@ impl BlockId {
         let blob_sidecar_list_filtered = match indices {
             Some(vec) => vec
                 .into_iter()
-                .flat_map(|index| blob_sidecar_list.get(index as usize).cloned())
-                .map(|sidecar| (*sidecar).clone())
+                .flat_map(|index| {
+                    blob_sidecar_list
+                        .get(index as usize)
+                        .map(|arc| (**arc).clone())
+                })
                 .collect(),
             None => blob_sidecar_list
                 .into_iter()
-                .map(|sidecar| (*sidecar).clone())
+                .map(|arc| (*arc).clone())
                 .collect(),
         };
 
