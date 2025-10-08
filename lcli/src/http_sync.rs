@@ -87,7 +87,7 @@ pub async fn run_async<T: EthSpec>(
         println!("posting block at slot {slot}");
         if let Err(e) = target.post_beacon_blocks(block).await {
             if let Error::ServerMessage(ref e) = e
-                && e.code == 202u16
+                && e.code == 202
             {
                 println!("duplicate block detected while posting block at slot {slot}");
                 continue;
