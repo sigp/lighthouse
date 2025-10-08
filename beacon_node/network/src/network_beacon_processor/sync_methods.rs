@@ -333,14 +333,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Blobs have already been imported"
                 );
             }
-            Err(e) => {
-                warn!(
-                    error = ?e,
-                    block_hash = %block_root,
-                    %slot,
-                    "Error when importing rpc blobs"
-                );
-            }
+            // Errors are handled and logged in `block_lookups`
+            Err(_) => {}
         }
 
         // Sync handles these results
@@ -414,13 +408,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Custody columns have already been imported"
                 );
             }
-            Err(e) => {
-                warn!(
-                    error = ?e,
-                    block_hash = %block_root,
-                    "Error when importing rpc custody columns"
-                );
-            }
+            // Errors are handled and logged in `block_lookups`
+            Err(_) => {}
         }
 
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
