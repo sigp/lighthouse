@@ -49,7 +49,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
         && let Some(data_availability_boundary) = data_availability_boundary
     {
         // If the earliest available data column slot is less than or equal to the DA boundary, we have satisfied
-        // our custody requirements for to the data retention window and should return the `oldest_block_slot`.
+        // our custody requirements for the data retention window and should return the `oldest_block_slot`.
         if earliest_available_data_column_slot
             <= data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch())
         {
