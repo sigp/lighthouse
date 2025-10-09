@@ -9005,6 +9005,7 @@ dependencies = [
  "logging",
  "lru",
  "metrics",
+ "once_cell",
  "parking_lot 0.12.3",
  "rand 0.9.0",
  "redb",

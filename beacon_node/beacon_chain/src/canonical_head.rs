@@ -802,6 +802,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Update the state cache so it doesn't mistakenly prune the new head.
         self.store
             .state_cache
+            .inner
             .lock()
             .update_head_block_root(new_cached_head.head_block_root());
 

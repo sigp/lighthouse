@@ -20,6 +20,7 @@ leveldb = { version = "0.8.6", optional = true, default-features = false }
 logging = { workspace = true }
 lru = { workspace = true }
 metrics = { workspace = true }
+once_cell = { workspace = true }
 parking_lot = { workspace = true }
 redb = { version = "2.1.3", optional = true }
 safe_arith = { workspace = true }

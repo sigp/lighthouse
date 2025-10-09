@@ -74,7 +74,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// Cache of beacon states.
     ///
     /// LOCK ORDERING: this lock must always be locked *after* the `split` if both are required.
-    pub state_cache: Mutex<StateCache<E>>,
+    pub state_cache: StateCache<E>,
     /// Cache of historic states and hierarchical diff buffers.
     ///
     /// This cache is never pruned. It is only populated in response to historical queries from the
@@ -232,11 +232,11 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             block_cache: NonZeroUsize::new(config.block_cache_size)
                 .map(BlockCache::new)
                 .map(Mutex::new),
-            state_cache: Mutex::new(StateCache::new(
+            state_cache: StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
                 config.hot_hdiff_buffer_cache_size,
-            )),
+            ),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
                 config.cold_hdiff_buffer_cache_size,
                 config.historic_state_cache_size,
@@ -286,11 +286,11 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             block_cache: NonZeroUsize::new(config.block_cache_size)
                 .map(BlockCache::new)
                 .map(Mutex::new),
-            state_cache: Mutex::new(StateCache::new(
+            state_cache: StateCache::new(
                 config.state_cache_size,
                 config.state_cache_headroom,
                 config.hot_hdiff_buffer_cache_size,
-            )),
+            ),
             historic_state_cache: Mutex::new(HistoricStateCache::new(
                 config.cold_hdiff_buffer_cache_size,
                 config.historic_state_cache_size,
@@ -477,7 +477,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let pre_finalized_slots_to_retain = self
             .hierarchy
             .closest_layer_points(state.slot(), start_slot);
-        self.state_cache.lock().update_finalized_state(
+        self.state_cache.inner.lock().update_finalized_state(
             state_root,
             block_root,
             state,
@@ -486,7 +486,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     pub fn state_cache_len(&self) -> usize {
-        self.state_cache.lock().len()
+        self.state_cache.inner.lock().len()
     }
 
     pub fn register_metrics(&self) {
@@ -503,7 +503,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 cache.blob_cache.len() as i64,
             );
         }
-        let state_cache = self.state_cache.lock();
+        let state_cache = self.state_cache.inner.lock();
         metrics::set_gauge(
             &metrics::STORE_BEACON_STATE_CACHE_SIZE,
             state_cache.len() as i64,
@@ -1109,6 +1109,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             state.build_all_caches(&self.spec)?;
             if let PutStateOutcome::New(deleted_states) =
                 self.state_cache
+                    .inner
                     .lock()
                     .put_state(*state_root, block_root, state)?
             {
@@ -1137,6 +1138,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         max_slot: Slot,
     ) -> Option<(Hash256, BeaconState<E>)> {
         self.state_cache
+            .inner
             .lock()
             .get_by_block_root(block_root, max_slot)
     }
@@ -1467,10 +1469,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in &hot_db_cache_ops {
             match op {
                 StoreOp::DeleteBlock(block_root) => {
-                    self.state_cache.lock().delete_block_states(block_root);
+                    self.state_cache
+                        .inner
+                        .lock()
+                        .delete_block_states(block_root);
                 }
                 StoreOp::DeleteState(state_root, _) => {
-                    self.state_cache.lock().delete_state(state_root)
+                    self.state_cache.inner.lock().delete_state(state_root)
                 }
                 _ => (),
             }
@@ -1538,7 +1543,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state: &BeaconState<E>,
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
-        match self.state_cache.lock().put_state(
+        match self.state_cache.inner.lock().put_state(
             *state_root,
             state.get_latest_block_root(*state_root),
             state,
@@ -1688,7 +1693,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: &Hash256,
         update_cache: bool,
     ) -> Result<Option<BeaconState<E>>, Error> {
-        if let Some(state) = self.state_cache.lock().get_by_state_root(*state_root) {
+        if let Some(state) = self.state_cache.inner.lock().get_by_state_root(*state_root) {
             return Ok(Some(state));
         }
 
@@ -1705,10 +1710,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             state.update_tree_hash_cache()?;
             state.build_all_caches(&self.spec)?;
             if update_cache {
-                if let PutStateOutcome::New(deleted_states) =
-                    self.state_cache
-                        .lock()
-                        .put_state(*state_root, block_root, &state)?
+                if let PutStateOutcome::New(deleted_states) = self
+                    .state_cache
+                    .inner
+                    .lock()
+                    .put_state(*state_root, block_root, &state)?
                 {
                     debug!(
                         ?state_root,
@@ -1733,11 +1739,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     fn load_hot_hdiff_buffer(&self, state_root: Hash256) -> Result<HDiffBuffer, Error> {
-        if let Some(buffer) = self
-            .state_cache
-            .lock()
-            .get_hdiff_buffer_by_state_root(state_root)
-        {
+        if let Some(buffer) = self.state_cache.get_hdiff_buffer_by_state_root(state_root) {
             return Ok(buffer);
         }
 
@@ -1794,6 +1796,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Add buffer to cache for future calls.
         self.state_cache
+            .inner
             .lock()
             .put_hdiff_buffer(state_root, slot, &buffer);
 
@@ -1853,6 +1856,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     // Immediately rebase the state from diffs on the finalized state so that we
                     // can utilise structural sharing and don't consume excess memory.
                     self.state_cache
+                        .inner
                         .lock()
                         .rebase_on_finalized(&mut state, &self.spec)?;
 
@@ -1878,6 +1882,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     // Immediately rebase the state from disk on the finalized state so that we can
                     // reuse parts of the tree for state root calculation in `replay_blocks`.
                     self.state_cache
+                        .inner
                         .lock()
                         .rebase_on_finalized(&mut base_state, &self.spec)?;
 
@@ -1925,6 +1930,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let latest_block_root = state.get_latest_block_root(state_root);
             if let PutStateOutcome::New(_) =
                 self.state_cache
+                    .inner
                     .lock()
                     .put_state(state_root, latest_block_root, state)?
             {

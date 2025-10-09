@@ -4,8 +4,11 @@ use crate::{
     metrics::{self, HOT_METRIC},
 };
 use lru::LruCache;
+use once_cell::sync::OnceCell;
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use tracing::instrument;
 use types::{BeaconState, ChainSpec, Epoch, EthSpec, Hash256, Slot};
 
@@ -37,6 +40,11 @@ pub struct SlotMap {
 
 #[derive(Debug)]
 pub struct StateCache<E: EthSpec> {
+    pub inner: Mutex<StateCacheInner<E>>,
+}
+
+#[derive(Debug)]
+pub struct StateCacheInner<E: EthSpec> {
     finalized_state: Option<FinalizedState<E>>,
     // Stores the tuple (state_root, state) as LruCache only returns the value on put and we need
     // the state_root
@@ -60,7 +68,8 @@ pub struct HotHDiffBufferCache {
     /// Cache of HDiffBuffers for states *prior* to the `finalized_state`.
     ///
     /// Maps state_root -> (slot, buffer).
-    hdiff_buffers: LruCache<Hash256, (Slot, HDiffBuffer)>,
+    // FIXME(sproul): put OnceCell around HDiffBuffer only?
+    hdiff_buffers: LruCache<Hash256, Arc<OnceCell<(Slot, HDiffBuffer)>>>,
 }
 
 #[derive(Debug)]
@@ -77,14 +86,67 @@ pub enum PutStateOutcome {
     New(Vec<Hash256>),
 }
 
-#[allow(clippy::len_without_is_empty)]
 impl<E: EthSpec> StateCache<E> {
     pub fn new(
         state_capacity: NonZeroUsize,
         headroom: NonZeroUsize,
         hdiff_capacity: NonZeroUsize,
     ) -> Self {
-        StateCache {
+        Self {
+            inner: Mutex::new(StateCacheInner::new(
+                state_capacity,
+                headroom,
+                hdiff_capacity,
+            )),
+        }
+    }
+
+    pub fn get_hdiff_buffer_by_state_root(&self, state_root: Hash256) -> Option<HDiffBuffer> {
+        let mut inner = self.inner.lock();
+
+        let buffer_cell = inner
+            .hdiff_buffers
+            .hdiff_buffers
+            .get_or_insert(state_root, || Arc::new(OnceCell::new()))
+            .clone();
+
+        if let Some((_, buffer)) = buffer_cell.get() {
+            drop(inner);
+
+            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
+            let timer =
+                metrics::start_timer_vec(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIME, HOT_METRIC);
+            let result = Some(buffer.clone());
+            drop(timer);
+            return result;
+        }
+
+        if let Some(state) = inner.get_by_state_root(state_root) {
+            // Drop the lock before performing the conversion from state to buffer, as this
+            // conversion is somewhat expensive.
+            drop(inner);
+
+            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
+            let slot = state.slot();
+            let buffer = HDiffBuffer::from_state(state);
+
+            // Put the buffer back into the cache without re-locking, by using the OnceCell.
+            buffer_cell.get_or_init(|| (slot, buffer.clone()));
+            return Some(buffer);
+        }
+        metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
+        None
+    }
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl<E: EthSpec> StateCacheInner<E> {
+    pub fn new(
+        state_capacity: NonZeroUsize,
+        headroom: NonZeroUsize,
+        hdiff_capacity: NonZeroUsize,
+    ) -> Self {
+        StateCacheInner {
             finalized_state: None,
             states: LruCache::new(state_capacity),
             block_map: BlockMap::default(),
@@ -143,9 +205,12 @@ impl<E: EthSpec> StateCache<E> {
         // at some slots in the case of long forks without finality.
         let new_hdiff_cache = HotHDiffBufferCache::new(self.hdiff_buffers.cap());
         let old_hdiff_cache = std::mem::replace(&mut self.hdiff_buffers, new_hdiff_cache);
-        for (state_root, (slot, buffer)) in old_hdiff_cache.hdiff_buffers {
-            if pre_finalized_slots_to_retain.contains(&slot) {
-                self.hdiff_buffers.put(state_root, slot, buffer);
+        for (state_root, cell) in old_hdiff_cache.hdiff_buffers {
+            if let Some((slot, buffer)) = cell.get()
+                && pre_finalized_slots_to_retain.contains(slot)
+            {
+                // FIXME(sproul): this clone is not really optimal
+                self.hdiff_buffers.put(state_root, *slot, buffer.clone());
             }
         }
 
@@ -277,26 +342,6 @@ impl<E: EthSpec> StateCache<E> {
             return;
         }
         self.hdiff_buffers.put(state_root, slot, buffer.clone());
-    }
-
-    pub fn get_hdiff_buffer_by_state_root(&mut self, state_root: Hash256) -> Option<HDiffBuffer> {
-        if let Some(buffer) = self.hdiff_buffers.get(&state_root) {
-            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
-            let timer =
-                metrics::start_timer_vec(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIME, HOT_METRIC);
-            let result = Some(buffer.clone());
-            drop(timer);
-            return result;
-        }
-        if let Some(buffer) = self
-            .get_by_state_root(state_root)
-            .map(HDiffBuffer::from_state)
-        {
-            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
-            return Some(buffer);
-        }
-        metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
-        None
     }
 
     #[instrument(skip_all, fields(?block_root, %slot), level = "debug")]
@@ -445,7 +490,8 @@ impl HotHDiffBufferCache {
 
     pub fn get(&mut self, state_root: &Hash256) -> Option<HDiffBuffer> {
         self.hdiff_buffers
-            .get(state_root)
+            .get(state_root)?
+            .get()
             .map(|(_, buffer)| buffer.clone())
     }
 
@@ -455,7 +501,8 @@ impl HotHDiffBufferCache {
     pub fn put(&mut self, state_root: Hash256, slot: Slot, buffer: HDiffBuffer) -> bool {
         // If the cache is not full, simply insert the value.
         if self.hdiff_buffers.len() != self.hdiff_buffers.cap().get() {
-            self.hdiff_buffers.put(state_root, (slot, buffer));
+            self.hdiff_buffers
+                .put(state_root, Arc::new(OnceCell::with_value((slot, buffer))));
             return true;
         }
 
@@ -466,28 +513,35 @@ impl HotHDiffBufferCache {
         //   cache. This is a simplified way of retaining the snapshot in the cache. We don't need
         //   to worry about inserting/retaining states older than the snapshot because these are
         //   pruned on finalization and never reinserted.
-        let Some(min_slot) = self.hdiff_buffers.iter().map(|(_, (slot, _))| *slot).min() else {
+        let Some(min_slot) = self
+            .hdiff_buffers
+            .iter()
+            .filter_map(|(_, cell)| cell.get().map(|(slot, _)| *slot))
+            .min()
+        else {
             // Unreachable: cache is full so should have >0 entries.
+            // FIXME(sproul): no longer true per se, could have slot-less entries
             return false;
         };
 
         if self.hdiff_buffers.cap().get() > 1 || slot < min_slot {
             // Remove LRU value. Cache is now at size `cap - 1`.
-            let Some((removed_state_root, (removed_slot, removed_buffer))) =
-                self.hdiff_buffers.pop_lru()
-            else {
+            let Some((removed_state_root, removed_cell)) = self.hdiff_buffers.pop_lru() else {
                 // Unreachable: cache is full so should have at least one entry to pop.
                 return false;
             };
 
             // Insert new value. Cache size is now at size `cap`.
-            self.hdiff_buffers.put(state_root, (slot, buffer));
+            self.hdiff_buffers
+                .put(state_root, Arc::new(OnceCell::with_value((slot, buffer))));
 
             // If the removed value had the min slot and we didn't intend to replace it (cap=1)
             // then we reinsert it.
-            if removed_slot == min_slot && slot >= min_slot {
-                self.hdiff_buffers
-                    .put(removed_state_root, (removed_slot, removed_buffer));
+            if let Some((removed_slot, _)) = removed_cell.get()
+                && *removed_slot == min_slot
+                && slot >= min_slot
+            {
+                self.hdiff_buffers.put(removed_state_root, removed_cell);
             }
             true
         } else {
@@ -508,7 +562,7 @@ impl HotHDiffBufferCache {
     pub fn mem_usage(&self) -> usize {
         self.hdiff_buffers
             .iter()
-            .map(|(_, (_, buffer))| buffer.size())
+            .filter_map(|(_, cell)| cell.get().map(|(_, buffer)| buffer.size()))
             .sum()
     }
 }
