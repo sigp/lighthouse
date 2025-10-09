@@ -147,11 +147,19 @@ where
                 let target_head_slot =
                     remote_finalized_slot + (2 * T::EthSpec::slots_per_epoch()) + 1;
 
+                // If the node started with checkpoint sync, local_info.finalized_epoch might be
+                // older than the current store split.
+                let start_epoch = self
+                    .beacon_chain
+                    .store
+                    .get_split_slot()
+                    .epoch(T::EthSpec::slots_per_epoch());
+
                 // Note: We keep current head chains. These can continue syncing whilst we complete
                 // this new finalized chain.
 
                 self.chains.add_peer_or_create_chain(
-                    local_info.finalized_epoch,
+                    start_epoch,
                     remote_info.finalized_root,
                     target_head_slot,
                     peer_id,
