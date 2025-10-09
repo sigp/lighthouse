@@ -37,21 +37,20 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
         .flatten()
         .and_then(|info| info.earliest_data_column_slot);
 
-    let data_availability_boundary = beacon_chain.data_availability_boundary();
+    let column_data_availability_boundary = beacon_chain.column_data_availability_boundary();
 
     let oldest_block_slot = beacon_chain.store.get_anchor_info().oldest_block_slot;
 
     // If data_column_custody_info.earliest_data_column_slot is `None`,
     // no recent cgc changes have occurred and no cgc backfill is in progress.
-    // `data_availability_boundary` must be `Some` if `earliest_available_data_column_slot` is also `Some`.
     let earliest_available_slot = if let Some(earliest_available_data_column_slot) =
         earliest_available_data_column_slot
-        && let Some(data_availability_boundary) = data_availability_boundary
+        && let Some(column_data_availability_boundary) = column_data_availability_boundary
     {
         // If the earliest available data column slot is less than or equal to the DA boundary, we have satisfied
-        // our custody requirements for the data retention window and should return the `oldest_block_slot`.
+        // our column custody requirements for the data retention window and should return the `oldest_block_slot`.
         if earliest_available_data_column_slot
-            <= data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch())
+            <= column_data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch())
         {
             oldest_block_slot
         } else {
