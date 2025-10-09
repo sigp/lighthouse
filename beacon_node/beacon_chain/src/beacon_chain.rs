@@ -7117,7 +7117,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.data_availability_checker.data_availability_boundary()
     }
 
-    /// The earliest epoch at which we require data column custody. 
+    /// The earliest epoch at which we require data column custody.
     /// It will just be the data availability boundary unless we are near the Fulu fork epoch.
     pub fn column_data_availability_boundary(&self) -> Option<Epoch> {
         match self.data_availability_boundary() {

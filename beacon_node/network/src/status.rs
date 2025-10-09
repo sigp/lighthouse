@@ -43,22 +43,24 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
 
     // If data_column_custody_info.earliest_data_column_slot is `None`,
     // no recent cgc changes have occurred and no cgc backfill is in progress.
-    let earliest_available_slot = if let Some(earliest_available_data_column_slot) =
-        earliest_available_data_column_slot
-        && let Some(column_data_availability_boundary) = column_data_availability_boundary
-    {
-        // If the earliest available data column slot is less than or equal to the DA boundary, we have satisfied
-        // our column custody requirements for the data retention window and should return the `oldest_block_slot`.
-        if earliest_available_data_column_slot
-            <= column_data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch())
-        {
-            oldest_block_slot
-        } else {
-            earliest_available_data_column_slot
+    let earliest_available_slot = match (
+        earliest_available_data_column_slot,
+        column_data_availability_boundary,
+    ) {
+        (Some(earliest_available_data_column_slot), Some(column_data_availability_boundary)) => {
+            // If the earliest available data column slot is less than or equal to the DA boundary, we have satisfied
+            // our column custody requirements for the data retention window and should return the `oldest_block_slot`.
+            if earliest_available_data_column_slot
+                <= column_data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch())
+            {
+                oldest_block_slot
+            } else {
+                earliest_available_data_column_slot
+            }
         }
-    } else {
-        oldest_block_slot
+        _ => oldest_block_slot,
     };
+
     StatusMessage::V2(StatusMessageV2 {
         fork_digest,
         finalized_root: finalized_checkpoint.root,
