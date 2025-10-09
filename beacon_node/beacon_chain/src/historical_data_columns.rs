@@ -58,8 +58,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut total_imported = 0;
         let mut ops = vec![];
 
-        tracing::info!(?epoch, "Attempting to imprt");
-
         let unique_column_indices = historical_data_column_sidecar_list
             .iter()
             .map(|item| item.index)
@@ -143,7 +141,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.safely_backfill_data_column_custody_info(epoch)
             .map_err(|e| HistoricalDataColumnError::BeaconChainError(Box::new(e)))?;
 
-        tracing::info!(?epoch, total_imported, "Imported historical data columns");
+        debug!(?epoch, total_imported, "Imported historical data columns");
 
         let current_span = Span::current();
         current_span.record("columns_imported_count", total_imported);

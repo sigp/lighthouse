@@ -14,8 +14,9 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::batch::ByRangeRequestType;
 use crate::sync::block_lookups::SingleLookupId;
-use crate::sync::block_sidecar_coupling::{CouplingError, RangeDataColumnBatchRequest};
+use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::requests::BlobsByRootSingleBlockRequest;
+use crate::sync::range_data_column_batch_request::RangeDataColumnBatchRequest;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockProcessStatus, EngineState};
 use custody::CustodyRequestResult;
@@ -1775,7 +1776,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     return Some(Err(e));
                 }
 
-                if let Some(data_column_result) = entry.get_mut().responses(&self.chain.spec) {
+                if let Some(data_column_result) = entry.get_mut().responses() {
                     if data_column_result.is_ok() {
                         // remove the entry only if it coupled successfully with
                         // no errors

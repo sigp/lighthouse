@@ -380,10 +380,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             // This batch is being skipped, insert it into the skipped batches mapping.
             self.skipped_batches.insert(current_batch);
 
-            info!(?current_batch, ?self.processing_target, ?self.current_start, "Skipped batch");
-
             if i == column_da_boundary {
-                info!("Are we at da boundary?");
                 return None;
             }
         }
@@ -705,6 +702,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     self.validated_batches = 0;
                     self.skipped_batches.clear();
                     self.set_state(CustodyBackFillState::Completed);
+                    self.beacon_chain.update_data_column_custody_info(None);
                     Ok(ProcessResult::SyncCompleted)
                 } else {
                     // custody sync is not completed
@@ -970,7 +968,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .synced_peers_for_epoch(batch_id, None)
                 .cloned()
                 .collect::<HashSet<_>>();
-            
+
             // If no blocks exist in this epoch, we can skip the entire batch
             // This eliminates the need for network requests and AwaitingValidation state
             if !has_any_blocks {
@@ -991,7 +989,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             let failed_peers = batch.failed_peers();
 
             debug!(
-                epoch = %batch_id, 
+                epoch = %batch_id,
                 block_count = block_roots.len(),
                 block_roots = ?block_roots,
                 "Requesting data columns for epoch with known blocks"
@@ -1142,18 +1140,21 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     /// Fetches block roots and determines which blocks exist for a given epoch.
     /// Returns (block_roots, has_any_blocks) to inform the by_range request
     /// about expected blocks and avoid AwaitingValidation state.
-    fn fetch_epoch_block_info(&self, epoch: Epoch) -> Result<(Vec<types::Hash256>, bool), CustodyBackfillError> {
+    fn fetch_epoch_block_info(
+        &self,
+        epoch: Epoch,
+    ) -> Result<(Vec<types::Hash256>, bool), CustodyBackfillError> {
         // For now, use a simpler heuristic: check if the epoch is within the DA window
         // In a more complete implementation, we would query the store for actual block roots
         let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary() else {
             // If no DA boundary is set, assume blocks exist
             return Ok((Vec::new(), true));
         };
-        
+
         // If the epoch is after the DA boundary, assume it has blocks
         // If it's before or at the boundary, we may need to check the store
         let has_blocks = epoch >= column_da_boundary;
-        
+
         // For now, return empty block roots but indicate whether blocks likely exist
         // TODO: Implement actual block root fetching from store when needed
         Ok((Vec::new(), has_blocks))
