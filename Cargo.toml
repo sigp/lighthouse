@@ -117,7 +117,7 @@ byteorder = "1"
 bytes = "1"
 # Turn off c-kzg's default features which include `blst/portable`. We can turn on blst's portable
 # feature ourselves when desired.
-c-kzg = { version = "2.1.0", default-features = false }
+c-kzg = { version = "2.1", default-features = false }
 cargo_metadata = "0.19"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 clap_utils = { path = "common/clap_utils" }
@@ -224,7 +224,7 @@ reqwest = { version = "0.11", default-features = false, features = [
 ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
-rust_eth_kzg = "0.9.0"
+rust_eth_kzg = "0.9"
 safe_arith = { path = "consensus/safe_arith" }
 sensitive_url = { path = "common/sensitive_url" }
 serde = { version = "1", features = ["derive"] }
