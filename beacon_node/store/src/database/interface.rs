@@ -118,7 +118,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::do_atomically(txn, batch),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::do_atomically(txn, batch),
-            _ => todo!("Postgres backend not implemented yet"),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::do_atomically(txn, batch),
         }
     }
 

@@ -2,14 +2,15 @@ use heck::ToSnakeCase;
 use once_cell::sync::Lazy;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::Runtime;
+use std::future::Future;
 use std::path::Path;
 use std::marker::PhantomData;
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use types::EthSpec;
 
-use crate::{DBColumn, Error};
+use crate::{DBColumn, Error, KeyValueStoreOp};
 
 static GLOBAL_RT: Lazy<Runtime> = Lazy::new(|| {
     Runtime::new().expect("Failed to create global tokio runtime for PostgresDB")
@@ -26,7 +27,7 @@ impl<E: EthSpec> PostgresDB<E> {
 
         let pool = block_on_in_runtime(async {
             PgPoolOptions::new()
-                .max_connections(90)
+                .max_connections(50)
                 .acquire_timeout(Duration::from_secs(30))
                 .connect(url)
                 .await
@@ -105,20 +106,56 @@ impl<E: EthSpec> PostgresDB<E> {
         .map(|_| ())
         .map_err(|e| Error::DBError { message: format!("{:?}", e) })
     }
+
+    pub fn do_atomically(&self, ops: Vec<KeyValueStoreOp>) -> Result<(), Error> {
+        block_on_in_runtime(async {
+            let mut tx = self.pool
+                .begin()
+                .await
+                .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+
+            for op in ops {
+                match op {
+                    KeyValueStoreOp::PutKeyValue(col, key, value) => {
+                        let table = table_name_for_column(col);
+                        let q = format!(
+                            "INSERT INTO {} (key, value) VALUES ($1, $2)
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                            table
+                        );
+                        sqlx::query(&q)
+                            .bind(&key)
+                            .bind(&value)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+                    }
+                    KeyValueStoreOp::DeleteKey(col, key) => {
+                        let table = table_name_for_column(col);
+                        let q = format!("DELETE FROM {} WHERE key = $1", table);
+                        sqlx::query(&q)
+                            .bind(&key)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+                    }
+                }
+            }
+
+            tx.commit()
+                .await
+                .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+
+            Ok::<(), Error>(())
+        })?
+    } 
 }
 
 fn table_name_for_column(column: DBColumn) -> String {
     format!("{:?}", column).to_snake_case()
 }
 
-fn block_on_in_runtime<F: std::future::Future>(fut: F) -> Result<F::Output, Error> {
-    // match Handle::try_current() {
-    //     Ok(handle) => Ok(handle.block_on(fut)),
-    //     Err(_) => {
-    //         let rt = Runtime::new().map_err(|e| Error::DBError { message: e.to_string() })?;
-    //         Ok(rt.block_on(fut))
-    //     }
-    // }
+fn block_on_in_runtime<F: Future>(fut: F) -> Result<F::Output, Error> {
     Ok(GLOBAL_RT.block_on(fut))
 }
 
