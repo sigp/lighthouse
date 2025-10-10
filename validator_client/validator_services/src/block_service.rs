@@ -499,8 +499,21 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             }
         };
 
-        let unsigned_block =
-            Self::process_block_response(block_response, slot, proposer_index).await?;
+        let (block_proposer, unsigned_block) = match block_response {
+            eth2::types::ProduceBlockV3Response::Full(block) => {
+                (block.block().proposer_index(), UnsignedBlock::Full(block))
+            }
+            eth2::types::ProduceBlockV3Response::Blinded(block) => {
+                (block.proposer_index(), UnsignedBlock::Blinded(block))
+            }
+        };
+
+        info!(slot = slot.as_u64(), "Received unsigned block");
+        if proposer_index != Some(block_proposer) {
+            return Err(BlockError::Recoverable(
+                "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
+            ));
+        }
 
         self_ref
             .sign_and_publish_block(
@@ -548,30 +561,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> BlockService<S, T> {
             }
         }
         Ok::<_, BlockError>(())
-    }
-
-    async fn process_block_response(
-        block_response: eth2::types::ProduceBlockV3Response<S::E>,
-        slot: Slot,
-        proposer_index: Option<u64>,
-    ) -> Result<UnsignedBlock<S::E>, BlockError> {
-        let (block_proposer, unsigned_block) = match block_response {
-            eth2::types::ProduceBlockV3Response::Full(block) => {
-                (block.block().proposer_index(), UnsignedBlock::Full(block))
-            }
-            eth2::types::ProduceBlockV3Response::Blinded(block) => {
-                (block.proposer_index(), UnsignedBlock::Blinded(block))
-            }
-        };
-
-        info!(slot = slot.as_u64(), "Received unsigned block");
-        if proposer_index != Some(block_proposer) {
-            return Err(BlockError::Recoverable(
-                "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
-            ));
-        }
-
-        Ok::<_, BlockError>(unsigned_block)
     }
 }
 
