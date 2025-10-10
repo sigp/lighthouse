@@ -2,7 +2,7 @@ use heck::ToSnakeCase;
 use once_cell::sync::Lazy;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
 use std::future::Future;
 use std::path::Path;
 use std::marker::PhantomData;
@@ -156,6 +156,13 @@ fn table_name_for_column(column: DBColumn) -> String {
 }
 
 fn block_on_in_runtime<F: Future>(fut: F) -> Result<F::Output, Error> {
-    Ok(GLOBAL_RT.block_on(fut))
+    match Handle::try_current() {
+        Ok(handle) => {
+            Ok(tokio::task::block_in_place(|| {
+                handle.block_on(fut)
+            }))
+        }
+        Err(_) => Ok(GLOBAL_RT.block_on(fut)),
+    }
 }
 
