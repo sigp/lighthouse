@@ -114,14 +114,10 @@ impl<E: EthSpec> StateCache<E> {
             drop(inner);
 
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
-            let timer =
+            let _timer =
                 metrics::start_timer_vec(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIME, HOT_METRIC);
-            let result = Some(buffer.clone());
-            drop(timer);
-            return result;
-        }
-
-        if let Some(state) = inner.get_by_state_root(state_root) {
+            Some(buffer.clone())
+        } else if let Some(state) = inner.get_by_state_root(state_root) {
             // Drop the lock before performing the conversion from state to buffer, as this
             // conversion is somewhat expensive.
             drop(inner);
@@ -132,10 +128,11 @@ impl<E: EthSpec> StateCache<E> {
 
             // Put the buffer back into the cache without re-locking, by using the OnceCell.
             buffer_cell.get_or_init(|| (slot, buffer.clone()));
-            return Some(buffer);
+            Some(buffer)
+        } else {
+            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
+            None
         }
-        metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
-        None
     }
 }
 
