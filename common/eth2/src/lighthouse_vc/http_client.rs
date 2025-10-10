@@ -1,5 +1,5 @@
 use super::types::*;
-use crate::{Error, ok_or_error};
+use crate::{Error, success_or_error};
 use reqwest::{
     IntoUrl,
     header::{HeaderMap, HeaderValue},
@@ -145,7 +145,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Perform a HTTP DELETE request, returning the `Response` for further processing.
@@ -157,7 +157,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
@@ -218,7 +218,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     async fn post<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
@@ -250,7 +250,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await?;
+        success_or_error(response).await?;
         Ok(())
     }
 
@@ -268,7 +268,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Perform a HTTP DELETE request.
