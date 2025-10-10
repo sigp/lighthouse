@@ -833,7 +833,7 @@ mod test {
                                 !src_vc
                                     .secrets_dir
                                     .path()
-                                    .join(format!("{:?}", initial_keystore.validating_pubkey))
+                                    .join(initial_keystore.validating_pubkey.to_string()) // Use stable Display for filename, not Debug
                                     .exists(),
                                 "the source password file should be deleted"
                             )
@@ -865,7 +865,7 @@ mod test {
                                 !src_vc
                                     .secrets_dir
                                     .path()
-                                    .join(format!("{:?}", moved_keystore.validating_pubkey))
+                                    .join(moved_keystore.validating_pubkey.to_string()) // Use stable Display for filename, not Debug
                                     .exists(),
                                 "the source password file should be deleted"
                             )
@@ -903,7 +903,7 @@ mod test {
                                     src_vc
                                         .secrets_dir
                                         .path()
-                                        .join(format!("{:?}", pubkey))
+                                        .join(pubkey.to_string()) // Use stable Display for filename, not Debug
                                         .exists(),
                                     "the source password file was used by another validator and should not be deleted"
                                 )
@@ -912,7 +912,7 @@ mod test {
                                     !src_vc
                                         .secrets_dir
                                         .path()
-                                        .join(format!("{:?}", pubkey))
+                                        .join(pubkey.to_string()) // Use stable Display for filename, not Debug
                                         .exists(),
                                     "the source password file should be deleted"
                                 )
@@ -935,7 +935,7 @@ mod test {
                             assert!(
                                 vc.secrets_dir
                                     .path()
-                                    .join(format!("{:?}", keystore.validating_pubkey))
+                                    .join(keystore.validating_pubkey.to_string()) // Use stable Display for filename, not Debug
                                     .exists(),
                                 "the password file should exist"
                             )
