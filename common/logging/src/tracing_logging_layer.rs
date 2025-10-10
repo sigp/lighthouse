@@ -453,7 +453,7 @@ mod tests {
             "span_field_name".to_string(),
             "span_field_value".to_string(),
         )];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name: span_field_value\n";
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name: span_field_value\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -470,7 +470,7 @@ mod tests {
                 "span_field_value2".to_string(),
             ),
         ];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name2: span_field_value2, span_field_name1: span_field_value1\n";
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name1: span_field_value1, span_field_name2: span_field_value2\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
@@ -487,7 +487,35 @@ mod tests {
                 "span_field_value1-2".to_string(),
             ),
         ];
-        let expected = "Jan 1 08:00:00.000 INFO  test message                                 span_field_name1-2: span_field_value1-2, span_field_name1-1: span_field_value1-1\n";
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  span_field_name1-1: span_field_value1-1, span_field_name1-2: span_field_value1-2\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_no_duplicate_log_span_fields() {
+        let log_fields = vec![
+            ("field_name_1".to_string(), "field_value_1".to_string()),
+            ("field_name_2".to_string(), "field_value_2".to_string()),
+        ];
+        let span_fields = vec![
+            ("field_name_1".to_string(), "field_value_1".to_string()),
+            ("field_name_3".to_string(), "field_value_3".to_string()),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name_1: field_value_1, field_name_2: field_value_2, field_name_3: field_value_3\n";
+        test_build_log_text(log_fields, span_fields, expected);
+    }
+
+    #[test]
+    fn test_build_log_text_duplicate_fields_prefer_log_fields() {
+        let log_fields = vec![
+            ("field_name_1".to_string(), "field_value_1_log".to_string()),
+            ("field_name_2".to_string(), "field_value_2".to_string()),
+        ];
+        let span_fields = vec![
+            ("field_name_1".to_string(), "field_value_1_span".to_string()),
+            ("field_name_3".to_string(), "field_value_3".to_string()),
+        ];
+        let expected = "Jan 1 08:00:00.000 INFO  test message                                  field_name_1: field_value_1_log, field_name_2: field_value_2, field_name_3: field_value_3\n";
         test_build_log_text(log_fields, span_fields, expected);
     }
 
