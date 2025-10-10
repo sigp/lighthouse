@@ -516,6 +516,9 @@ where
         let finalized_hash = self
             .get_block(&finalized_root)
             .and_then(|b| b.execution_status.block_hash());
+        // What happens if justified_hash, finalized_hash are None?
+        // Does the EL need it for some important reason? Can it wait for the next finality event?
+        // What if we send the anchor block instead?
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,
@@ -724,6 +727,7 @@ where
         // `self.proto_array` to do this search. See:
         //
         // https://github.com/ethereum/eth2.0-specs/pull/1884
+        // TODO: Manual implementation of descendant, fix
         let block_ancestor = self.get_ancestor(block.parent_root(), finalized_slot)?;
         let finalized_root = self.fc_store.finalized_checkpoint().root;
         if block_ancestor != Some(finalized_root) {
