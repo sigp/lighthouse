@@ -3957,7 +3957,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // See https://github.com/sigp/lighthouse/issues/2028
         let (_, signed_block, block_data) = signed_block.deconstruct();
 
-        match self.get_blobs_or_columns_store_op(block_root, block_data) {
+        match self.get_blobs_or_columns_store_op(block_root, signed_block.slot(), block_data) {
             Ok(Some(blobs_or_columns_store_op)) => {
                 ops.push(blobs_or_columns_store_op);
             }
@@ -7163,6 +7163,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub(crate) fn get_blobs_or_columns_store_op(
         &self,
         block_root: Hash256,
+        block_slot: Slot,
         block_data: AvailableBlockData<T::EthSpec>,
     ) -> Result<Option<StoreOp<'_, T::EthSpec>>, String> {
         match block_data {
@@ -7175,7 +7176,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
                 Ok(Some(StoreOp::PutBlobs(block_root, blobs)))
             }
-            AvailableBlockData::DataColumns(data_columns) => {
+            AvailableBlockData::DataColumns(mut data_columns) => {
+                let columns_to_custody = self.custody_columns_for_epoch(Some(
+                    block_slot.epoch(T::EthSpec::slots_per_epoch()),
+                ));
+                // Supernodes need to persist all sampled custody columns
+                if columns_to_custody.len() != self.spec.number_of_custody_groups as usize {
+                    data_columns
+                        .retain(|data_column| columns_to_custody.contains(&data_column.index));
+                }
                 debug!(
                     %block_root,
                     count = data_columns.len(),
