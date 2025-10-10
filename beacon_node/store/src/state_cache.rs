@@ -104,11 +104,7 @@ impl<E: EthSpec> StateCache<E> {
     pub fn get_hdiff_buffer_by_state_root(&self, state_root: Hash256) -> Option<HDiffBuffer> {
         let mut inner = self.inner.lock();
 
-        let buffer_cell = inner
-            .hdiff_buffers
-            .hdiff_buffers
-            .get_or_insert(state_root, || Arc::new(OnceCell::new()))
-            .clone();
+        let buffer_cell = inner.hdiff_buffers.hdiff_buffers.get(&state_root).clone();
 
         if let Some((_, buffer)) = buffer_cell.get() {
             drop(inner);
@@ -118,16 +114,25 @@ impl<E: EthSpec> StateCache<E> {
                 metrics::start_timer_vec(&metrics::BEACON_HDIFF_BUFFER_CLONE_TIME, HOT_METRIC);
             Some(buffer.clone())
         } else if let Some(state) = inner.get_by_state_root(state_root) {
+            // Insert an empty cell to the cache. Use get_or_insert to get a reference of the
+            // inserted value.
+            let buffer_cell = inner
+                .hdiff_buffers
+                .hdiff_buffers
+                .get_or_insert(&state_root, || Arc::new(OnceCell::new()))
+                .clone();
             // Drop the lock before performing the conversion from state to buffer, as this
             // conversion is somewhat expensive.
             drop(inner);
 
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
-            let slot = state.slot();
-            let buffer = HDiffBuffer::from_state(state);
 
             // Put the buffer back into the cache without re-locking, by using the OnceCell.
-            buffer_cell.get_or_init(|| (slot, buffer.clone()));
+            let (_, buffer) = buffer_cell.get_or_init(|| {
+                let slot = state.slot();
+                let buffer = HDiffBuffer::from_state(state);
+                (slot, buffer.clone())
+            });
             Some(buffer)
         } else {
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
