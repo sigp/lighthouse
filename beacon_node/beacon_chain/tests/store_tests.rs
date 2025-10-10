@@ -13,7 +13,8 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
-    data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
+    data_availability_checker::{AvailableBlockData, MaybeAvailableBlock},
+    historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
 use logging::create_test_tracing_subscriber;
@@ -4135,6 +4136,195 @@ async fn replay_from_split_state() {
         .unwrap()
         .expect("split state should be present");
     assert_eq!(state.slot(), split.slot);
+}
+
+/// Test that regular nodes filter and store only custody columns when processing blocks with data columns.
+#[tokio::test]
+async fn test_custody_column_filtering_regular_node() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Skip test if PeerDAS is not scheduled
+    if !harness.spec.is_peer_das_scheduled() {
+        return;
+    }
+
+    // Generate a block with data columns using public test utils
+    let fork_name = harness.spec.fork_name_at_epoch(Epoch::new(0));
+    let mut rng = rand::rng();
+    let (signed_block, all_data_columns) =
+        beacon_chain::test_utils::generate_rand_block_and_data_columns::<E>(
+            fork_name,
+            beacon_chain::test_utils::NumBlobs::Number(3), // Generate 3 blobs to produce data columns
+            &mut rng,
+            &harness.spec,
+        );
+
+    // Skip test if no data columns are generated
+    if all_data_columns.is_empty() {
+        return;
+    }
+
+    let block_root = signed_block.canonical_root();
+    let slot = signed_block.slot();
+
+    // Get custody columns for this epoch - regular nodes only store a subset
+    let custody_columns = harness
+        .chain
+        .custody_columns_for_epoch(Some(slot.epoch(E::slots_per_epoch())));
+
+    // Verify that custody columns is a proper subset (not all columns for regular node)
+    assert!(
+        custody_columns.len() < harness.spec.number_of_custody_groups as usize,
+        "Regular node should not custody all columns"
+    );
+
+    // Create AvailableBlock with all data columns
+    let available_block_data = AvailableBlockData::DataColumns(all_data_columns.clone());
+    let available_block = AvailableBlock::__new_for_testing(
+        block_root,
+        Arc::new(signed_block),
+        available_block_data,
+        harness.spec.clone(),
+    );
+
+    // Import the block through the historical block batch import which calls the custody filtering internally
+    harness
+        .chain
+        .import_historical_block_batch(vec![available_block])
+        .expect("should import block with data columns");
+
+    // Check what actually got stored in the database
+    let stored_column_keys = store
+        .get_data_column_keys(block_root)
+        .expect("should get stored column keys");
+
+    // Verify only custody columns were stored
+    let stored_column_indices: std::collections::HashSet<_> =
+        stored_column_keys.into_iter().collect();
+    let expected_column_indices: std::collections::HashSet<_> =
+        custody_columns.iter().copied().collect();
+
+    assert_eq!(
+        stored_column_indices, expected_column_indices,
+        "Regular node should only store custody columns"
+    );
+
+    // Verify no non-custody columns are included
+    let all_column_indices: std::collections::HashSet<_> =
+        all_data_columns.iter().map(|dc| dc.index).collect();
+    let non_custody_columns: std::collections::HashSet<_> = all_column_indices
+        .difference(&expected_column_indices)
+        .collect();
+
+    for &non_custody_column in &non_custody_columns {
+        assert!(
+            !stored_column_indices.contains(&non_custody_column),
+            "Non-custody column {} should not be stored",
+            non_custody_column
+        );
+    }
+}
+
+/// Test that supernodes store all data columns when processing blocks with data columns.
+#[tokio::test]
+async fn test_custody_column_filtering_supernode() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Skip test if PeerDAS is not scheduled
+    if !harness.spec.is_peer_das_scheduled() {
+        return;
+    }
+
+    // Generate a block with data columns using public test utils
+    let fork_name = harness.spec.fork_name_at_epoch(Epoch::new(0));
+    let mut rng = rand::rng();
+    let (signed_block, all_data_columns) =
+        beacon_chain::test_utils::generate_rand_block_and_data_columns::<E>(
+            fork_name,
+            beacon_chain::test_utils::NumBlobs::Number(3), // Generate 3 blobs to produce data columns
+            &mut rng,
+            &harness.spec,
+        );
+
+    // Skip test if no data columns are generated
+    if all_data_columns.is_empty() {
+        return;
+    }
+
+    let block_root = signed_block.canonical_root();
+
+    // Create AvailableBlock with all data columns
+    let available_block_data = AvailableBlockData::DataColumns(all_data_columns.clone());
+    let available_block = AvailableBlock::__new_for_testing(
+        block_root,
+        Arc::new(signed_block),
+        available_block_data,
+        harness.spec.clone(),
+    );
+
+    // Import the block through the historical block batch import
+    harness
+        .chain
+        .import_historical_block_batch(vec![available_block])
+        .expect("should import block with data columns");
+
+    // Check what actually got stored in the database
+    let stored_column_keys = store
+        .get_data_column_keys(block_root)
+        .expect("should get stored column keys");
+
+    // Verify ALL data columns were stored for supernodes
+    let stored_column_indices: std::collections::HashSet<_> =
+        stored_column_keys.into_iter().collect();
+    let all_column_indices: std::collections::HashSet<_> =
+        all_data_columns.iter().map(|dc| dc.index).collect();
+
+    assert_eq!(
+        stored_column_indices, all_column_indices,
+        "Supernode should store ALL data columns"
+    );
+
+    // Verify the count matches
+    assert_eq!(
+        stored_column_indices.len(),
+        all_data_columns.len(),
+        "Supernode should store the same number of columns as generated"
+    );
+
+    // Verify each stored column can be retrieved and matches original data
+    let stored_columns = store
+        .get_data_columns(&block_root)
+        .expect("should get data columns")
+        .expect("data columns should exist");
+
+    assert_eq!(
+        stored_columns.len(),
+        all_data_columns.len(),
+        "All data columns should be retrievable"
+    );
+
+    for original_column in &all_data_columns {
+        let matching_stored = stored_columns
+            .iter()
+            .find(|stored| stored.index == original_column.index);
+
+        assert!(
+            matching_stored.is_some(),
+            "Column {} should be present in stored data",
+            original_column.index
+        );
+
+        let stored_column = matching_stored.unwrap();
+        assert_eq!(
+            stored_column, original_column,
+            "Stored column {} should match original",
+            original_column.index
+        );
+    }
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.
