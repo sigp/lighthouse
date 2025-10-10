@@ -4220,7 +4220,7 @@ async fn test_custody_column_filtering_regular_node() {
 
     for &non_custody_column in &non_custody_columns {
         assert!(
-            !stored_column_indices.contains(&non_custody_column),
+            !stored_column_indices.contains(non_custody_column),
             "Non-custody column {} should not be stored",
             non_custody_column
         );
