@@ -1,17 +1,17 @@
 #![cfg(test)]
-use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::Enr;
-use lighthouse_network::EnrExt;
 use lighthouse_network::Multiaddr;
+use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::{NetworkConfig, NetworkEvent};
+use network_utils::enr_ext::EnrExt;
 use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;
-use tracing::{debug, error, info_span, Instrument};
+use tracing::{Instrument, debug, error, info_span};
 use tracing_subscriber::EnvFilter;
 use types::{
     ChainSpec, EnrForkId, Epoch, EthSpec, FixedBytesExtended, ForkContext, ForkName, Hash256,
-    MinimalEthSpec, Slot,
+    MinimalEthSpec,
 };
 
 type E = MinimalEthSpec;
@@ -19,33 +19,38 @@ type E = MinimalEthSpec;
 use lighthouse_network::rpc::config::InboundRateLimiterConfig;
 use tempfile::Builder as TempBuilder;
 
-/// Returns a dummy fork context
-pub fn fork_context(fork_name: ForkName) -> ForkContext {
+/// Returns a chain spec with all forks enabled.
+pub fn spec_with_all_forks_enabled() -> ChainSpec {
     let mut chain_spec = E::default_spec();
-    let altair_fork_epoch = Epoch::new(1);
-    let bellatrix_fork_epoch = Epoch::new(2);
-    let capella_fork_epoch = Epoch::new(3);
-    let deneb_fork_epoch = Epoch::new(4);
-    let electra_fork_epoch = Epoch::new(5);
-    let fulu_fork_epoch = Epoch::new(6);
+    chain_spec.altair_fork_epoch = Some(Epoch::new(1));
+    chain_spec.bellatrix_fork_epoch = Some(Epoch::new(2));
+    chain_spec.capella_fork_epoch = Some(Epoch::new(3));
+    chain_spec.deneb_fork_epoch = Some(Epoch::new(4));
+    chain_spec.electra_fork_epoch = Some(Epoch::new(5));
+    chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
+    chain_spec.gloas_fork_epoch = Some(Epoch::new(7));
 
-    chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
-    chain_spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
-    chain_spec.capella_fork_epoch = Some(capella_fork_epoch);
-    chain_spec.deneb_fork_epoch = Some(deneb_fork_epoch);
-    chain_spec.electra_fork_epoch = Some(electra_fork_epoch);
-    chain_spec.fulu_fork_epoch = Some(fulu_fork_epoch);
+    // check that we have all forks covered
+    assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());
+    chain_spec
+}
 
-    let current_slot = match fork_name {
-        ForkName::Base => Slot::new(0),
-        ForkName::Altair => altair_fork_epoch.start_slot(E::slots_per_epoch()),
-        ForkName::Bellatrix => bellatrix_fork_epoch.start_slot(E::slots_per_epoch()),
-        ForkName::Capella => capella_fork_epoch.start_slot(E::slots_per_epoch()),
-        ForkName::Deneb => deneb_fork_epoch.start_slot(E::slots_per_epoch()),
-        ForkName::Electra => electra_fork_epoch.start_slot(E::slots_per_epoch()),
-        ForkName::Fulu => fulu_fork_epoch.start_slot(E::slots_per_epoch()),
+/// Returns a dummy fork context
+pub fn fork_context(fork_name: ForkName, spec: &ChainSpec) -> ForkContext {
+    let current_epoch = match fork_name {
+        ForkName::Base => Some(Epoch::new(0)),
+        ForkName::Altair => spec.altair_fork_epoch,
+        ForkName::Bellatrix => spec.bellatrix_fork_epoch,
+        ForkName::Capella => spec.capella_fork_epoch,
+        ForkName::Deneb => spec.deneb_fork_epoch,
+        ForkName::Electra => spec.electra_fork_epoch,
+        ForkName::Fulu => spec.fulu_fork_epoch,
+        ForkName::Gloas => spec.gloas_fork_epoch,
     };
-    ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
+    let current_slot = current_epoch
+        .unwrap_or_else(|| panic!("expect fork {fork_name} to be scheduled"))
+        .start_slot(E::slots_per_epoch());
+    ForkContext::new::<E>(current_slot, Hash256::zero(), spec)
 }
 
 pub struct Libp2pInstance(
@@ -69,12 +74,18 @@ impl std::ops::DerefMut for Libp2pInstance {
 }
 
 #[allow(unused)]
-pub fn build_tracing_subscriber(level: &str, enabled: bool) {
+pub fn build_tracing_subscriber(
+    level: &str,
+    enabled: bool,
+) -> Option<tracing::subscriber::DefaultGuard> {
     if enabled {
-        tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::try_new(level).unwrap())
-            .try_init()
-            .unwrap();
+        Some(tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_env_filter(EnvFilter::try_new(level).unwrap())
+                .finish(),
+        ))
+    } else {
+        None
     }
 }
 
@@ -122,7 +133,7 @@ pub async fn build_libp2p_instance(
     let libp2p_context = lighthouse_network::Context {
         config,
         enr_fork_id: EnrForkId::default(),
-        fork_context: Arc::new(fork_context(fork_name)),
+        fork_context: Arc::new(fork_context(fork_name, &chain_spec)),
         chain_spec,
         libp2p_registry: None,
     };

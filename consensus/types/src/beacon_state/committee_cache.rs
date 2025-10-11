@@ -5,7 +5,7 @@ use core::num::NonZeroUsize;
 use derivative::Derivative;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
-use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
+use ssz::{Decode, DecodeError, Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use std::sync::Arc;
@@ -159,7 +159,7 @@ impl CommitteeCache {
         &self,
         slot: Slot,
         index: CommitteeIndex,
-    ) -> Option<BeaconCommittee> {
+    ) -> Option<BeaconCommittee<'_>> {
         if self.initialized_epoch.is_none()
             || !self.is_initialized_at(slot.epoch(self.slots_per_epoch))
             || index >= self.committees_per_slot
@@ -185,7 +185,10 @@ impl CommitteeCache {
     /// Get all the Beacon committees at a given `slot`.
     ///
     /// Committees are sorted by ascending index order 0..committees_per_slot
-    pub fn get_beacon_committees_at_slot(&self, slot: Slot) -> Result<Vec<BeaconCommittee>, Error> {
+    pub fn get_beacon_committees_at_slot(
+        &self,
+        slot: Slot,
+    ) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         if self.initialized_epoch.is_none() {
             return Err(Error::CommitteeCacheUninitialized(None));
         }
@@ -199,7 +202,7 @@ impl CommitteeCache {
     }
 
     /// Returns all committees for `self.initialized_epoch`.
-    pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee>, Error> {
+    pub fn get_all_beacon_committees(&self) -> Result<Vec<BeaconCommittee<'_>>, Error> {
         let initialized_epoch = self
             .initialized_epoch
             .ok_or(Error::CommitteeCacheUninitialized(None))?;
@@ -371,6 +374,7 @@ where
     active
 }
 
+#[cfg(feature = "arbitrary")]
 impl arbitrary::Arbitrary<'_> for CommitteeCache {
     fn arbitrary(_u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(Self::default())

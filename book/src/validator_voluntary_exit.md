@@ -10,6 +10,8 @@ A validator can initiate a voluntary exit provided that the validator is current
 It takes at a minimum 5 epochs (32 minutes) for a validator to exit after initiating a voluntary exit.
 This number can be much higher depending on how many other validators are queued to exit.
 
+You can also perform voluntary exit for one or more validators using the validator manager, see [Managing Validators](./validator_manager_api.md#exit) for more details.
+
 ## Initiating a voluntary exit
 
 In order to initiate an exit, users can use the `lighthouse account validator exit` command.

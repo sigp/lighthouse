@@ -6,8 +6,8 @@
 
 use crate::{Builder, BuilderError};
 use eth2_keystore::{
+    DKLEN, Keystore, KeystoreBuilder, PlainText,
     json_keystore::{Kdf, Scrypt},
-    Keystore, KeystoreBuilder, PlainText, DKLEN,
 };
 use std::path::PathBuf;
 use types::test_utils::generate_deterministic_keypair;

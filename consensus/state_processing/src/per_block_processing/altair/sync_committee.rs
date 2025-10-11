@@ -1,6 +1,6 @@
 use crate::common::{altair::BaseRewardPerIncrement, decrease_balance, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
-use crate::{signature_sets::sync_aggregate_signature_set, VerifySignatures};
+use crate::{VerifySignatures, signature_sets::sync_aggregate_signature_set};
 use safe_arith::SafeArith;
 use std::borrow::Cow;
 use types::consts::altair::{PROPOSER_WEIGHT, SYNC_REWARD_WEIGHT, WEIGHT_DENOMINATOR};

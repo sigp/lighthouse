@@ -28,9 +28,9 @@
 
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::{
-    metrics, observed_aggregates::ObserveOutcome, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes, metrics, observed_aggregates::ObserveOutcome,
 };
-use bls::{verify_signature_sets, PublicKeyBytes};
+use bls::{PublicKeyBytes, verify_signature_sets};
 use derivative::Derivative;
 use safe_arith::ArithError;
 use slot_clock::SlotClock;
@@ -46,14 +46,14 @@ use std::collections::HashMap;
 use strum::AsRefStr;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use types::ChainSpec;
 use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use types::slot_data::SlotData;
 use types::sync_committee::Error as SyncCommitteeError;
-use types::ChainSpec;
 use types::{
-    sync_committee_contribution::Error as ContributionError, AggregateSignature, BeaconStateError,
-    EthSpec, Hash256, SignedContributionAndProof, Slot, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    AggregateSignature, BeaconStateError, EthSpec, Hash256, SignedContributionAndProof, Slot,
+    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    sync_committee_contribution::Error as ContributionError,
 };
 
 /// Returned when a sync committee contribution was not successfully verified. It might not have been verified for
@@ -505,15 +505,14 @@ impl VerifiedSyncCommitteeMessage {
                 validator_index as usize,
             )
             .map_err(BeaconChainError::from)?
+            && !should_override_prev(&prev_root, &new_root)
         {
-            if !should_override_prev(&prev_root, &new_root) {
-                return Err(Error::PriorSyncCommitteeMessageKnown {
-                    validator_index,
-                    slot: sync_message.slot,
-                    prev_root,
-                    new_root,
-                });
-            }
+            return Err(Error::PriorSyncCommitteeMessageKnown {
+                validator_index,
+                slot: sync_message.slot,
+                prev_root,
+                new_root,
+            });
         }
 
         // The aggregate signature of the sync committee message is valid.

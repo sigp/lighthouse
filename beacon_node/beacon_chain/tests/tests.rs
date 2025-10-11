@@ -1,12 +1,12 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::{
+    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
     attestation_verification::Error as AttnError,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
         OP_POOL_DB_KEY,
     },
-    BeaconChain, ChainConfig, NotifyExecutionLayer, StateSkipConfig, WhenSlotSkipped,
 };
 use operation_pool::PersistedOperationPool;
 use state_processing::EpochProcessingError;
@@ -580,7 +580,7 @@ async fn attestations_with_increasing_slots() {
         let head = harness.chain.head_snapshot();
         let head_state_root = head.beacon_state_root();
 
-        attestations.extend(harness.get_unaggregated_attestations(
+        attestations.extend(harness.get_single_attestations(
             &AttestationStrategy::AllValidators,
             &head.beacon_state,
             head_state_root,
@@ -597,7 +597,7 @@ async fn attestations_with_increasing_slots() {
             .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
-        let expected_attestation_slot = attestation.data().slot;
+        let expected_attestation_slot = attestation.data.slot;
         let expected_earliest_permissible_slot =
             current_slot - MinimalEthSpec::slots_per_epoch() - 1;
 
@@ -1035,11 +1035,13 @@ async fn pseudo_finalize_test_generic(
     // This is a regression test for https://github.com/sigp/lighthouse/pull/7105
     if !expect_true_finalization_migration {
         assert_eq!(expected_split_slot, pseudo_finalized_slot);
-        assert!(!harness
-            .chain
-            .canonical_head
-            .fork_choice_read_lock()
-            .contains_block(&split.block_root));
+        assert!(
+            !harness
+                .chain
+                .canonical_head
+                .fork_choice_read_lock()
+                .contains_block(&split.block_root)
+        );
     }
 }
 

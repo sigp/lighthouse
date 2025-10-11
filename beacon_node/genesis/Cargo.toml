@@ -5,21 +5,12 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
 [dependencies]
-environment = { workspace = true }
-eth1 = { workspace = true }
 ethereum_hashing = { workspace = true }
 ethereum_ssz = { workspace = true }
-futures = { workspace = true }
 int_to_bytes = { workspace = true }
 merkle_proof = { workspace = true }
 rayon = { workspace = true }
 state_processing = { workspace = true }
-tokio = { workspace = true }
 tracing = { workspace = true }
 tree_hash = { workspace = true }
 types = { workspace = true }
-
-[dev-dependencies]
-eth1_test_rig = { workspace = true }
-logging = { workspace = true }
-sensitive_url = { workspace = true }

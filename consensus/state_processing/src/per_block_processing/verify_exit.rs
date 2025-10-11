@@ -1,7 +1,7 @@
 use super::errors::{BlockOperationError, ExitInvalid};
 use crate::per_block_processing::{
-    signature_sets::{exit_signature_set, get_pubkey_from_state},
     VerifySignatures,
+    signature_sets::{exit_signature_set, get_pubkey_from_state},
 };
 use safe_arith::SafeArith;
 use types::*;

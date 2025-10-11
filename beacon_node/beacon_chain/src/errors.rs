@@ -3,7 +3,6 @@ use crate::beacon_block_streamer::Error as BlockStreamerError;
 use crate::beacon_chain::ForkChoiceError;
 use crate::beacon_fork_choice_store::Error as ForkChoiceStoreError;
 use crate::data_availability_checker::AvailabilityCheckError;
-use crate::eth1_chain::Error as Eth1ChainError;
 use crate::migrate::PruningError;
 use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
@@ -17,6 +16,7 @@ use operation_pool::OpPoolError;
 use safe_arith::ArithError;
 use ssz_types::Error as SszTypesError;
 use state_processing::{
+    BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
     block_signature_verifier::Error as BlockSignatureVerifierError,
     per_block_processing::errors::{
         AttestationValidationError, AttesterSlashingValidationError,
@@ -25,7 +25,6 @@ use state_processing::{
     },
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,
-    BlockProcessingError, BlockReplayError, EpochProcessingError, SlotProcessingError,
 };
 use task_executor::ShutdownReason;
 use tokio::task::JoinError;
@@ -231,6 +230,23 @@ pub enum BeaconChainError {
         columns_found: usize,
     },
     FailedToReconstructBlobs(String),
+    ProposerCacheIncorrectState {
+        state_decision_block_root: Hash256,
+        requested_decision_block_root: Hash256,
+    },
+    ProposerCacheAccessorFailure {
+        decision_block_root: Hash256,
+        proposal_epoch: Epoch,
+    },
+    ProposerCacheOutOfBounds {
+        slot: Slot,
+        epoch: Epoch,
+    },
+    ProposerCacheWrongEpoch {
+        request_epoch: Epoch,
+        cache_epoch: Epoch,
+    },
+    SkipProposerPreparation,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -271,7 +287,6 @@ pub enum BlockProductionError {
     BlockProcessingError(BlockProcessingError),
     EpochCacheError(EpochCacheError),
     ForkChoiceError(ForkChoiceError),
-    Eth1ChainError(Eth1ChainError),
     BeaconStateError(BeaconStateError),
     StateAdvanceError(StateAdvanceError),
     OpPoolError(OpPoolError),
@@ -307,7 +322,6 @@ pub enum BlockProductionError {
 easy_from_to!(BlockProcessingError, BlockProductionError);
 easy_from_to!(BeaconStateError, BlockProductionError);
 easy_from_to!(SlotProcessingError, BlockProductionError);
-easy_from_to!(Eth1ChainError, BlockProductionError);
 easy_from_to!(StateAdvanceError, BlockProductionError);
 easy_from_to!(ForkChoiceError, BlockProductionError);
 easy_from_to!(EpochCacheError, BlockProductionError);

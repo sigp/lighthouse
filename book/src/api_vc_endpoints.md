@@ -19,6 +19,7 @@
 | [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators. |
 | [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs |
 | [`GET /lighthouse/beacon/health`](#get-lighthousebeaconhealth) | Get health information for each connected beacon node. |
+| [`POST /lighthouse/beacon/update`](#post-lighthousebeaconupdate) | Update the `--beacon-nodes` list. |
 
 The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api_vc_auth_header.md).
 
@@ -926,3 +927,57 @@ curl -X GET http://localhost:5062/lighthouse/beacon/health \
     }
 }
 ```
+
+## `POST /lighthouse/beacon/update`
+
+Updates the list of beacon nodes originally specified by the `--beacon-nodes` CLI flag.
+Use this endpoint when you don't want to restart the VC to add, remove or reorder beacon nodes.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/beacon/update`                |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
+| Typical Responses | 200, 400                                   |
+
+### Example Request Body
+
+```json
+{
+    "beacon_nodes": [
+        "http://beacon-node1:5052",
+        "http://beacon-node2:5052",
+        "http://beacon-node3:5052"
+    ]
+}
+```
+
+Command:
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X POST http://localhost:5062/lighthouse/beacon/update \
+ -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+ -H "Content-Type: application/json" \
+ -d "{\"beacon_nodes\":[\"http://beacon-node1:5052\",\"http://beacon-node2:5052\",\"http://beacon-node3:5052\"]}"
+```
+
+### Example Response Body
+
+```json
+{
+    "data": {
+        "new_beacon_nodes_list": [
+            "http://beacon-node1:5052",
+            "http://beacon-node2:5052",
+            "http://beacon-node3:5052"
+        ]
+    }
+}
+```
+
+If successful, the response will be a copy of the new list included in the request.
+If unsuccessful, an error will be shown and the beacon nodes list will not be updated.
+You can verify the results of the endpoint by using the `/lighthouse/beacon/health` endpoint.

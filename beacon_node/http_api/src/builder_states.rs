@@ -21,15 +21,14 @@ pub fn get_next_withdrawals<T: BeaconChainTypes>(
     // advance the state to the epoch of the proposal slot.
     let proposal_epoch = proposal_slot.epoch(T::EthSpec::slots_per_epoch());
     let (state_root, _, _) = state_id.root(chain)?;
-    if proposal_epoch != state.current_epoch() {
-        if let Err(e) =
+    if proposal_epoch != state.current_epoch()
+        && let Err(e) =
             partial_state_advance(&mut state, Some(state_root), proposal_slot, &chain.spec)
-        {
-            return Err(warp_utils::reject::custom_server_error(format!(
-                "failed to advance to the epoch of the proposal slot: {:?}",
-                e
-            )));
-        }
+    {
+        return Err(warp_utils::reject::custom_server_error(format!(
+            "failed to advance to the epoch of the proposal slot: {:?}",
+            e
+        )));
     }
 
     match get_expected_withdrawals(&state, &chain.spec) {

@@ -2,10 +2,19 @@
 //!
 //! The length of the list cannot be changed once it is set.
 
-#[derive(Clone, Debug)]
+use std::fmt;
+use std::fmt::Debug;
+
+#[derive(Clone)]
 pub struct RuntimeFixedVector<T> {
     vec: Vec<T>,
     len: usize,
+}
+
+impl<T: Debug> Debug for RuntimeFixedVector<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} (len={})", self.vec, self.len)
+    }
 }
 
 impl<T: Clone + Default> RuntimeFixedVector<T> {

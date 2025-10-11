@@ -9,7 +9,7 @@ mod reward_cache;
 mod sync_aggregate_id;
 
 pub use crate::bls_to_execution_changes::ReceivedPreCapella;
-pub use attestation::{earliest_attestation_validators, AttMaxCover, PROPOSER_REWARD_DENOMINATOR};
+pub use attestation::{AttMaxCover, PROPOSER_REWARD_DENOMINATOR, earliest_attestation_validators};
 pub use attestation_storage::{CompactAttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{
@@ -25,21 +25,22 @@ use crate::sync_aggregate_id::SyncAggregateId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
 use parking_lot::{RwLock, RwLockWriteGuard};
+use rand::rng;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
-    get_slashable_indices_modular, verify_exit, VerifySignatures,
+    VerifySignatures, get_slashable_indices_modular, verify_exit,
 };
 use state_processing::{SigVerifiedOp, VerifyOperation};
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::marker::PhantomData;
 use std::ptr;
 use types::{
-    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, AbstractExecPayload,
-    Attestation, AttestationData, AttesterSlashing, BeaconState, BeaconStateError, ChainSpec,
-    Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock, SignedBlsToExecutionChange,
-    SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution, Validator,
+    AbstractExecPayload, Attestation, AttestationData, AttesterSlashing, BeaconState,
+    BeaconStateError, ChainSpec, Epoch, EthSpec, ProposerSlashing, SignedBeaconBlock,
+    SignedBlsToExecutionChange, SignedVoluntaryExit, Slot, SyncAggregate,
+    SyncCommitteeContribution, Validator, sync_aggregate::Error as SyncAggregateError,
+    typenum::Unsigned,
 };
 
 type SyncContributions<E> = RwLock<HashMap<SyncAggregateId, Vec<SyncCommitteeContribution<E>>>>;
@@ -456,32 +457,35 @@ impl<E: EthSpec> OperationPool<E> {
         .collect()
     }
 
-    /// Prune proposer slashings for validators which are exited in the finalized epoch.
-    pub fn prune_proposer_slashings(&self, head_state: &BeaconState<E>) {
+    /// Prune proposer slashings for validators which are already slashed or exited in the finalized
+    /// epoch.
+    pub fn prune_proposer_slashings(&self, finalized_state: &BeaconState<E>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
-            |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
-            head_state,
+            |_, validator| {
+                validator.slashed || validator.exit_epoch <= finalized_state.current_epoch()
+            },
+            finalized_state,
         );
     }
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
-    pub fn prune_attester_slashings(&self, head_state: &BeaconState<E>) {
+    pub fn prune_attester_slashings(&self, finalized_state: &BeaconState<E>) {
         self.attester_slashings.write().retain(|slashing| {
             // Check that the attestation's signature is still valid wrt the fork version.
-            let signature_ok = slashing.signature_is_still_valid(&head_state.fork());
+            // We might be a bit slower to detect signature staleness by using the finalized state
+            // here, but we filter when proposing anyway, so in the worst case we just keep some
+            // stuff around until we finalize.
+            let signature_ok = slashing.signature_is_still_valid(&finalized_state.fork());
             // Slashings that don't slash any validators can also be dropped.
             let slashing_ok = get_slashable_indices_modular(
-                head_state,
+                finalized_state,
                 slashing.as_inner().to_ref(),
                 |_, validator| {
-                    // Declare that a validator is still slashable if they have not exited prior
-                    // to the finalized epoch.
-                    //
-                    // We cannot check the `slashed` field since the `head` is not finalized and
-                    // a fork could un-slash someone.
-                    validator.exit_epoch > head_state.finalized_checkpoint().epoch
+                    // Declare that a validator is still slashable if they have not been slashed in
+                    // the finalized state, and have not exited at the finalized epoch.
+                    !validator.slashed && validator.exit_epoch > finalized_state.current_epoch()
                 },
             )
             .is_ok_and(|indices| !indices.is_empty());
@@ -530,17 +534,12 @@ impl<E: EthSpec> OperationPool<E> {
         )
     }
 
-    /// Prune if validator has already exited at or before the finalized checkpoint of the head.
-    pub fn prune_voluntary_exits(&self, head_state: &BeaconState<E>) {
+    /// Prune if validator has already exited in the finalized state.
+    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<E>, spec: &ChainSpec) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
-            // This condition is slightly too loose, since there will be some finalized exits that
-            // are missed here.
-            //
-            // We choose simplicity over the gain of pruning more exits since they are small and
-            // should not be seen frequently.
-            |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
-            head_state,
+            |_, validator| validator.exit_epoch != spec.far_future_epoch,
+            finalized_state,
         );
     }
 
@@ -612,7 +611,7 @@ impl<E: EthSpec> OperationPool<E> {
             |address_change| address_change.as_inner().clone(),
             usize::MAX,
         );
-        changes.shuffle(&mut thread_rng());
+        changes.shuffle(&mut rng());
         changes
     }
 
@@ -641,14 +640,15 @@ impl<E: EthSpec> OperationPool<E> {
         &self,
         head_block: &SignedBeaconBlock<E, Payload>,
         head_state: &BeaconState<E>,
+        finalized_state: &BeaconState<E>,
         current_epoch: Epoch,
         spec: &ChainSpec,
     ) {
         self.prune_attestations(current_epoch);
         self.prune_sync_contributions(head_state.slot());
-        self.prune_proposer_slashings(head_state);
-        self.prune_attester_slashings(head_state);
-        self.prune_voluntary_exits(head_state);
+        self.prune_proposer_slashings(finalized_state);
+        self.prune_attester_slashings(finalized_state);
+        self.prune_voluntary_exits(finalized_state, spec);
         self.prune_bls_to_execution_changes(head_block, head_state, spec);
     }
 
@@ -700,8 +700,8 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn get_all_proposer_slashings(&self) -> Vec<ProposerSlashing> {
         self.proposer_slashings
             .read()
-            .iter()
-            .map(|(_, slashing)| slashing.as_inner().clone())
+            .values()
+            .map(|slashing| slashing.as_inner().clone())
             .collect()
     }
 
@@ -711,8 +711,8 @@ impl<E: EthSpec> OperationPool<E> {
     pub fn get_all_voluntary_exits(&self) -> Vec<SignedVoluntaryExit> {
         self.voluntary_exits
             .read()
-            .iter()
-            .map(|(_, exit)| exit.as_inner().clone())
+            .values()
+            .map(|exit| exit.as_inner().clone())
             .collect()
     }
 
@@ -757,14 +757,14 @@ where
 fn prune_validator_hash_map<T, F, E: EthSpec>(
     map: &mut HashMap<u64, SigVerifiedOp<T, E>>,
     prune_if: F,
-    head_state: &BeaconState<E>,
+    state: &BeaconState<E>,
 ) where
     F: Fn(u64, &Validator) -> bool,
     T: VerifyOperation<E>,
 {
     map.retain(|&validator_index, op| {
-        op.signature_is_still_valid(&head_state.fork())
-            && head_state
+        op.signature_is_still_valid(&state.fork())
+            && state
                 .validators()
                 .get(validator_index as usize)
                 .is_none_or(|validator| !prune_if(validator_index, validator))
@@ -790,11 +790,11 @@ mod release_tests {
     use super::attestation::earliest_attestation_validators;
     use super::*;
     use beacon_chain::test_utils::{
-        test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
+        BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee, test_spec,
     };
     use maplit::hashset;
     use state_processing::epoch_cache::initialize_epoch_cache;
-    use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
+    use state_processing::{VerifyOperation, common::get_attesting_indices_from_state};
     use std::collections::BTreeSet;
     use std::sync::{Arc, LazyLock};
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;

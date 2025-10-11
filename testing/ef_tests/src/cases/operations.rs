@@ -10,19 +10,19 @@ use state_processing::per_block_processing::process_operations::{
     process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
 };
 use state_processing::{
+    ConsensusContext,
     per_block_processing::{
+        VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
             altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
             process_deposits, process_exits, process_proposer_slashings,
         },
-        process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
+        process_sync_aggregate, process_withdrawals,
     },
-    ConsensusContext,
 };
 use std::fmt::Debug;
-use std::path::PathBuf;
 use types::{
     Attestation, AttesterSlashing, BeaconBlock, BeaconBlockBody, BeaconBlockBodyBellatrix,
     BeaconBlockBodyCapella, BeaconBlockBodyDeneb, BeaconBlockBodyElectra, BeaconBlockBodyFulu,
@@ -50,7 +50,6 @@ pub struct WithdrawalsPayload<E: EthSpec> {
 
 #[derive(Debug, Clone)]
 pub struct Operations<E: EthSpec, O: Operation<E>> {
-    path: PathBuf,
     metadata: Metadata,
     execution_metadata: Option<ExecutionMetadata>,
     pub pre: BeaconState<E>,
@@ -173,7 +172,7 @@ impl<E: EthSpec> Operation<E> for Deposit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposits(state, &[self.clone()], spec)
+        process_deposits(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -196,7 +195,7 @@ impl<E: EthSpec> Operation<E> for ProposerSlashing {
         initialize_progressive_balances_cache(state, spec)?;
         process_proposer_slashings(
             state,
-            &[self.clone()],
+            std::slice::from_ref(self),
             VerifySignatures::True,
             &mut ctxt,
             spec,
@@ -219,7 +218,12 @@ impl<E: EthSpec> Operation<E> for SignedVoluntaryExit {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_exits(state, &[self.clone()], VerifySignatures::True, spec)
+        process_exits(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -440,7 +444,12 @@ impl<E: EthSpec> Operation<E> for SignedBlsToExecutionChange {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_bls_to_execution_changes(state, &[self.clone()], VerifySignatures::True, spec)
+        process_bls_to_execution_changes(
+            state,
+            std::slice::from_ref(self),
+            VerifySignatures::True,
+            spec,
+        )
     }
 }
 
@@ -464,7 +473,7 @@ impl<E: EthSpec> Operation<E> for WithdrawalRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_withdrawal_requests(state, &[self.clone()], spec)
+        process_withdrawal_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -487,7 +496,7 @@ impl<E: EthSpec> Operation<E> for DepositRequest {
         spec: &ChainSpec,
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_deposit_requests(state, &[self.clone()], spec)
+        process_deposit_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -511,7 +520,7 @@ impl<E: EthSpec> Operation<E> for ConsolidationRequest {
         _extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
         state.update_pubkey_cache()?;
-        process_consolidation_requests(state, &[self.clone()], spec)
+        process_consolidation_requests(state, std::slice::from_ref(self), spec)
     }
 }
 
@@ -557,7 +566,6 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
         };
 
         Ok(Self {
-            path: path.into(),
             metadata,
             execution_metadata,
             pre,
@@ -577,17 +585,6 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        // FIXME(das): remove this once v1.6.0-alpha.1 is released
-        // We are ahead of the v1.6.0-alpha.0 spec in our implementation of
-        // `get_max_blobs_per_block`, so we fail the execution payload test which expects the
-        // empty blob schedule to generate an error.
-        if O::handler_name() == "execution_payload"
-            && fork_name == ForkName::Fulu
-            && self.path.ends_with("invalid_exceed_max_blobs_per_block")
-        {
-            return Err(Error::SkippedKnownFailure);
-        }
-
         let spec = &testing_spec::<E>(fork_name);
 
         let mut pre_state = self.pre.clone();
@@ -601,10 +598,10 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        if O::handler_name() != "withdrawals" {
-            if let Some(post_state) = expected.as_mut() {
-                post_state.build_all_committee_caches(spec).unwrap();
-            }
+        if O::handler_name() != "withdrawals"
+            && let Some(post_state) = expected.as_mut()
+        {
+            post_state.build_all_committee_caches(spec).unwrap();
         }
 
         let mut result = self

@@ -70,8 +70,8 @@ impl StoreItem for PersistedDht {
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use store::config::StoreConfig;
     use store::MemoryStore;
+    use store::config::StoreConfig;
     use types::{ChainSpec, MinimalEthSpec};
     #[test]
     fn test_persisted_dht() {
@@ -86,5 +86,9 @@ mod tests {
             .unwrap();
         let dht: PersistedDht = store.get_item(&DHT_DB_KEY).unwrap().unwrap();
         assert_eq!(dht.enrs, enrs);
+
+        // This hardcoded length check is for database schema compatibility. If the on-disk format
+        // of `PersistedDht` changes, we need a DB schema change.
+        assert_eq!(dht.as_store_bytes().len(), 136);
     }
 }

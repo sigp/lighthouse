@@ -188,8 +188,8 @@ impl std::fmt::Display for GossipKind {
             GossipKind::BlobSidecar(blob_index) => {
                 write!(f, "{}{}", BLOB_SIDECAR_PREFIX, blob_index)
             }
-            GossipKind::DataColumnSidecar(column_index) => {
-                write!(f, "{}{}", DATA_COLUMN_SIDECAR_PREFIX, **column_index)
+            GossipKind::DataColumnSidecar(column_subnet_id) => {
+                write!(f, "{}{}", DATA_COLUMN_SIDECAR_PREFIX, **column_subnet_id)
             }
             x => f.write_str(x.as_ref()),
         }
@@ -317,8 +317,8 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::BlobSidecar(blob_index) => {
                 format!("{}{}", BLOB_SIDECAR_PREFIX, blob_index)
             }
-            GossipKind::DataColumnSidecar(index) => {
-                format!("{}{}", DATA_COLUMN_SIDECAR_PREFIX, *index)
+            GossipKind::DataColumnSidecar(column_subnet_id) => {
+                format!("{}{}", DATA_COLUMN_SIDECAR_PREFIX, *column_subnet_id)
             }
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
@@ -531,8 +531,10 @@ mod tests {
         let s = get_sampling_subnets();
         let topic_config = get_topic_config(&s);
         for fork in ForkName::list_all() {
-            assert!(core_topics_to_subscribe::<E>(fork, &topic_config, &spec,)
-                .contains(&GossipKind::BeaconBlock));
+            assert!(
+                core_topics_to_subscribe::<E>(fork, &topic_config, &spec,)
+                    .contains(&GossipKind::BeaconBlock)
+            );
         }
     }
 

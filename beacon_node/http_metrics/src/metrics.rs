@@ -37,7 +37,7 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
         store::scrape_for_metrics(db_path, freezer_db_path);
     }
 
-    lighthouse_network::scrape_discovery_metrics();
+    network_utils::discovery_metrics::scrape_discovery_metrics();
 
     health_metrics::metrics::scrape_health_metrics();
 
@@ -51,10 +51,10 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
         .encode_utf8(&metrics::gather(), &mut buffer)
         .unwrap();
     // encode gossipsub metrics also if they exist
-    if let Some(registry) = ctx.gossipsub_registry.as_ref() {
-        if let Ok(registry_locked) = registry.lock() {
-            let _ = encode(&mut buffer, &registry_locked);
-        }
+    if let Some(registry) = ctx.gossipsub_registry.as_ref()
+        && let Ok(registry_locked) = registry.lock()
+    {
+        let _ = encode(&mut buffer, &registry_locked);
     }
 
     Ok(buffer)

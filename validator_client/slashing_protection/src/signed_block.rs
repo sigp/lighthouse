@@ -1,4 +1,4 @@
-use crate::{signing_root_from_row, SigningRoot};
+use crate::{SigningRoot, signing_root_from_row};
 use types::{BeaconBlockHeader, Hash256, SignedRoot, Slot};
 
 /// A block that has previously been signed.
