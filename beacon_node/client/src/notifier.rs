@@ -270,6 +270,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         speed = sync_speed_pretty(speed),
                         est_time =
                             estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                        finalized_root = finalized_root_str,
                         "Syncing"
                     );
                 } else {
@@ -278,6 +279,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         distance,
                         est_time =
                             estimated_time_pretty(speedo.estimated_time_till_slot(current_slot)),
+                        finalized_root = finalized_root_str,
                         "Syncing"
                     );
                 }
