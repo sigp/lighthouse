@@ -111,8 +111,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // If we've made it to here with no columns to import, this is a valid situation
-        // as `block_sidecar_coupling` logic should have caught any bad peers withholding columns
+        // If we've made it to here with no columns to import, this means there are no blobs for this epoch.
+        // `RangeDataColumnBatchRequest` logic should have caught any bad peers withholding columns
         if historical_data_column_sidecar_list.is_empty() {
             if !ops.is_empty() {
                 // This shouldn't be a valid case. If there are no columns to import,
