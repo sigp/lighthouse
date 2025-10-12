@@ -361,16 +361,6 @@ impl<E: EthSpec> CustodyContext<E> {
         &all_columns_ordered[..num_of_columns_to_sample]
     }
 
-    // TODO(custody-sync) delete this once it becoms unusued (after testing)
-    pub fn update_cgc(&self, new_custody: u64, effective_epoch: Epoch) {
-        self.validator_registrations
-            .write()
-            .update_cgc(new_custody, effective_epoch);
-
-        self.validator_custody_count
-            .store(new_custody, Ordering::Relaxed);
-    }
-
     /// Returns the ordered list of column indices that the node is assigned to custody
     /// (and advertised to peers) at the given epoch. If epoch is `None`, this function
     /// computes the custody columns at head.
