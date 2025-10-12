@@ -6979,6 +6979,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    /// Compare columns custodied for `epoch` versus columns custodied for the head of the chain
+    /// and return any column indices that are missing.
+    pub fn get_missing_columns_for_epoch(&self, epoch: Epoch) -> HashSet<ColumnIndex> {
+        let custody_context = self.data_availability_checker.custody_context();
+
+        let columns_required = custody_context
+            .custody_columns_for_epoch(None, &self.spec)
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
+
+        let current_columns_at_epoch = custody_context
+            .custody_columns_for_epoch(Some(epoch), &self.spec)
+            .iter()
+            .cloned()
+            .collect::<HashSet<_>>();
+
+        columns_required
+            .difference(&current_columns_at_epoch)
+            .cloned()
+            .collect::<HashSet<_>>()
+    }
+
     /// The da boundary for custodying columns. It will just be the DA boundary unless we are near the Fulu fork epoch.
     pub fn get_column_da_boundary(&self) -> Option<Epoch> {
         match self.data_availability_boundary() {

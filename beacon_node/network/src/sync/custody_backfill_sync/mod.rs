@@ -12,7 +12,7 @@ use lighthouse_tracing::SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST;
 use logging::crit;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use tracing::{debug, error, info, info_span, warn};
-use types::{ColumnIndex, DataColumnSidecarList, Epoch, EthSpec};
+use types::{DataColumnSidecarList, Epoch, EthSpec};
 
 use crate::sync::{
     backfill_sync::{BACKFILL_EPOCHS_PER_BATCH, ProcessResult, SyncStart},
@@ -165,7 +165,9 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         };
 
         // Check if we have missing columns between the da boundary and `earliest_data_column_epoch`
-        let missing_columns = self.get_missing_columns_for_epoch(da_boundary_epoch);
+        let missing_columns = self
+            .beacon_chain
+            .get_missing_columns_for_epoch(da_boundary_epoch);
 
         if !missing_columns.is_empty() {
             let latest_finalized_epoch = self
@@ -369,7 +371,9 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         // Skip all batches (Epochs) that don't have missing columns.
         for i in Epoch::range_inclusive_rev(self.to_be_downloaded, column_da_boundary) {
             let current_batch = i;
-            missing_columns = self.get_missing_columns_for_epoch(current_batch);
+            missing_columns = self
+                .beacon_chain
+                .get_missing_columns_for_epoch(current_batch);
 
             if !missing_columns.is_empty() {
                 self.to_be_downloaded = current_batch;
@@ -445,30 +449,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 Some(batch_id)
             }
         }
-    }
-
-    fn get_missing_columns_for_epoch(&self, epoch: Epoch) -> HashSet<ColumnIndex> {
-        let custody_context = self
-            .beacon_chain
-            .data_availability_checker
-            .custody_context();
-
-        let columns_required = custody_context
-            .custody_columns_for_epoch(None, &self.beacon_chain.spec)
-            .iter()
-            .cloned()
-            .collect::<HashSet<_>>();
-
-        let current_columns_at_epoch = custody_context
-            .custody_columns_for_epoch(Some(epoch), &self.beacon_chain.spec)
-            .iter()
-            .cloned()
-            .collect::<HashSet<_>>();
-
-        columns_required
-            .difference(&current_columns_at_epoch)
-            .cloned()
-            .collect::<HashSet<_>>()
     }
 
     /// Processes the batch with the given id.
