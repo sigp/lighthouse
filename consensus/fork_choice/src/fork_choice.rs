@@ -1278,6 +1278,10 @@ where
         self.proto_array.get_weight(block_root)
     }
 
+    pub fn get_anchor_block(&self) -> (Hash256, Slot) {
+        self.proto_array.get_anchor_block()
+    }
+
     /// Returns the `ProtoBlock` for the justified checkpoint.
     /// If the node started with checkpoint sync and has not justified yet, it returns the
     /// `ProtoBlock` of the anchor block.
@@ -1289,7 +1293,7 @@ where
     pub fn get_justified_or_anchor_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
         let justified_checkpoint = self.justified_checkpoint();
         self.get_block(&justified_checkpoint.root)
-            .or_else(|| self.get_anchor_block())
+            .or_else(|| self.get_block(&self.proto_array.get_anchor_block_root()))
             .ok_or(Error::MissingJustifiedBlock {
                 justified_checkpoint,
             })
@@ -1301,16 +1305,10 @@ where
     pub fn get_finalized_or_anchor_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
         let finalized_checkpoint = self.finalized_checkpoint();
         self.get_block(&finalized_checkpoint.root)
-            .or_else(|| self.get_anchor_block())
+            .or_else(|| self.get_block(&self.proto_array.get_anchor_block_root()))
             .ok_or(Error::MissingFinalizedBlock {
                 finalized_checkpoint,
             })
-    }
-
-    /// Returns the `ProtoBlock` of `anchor_block_root`. May return None after the fork-choice has
-    /// finalized and been pruned.
-    fn get_anchor_block(&self) -> Option<ProtoBlock> {
-        self.get_block(&self.proto_array.get_anchor_block_root())
     }
 
     /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.

@@ -121,6 +121,23 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let head_slot = cached_head.head_slot();
             let head_root = cached_head.head_block_root();
             let finalized_checkpoint = cached_head.finalized_checkpoint();
+            let finalized_root_str = {
+                let finalized_slot = finalized_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch());
+                if cached_head.anchor_block.1 > finalized_slot {
+                    // Anchor block ahead of finalized checkpoint, the node has a subjective concept
+                    // of finality and will reject blocks that other nodes in the network will
+                    // accept
+                    format!(
+                        "{}/anchor/{}",
+                        finalized_checkpoint.root, cached_head.anchor_block.0
+                    )
+                } else {
+                    // Regular mode
+                    format!("{}", finalized_checkpoint.root)
+                }
+            };
 
             metrics::set_gauge(&metrics::NOTIFIER_HEAD_SLOT, head_slot.as_u64() as i64);
 
@@ -179,7 +196,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             debug!(
                 peers = peer_count_pretty(connected_peer_count),
-                finalized_root = %finalized_checkpoint.root,
+                finalized_root = finalized_root_str,
                 finalized_epoch = %finalized_checkpoint.epoch,
                 head_block = %head_root,
                 %head_slot,
@@ -298,7 +315,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = finalized_root_str,
                     finalized_epoch = %finalized_checkpoint.epoch,
                     epoch = %current_epoch,
                     block = block_info,
@@ -309,7 +326,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
-                    finalized_root = %finalized_checkpoint.root,
+                    finalized_root = finalized_root_str,
                     finalized_epoch = %finalized_checkpoint.epoch,
                     %head_slot,
                     %current_slot,

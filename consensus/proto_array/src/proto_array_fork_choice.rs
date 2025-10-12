@@ -966,6 +966,10 @@ impl ProtoArrayForkChoice {
     pub fn get_anchor_block_root(&self) -> Hash256 {
         self.proto_array.anchor_block.0
     }
+
+    pub fn get_anchor_block(&self) -> (Hash256, Slot) {
+        self.proto_array.anchor_block
+    }
 }
 
 /// Returns a list of `deltas`, where there is one delta for each of the indices in
