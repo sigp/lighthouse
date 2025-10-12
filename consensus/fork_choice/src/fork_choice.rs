@@ -508,17 +508,18 @@ where
         let head_hash = self
             .get_block(&head_root)
             .and_then(|b| b.execution_status.block_hash());
-        let justified_root = self.justified_checkpoint().root;
-        let finalized_root = self.finalized_checkpoint().root;
+        // After starting with checkpoint sync and before finalizing the finalized and justified
+        // ProtoNodes are not available.
+        // TODO(non-fin): Is it safe to tell the EL that the anchor block is finalized? Should we
+        // pass zero in that case?
         let justified_hash = self
-            .get_block(&justified_root)
+            .get_justified_or_anchor_block()
+            .ok()
             .and_then(|b| b.execution_status.block_hash());
         let finalized_hash = self
-            .get_block(&finalized_root)
+            .get_finalized_or_anchor_block()
+            .ok()
             .and_then(|b| b.execution_status.block_hash());
-        // What happens if justified_hash, finalized_hash are None?
-        // Does the EL need it for some important reason? Can it wait for the next finality event?
-        // What if we send the anchor block instead?
         self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,
@@ -726,13 +727,17 @@ where
         // (trivial), but more importantly, it means we don't need to have added `block` to
         // `self.proto_array` to do this search. See:
         //
+        // After starting with checkpoint sync and before finalizing there is no ProtoNode for the
+        // finalized root. Use the anchor block (initial block) are root to assert this new block is
+        // descendant of it.
+        //
         // https://github.com/ethereum/eth2.0-specs/pull/1884
-        // TODO: Manual implementation of descendant, fix
-        let block_ancestor = self.get_ancestor(block.parent_root(), finalized_slot)?;
-        let finalized_root = self.fc_store.finalized_checkpoint().root;
-        if block_ancestor != Some(finalized_root) {
+        let finalized_or_anchor_block = self.get_finalized_or_anchor_block()?;
+        let block_ancestor =
+            self.get_ancestor(block.parent_root(), finalized_or_anchor_block.slot)?;
+        if block_ancestor != Some(finalized_or_anchor_block.root) {
             return Err(Error::InvalidBlock(InvalidBlock::NotFinalizedDescendant {
-                finalized_root,
+                finalized_root: finalized_or_anchor_block.root,
                 block_ancestor,
             }));
         }
