@@ -5233,16 +5233,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             None
         };
 
+        let slashings_and_exits_span = debug_span!("get_slashings_and_exits").entered();
         let (mut proposer_slashings, mut attester_slashings, mut voluntary_exits) =
             self.op_pool.get_slashings_and_exits(&state, &self.spec);
+        drop(slashings_and_exits_span);
 
         let eth1_data = state.eth1_data().clone();
 
         let deposits = vec![];
 
+        let bls_changes_span = debug_span!("get_bls_to_execution_changes").entered();
         let bls_to_execution_changes = self
             .op_pool
             .get_bls_to_execution_changes(&state, &self.spec);
+        drop(bls_changes_span);
 
         // Iterate through the naive aggregation pool and ensure all the attestations from there
         // are included in the operation pool.
