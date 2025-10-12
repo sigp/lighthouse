@@ -6,8 +6,7 @@ use std::{
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
-    NetworkGlobals, PeerId, service::api_types::ColumnsByRangeParentRequestId,
-    types::CustodyBackFillState,
+    NetworkGlobals, PeerId, service::api_types::ByRangeParentRequestId, types::CustodyBackFillState,
 };
 use lighthouse_tracing::SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST;
 use logging::crit;
@@ -542,12 +541,12 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     pub fn on_data_column_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        custody_sync_request_id: ColumnsByRangeParentRequestId,
+        custody_sync_request_id: ByRangeParentRequestId,
         peer_id: &PeerId,
         data_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<ProcessResult, CustodyBackfillError> {
         match custody_sync_request_id {
-            ColumnsByRangeParentRequestId::CustodyBackfillSync(custody_sync_request_id) => {
+            ByRangeParentRequestId::CustodyBackfillSync(custody_sync_request_id) => {
                 // check if we have this batch
                 let Some(batch) = self.batches.get_mut(&custody_sync_request_id.epoch) else {
                     if !matches!(self.state(), CustodyBackFillState::Pending(_)) {
@@ -1100,17 +1099,17 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        request: ColumnsByRangeParentRequestId,
+        request: ByRangeParentRequestId,
         peer_id: &PeerId,
         err: RpcResponseError,
     ) -> Result<(), CustodyBackfillError> {
         match request {
-            ColumnsByRangeParentRequestId::ComponentsByRange(_) => {
+            ByRangeParentRequestId::ComponentsByRange(_) => {
                 // This shouldn't be possible, but we log a crit if it does.
                 crit!("Trying to handle a components by range request during custody sync.");
                 Ok(())
             }
-            ColumnsByRangeParentRequestId::CustodyBackfillSync(request) => {
+            ByRangeParentRequestId::CustodyBackfillSync(request) => {
                 if let Some(batch) = self.batches.get_mut(&request.epoch) {
                     // A batch could be retried without the peer failing the request (disconnecting/
                     // sending an error /timeout) if the peer is removed from the chain for other

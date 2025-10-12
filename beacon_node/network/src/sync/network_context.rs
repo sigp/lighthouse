@@ -25,7 +25,7 @@ use lighthouse_network::rpc::methods::{BlobsByRangeRequest, DataColumnsByRangeRe
 use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, RequestType};
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
-    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ColumnsByRangeParentRequestId,
+    AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ByRangeParentRequestId,
     ComponentsByRangeRequestId, CustodyBackFillBatchRequestId, CustodyId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
     SingleLookupReqId, SyncRequestId,
@@ -510,7 +510,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         count: *request.count(),
                         columns,
                     },
-                    ColumnsByRangeParentRequestId::ComponentsByRange(id),
+                    ByRangeParentRequestId::ComponentsByRange(id),
                     new_range_request_span!(
                         self,
                         "outgoing_columns_by_range_retry",
@@ -643,7 +643,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                                 count: *request.count(),
                                 columns,
                             },
-                            ColumnsByRangeParentRequestId::ComponentsByRange(id),
+                            ByRangeParentRequestId::ComponentsByRange(id),
                             new_range_request_span!(
                                 self,
                                 "outgoing_columns_by_range",
@@ -1244,7 +1244,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: DataColumnsByRangeRequest,
-        parent_request_id: ColumnsByRangeParentRequestId,
+        parent_request_id: ByRangeParentRequestId,
         request_span: Span,
     ) -> Result<(DataColumnsByRangeRequestId, Vec<u64>), RpcRequestSendError> {
         let requested_columns = request.columns.clone();
@@ -1723,7 +1723,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 self.send_data_columns_by_range_request(
                     *peer_id,
                     request.clone(),
-                    ColumnsByRangeParentRequestId::CustodyBackfillSync(id),
+                    ByRangeParentRequestId::CustodyBackfillSync(id),
                     Span::none(),
                 )
                 .ok()
@@ -1746,9 +1746,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
         match custody_backfill_request_id.parent_request_id {
-            ColumnsByRangeParentRequestId::CustodyBackfillSync(
-                custody_backfill_batch_request_id,
-            ) => {
+            ByRangeParentRequestId::CustodyBackfillSync(custody_backfill_batch_request_id) => {
                 let Entry::Occupied(mut entry) = self
                     .custody_backfill_data_column_batch_requests
                     .entry(custody_backfill_batch_request_id)

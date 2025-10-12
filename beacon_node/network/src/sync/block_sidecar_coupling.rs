@@ -470,7 +470,7 @@ mod tests {
     use lighthouse_network::{
         PeerAction, PeerId,
         service::api_types::{
-            BlobsByRangeRequestId, BlocksByRangeRequestId, ColumnsByRangeParentRequestId,
+            BlobsByRangeRequestId, BlocksByRangeRequestId, ByRangeParentRequestId,
             ComponentsByRangeRequestId, DataColumnsByRangeRequestId, Id, RangeRequestId,
         },
     };
@@ -505,7 +505,7 @@ mod tests {
 
     fn columns_id(
         id: Id,
-        parent_request_id: ColumnsByRangeParentRequestId,
+        parent_request_id: ByRangeParentRequestId,
     ) -> DataColumnsByRangeRequestId {
         DataColumnsByRangeRequestId {
             id,
@@ -606,7 +606,7 @@ mod tests {
                 (
                     columns_id(
                         i as Id,
-                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                        ByRangeParentRequestId::ComponentsByRange(components_id),
                     ),
                     vec![*column],
                 )
@@ -673,7 +673,7 @@ mod tests {
                 (
                     columns_id(
                         i as Id,
-                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                        ByRangeParentRequestId::ComponentsByRange(components_id),
                     ),
                     columns.clone(),
                 )
@@ -762,7 +762,7 @@ mod tests {
                 (
                     columns_id(
                         i as Id,
-                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                        ByRangeParentRequestId::ComponentsByRange(components_id),
                     ),
                     vec![*column],
                 )
@@ -850,7 +850,7 @@ mod tests {
                 (
                     columns_id(
                         i as Id,
-                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                        ByRangeParentRequestId::ComponentsByRange(components_id),
                     ),
                     vec![*column],
                 )
@@ -892,7 +892,7 @@ mod tests {
         // AND: We retry with a new peer for the failed column
         let new_columns_req_id = columns_id(
             10 as Id,
-            ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+            ByRangeParentRequestId::ComponentsByRange(components_id),
         );
         let failed_column_requests = vec![(new_columns_req_id, vec![2])];
         info.reinsert_failed_column_requests(failed_column_requests)
@@ -943,7 +943,7 @@ mod tests {
                 (
                     columns_id(
                         i as Id,
-                        ColumnsByRangeParentRequestId::ComponentsByRange(components_id),
+                        ByRangeParentRequestId::ComponentsByRange(components_id),
                     ),
                     vec![*column],
                 )

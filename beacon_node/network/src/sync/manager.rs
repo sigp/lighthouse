@@ -57,7 +57,7 @@ use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
-    BlobsByRangeRequestId, BlocksByRangeRequestId, ColumnsByRangeParentRequestId, CustodyRequester,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, ByRangeParentRequestId, CustodyRequester,
     DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
     SingleLookupReqId, SyncRequestId,
 };
@@ -1239,7 +1239,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_blocks_by_range_response(id, peer_id, block) {
             self.on_range_components_response(
-                ColumnsByRangeParentRequestId::ComponentsByRange(id.parent_request_id),
+                ByRangeParentRequestId::ComponentsByRange(id.parent_request_id),
                 peer_id,
                 RangeBlockComponent::Block(id, resp),
             );
@@ -1254,7 +1254,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
             self.on_range_components_response(
-                ColumnsByRangeParentRequestId::ComponentsByRange(id.parent_request_id),
+                ByRangeParentRequestId::ComponentsByRange(id.parent_request_id),
                 peer_id,
                 RangeBlockComponent::Blob(id, resp),
             );
@@ -1272,14 +1272,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .on_data_columns_by_range_response(id, peer_id, data_column)
         {
             match id.parent_request_id {
-                ColumnsByRangeParentRequestId::ComponentsByRange(_) => {
+                ByRangeParentRequestId::ComponentsByRange(_) => {
                     self.on_range_components_response(
                         id.parent_request_id,
                         peer_id,
                         RangeBlockComponent::CustodyColumns(id, resp),
                     );
                 }
-                ColumnsByRangeParentRequestId::CustodyBackfillSync(_) => {
+                ByRangeParentRequestId::CustodyBackfillSync(_) => {
                     self.on_custody_backfill_columns_response(id, peer_id, resp)
                 }
             }
@@ -1303,12 +1303,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// blobs.
     fn on_range_components_response(
         &mut self,
-        range_request_id: ColumnsByRangeParentRequestId,
+        range_request_id: ByRangeParentRequestId,
         peer_id: PeerId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
         match range_request_id {
-            ColumnsByRangeParentRequestId::ComponentsByRange(range_request_id) => {
+            ByRangeParentRequestId::ComponentsByRange(range_request_id) => {
                 if let Some(resp) = self
                     .network
                     .range_block_component_response(range_request_id, range_block_component)
@@ -1376,7 +1376,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             }
-            ColumnsByRangeParentRequestId::CustodyBackfillSync(_) => {
+            ByRangeParentRequestId::CustodyBackfillSync(_) => {
                 // This should be impossible, log a crit just in case
                 crit!(
                     "Recevied a custody backfill sync response during a range components request."
