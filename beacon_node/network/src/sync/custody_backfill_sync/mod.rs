@@ -525,7 +525,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             self.on_batch_process_result(
                 network,
                 batch_id,
-                &CustodyBatchProcessResult::NonFaultyFailure { batch_id },
+                &CustodyBatchProcessResult::Error {
+                    batch_id,
+                    peer_action: None,
+                },
             )
         } else {
             Ok(ProcessResult::Successful)
@@ -711,38 +714,54 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     self.process_completed_batches(network)
                 }
             }
-            CustodyBatchProcessResult::FaultyFailure { penalty, batch_id } => {
-                match batch.processing_completed(BatchProcessingResult::FaultyFailure) {
-                    Err(e) => {
-                        // Batch was in the wrong state
-                        self.fail_sync(CustodyBackfillError::BatchInvalidState(*batch_id, e.0))
-                            .map(|_| ProcessResult::Successful)
-                    }
-                    Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
-                        warn!(
-                            score_adjustment = %penalty,
-                            batch_epoch = %batch_id,
-                            "Custody backfill batch failed to download. Penalizing peers"
-                        );
-                        self.fail_sync(CustodyBackfillError::BatchProcessingFailed(*batch_id))
-                            .map(|_| ProcessResult::Successful)
-                    }
+            CustodyBatchProcessResult::Error {
+                peer_action,
+                batch_id,
+            } => {
+                match peer_action {
+                    // Faulty failure
+                    Some(peer_action) => {
+                        match batch.processing_completed(BatchProcessingResult::FaultyFailure) {
+                            Err(e) => {
+                                // Batch was in the wrong state
+                                self.fail_sync(CustodyBackfillError::BatchInvalidState(
+                                    *batch_id, e.0,
+                                ))
+                                .map(|_| ProcessResult::Successful)
+                            }
+                            Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
+                                warn!(
+                                    score_adjustment = ?peer_action,
+                                    batch_epoch = %batch_id,
+                                    "Custody backfill batch failed to download. Penalizing peers"
+                                );
+                                self.fail_sync(CustodyBackfillError::BatchProcessingFailed(
+                                    *batch_id,
+                                ))
+                                .map(|_| ProcessResult::Successful)
+                            }
 
-                    Ok(BatchOperationOutcome::Continue) => {
-                        self.advance_custody_backfill_sync(*batch_id);
-                        // Handle this invalid batch, that is within the re-process retries limit.
-                        self.handle_invalid_batch(network, *batch_id)
-                            .map(|_| ProcessResult::Successful)
+                            Ok(BatchOperationOutcome::Continue) => {
+                                self.advance_custody_backfill_sync(*batch_id);
+                                // Handle this invalid batch, that is within the re-process retries limit.
+                                self.handle_invalid_batch(network, *batch_id)
+                                    .map(|_| ProcessResult::Successful)
+                            }
+                        }
+                    }
+                    // Non faulty failure
+                    None => {
+                        if let Err(e) =
+                            batch.processing_completed(BatchProcessingResult::NonFaultyFailure)
+                        {
+                            self.fail_sync(CustodyBackfillError::BatchInvalidState(
+                                *batch_id, e.0,
+                            ))?;
+                        }
+                        self.send_batch(network, *batch_id)?;
+                        Ok(ProcessResult::Successful)
                     }
                 }
-            }
-            CustodyBatchProcessResult::NonFaultyFailure { .. } => {
-                if let Err(e) = batch.processing_completed(BatchProcessingResult::NonFaultyFailure)
-                {
-                    self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
-                }
-                self.send_batch(network, batch_id)?;
-                Ok(ProcessResult::Successful)
             }
         }
     }

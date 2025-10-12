@@ -223,13 +223,10 @@ pub enum CustodyBatchProcessResult {
         sent_columns: usize,
         imported_columns: usize,
     },
-    /// The custody batch processing failed. It carries whether the processing imported any data columns.
-    FaultyFailure {
+    /// The custody batch processing failed.
+    Error {
         batch_id: Epoch,
-        penalty: PeerAction,
-    },
-    NonFaultyFailure {
-        batch_id: Epoch,
+        peer_action: Option<PeerAction>,
     },
 }
 
@@ -237,8 +234,7 @@ impl CustodyBatchProcessResult {
     fn batch_id(&self) -> Epoch {
         match self {
             CustodyBatchProcessResult::Success { batch_id, .. } => *batch_id,
-            CustodyBatchProcessResult::FaultyFailure { batch_id, .. } => *batch_id,
-            CustodyBatchProcessResult::NonFaultyFailure { batch_id } => *batch_id,
+            CustodyBatchProcessResult::Error { batch_id, .. } => *batch_id,
         }
     }
 }
