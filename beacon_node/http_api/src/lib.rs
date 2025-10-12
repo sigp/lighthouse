@@ -4183,6 +4183,57 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST lighthouse/custody_count
+    let post_lighthouse_increase_custody_count = warp::path("lighthouse")
+        .and(warp::path("custody_count"))
+        .and(warp::path::end())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
+        .then(
+            |task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
+                task_spawner.blocking_json_task(Priority::P0, move || {
+                    let effective_epoch = chain
+                        .canonical_head
+                        .cached_head()
+                        .head_slot()
+                        .epoch(T::EthSpec::slots_per_epoch());
+
+                    let cgc = chain
+                        .data_availability_checker
+                        .custody_context()
+                        .num_of_custody_groups_to_sample(effective_epoch, &chain.spec);
+
+                    let sampling_count = chain
+                        .data_availability_checker
+                        .custody_context()
+                        .num_of_custody_groups_to_sample(effective_epoch, &chain.spec);
+
+                    let _ = chain.store.put_data_column_custody_info(Some(
+                        (effective_epoch).end_slot(T::EthSpec::slots_per_epoch()),
+                    ));
+
+                    tracing::info!(?cgc, "Cgc is going to increase plus one");
+
+                    chain
+                        .data_availability_checker
+                        .custody_context()
+                        .update_cgc(cgc + 1, effective_epoch);
+
+                    publish_network_message(
+                        &network_tx,
+                        NetworkMessage::CustodyCountChanged {
+                            new_custody_group_count: cgc + 1,
+                            sampling_count,
+                        },
+                    )?;
+                    Ok(())
+                })
+            },
+        );
+
     // POST lighthouse/compaction
     let post_lighthouse_compaction = warp::path("lighthouse")
         .and(warp::path("compaction"))
@@ -4940,6 +4991,7 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_compaction)
                     .uor(post_lighthouse_add_peer)
                     .uor(post_lighthouse_remove_peer)
+                    .uor(post_lighthouse_increase_custody_count)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )
