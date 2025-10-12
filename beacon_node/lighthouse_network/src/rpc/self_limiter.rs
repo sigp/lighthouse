@@ -106,18 +106,35 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
             req,
         ) {
             Err((rate_limited_req, wait_time)) => {
-                metrics::inc_counter_vec(
-                    &crate::metrics::QUEUED_OUTBOUND_REQUESTS_TOTAL_PER_PROTOCOL,
-                    &[protocol.as_ref()],
-                );
-                self.update_metrics();
-
                 let key = (peer_id, protocol);
                 self.next_peer_request.insert(key, wait_time);
                 self.delayed_requests
                     .entry(key)
                     .or_default()
                     .push_back(rate_limited_req);
+
+                // Update metrics
+                metrics::inc_counter_vec(
+                    &crate::metrics::QUEUED_OUTBOUND_REQUESTS_TOTAL_PER_PROTOCOL,
+                    &[protocol.as_ref()],
+                );
+                let mut count = 0;
+                let mut sum = 0;
+                for ((_peer_id, p), queue) in &self.delayed_requests {
+                    if p == &protocol {
+                        count += queue.len();
+                    }
+                    sum += queue.len();
+                }
+                metrics::observe_vec(
+                    &crate::metrics::OUTBOUND_REQUEST_QUEUE_LENGTH_PER_PROTOCOL,
+                    &[protocol.as_ref()],
+                    count as f64,
+                );
+                metrics::set_gauge(
+                    &crate::metrics::OUTBOUND_REQUEST_QUEUE_LENGTH_SUM,
+                    sum as i64,
+                );
 
                 Err(Error::RateLimited)
             }
@@ -274,28 +291,6 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         }
     }
 
-    pub fn update_metrics(&self) {
-        let mut count_per_protocol = HashMap::new();
-        let mut sum = 0;
-
-        for ((_peer_id, protocol), queue) in &self.delayed_requests {
-            *count_per_protocol.entry(*protocol).or_insert(0) += queue.len();
-            sum += queue.len();
-        }
-
-        for (protocol, count) in count_per_protocol {
-            metrics::observe_vec(
-                &crate::metrics::OUTBOUND_REQUEST_QUEUE_LENGTH_PER_PROTOCOL,
-                &[protocol.as_ref()],
-                count as f64,
-            );
-        }
-        metrics::set_gauge(
-            &crate::metrics::OUTBOUND_REQUEST_QUEUE_LENGTH_SUM,
-            sum as i64,
-        );
-    }
-
     pub fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<BehaviourAction<Id, E>> {
         // First check the requests that were self rate limited, since those might add events to
         // the queue. Also do this before rate limiter pruning to avoid removing and
@@ -303,7 +298,16 @@ impl<Id: ReqId, E: EthSpec> SelfRateLimiter<Id, E> {
         if let Poll::Ready(Some(expired)) = self.next_peer_request.poll_expired(cx) {
             let (peer_id, protocol) = expired.into_inner();
             self.next_peer_request_ready(peer_id, protocol);
-            self.update_metrics();
+
+            // Update metrics
+            let sum = self
+                .delayed_requests
+                .values()
+                .fold(0, |acc, queue| acc + queue.len());
+            metrics::set_gauge(
+                &crate::metrics::OUTBOUND_REQUEST_QUEUE_LENGTH_SUM,
+                sum as i64,
+            );
         }
 
         // Prune the rate limiter.

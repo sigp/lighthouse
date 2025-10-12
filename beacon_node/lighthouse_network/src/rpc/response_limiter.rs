@@ -76,12 +76,6 @@ impl<E: EthSpec> ResponseLimiter<E> {
         if let Err(wait_time) =
             Self::try_limiter(&mut self.limiter, peer_id, response.clone(), protocol)
         {
-            metrics::inc_counter_vec(
-                &crate::metrics::QUEUED_RESPONSES_TOTAL_PER_PROTOCOL,
-                &[protocol.as_ref()],
-            );
-            self.update_metrics();
-
             self.delayed_responses
                 .entry((peer_id, protocol))
                 .or_default()
@@ -94,6 +88,27 @@ impl<E: EthSpec> ResponseLimiter<E> {
                     queued_at: timestamp_now(),
                 });
             self.next_response.insert((peer_id, protocol), wait_time);
+
+            // Update metrics
+            metrics::inc_counter_vec(
+                &crate::metrics::QUEUED_RESPONSES_TOTAL_PER_PROTOCOL,
+                &[protocol.as_ref()],
+            );
+            let mut count = 0;
+            let mut sum = 0;
+            for ((_peer_id, p), queue) in &self.delayed_responses {
+                if p == &protocol {
+                    count += queue.len();
+                }
+                sum += queue.len();
+            }
+            metrics::observe_vec(
+                &crate::metrics::RESPONSE_QUEUE_LENGTH_PER_PROTOCOL,
+                &[protocol.as_ref()],
+                count as f64,
+            );
+            metrics::set_gauge(&crate::metrics::RESPONSE_QUEUE_LENGTH_SUM, sum as i64);
+
             return false;
         }
 
@@ -132,25 +147,6 @@ impl<E: EthSpec> ResponseLimiter<E> {
     pub fn peer_disconnected(&mut self, peer_id: PeerId) {
         self.delayed_responses
             .retain(|(map_peer_id, _protocol), _queue| map_peer_id != &peer_id);
-    }
-
-    fn update_metrics(&self) {
-        let mut count_per_protocol = HashMap::new();
-        let mut sum = 0;
-
-        for ((_peer_id, protocol), queue) in &self.delayed_responses {
-            *count_per_protocol.entry(*protocol).or_insert(0) += queue.len();
-            sum += queue.len();
-        }
-
-        for (protocol, count) in count_per_protocol {
-            metrics::observe_vec(
-                &crate::metrics::RESPONSE_QUEUE_LENGTH_PER_PROTOCOL,
-                &[protocol.as_ref()],
-                count as f64,
-            );
-        }
-        metrics::set_gauge(&crate::metrics::RESPONSE_QUEUE_LENGTH_SUM, sum as i64);
     }
 
     /// When a peer and protocol are allowed to send a next response, this function checks the
@@ -195,7 +191,12 @@ impl<E: EthSpec> ResponseLimiter<E> {
         let _ = self.limiter.poll_unpin(cx);
 
         if !responses.is_empty() {
-            self.update_metrics();
+            // Update metrics
+            let sum = self
+                .delayed_responses
+                .values()
+                .fold(0, |acc, queue| acc + queue.len());
+            metrics::set_gauge(&crate::metrics::RESPONSE_QUEUE_LENGTH_SUM, sum as i64);
             return Poll::Ready(responses);
         }
         Poll::Pending
