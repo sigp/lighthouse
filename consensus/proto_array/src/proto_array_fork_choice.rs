@@ -430,7 +430,7 @@ impl ProtoArrayForkChoice {
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             previous_proposer_boost: ProposerBoost::default(),
-            anchor_block_root,
+            anchor_block: (anchor_block_root, anchor_block_slot),
         };
 
         let block = Block {
@@ -926,18 +926,20 @@ impl ProtoArrayForkChoice {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8], balances: JustifiedBalances) -> Result<Self, String> {
+    pub fn from_bytes<E: EthSpec>(
+        bytes: &[u8],
+        balances: JustifiedBalances,
+    ) -> Result<Self, String> {
         let container = SszContainer::from_ssz_bytes(bytes)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
-        Self::from_container(container, balances)
+        Self::from_container::<E>(container, balances)
     }
 
-    pub fn from_container(
+    pub fn from_container<E: EthSpec>(
         container: SszContainer,
         balances: JustifiedBalances,
     ) -> Result<Self, String> {
-        (container, balances)
-            .try_into()
+        Self::from_ssz::<E>(container, balances)
             .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
 
@@ -962,7 +964,7 @@ impl ProtoArrayForkChoice {
 
     /// Returns the anchor_block_root
     pub fn get_anchor_block_root(&self) -> Hash256 {
-        self.proto_array.anchor_block_root
+        self.proto_array.anchor_block.0
     }
 }
 

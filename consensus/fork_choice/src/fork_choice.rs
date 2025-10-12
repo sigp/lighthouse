@@ -1436,7 +1436,7 @@ where
         reset_payload_statuses: ResetPayloadStatuses,
         spec: &ChainSpec,
     ) -> Result<ProtoArrayForkChoice, Error<T::Error>> {
-        let mut proto_array = ProtoArrayForkChoice::from_container(
+        let mut proto_array = ProtoArrayForkChoice::from_container::<E>(
             persisted_proto_array.clone(),
             justified_balances.clone(),
         )
@@ -1468,7 +1468,7 @@ where
                 info = "please report this error",
                 "Failed to reset payload statuses"
             );
-            ProtoArrayForkChoice::from_container(persisted_proto_array, justified_balances)
+            ProtoArrayForkChoice::from_container::<E>(persisted_proto_array, justified_balances)
                 .map_err(Error::InvalidProtoArrayBytes)
         } else {
             debug!("Successfully reset all payload statuses");
