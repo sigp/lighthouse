@@ -3018,9 +3018,11 @@ mod yaml_tests {
     fn proposer_shuffling_decision_root_around_epoch_boundary() {
         type E = MainnetEthSpec;
         let fulu_fork_epoch = 5;
+        let gloas_fork_epoch = 10;
         let spec = {
             let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
             spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch));
+            spec.gloas_fork_epoch = Some(Epoch::new(gloas_fork_epoch));
             Arc::new(spec)
         };
 
@@ -3034,7 +3036,7 @@ mod yaml_tests {
         }
 
         // For epochs after Fulu, the decision slot is the end of the epoch two epochs prior.
-        for epoch in ((fulu_fork_epoch + 1)..(fulu_fork_epoch + 10)).map(Epoch::new) {
+        for epoch in ((fulu_fork_epoch + 1)..=(gloas_fork_epoch + 1)).map(Epoch::new) {
             assert_eq!(
                 spec.proposer_shuffling_decision_slot::<E>(epoch),
                 (epoch - 1).start_slot(E::slots_per_epoch()) - 1
