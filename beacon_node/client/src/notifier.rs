@@ -120,7 +120,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             let cached_head = beacon_chain.canonical_head.cached_head();
             let head_slot = cached_head.head_slot();
             let head_root = cached_head.head_block_root();
-            let finalized_checkpoint = cached_head.finalized_checkpoint();
+            let finalized_checkpoint = cached_head.finalized_checkpoint_from_state();
             let finalized_root_str = {
                 let finalized_slot = finalized_checkpoint
                     .epoch

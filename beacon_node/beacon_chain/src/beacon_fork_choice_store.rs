@@ -187,13 +187,8 @@ where
         if anchor_block_header.state_root.is_zero() {
             anchor_block_header.state_root = unadvanced_state_root;
         }
-        let anchor_block_root = anchor_block_header.canonical_root();
-        let anchor_epoch = anchor_state.current_epoch();
-        let justified_checkpoint = Checkpoint {
-            epoch: anchor_epoch,
-            root: anchor_block_root,
-        };
-        let finalized_checkpoint = justified_checkpoint;
+        let justified_checkpoint = anchor_state.current_justified_checkpoint();
+        let finalized_checkpoint = anchor_state.finalized_checkpoint();
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
         let justified_state_root = anchor_state.canonical_root()?;
 
