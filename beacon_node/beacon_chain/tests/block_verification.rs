@@ -109,6 +109,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .import_all_data_columns(true)
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .build();

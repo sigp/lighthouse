@@ -4156,15 +4156,10 @@ async fn test_custody_column_filtering_regular_node() {
     let (signed_block, all_data_columns) =
         beacon_chain::test_utils::generate_rand_block_and_data_columns::<E>(
             fork_name,
-            beacon_chain::test_utils::NumBlobs::Number(3), // Generate 3 blobs to produce data columns
+            beacon_chain::test_utils::NumBlobs::Number(1),
             &mut rng,
             &harness.spec,
         );
-
-    // Skip test if no data columns are generated
-    if all_data_columns.is_empty() {
-        return;
-    }
 
     let block_root = signed_block.canonical_root();
     let slot = signed_block.slot();
@@ -4210,21 +4205,6 @@ async fn test_custody_column_filtering_regular_node() {
         stored_column_indices, expected_column_indices,
         "Regular node should only store custody columns"
     );
-
-    // Verify no non-custody columns are included
-    let all_column_indices: std::collections::HashSet<_> =
-        all_data_columns.iter().map(|dc| dc.index).collect();
-    let non_custody_columns: std::collections::HashSet<_> = all_column_indices
-        .difference(&expected_column_indices)
-        .collect();
-
-    for &non_custody_column in &non_custody_columns {
-        assert!(
-            !stored_column_indices.contains(non_custody_column),
-            "Non-custody column {} should not be stored",
-            non_custody_column
-        );
-    }
 }
 
 /// Test that supernodes store all data columns when processing blocks with data columns.
@@ -4301,24 +4281,16 @@ async fn test_custody_column_filtering_supernode() {
         .expect("should get data columns")
         .expect("data columns should exist");
 
-    assert_eq!(
-        stored_columns.len(),
-        all_data_columns.len(),
-        "All data columns should be retrievable"
-    );
-
     for original_column in &all_data_columns {
-        let matching_stored = stored_columns
+        let stored_column = stored_columns
             .iter()
-            .find(|stored| stored.index == original_column.index);
-
-        assert!(
-            matching_stored.is_some(),
-            "Column {} should be present in stored data",
-            original_column.index
-        );
-
-        let stored_column = matching_stored.unwrap();
+            .find(|stored| stored.index == original_column.index)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Column {} should be present in stored data",
+                    original_column.index
+                )
+            });
         assert_eq!(
             stored_column, original_column,
             "Stored column {} should match original",
