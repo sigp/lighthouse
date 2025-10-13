@@ -250,12 +250,7 @@ impl<E: EthSpec> LocalExecutionNode<E> {
         }
         let spec = context.eth2_config.spec.clone();
         Self {
-            server: MockServer::new_with_config(
-                &context.executor.handle().unwrap(),
-                config,
-                spec,
-                None,
-            ),
+            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config, None),
             datadir,
         }
     }

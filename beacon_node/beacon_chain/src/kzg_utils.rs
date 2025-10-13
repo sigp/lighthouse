@@ -463,7 +463,7 @@ mod test {
 
     #[track_caller]
     fn test_validate_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
         let blob_refs = blobs.iter().collect::<Vec<_>>();
@@ -489,7 +489,8 @@ mod test {
 
     #[track_caller]
     fn test_build_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
+        let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
 
@@ -529,6 +530,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_data_columns(kzg: &Kzg, spec: &ChainSpec) {
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
         let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
@@ -552,6 +554,7 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_data_columns_unordered(kzg: &Kzg, spec: &ChainSpec) {
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
         let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
@@ -573,7 +576,8 @@ mod test {
 
     #[track_caller]
     fn test_reconstruct_blobs_from_data_columns(kzg: &Kzg, spec: &ChainSpec) {
-        let num_of_blobs = 6;
+        // Using at least 2 blobs to make sure we're arranging the data columns correctly.
+        let num_of_blobs = 2;
         let (signed_block, blobs, proofs) =
             create_test_fulu_block_and_blobs::<E>(num_of_blobs, spec);
         let blob_refs = blobs.iter().collect::<Vec<_>>();
