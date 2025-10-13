@@ -33,7 +33,7 @@ use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, Relative
 ///
 /// This avoids doing unnecessary work whilst the node is syncing or has perhaps been put to sleep
 /// for some period of time.
-const MAX_ADVANCE_DISTANCE: u64 = 4;
+const MAX_ADVANCE_DISTANCE: u64 = 256;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.
 ///
@@ -49,17 +49,7 @@ enum Error {
     HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     BeaconState(#[allow(dead_code)] BeaconStateError),
     Store(#[allow(dead_code)] store::Error),
-    MaxDistanceExceeded {
-        current_slot: Slot,
-        head_slot: Slot,
-    },
-    StateAlreadyAdvanced {
-        block_root: Hash256,
-    },
-    BadStateSlot {
-        _state_slot: Slot,
-        _block_slot: Slot,
-    },
+    MaxDistanceExceeded { current_slot: Slot, head_slot: Slot },
 }
 
 impl From<BeaconChainError> for Error {
@@ -180,9 +170,6 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                             error = ?e,
                             "Failed to advance head state"
                         ),
-                        Err(Error::StateAlreadyAdvanced { block_root }) => {
-                            debug!(?block_root, "State already advanced on slot")
-                        }
                         Err(Error::MaxDistanceExceeded {
                             current_slot,
                             head_slot,
@@ -294,25 +281,6 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         .store
         .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
-
-    // Protect against advancing a state more than a single slot.
-    //
-    // Advancing more than one slot without storing the intermediate state would corrupt the
-    // database. Future works might store intermediate states inside this function.
-    match state.slot().cmp(&state.latest_block_header().slot) {
-        std::cmp::Ordering::Equal => (),
-        std::cmp::Ordering::Greater => {
-            return Err(Error::StateAlreadyAdvanced {
-                block_root: head_block_root,
-            });
-        }
-        std::cmp::Ordering::Less => {
-            return Err(Error::BadStateSlot {
-                _block_slot: state.latest_block_header().slot,
-                _state_slot: state.slot(),
-            });
-        }
-    }
 
     let initial_slot = state.slot();
     let initial_epoch = state.current_epoch();

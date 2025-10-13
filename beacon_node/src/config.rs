@@ -170,13 +170,6 @@ pub fn get_config<E: EthSpec>(
             parse_required(cli_args, "http-duplicate-block-status")?;
     }
 
-    if cli_args.get_flag("light-client-server") {
-        warn!(
-            "The --light-client-server flag is deprecated. The light client server is enabled \
-             by default"
-        );
-    }
-
     if cli_args.get_flag("disable-light-client-server") {
         client_config.chain.enable_light_client_server = false;
     }
@@ -260,24 +253,6 @@ pub fn get_config<E: EthSpec>(
     // Do not scrape for malloc metrics if we've disabled tuning malloc as it may cause panics.
     if cli_args.get_flag(DISABLE_MALLOC_TUNING_FLAG) {
         client_config.http_metrics.allocator_metrics_enabled = false;
-    }
-
-    /*
-     * Deprecated Eth1 flags (can be removed in the next minor release after v7.1.0)
-     */
-    if cli_args
-        .get_one::<String>("eth1-blocks-per-log-query")
-        .is_some()
-    {
-        warn!("The eth1-blocks-per-log-query flag is deprecated");
-    }
-
-    if cli_args.get_flag("eth1-purge-cache") {
-        warn!("The eth1-purge-cache flag is deprecated");
-    }
-
-    if clap_utils::parse_optional::<u64>(cli_args, "eth1-cache-follow-distance")?.is_some() {
-        warn!("The eth1-cache-follow-distance flag is deprecated");
     }
 
     // `--execution-endpoint` is required now.
@@ -771,10 +746,6 @@ pub fn get_config<E: EthSpec>(
                 DisallowedReOrgOffsets::new::<E>(disallowed_offsets)
                     .map_err(|e| format!("invalid disallowed-offsets: {e:?}"))?;
         }
-    }
-
-    if cli_args.get_flag("disable-deposit-contract-sync") {
-        warn!("The disable-deposit-contract-sync flag is deprecated");
     }
 
     client_config.chain.prepare_payload_lookahead =

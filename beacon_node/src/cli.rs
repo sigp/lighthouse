@@ -699,38 +699,6 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
-
-        /*
-         * Eth1 Integration
-         */
-        .arg(
-            Arg::new("eth1-purge-cache")
-                .long("eth1-purge-cache")
-                .value_name("PURGE-CACHE")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("eth1-blocks-per-log-query")
-                .long("eth1-blocks-per-log-query")
-                .value_name("BLOCKS")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("eth1-cache-follow-distance")
-                .long("eth1-cache-follow-distance")
-                .value_name("BLOCKS")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .display_order(0)
-                .hide(true)
-        )
         .arg(
             Arg::new("slots-per-restore-point")
                 .long("slots-per-restore-point")
@@ -1497,16 +1465,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
-        )
-        .arg(
-            Arg::new("disable-deposit-contract-sync")
-                .long("disable-deposit-contract-sync")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("staking")
-                .display_order(0)
-                .hide(true)
         )
         .arg(
             Arg::new("disable-optimistic-finalized-sync")
