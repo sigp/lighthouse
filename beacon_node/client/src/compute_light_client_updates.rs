@@ -3,7 +3,7 @@ use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
 use beacon_processor::{BeaconProcessorSend, Work, WorkEvent};
 use futures::StreamExt;
 use futures::channel::mpsc::Receiver;
-use tracing::{error, debug};
+use tracing::{debug, error};
 
 // Each `LightClientProducerEvent` is ~200 bytes. With the light_client server producing only recent
 // updates it is okay to drop some events in case of overloading. In normal network conditions
