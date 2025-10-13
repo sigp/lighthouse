@@ -10,7 +10,7 @@ use types::data_column_custody_group::{CustodyIndex, compute_columns_for_custody
 use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
 
 /// A delay before making the CGC change effective to the data availability checker.
-const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
+pub const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
 
 /// Number of slots after which a validator's registration is removed if it has not re-registered.
 const VALIDATOR_REGISTRATION_EXPIRY_SLOTS: Slot = Slot::new(256);

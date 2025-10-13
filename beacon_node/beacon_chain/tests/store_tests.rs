@@ -11,6 +11,7 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
     mock_execution_layer_from_parts, test_spec,
 };
+use beacon_chain::validator_custody::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
@@ -4467,8 +4468,6 @@ async fn test_custody_column_filtering_supernode() {
     );
 }
 
-
-
 #[tokio::test]
 async fn test_missing_columns_after_cgc_change() {
     let spec = test_spec::<E>();
@@ -4487,7 +4486,7 @@ async fn test_missing_columns_after_cgc_change() {
     let state = harness.chain.head_beacon_state_cloned();
 
     if !state.fork_name_unchecked().fulu_enabled() {
-        return
+        return;
     }
 
     let custody_context = harness.chain.data_availability_checker.custody_context();
@@ -4501,10 +4500,11 @@ async fn test_missing_columns_after_cgc_change() {
         )
         .await;
 
-    
     let epoch_before_increase = Epoch::new(num_epochs_before_increase);
 
-    let missing_columns = harness.chain.get_missing_columns_for_epoch(epoch_before_increase);
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_before_increase);
 
     // We should have no missing columns
     assert_eq!(missing_columns.len(), 0);
@@ -4512,11 +4512,7 @@ async fn test_missing_columns_after_cgc_change() {
     let epoch_after_increase = Epoch::new(num_epochs_before_increase + 2);
 
     let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
-        custody_context.register_validators(
-            vec![(1, 32_000_000_000 * 9)],
-            cgc_change_slot,
-            &spec,
-        );
+    custody_context.register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot, &spec);
 
     harness.advance_slot();
     harness
@@ -4528,14 +4524,108 @@ async fn test_missing_columns_after_cgc_change() {
         .await;
 
     // We should have missing columns from before the cgc increase
-    let missing_columns = harness.chain.get_missing_columns_for_epoch(epoch_before_increase);
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_before_increase);
 
     assert!(!missing_columns.is_empty());
 
     // We should have no missing columns after the cgc increase
-    let missing_columns = harness.chain.get_missing_columns_for_epoch(epoch_after_increase);
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_after_increase);
 
     assert!(missing_columns.is_empty());
+}
+
+#[tokio::test]
+async fn test_safely_backfill_data_column_custody_info() {
+    let spec = test_spec::<E>();
+
+    let num_validators = 8;
+
+    let start_epochs = 4;
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone().into())
+        .deterministic_keypairs(num_validators)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let state = harness.chain.head_beacon_state_cloned();
+
+    if !state.fork_name_unchecked().fulu_enabled() {
+        return;
+    }
+
+    let custody_context = harness.chain.data_availability_checker.custody_context();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * start_epochs) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let epoch_before_increase = Epoch::new(start_epochs);
+    let effective_delay_slots =
+        CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / harness.chain.spec.seconds_per_slot;
+
+    let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
+
+    custody_context.register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot, &spec);
+
+    let epoch_after_increase =
+        (cgc_change_slot + effective_delay_slots).epoch(E::slots_per_epoch());
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 5) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let head_slot = harness.chain.head().snapshot.beacon_block.slot();
+
+    harness
+        .chain
+        .update_data_column_custody_info(Some(head_slot));
+
+    // We can only safely update custody column info 1 epoch at a time
+    // Skipping an epoch should return an error
+    harness
+        .chain
+        .safely_backfill_data_column_custody_info(head_slot.epoch(E::slots_per_epoch()) - 2)
+        .unwrap_err();
+
+    // Iterate from the head epoch back to 0 and try to backfill data column custody info
+    for epoch in (0..head_slot.epoch(E::slots_per_epoch()).into()).rev() {
+        // This is an epoch before the cgc change took into effect, we shouldnt be able to update
+        // without performing custody backfill sync
+        if epoch <= epoch_after_increase.into() {
+            harness
+                .chain
+                .safely_backfill_data_column_custody_info(Epoch::new(epoch))
+                .unwrap_err();
+        } else {
+            // This is an epoch after the cgc change took into effect, we should be able to update
+            // as long as we iterate epoch by epoch
+            harness
+                .chain
+                .safely_backfill_data_column_custody_info(Epoch::new(epoch))
+                .unwrap();
+            let earliest_available_epoch = harness
+                .chain
+                .earliest_custodied_data_column_epoch()
+                .unwrap();
+            assert_eq!(Epoch::new(epoch), earliest_available_epoch);
+        }
+    }
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.
