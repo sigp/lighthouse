@@ -4196,10 +4196,8 @@ async fn test_custody_column_filtering_regular_node() {
         .expect("should get stored column keys");
 
     // Verify only custody columns were stored
-    let stored_column_indices: std::collections::HashSet<_> =
-        stored_column_keys.into_iter().collect();
-    let expected_column_indices: std::collections::HashSet<_> =
-        custody_columns.iter().copied().collect();
+    let stored_column_indices: HashSet<_> = stored_column_keys.into_iter().collect();
+    let expected_column_indices: HashSet<_> = custody_columns.iter().copied().collect();
 
     assert_eq!(
         stored_column_indices, expected_column_indices,
@@ -4225,15 +4223,10 @@ async fn test_custody_column_filtering_supernode() {
     let (signed_block, all_data_columns) =
         beacon_chain::test_utils::generate_rand_block_and_data_columns::<E>(
             fork_name,
-            beacon_chain::test_utils::NumBlobs::Number(3), // Generate 3 blobs to produce data columns
+            beacon_chain::test_utils::NumBlobs::Number(1),
             &mut rng,
             &harness.spec,
         );
-
-    // Skip test if no data columns are generated
-    if all_data_columns.is_empty() {
-        return;
-    }
 
     let block_root = signed_block.canonical_root();
 
@@ -4258,21 +4251,12 @@ async fn test_custody_column_filtering_supernode() {
         .expect("should get stored column keys");
 
     // Verify ALL data columns were stored for supernodes
-    let stored_column_indices: std::collections::HashSet<_> =
-        stored_column_keys.into_iter().collect();
-    let all_column_indices: std::collections::HashSet<_> =
-        all_data_columns.iter().map(|dc| dc.index).collect();
+    let stored_column_indices: HashSet<_> = stored_column_keys.into_iter().collect();
+    let all_column_indices: HashSet<_> = all_data_columns.iter().map(|dc| dc.index).collect();
 
     assert_eq!(
         stored_column_indices, all_column_indices,
         "Supernode should store ALL data columns"
-    );
-
-    // Verify the count matches
-    assert_eq!(
-        stored_column_indices.len(),
-        all_data_columns.len(),
-        "Supernode should store the same number of columns as generated"
     );
 
     // Verify each stored column can be retrieved and matches original data
