@@ -4377,6 +4377,76 @@ async fn replay_from_split_state() {
     assert_eq!(state.slot(), split.slot);
 }
 
+
+#[tokio::test]
+async fn test_missing_columns_after_cgc_change() {
+    let spec = test_spec::<E>();
+
+    let num_validators = 8;
+
+    let num_epochs_before_increase = 4;
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone().into())
+        .deterministic_keypairs(num_validators)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let state = harness.chain.head_beacon_state_cloned();
+
+    if !state.fork_name_unchecked().fulu_enabled() {
+        return
+    }
+
+    let custody_context = harness.chain.data_availability_checker.custody_context();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * num_epochs_before_increase) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    
+    let epoch_before_increase = Epoch::new(num_epochs_before_increase);
+
+    let missing_columns = harness.chain.get_missing_columns_for_epoch(epoch_before_increase);
+
+    // We should have no missing columns
+    assert_eq!(missing_columns.len(), 0);
+
+    let epoch_after_increase = Epoch::new(num_epochs_before_increase + 2);
+
+    let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
+        custody_context.register_validators(
+            vec![(1, 32_000_000_000 * 9)],
+            cgc_change_slot,
+            &spec,
+        );
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 5) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // We should have missing columns from before the cgc increase
+    let missing_columns = harness.chain.get_missing_columns_for_epoch(epoch_before_increase);
+
+    assert!(!missing_columns.is_empty());
+
+    // We should have no missing columns after the cgc increase
+    let missing_columns = harness.chain.get_missing_columns_for_epoch(epoch_after_increase);
+
+    assert!(missing_columns.is_empty());
+}
+
 /// Checks that two chains are the same, for the purpose of these tests.
 ///
 /// Several fields that are hard/impossible to check are ignored (e.g., the store).
