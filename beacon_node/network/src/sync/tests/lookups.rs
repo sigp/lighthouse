@@ -1146,7 +1146,6 @@ impl TestRig {
 
 #[test]
 fn stable_rng() {
-    let spec = types::MainnetEthSpec::default_spec();
     let mut rng = XorShiftRng::from_seed([42; 16]);
     let (block, _) = generate_rand_block_and_blobs::<E>(ForkName::Base, NumBlobs::None, &mut rng);
     assert_eq!(

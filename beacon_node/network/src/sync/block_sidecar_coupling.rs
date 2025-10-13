@@ -521,7 +521,6 @@ mod tests {
 
     #[test]
     fn no_blobs_into_responses() {
-        let spec = test_spec::<E>();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {
@@ -544,7 +543,6 @@ mod tests {
 
     #[test]
     fn empty_blobs_into_responses() {
-        let spec = test_spec::<E>();
         let mut rng = XorShiftRng::from_seed([42; 16]);
         let blocks = (0..4)
             .map(|_| {

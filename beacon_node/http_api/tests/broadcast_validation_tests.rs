@@ -1647,6 +1647,10 @@ pub async fn block_seen_on_gossip_with_some_blobs_or_columns() {
         )
         .await;
     tester.harness.advance_slot();
+    tester
+        .harness
+        .execution_block_generator()
+        .set_min_blob_count(2);
 
     let slot_a = Slot::new(num_initial);
     let slot_b = slot_a + 1;
