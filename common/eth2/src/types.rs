@@ -1052,6 +1052,27 @@ impl SseDataColumnSidecar {
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+pub struct SseExecutionProof {
+    pub block_root: Hash256,
+    pub block_hash: ExecutionBlockHash,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub subnet_id: u64,
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub version: u64,
+}
+
+impl SseExecutionProof {
+    pub fn from_execution_proof(execution_proof: &ExecutionProof) -> SseExecutionProof {
+        SseExecutionProof {
+            block_root: execution_proof.block_root,
+            block_hash: execution_proof.block_hash,
+            subnet_id: *execution_proof.subnet_id,
+            version: execution_proof.version,
+        }
+    }
+}
+
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct SseFinalizedCheckpoint {
     pub block: Hash256,
     pub state: Hash256,
@@ -1202,6 +1223,7 @@ pub enum EventKind<E: EthSpec> {
     Block(SseBlock),
     BlobSidecar(SseBlobSidecar),
     DataColumnSidecar(SseDataColumnSidecar),
+    ExecutionProof(SseExecutionProof),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
     VoluntaryExit(SignedVoluntaryExit),
@@ -1226,6 +1248,7 @@ impl<E: EthSpec> EventKind<E> {
             EventKind::Block(_) => "block",
             EventKind::BlobSidecar(_) => "blob_sidecar",
             EventKind::DataColumnSidecar(_) => "data_column_sidecar",
+            EventKind::ExecutionProof(_) => "execution_proof",
             EventKind::Attestation(_) => "attestation",
             EventKind::SingleAttestation(_) => "single_attestation",
             EventKind::VoluntaryExit(_) => "voluntary_exit",
@@ -1264,6 +1287,11 @@ impl<E: EthSpec> EventKind<E> {
             "data_column_sidecar" => Ok(EventKind::DataColumnSidecar(
                 serde_json::from_str(data).map_err(|e| {
                     ServerError::InvalidServerSentEvent(format!("Data Column Sidecar: {:?}", e))
+                })?,
+            )),
+            "execution_proof" => Ok(EventKind::ExecutionProof(
+                serde_json::from_str(data).map_err(|e| {
+                    ServerError::InvalidServerSentEvent(format!("Execution Proof: {:?}", e))
                 })?,
             )),
             "chain_reorg" => Ok(EventKind::ChainReorg(serde_json::from_str(data).map_err(
@@ -1356,6 +1384,7 @@ pub enum EventTopic {
     Block,
     BlobSidecar,
     DataColumnSidecar,
+    ExecutionProof,
     Attestation,
     SingleAttestation,
     VoluntaryExit,
@@ -1383,6 +1412,7 @@ impl FromStr for EventTopic {
             "block" => Ok(EventTopic::Block),
             "blob_sidecar" => Ok(EventTopic::BlobSidecar),
             "data_column_sidecar" => Ok(EventTopic::DataColumnSidecar),
+            "execution_proof" => Ok(EventTopic::ExecutionProof),
             "attestation" => Ok(EventTopic::Attestation),
             "single_attestation" => Ok(EventTopic::SingleAttestation),
             "voluntary_exit" => Ok(EventTopic::VoluntaryExit),
@@ -1411,6 +1441,7 @@ impl fmt::Display for EventTopic {
             EventTopic::Block => write!(f, "block"),
             EventTopic::BlobSidecar => write!(f, "blob_sidecar"),
             EventTopic::DataColumnSidecar => write!(f, "data_column_sidecar"),
+            EventTopic::ExecutionProof => write!(f, "execution_proof"),
             EventTopic::Attestation => write!(f, "attestation"),
             EventTopic::SingleAttestation => write!(f, "single_attestation"),
             EventTopic::VoluntaryExit => write!(f, "voluntary_exit"),

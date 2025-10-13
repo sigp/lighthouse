@@ -1,4 +1,4 @@
-pub use eth2::types::{EventKind, SseBlock, SseFinalizedCheckpoint, SseHead};
+pub use eth2::types::{EventKind, SseBlock, SseExecutionProof, SseFinalizedCheckpoint, SseHead};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender, error::SendError};
 use tracing::trace;
@@ -12,6 +12,7 @@ pub struct ServerSentEventHandler<E: EthSpec> {
     block_tx: Sender<EventKind<E>>,
     blob_sidecar_tx: Sender<EventKind<E>>,
     data_column_sidecar_tx: Sender<EventKind<E>>,
+    execution_proof_tx: Sender<EventKind<E>>,
     finalized_tx: Sender<EventKind<E>>,
     head_tx: Sender<EventKind<E>>,
     exit_tx: Sender<EventKind<E>>,
@@ -39,6 +40,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         let (block_tx, _) = broadcast::channel(capacity);
         let (blob_sidecar_tx, _) = broadcast::channel(capacity);
         let (data_column_sidecar_tx, _) = broadcast::channel(capacity);
+        let (execution_proof_tx, _) = broadcast::channel(capacity);
         let (finalized_tx, _) = broadcast::channel(capacity);
         let (head_tx, _) = broadcast::channel(capacity);
         let (exit_tx, _) = broadcast::channel(capacity);
@@ -60,6 +62,7 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
             block_tx,
             blob_sidecar_tx,
             data_column_sidecar_tx,
+            execution_proof_tx,
             finalized_tx,
             head_tx,
             exit_tx,
@@ -106,6 +109,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
                 .data_column_sidecar_tx
                 .send(kind)
                 .map(|count| log_count("data_column_sidecar", count)),
+            EventKind::ExecutionProof(_) => self
+                .execution_proof_tx
+                .send(kind)
+                .map(|count| log_count("execution_proof", count)),
             EventKind::FinalizedCheckpoint(_) => self
                 .finalized_tx
                 .send(kind)
@@ -188,6 +195,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
         self.data_column_sidecar_tx.subscribe()
     }
 
+    pub fn subscribe_execution_proof(&self) -> Receiver<EventKind<E>> {
+        self.execution_proof_tx.subscribe()
+    }
+
     pub fn subscribe_finalized(&self) -> Receiver<EventKind<E>> {
         self.finalized_tx.subscribe()
     }
@@ -262,6 +273,10 @@ impl<E: EthSpec> ServerSentEventHandler<E> {
 
     pub fn has_data_column_sidecar_subscribers(&self) -> bool {
         self.data_column_sidecar_tx.receiver_count() > 0
+    }
+
+    pub fn has_execution_proof_subscribers(&self) -> bool {
+        self.execution_proof_tx.receiver_count() > 0
     }
 
     pub fn has_finalized_subscribers(&self) -> bool {

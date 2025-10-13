@@ -7,6 +7,7 @@ use crate::{
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::events::{EventKind, SseExecutionProof};
 use beacon_chain::execution_proof_network;
 use beacon_chain::execution_proof_verification::{
     GossipExecutionProofError, GossipVerifiedExecutionProof,
@@ -3406,6 +3407,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     subnet_id = subnet_id_u64,
                     "Execution proof received via gossip"
                 );
+
+                if let Some(event_handler) = self.chain.event_handler.as_ref() {
+                    if event_handler.has_execution_proof_subscribers() {
+                        event_handler.register(EventKind::ExecutionProof(
+                            SseExecutionProof::from_execution_proof(&execution_proof),
+                        ));
+                    }
+                }
             }
         }
     }
