@@ -222,6 +222,10 @@ impl<E: EthSpec> CachedHead<E> {
         self.justified_checkpoint
     }
 
+    pub fn finalized_checkpoint_from_state(&self) -> Checkpoint {
+        self.snapshot.beacon_state.finalized_checkpoint()
+    }
+
     /// Returns the cached values of `ForkChoice::forkchoice_update_parameters`.
     ///
     /// Useful for supplying to the execution layer.
