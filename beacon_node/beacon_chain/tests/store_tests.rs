@@ -1598,7 +1598,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
         &mut head_state,
         head_state_root,
         gloas_fork_epoch,
-        &spec,
+        spec,
     )
     .unwrap();
     assert_eq!(head_state.current_epoch(), gloas_fork_epoch - 1);
@@ -1622,7 +1622,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
 
     // Build a block in the Gloas fork epoch and assert that the shuffling does not change.
     let gloas_slots = vec![gloas_fork_epoch.start_slot(E::slots_per_epoch())];
-    let (_, _, gloas_head_block_root, mut gloas_head_state) = harness
+    let (_, _, _, _) = harness
         .add_attested_blocks_at_slots(head_state, head_state_root, &gloas_slots, &all_validators)
         .await;
 
