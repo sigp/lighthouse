@@ -4212,8 +4212,7 @@ async fn test_custody_column_filtering_supernode() {
         .await;
 
     // Supernodes are expected to store all data columns
-    let expected_custody_columns: HashSet<_> =
-        (0..E::number_of_columns() as u64).into_iter().collect();
+    let expected_custody_columns: HashSet<_> = (0..E::number_of_columns() as u64).collect();
 
     // Check what actually got stored in the database
     let stored_column_indices: HashSet<_> = store
