@@ -3037,8 +3037,8 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                         .collect::<Vec<_>>();
                     Ok(ForkChoice {
-                        justified_checkpoint: proto_array.justified_checkpoint,
-                        finalized_checkpoint: proto_array.finalized_checkpoint,
+                        justified_checkpoint: beacon_fork_choice.justified_checkpoint(),
+                        finalized_checkpoint: beacon_fork_choice.finalized_checkpoint(),
                         fork_choice_nodes,
                     })
                 })

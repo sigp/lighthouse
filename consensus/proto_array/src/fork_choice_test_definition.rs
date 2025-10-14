@@ -212,7 +212,12 @@ impl ForkChoiceTestDefinition {
                         unrealized_finalized_checkpoint: None,
                     };
                     fork_choice
-                        .process_block::<MainnetEthSpec>(block, slot)
+                        .process_block::<MainnetEthSpec>(
+                            block,
+                            slot,
+                            self.justified_checkpoint,
+                            self.finalized_checkpoint,
+                        )
                         .unwrap_or_else(|e| {
                             panic!(
                                 "process_block op at index {} returned error: {:?}",
@@ -272,7 +277,10 @@ impl ForkChoiceTestDefinition {
                         }
                     };
                     fork_choice
-                        .process_execution_payload_invalidation::<MainnetEthSpec>(&op)
+                        .process_execution_payload_invalidation::<MainnetEthSpec>(
+                            &op,
+                            self.finalized_checkpoint,
+                        )
                         .unwrap()
                 }
                 Operation::AssertWeight { block_root, weight } => assert_eq!(
