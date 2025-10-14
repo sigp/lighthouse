@@ -3,12 +3,13 @@
 use crate::state_id::StateId;
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
-    beacon_proposer_cache::{compute_proposer_duties_from_head, ensure_state_is_in_epoch},
+    beacon_proposer_cache::{
+        compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
+    },
 };
 use eth2::types::{self as api_types};
 use safe_arith::SafeArith;
 use slot_clock::SlotClock;
-use std::cmp::Ordering;
 use tracing::debug;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
@@ -105,36 +106,29 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     let head_decision_root = head
         .snapshot
         .beacon_state
-        .proposer_shuffling_decision_root(head_block_root)
+        .proposer_shuffling_decision_root(head_block_root, &chain.spec)
         .map_err(warp_utils::reject::beacon_state_error)?;
     let execution_optimistic = chain
         .is_optimistic_or_invalid_head_block(head_block)
         .map_err(warp_utils::reject::unhandled_error)?;
 
-    let dependent_root = match head_epoch.cmp(&request_epoch) {
-        // head_epoch == request_epoch
-        Ordering::Equal => head_decision_root,
-        // head_epoch < request_epoch
-        Ordering::Less => head_block_root,
-        // head_epoch > request_epoch
-        Ordering::Greater => {
-            return Err(warp_utils::reject::custom_server_error(format!(
-                "head epoch {} is later than request epoch {}",
-                head_epoch, request_epoch
-            )));
-        }
-    };
+    // This code path can't handle requests for past epochs.
+    if head_epoch > request_epoch {
+        return Err(warp_utils::reject::custom_server_error(format!(
+            "head epoch {head_epoch} is later than request epoch {request_epoch}",
+        )));
+    }
 
     chain
         .beacon_proposer_cache
         .lock()
-        .get_epoch::<T::EthSpec>(dependent_root, request_epoch)
+        .get_epoch::<T::EthSpec>(head_decision_root, request_epoch)
         .cloned()
         .map(|indices| {
             convert_to_api_response(
                 chain,
                 request_epoch,
-                dependent_root,
+                head_decision_root,
                 execution_optimistic,
                 indices.to_vec(),
             )
@@ -204,18 +198,19 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         }
     };
 
-    let (state, execution_optimistic) =
-        if let Some((state_root, mut state, execution_optimistic)) = state_opt {
-            // If we've loaded the head state it might be from a previous epoch, ensure it's in a
-            // suitable epoch.
-            ensure_state_is_in_epoch(&mut state, state_root, epoch, &chain.spec)
-                .map_err(warp_utils::reject::unhandled_error)?;
-            (state, execution_optimistic)
-        } else {
-            let (state, execution_optimistic, _finalized) =
-                StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?;
-            (state, execution_optimistic)
-        };
+    let (state, execution_optimistic) = if let Some((state_root, mut state, execution_optimistic)) =
+        state_opt
+    {
+        // If we've loaded the head state it might be from a previous epoch, ensure it's in a
+        // suitable epoch.
+        ensure_state_can_determine_proposers_for_epoch(&mut state, state_root, epoch, &chain.spec)
+            .map_err(warp_utils::reject::unhandled_error)?;
+        (state, execution_optimistic)
+    } else {
+        let (state, execution_optimistic, _finalized) =
+            StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?;
+        (state, execution_optimistic)
+    };
 
     // Ensure the state lookup was correct.
     if state.current_epoch() != epoch {
@@ -234,7 +229,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
     // We can supply the genesis block root as the block root since we know that the only block that
     // decides its own root is the genesis block.
     let dependent_root = state
-        .proposer_shuffling_decision_root(chain.genesis_block_root)
+        .proposer_shuffling_decision_root(chain.genesis_block_root, &chain.spec)
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::unhandled_error)?;
 
