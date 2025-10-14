@@ -11,14 +11,9 @@ use std::ops::{Deref, DerefMut};
 /// fewer subnets (configured via max_execution_proof_subnets in ChainConfig),
 /// but no node can exceed this protocol maximum.
 ///
-/// The value of 8 subnets provides a good balance between:
-/// - Proof diversity (multiple independent proofs per block)
-/// - Network overhead (not too many gossip topics)
-/// - Resource requirements (reasonable for most nodes(?))
-///
-/// In reality, I do not think we will have 8, more closer to 3, though this is still being
-/// explored. This number could be larger if we consider combining different zkVMs with different guests.
-pub const MAX_EXECUTION_PROOF_SUBNETS: u64 = 8;
+/// Currently set to 1 subnet for initial rollout. This will be expanded to 3-8 subnets
+/// in the future to support client and Proof diversity (multiple independent proofs per block)
+pub const MAX_EXECUTION_PROOF_SUBNETS: u64 = 1;
 
 /// ExecutionProofSubnetId is both the id for the subnet that a particular proof will be on
 /// and the proof ID to identify the proof. ie, we have one type of proof per subnet.
@@ -132,7 +127,6 @@ mod tests {
         }
 
         assert!(ExecutionProofSubnetId::new(0).is_ok());
-        assert!(ExecutionProofSubnetId::new(7).is_ok());
         assert!(ExecutionProofSubnetId::new(MAX_EXECUTION_PROOF_SUBNETS).is_err());
         assert!(ExecutionProofSubnetId::new(u64::MAX).is_err());
     }
