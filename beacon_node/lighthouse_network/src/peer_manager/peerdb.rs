@@ -29,6 +29,10 @@ const MAX_DC_PEERS: usize = 500;
 pub const MAX_BANNED_PEERS: usize = 1000;
 /// We ban an IP if there are more than `BANNED_PEERS_PER_IP_THRESHOLD` banned peers with this IP.
 const BANNED_PEERS_PER_IP_THRESHOLD: usize = 5;
+/// The prefix length for grouping IPv6 addresses when banning peers.
+/// Most ISPs allocate /56 prefixes to users, so we group banned peers under this prefix
+/// to prevent attackers from generating new IPv6 addresses within their allocation to avoid bans.
+const IPV6_BANNED_GROUPING_PREFIX: u8 = 56;
 /// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
 /// them in lighthouse.
 const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
@@ -1409,13 +1413,41 @@ pub struct BannedPeersCount {
     banned_peers_per_ip: HashMap<IpAddr, usize>,
 }
 
+/// Normalizes an IP address for banning purposes.
+/// For IPv4 addresses, returns the address unchanged.
+/// For IPv6 addresses, returns the address masked to the /X prefix specified by IPV6_BANNED_GROUPING_PREFIX.
+/// This groups IPv6 addresses by subnet to prevent attackers from generating new addresses to avoid bans.
+fn normalize_ip_for_banning(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(ipv6) => {
+            const PREFIX_BITS: u8 = IPV6_BANNED_GROUPING_PREFIX;
+            const FULL_SEGMENTS: usize = (PREFIX_BITS / 16) as usize;
+            const REMAINING_BITS: u8 = PREFIX_BITS % 16;
+
+            let segments = ipv6.segments();
+            let mut masked_segments = [0u16; 8];
+
+            masked_segments[..FULL_SEGMENTS].copy_from_slice(&segments[..FULL_SEGMENTS]);
+
+            if FULL_SEGMENTS < 8 && REMAINING_BITS > 0 {
+                const MASK: u16 = !((1u16 << (16 - REMAINING_BITS)) - 1);
+                masked_segments[FULL_SEGMENTS] = segments[FULL_SEGMENTS] & MASK;
+            }
+
+            IpAddr::V6(std::net::Ipv6Addr::from(masked_segments))
+        }
+    }
+}
+
 impl BannedPeersCount {
     /// Removes the peer from the counts if it is banned. Returns true if the peer was banned and
     /// false otherwise.
     pub fn remove_banned_peer(&mut self, ip_addresses: impl Iterator<Item = IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_sub(1);
         for address in ip_addresses {
-            if let Some(count) = self.banned_peers_per_ip.get_mut(&address) {
+            let normalized_ip = normalize_ip_for_banning(address);
+            if let Some(count) = self.banned_peers_per_ip.get_mut(&normalized_ip) {
                 *count = count.saturating_sub(1);
             }
         }
@@ -1424,7 +1456,8 @@ impl BannedPeersCount {
     pub fn add_banned_peer(&mut self, ip_addresses: impl Iterator<Item = IpAddr>) {
         self.banned_peers = self.banned_peers.saturating_add(1);
         for address in ip_addresses {
-            *self.banned_peers_per_ip.entry(address).or_insert(0) += 1;
+            let normalized_ip = normalize_ip_for_banning(address);
+            *self.banned_peers_per_ip.entry(normalized_ip).or_insert(0) += 1;
         }
     }
 
@@ -1443,8 +1476,9 @@ impl BannedPeersCount {
     /// An IP is considered banned if more than BANNED_PEERS_PER_IP_THRESHOLD banned peers
     /// exist with this IP
     pub fn ip_is_banned(&self, ip: &IpAddr) -> bool {
+        let normalized_ip = normalize_ip_for_banning(*ip);
         self.banned_peers_per_ip
-            .get(ip)
+            .get(&normalized_ip)
             .is_some_and(|count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
     }
 }
@@ -2009,9 +2043,9 @@ mod tests {
         let mut pdb = get_db();
 
         let ip1 = Ipv4Addr::new(1, 2, 3, 4).into();
-        let ip2 = Ipv6Addr::new(1, 2, 3, 4, 5, 6, 7, 8).into();
+        let ip2 = Ipv6Addr::new(1, 2, 3, 0x0400, 5, 6, 7, 8).into();
         let ip3 = Ipv4Addr::new(1, 2, 3, 5).into();
-        let ip4 = Ipv6Addr::new(1, 2, 3, 4, 5, 6, 7, 9).into();
+        let ip4 = Ipv6Addr::new(1, 2, 3, 0x0500, 5, 6, 7, 9).into();
         let ip5 = Ipv4Addr::new(2, 2, 3, 4).into();
 
         let mut peers = Vec::new();
@@ -2209,6 +2243,289 @@ mod tests {
         assert_eq!(
             pdb.peer_info(&peer).unwrap().score().score(),
             Score::max_score().score()
+        );
+    }
+
+    #[test]
+    fn test_normalize_ipv4_unchanged() {
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1));
+        assert_eq!(normalize_ip_for_banning(ip), ip);
+
+        let ip2 = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1));
+        assert_eq!(normalize_ip_for_banning(ip2), ip2);
+    }
+
+    #[test]
+    fn test_normalize_ipv6_same_subnet() {
+        let ip1 = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5678, 0xabcd, 0xef00, 0x0000, 0x0001,
+        ));
+        let ip2 = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5678, 0xabcd, 0xef00, 0x0000, 0x0002,
+        ));
+
+        let normalized1 = normalize_ip_for_banning(ip1);
+        let normalized2 = normalize_ip_for_banning(ip2);
+
+        assert_eq!(normalized1, normalized2);
+    }
+
+    #[test]
+    fn test_normalize_ipv6_different_subnet() {
+        let ip1 = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5600, 0x0000, 0x0000, 0x0000, 0x0001,
+        ));
+        let ip2 = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5700, 0x0000, 0x0000, 0x0000, 0x0001,
+        ));
+
+        let normalized1 = normalize_ip_for_banning(ip1);
+        let normalized2 = normalize_ip_for_banning(ip2);
+
+        assert_ne!(normalized1, normalized2);
+    }
+
+    #[test]
+    fn test_normalize_ipv6_masks_correctly() {
+        let ip = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x1234, 0x5678, 0xabcd, 0xef01, 0x2345, 0x6789,
+        ));
+        let normalized = normalize_ip_for_banning(ip);
+
+        if let IpAddr::V6(ipv6) = normalized {
+            let segments = ipv6.segments();
+            assert_eq!(segments[0], 0x2001);
+            assert_eq!(segments[1], 0x0db8);
+            assert_eq!(segments[2], 0x1234);
+            assert_eq!(segments[3] & 0xFF00, 0x5600);
+            assert_eq!(segments[4], 0x0000);
+            assert_eq!(segments[5], 0x0000);
+            assert_eq!(segments[6], 0x0000);
+            assert_eq!(segments[7], 0x0000);
+        } else {
+            panic!("Expected IPv6 address");
+        }
+    }
+
+    #[test]
+    fn test_ipv6_ban_grouping() {
+        let mut pdb = get_db();
+
+        let base_segments = [0x2001, 0x0db8, 0x1234, 0x5600, 0, 0, 0, 0];
+
+        let mut peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 2 {
+            let segments = [
+                base_segments[0],
+                base_segments[1],
+                base_segments[2],
+                base_segments[3],
+                i as u16,
+                (i * 2) as u16,
+                (i * 3) as u16,
+                (i * 4) as u16,
+            ];
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                segments[0],
+                segments[1],
+                segments[2],
+                segments[3],
+                segments[4],
+                segments[5],
+                segments[6],
+                segments[7],
+            ));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &peers[..BANNED_PEERS_PER_IP_THRESHOLD + 1] {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let different_subnet_ip =
+            IpAddr::V6(Ipv6Addr::new(0x2001, 0x0db8, 0x1234, 0x5700, 0, 0, 0, 1));
+        let p_different = connect_peer_with_ips(&mut pdb, vec![different_subnet_ip]);
+
+        assert!(
+            pdb.ban_status(&peers[BANNED_PEERS_PER_IP_THRESHOLD + 1])
+                .is_some()
+        );
+        assert!(pdb.ban_status(&p_different).is_none());
+    }
+
+    #[test]
+    fn test_ipv6_subnet_banning_with_different_addresses() {
+        let mut pdb = get_db();
+
+        let mut peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                0x2001,
+                0x0db8,
+                0xabcd,
+                0x1200,
+                0x1111 * i as u16,
+                0x2222 * i as u16,
+                0x3333 * i as u16,
+                i as u16,
+            ));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &peers {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let new_peer_same_subnet = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0xabcd, 0x1200, 0xffff, 0xeeee, 0xdddd, 0xcccc,
+        ));
+        let p_new = connect_peer_with_ips(&mut pdb, vec![new_peer_same_subnet]);
+
+        assert!(
+            pdb.ban_status(&p_new).is_some(),
+            "New peer from same /56 subnet should be banned"
+        );
+
+        let new_peer_different_subnet = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0xabcd, 0x1300, 0xffff, 0xeeee, 0xdddd, 0xcccc,
+        ));
+        let p_different = connect_peer_with_ips(&mut pdb, vec![new_peer_different_subnet]);
+
+        assert!(
+            pdb.ban_status(&p_different).is_none(),
+            "Peer from different /56 subnet should not be banned"
+        );
+    }
+
+    #[test]
+    fn test_ipv6_vs_ipv4_banning_independence() {
+        let mut pdb = get_db();
+
+        let ipv6_base = [0x2001, 0x0db8, 0x1234, 0x5600];
+        let mut ipv6_peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                ipv6_base[0],
+                ipv6_base[1],
+                ipv6_base[2],
+                ipv6_base[3],
+                i as u16,
+                0,
+                0,
+                i as u16,
+            ));
+            ipv6_peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &ipv6_peers {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let ipv4_peer = connect_peer_with_ips(&mut pdb, vec![Ipv4Addr::new(1, 2, 3, 4).into()]);
+        assert!(
+            pdb.ban_status(&ipv4_peer).is_none(),
+            "IPv4 peer should not be affected by IPv6 subnet ban"
+        );
+
+        let ipv6_peer_same_subnet = IpAddr::V6(Ipv6Addr::new(
+            ipv6_base[0],
+            ipv6_base[1],
+            ipv6_base[2],
+            ipv6_base[3],
+            0xdead,
+            0xbeef,
+            0xcafe,
+            0xbabe,
+        ));
+        let p6_new = connect_peer_with_ips(&mut pdb, vec![ipv6_peer_same_subnet]);
+        assert!(
+            pdb.ban_status(&p6_new).is_some(),
+            "New IPv6 peer from banned /56 subnet should be banned"
+        );
+    }
+
+    #[test]
+    fn test_ipv6_partial_segment_masking() {
+        let mut pdb = get_db();
+
+        let mut peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                0x2001,
+                0x0db8,
+                0x5555,
+                0x12ab + i as u16,
+                i as u16,
+                0,
+                0,
+                i as u16,
+            ));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &peers {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let same_prefix = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x5555, 0x12ff, 0xaaaa, 0xbbbb, 0xcccc, 0xdddd,
+        ));
+        let p_same = connect_peer_with_ips(&mut pdb, vec![same_prefix]);
+        assert!(
+            pdb.ban_status(&p_same).is_some(),
+            "Peer with same /56 prefix should be banned (0x12ab/56 == 0x12ff/56)"
+        );
+
+        let different_prefix = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0x5555, 0x13ab, 0xaaaa, 0xbbbb, 0xcccc, 0xdddd,
+        ));
+        let p_different = connect_peer_with_ips(&mut pdb, vec![different_prefix]);
+        assert!(
+            pdb.ban_status(&p_different).is_none(),
+            "Peer with different /56 prefix should not be banned (0x12ab/56 != 0x13ab/56)"
+        );
+    }
+
+    #[test]
+    fn test_ipv6_subnet_unban_clears_all_in_subnet() {
+        let mut pdb = get_db();
+
+        let mut peers = Vec::new();
+        for i in 0..BANNED_PEERS_PER_IP_THRESHOLD + 1 {
+            let ip = IpAddr::V6(Ipv6Addr::new(
+                0x2001, 0x0db8, 0xaaaa, 0xbb00, i as u16, i as u16, i as u16, i as u16,
+            ));
+            peers.push(connect_peer_with_ips(&mut pdb, vec![ip]));
+        }
+
+        for p in &peers {
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
+            pdb.inject_disconnect(p);
+        }
+
+        let new_peer = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0xaaaa, 0xbb00, 0xdead, 0xbeef, 0xcafe, 0xbabe,
+        ));
+        let p_new = connect_peer_with_ips(&mut pdb, vec![new_peer]);
+        assert!(pdb.ban_status(&p_new).is_some(), "Subnet should be banned");
+
+        for p in &peers {
+            reset_score(&mut pdb, p);
+            pdb.update_connection_state(p, NewConnectionState::Unbanned);
+            let _ = pdb.shrink_to_fit();
+        }
+
+        let another_peer = IpAddr::V6(Ipv6Addr::new(
+            0x2001, 0x0db8, 0xaaaa, 0xbb00, 0x1111, 0x2222, 0x3333, 0x4444,
+        ));
+        let p_another = connect_peer_with_ips(&mut pdb, vec![another_peer]);
+        assert!(
+            pdb.ban_status(&p_another).is_none(),
+            "Subnet should be unbanned after all peers are unbanned"
         );
     }
 }
