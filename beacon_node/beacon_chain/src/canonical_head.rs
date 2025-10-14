@@ -937,13 +937,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_status
             .is_optimistic_or_invalid();
 
-        self.op_pool.prune_all(
-            &new_snapshot.beacon_block,
-            &new_snapshot.beacon_state,
-            self.epoch()?,
-            &self.spec,
-        );
-
         self.observed_block_producers.write().prune(
             new_view
                 .finalized_checkpoint
@@ -982,9 +975,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }));
         }
 
-        // The store migration task requires the *state at the slot of the finalized epoch*,
-        // rather than the state of the latest finalized block. These two values will only
-        // differ when the first slot of the finalized epoch is a skip slot.
+        // The store migration task and op pool pruning require the *state at the first slot of the
+        // finalized epoch*, rather than the state of the latest finalized block. These two values
+        // will only differ when the first slot of the finalized epoch is a skip slot.
         //
         // Use the `StateRootsIterator` directly rather than `BeaconChain::state_root_at_slot`
         // to ensure we use the same state that we just set as the head.
@@ -1006,6 +999,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?
         .ok_or(Error::MissingFinalizedStateRoot(new_finalized_slot))?;
 
+        let update_cache = true;
+        let new_finalized_state = self
+            .store
+            .get_hot_state(&new_finalized_state_root, update_cache)?
+            .ok_or(Error::MissingBeaconState(new_finalized_state_root))?;
+
+        self.op_pool.prune_all(
+            &new_snapshot.beacon_block,
+            &new_snapshot.beacon_state,
+            &new_finalized_state,
+            self.epoch()?,
+            &self.spec,
+        );
+
+        // We just pass the state root to the finalization thread. It should be able to reload the
+        // state from the state_cache near instantly anyway. We could experiment with sending the
+        // state over a channel in future, but it's probably no quicker.
         self.store_migrator.process_finalization(
             new_finalized_state_root.into(),
             new_view.finalized_checkpoint,

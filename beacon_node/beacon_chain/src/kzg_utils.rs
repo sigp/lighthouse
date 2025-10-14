@@ -299,6 +299,8 @@ pub(crate) fn build_data_column_sidecars<E: EthSpec>(
 ///
 /// If `blob_indices_opt` is `None`, this function attempts to reconstruct all blobs associated
 /// with the block.
+/// This function does NOT use rayon as this is primarily used by a non critical path in HTTP API
+/// and it will be slow if the node needs to reconstruct the blobs
 pub fn reconstruct_blobs<E: EthSpec>(
     kzg: &Kzg,
     data_columns: &[Arc<DataColumnSidecar<E>>],
@@ -320,7 +322,7 @@ pub fn reconstruct_blobs<E: EthSpec>(
     };
 
     let blob_sidecars = blob_indices
-        .into_par_iter()
+        .into_iter()
         .map(|row_index| {
             let mut cells: Vec<KzgCellRef> = vec![];
             let mut cell_ids: Vec<u64> = vec![];
@@ -337,16 +339,26 @@ pub fn reconstruct_blobs<E: EthSpec>(
                 cell_ids.push(data_column.index);
             }
 
-            let (cells, _kzg_proofs) = kzg
-                .recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
-                .map_err(|e| format!("Failed to recover cells and compute KZG proofs: {e:?}"))?;
+            let num_cells_original_blob = E::number_of_columns() / 2;
+            let blob_bytes = if data_columns.len() < E::number_of_columns() {
+                let (recovered_cells, _kzg_proofs) = kzg
+                    .recover_cells_and_compute_kzg_proofs(&cell_ids, &cells)
+                    .map_err(|e| {
+                        format!("Failed to recover cells and compute KZG proofs: {e:?}")
+                    })?;
 
-            let num_cells_original_blob = cells.len() / 2;
-            let blob_bytes = cells
-                .into_iter()
-                .take(num_cells_original_blob)
-                .flat_map(|cell| cell.into_iter())
-                .collect();
+                recovered_cells
+                    .into_iter()
+                    .take(num_cells_original_blob)
+                    .flat_map(|cell| cell.into_iter())
+                    .collect()
+            } else {
+                cells
+                    .into_iter()
+                    .take(num_cells_original_blob)
+                    .flat_map(|cell| (*cell).into_iter())
+                    .collect()
+            };
 
             let blob = Blob::<E>::new(blob_bytes).map_err(|e| format!("{e:?}"))?;
             let kzg_proof = KzgProof::empty();

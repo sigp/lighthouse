@@ -2735,6 +2735,14 @@ async fn weak_subjectivity_sync_test(
         .rng(Box::new(StdRng::seed_from_u64(42)))
         .build()
         .expect("should build");
+    beacon_chain
+        .data_availability_checker
+        .custody_context()
+        .init_ordered_data_columns_from_custody_groups(
+            (0..spec.number_of_custody_groups).collect(),
+            &spec,
+        )
+        .unwrap();
 
     let beacon_chain = Arc::new(beacon_chain);
     let wss_block_root = wss_block.canonical_root();
@@ -4135,6 +4143,88 @@ async fn replay_from_split_state() {
         .unwrap()
         .expect("split state should be present");
     assert_eq!(state.slot(), split.slot);
+}
+
+/// Test that regular nodes filter and store only custody columns when processing blocks with data columns.
+#[tokio::test]
+async fn test_custody_column_filtering_regular_node() {
+    // Skip test if PeerDAS is not scheduled
+    if !test_spec::<E>().is_peer_das_scheduled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Generate a block with data columns
+    harness.execution_block_generator().set_min_blob_count(1);
+    let current_slot = harness.get_current_slot();
+    let block_root = harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Get custody columns for this epoch - regular nodes only store a subset
+    let expected_custody_columns: HashSet<_> = harness
+        .chain
+        .custody_columns_for_epoch(Some(current_slot.epoch(E::slots_per_epoch())))
+        .iter()
+        .copied()
+        .collect();
+
+    // Check what actually got stored in the database
+    let stored_column_indices: HashSet<_> = store
+        .get_data_column_keys(block_root)
+        .expect("should get stored column keys")
+        .into_iter()
+        .collect();
+
+    assert_eq!(
+        stored_column_indices, expected_custody_columns,
+        "Regular node should only store custody columns"
+    );
+}
+
+/// Test that supernodes store all data columns when processing blocks with data columns.
+#[tokio::test]
+async fn test_custody_column_filtering_supernode() {
+    // Skip test if PeerDAS is not scheduled
+    if !test_spec::<E>().is_peer_das_scheduled() {
+        return;
+    }
+
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // Generate a block with data columns
+    harness.execution_block_generator().set_min_blob_count(1);
+    let block_root = harness
+        .extend_chain(
+            1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // Supernodes are expected to store all data columns
+    let expected_custody_columns: HashSet<_> = (0..E::number_of_columns() as u64).collect();
+
+    // Check what actually got stored in the database
+    let stored_column_indices: HashSet<_> = store
+        .get_data_column_keys(block_root)
+        .expect("should get stored column keys")
+        .into_iter()
+        .collect();
+
+    assert_eq!(
+        stored_column_indices, expected_custody_columns,
+        "Supernode should store all custody columns"
+    );
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.
