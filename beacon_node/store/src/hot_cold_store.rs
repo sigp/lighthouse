@@ -8,8 +8,8 @@ use crate::memory_store::MemoryStore;
 use crate::metadata::{
     ANCHOR_INFO_KEY, ANCHOR_UNINITIALIZED, AnchorInfo, BLOB_INFO_KEY, BlobInfo,
     COMPACTION_TIMESTAMP_KEY, CONFIG_KEY, CURRENT_SCHEMA_VERSION, CompactionTimestamp,
-    DATA_COLUMN_CUSTODY_INFO_KEY, DATA_COLUMN_INFO_KEY, DataColumnCustodyInfo, DataColumnInfo,
-    SCHEMA_VERSION_KEY, SPLIT_KEY, STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion,
+    DATA_COLUMN_CUSTODY_INFO_KEY, DataColumnCustodyInfo, SCHEMA_VERSION_KEY, SPLIT_KEY,
+    STATE_UPPER_LIMIT_NO_RETAIN, SchemaVersion,
 };
 use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
@@ -57,8 +57,6 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     anchor_info: RwLock<AnchorInfo>,
     /// The starting slots for the range of blobs stored in the database.
     blob_info: RwLock<BlobInfo>,
-    /// The starting slots for the range of data columns stored in the database.
-    data_column_info: RwLock<DataColumnInfo>,
     pub(crate) config: StoreConfig,
     pub hierarchy: HierarchyModuli,
     /// Cold database containing compact historical data.
@@ -225,7 +223,6 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
             split: RwLock::new(Split::default()),
             anchor_info: RwLock::new(ANCHOR_UNINITIALIZED),
             blob_info: RwLock::new(BlobInfo::default()),
-            data_column_info: RwLock::new(DataColumnInfo::default()),
             cold_db: MemoryStore::open(),
             blobs_db: MemoryStore::open(),
             hot_db: MemoryStore::open(),
@@ -279,7 +276,6 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
             split: RwLock::new(Split::default()),
             anchor_info,
             blob_info: RwLock::new(BlobInfo::default()),
-            data_column_info: RwLock::new(DataColumnInfo::default()),
             blobs_db: BeaconNodeBackend::open(&config, blobs_db_path)?,
             cold_db: BeaconNodeBackend::open(&config, cold_path)?,
             hot_db,
@@ -364,35 +360,9 @@ impl<E: EthSpec> HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>> {
         };
         db.compare_and_set_blob_info_with_write(<_>::default(), new_blob_info.clone())?;
 
-        let data_column_info = db.load_data_column_info()?;
-        let fulu_fork_slot = db
-            .spec
-            .fulu_fork_epoch
-            .map(|epoch| epoch.start_slot(E::slots_per_epoch()));
-        let new_data_column_info = match &data_column_info {
-            Some(data_column_info) => {
-                // Set the oldest data column slot to the fork slot if it is not yet set.
-                let oldest_data_column_slot =
-                    data_column_info.oldest_data_column_slot.or(fulu_fork_slot);
-                DataColumnInfo {
-                    oldest_data_column_slot,
-                }
-            }
-            // First start.
-            None => DataColumnInfo {
-                // Set the oldest data column slot to the fork slot if it is not yet set.
-                oldest_data_column_slot: fulu_fork_slot,
-            },
-        };
-        db.compare_and_set_data_column_info_with_write(
-            <_>::default(),
-            new_data_column_info.clone(),
-        )?;
-
         info!(
             path = ?blobs_db_path,
             oldest_blob_slot = ?new_blob_info.oldest_blob_slot,
-            oldest_data_column_slot = ?new_data_column_info.oldest_data_column_slot,
             "Blob DB initialized"
         );
 
@@ -2722,24 +2692,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.blob_info.read_recursive().clone()
     }
 
-    /// Initialize the `DataColumnInfo` when starting from genesis or a checkpoint.
-    pub fn init_data_column_info(&self, anchor_slot: Slot) -> Result<KeyValueStoreOp, Error> {
-        let oldest_data_column_slot = self.spec.fulu_fork_epoch.map(|fork_epoch| {
-            std::cmp::max(anchor_slot, fork_epoch.start_slot(E::slots_per_epoch()))
-        });
-        let data_column_info = DataColumnInfo {
-            oldest_data_column_slot,
-        };
-        self.compare_and_set_data_column_info(self.get_data_column_info(), data_column_info)
-    }
-
-    /// Get a clone of the store's data column info.
-    ///
-    /// To do mutations, use `compare_and_set_data_column_info`.
-    pub fn get_data_column_info(&self) -> DataColumnInfo {
-        self.data_column_info.read_recursive().clone()
-    }
-
     /// Atomically update the blob info from `prev_value` to `new_value`.
     ///
     /// Return a `KeyValueStoreOp` which should be written to disk, possibly atomically with other
@@ -2785,56 +2737,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// with recursive locking.
     fn store_blob_info_in_batch(&self, blob_info: &BlobInfo) -> KeyValueStoreOp {
         blob_info.as_kv_store_op(BLOB_INFO_KEY)
-    }
-
-    /// Atomically update the data column info from `prev_value` to `new_value`.
-    ///
-    /// Return a `KeyValueStoreOp` which should be written to disk, possibly atomically with other
-    /// values.
-    ///
-    /// Return an `DataColumnInfoConcurrentMutation` error if the `prev_value` provided
-    /// is not correct.
-    pub fn compare_and_set_data_column_info(
-        &self,
-        prev_value: DataColumnInfo,
-        new_value: DataColumnInfo,
-    ) -> Result<KeyValueStoreOp, Error> {
-        let mut data_column_info = self.data_column_info.write();
-        if *data_column_info == prev_value {
-            let kv_op = self.store_data_column_info_in_batch(&new_value);
-            *data_column_info = new_value;
-            Ok(kv_op)
-        } else {
-            Err(Error::DataColumnInfoConcurrentMutation)
-        }
-    }
-
-    /// As for `compare_and_set_data_column_info`, but also writes the blob info to disk immediately.
-    pub fn compare_and_set_data_column_info_with_write(
-        &self,
-        prev_value: DataColumnInfo,
-        new_value: DataColumnInfo,
-    ) -> Result<(), Error> {
-        let kv_store_op = self.compare_and_set_data_column_info(prev_value, new_value)?;
-        self.hot_db.do_atomically(vec![kv_store_op])
-    }
-
-    /// Load the blob info from disk, but do not set `self.data_column_info`.
-    fn load_data_column_info(&self) -> Result<Option<DataColumnInfo>, Error> {
-        self.hot_db
-            .get(&DATA_COLUMN_INFO_KEY)
-            .map_err(|e| Error::LoadDataColumnInfo(e.into()))
-    }
-
-    /// Store the given `data_column_info` to disk.
-    ///
-    /// The argument is intended to be `self.data_column_info`, but is passed manually to avoid issues
-    /// with recursive locking.
-    fn store_data_column_info_in_batch(
-        &self,
-        data_column_info: &DataColumnInfo,
-    ) -> KeyValueStoreOp {
-        data_column_info.as_kv_store_op(DATA_COLUMN_INFO_KEY)
     }
 
     /// Return the slot-window describing the available historic states.

@@ -5,6 +5,7 @@ mod migration_schema_v25;
 mod migration_schema_v26;
 mod migration_schema_v27;
 mod migration_schema_v28;
+mod migration_schema_v29;
 
 use crate::beacon_chain::BeaconChainTypes;
 use std::sync::Arc;
@@ -88,6 +89,11 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             let ops = migration_schema_v28::downgrade_from_v28::<T>(db.clone())?;
             db.store_schema_version_atomically(to, ops)
         }
+        (SchemaVersion(28), SchemaVersion(29)) => {
+            let ops = migration_schema_v29::upgrade_to_v29()?;
+            db.store_schema_version_atomically(to, ops)
+        }
+        (SchemaVersion(29), SchemaVersion(28)) => migration_schema_v29::downgrade_from_v29(),
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
             target_version: to,

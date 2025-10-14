@@ -388,12 +388,6 @@ where
                 .init_blob_info(genesis.beacon_block.slot())
                 .map_err(|e| format!("Failed to initialize genesis blob info: {:?}", e))?,
         );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(genesis.beacon_block.slot())
-                .map_err(|e| format!("Failed to initialize genesis data column info: {:?}", e))?,
-        );
-
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, genesis.clone())
             .map_err(|e| format!("Unable to initialize fork choice store: {e:?}"))?;
         let current_slot = None;
@@ -603,11 +597,6 @@ where
             store
                 .init_blob_info(weak_subj_block.slot())
                 .map_err(|e| format!("Failed to initialize blob info: {:?}", e))?,
-        );
-        self.pending_io_batch.push(
-            store
-                .init_data_column_info(weak_subj_block.slot())
-                .map_err(|e| format!("Failed to initialize data column info: {:?}", e))?,
         );
 
         let snapshot = BeaconSnapshot {

@@ -6913,6 +6913,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
     }
 
+    /// Get the earliest epoch in which the node has met its custody requirements.
+    /// A `None` response indicates that we've met our cutody requirements up to the
+    /// column data availability window
+    pub fn earliest_custodied_data_column_epoch(&self) -> Option<Epoch> {
+        self.store
+            .get_data_column_custody_info()
+            .unwrap_or(None)
+            .and_then(|info| info.earliest_data_column_slot)
+            .map(|slot| {
+                let mut epoch = slot.epoch(T::EthSpec::slots_per_epoch());
+                // If the earliest custodied slot isn't the first slot in the epoch
+                // The node has only met its custody requirements for the next epoch.
+                if slot > epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+                    epoch += 1;
+                }
+                epoch
+            })
+    }
+
+    /// The data availability boundary for custodying columns. It will just be the
+    /// regular data availability boundary unless we are near the Fulu fork epoch.
+    pub fn column_data_availability_boundary(&self) -> Option<Epoch> {
+        match self.data_availability_boundary() {
+            Some(da_boundary_epoch) => {
+                if let Some(fulu_fork_epoch) = self.spec.fulu_fork_epoch {
+                    if da_boundary_epoch < fulu_fork_epoch {
+                        Some(fulu_fork_epoch)
+                    } else {
+                        Some(da_boundary_epoch)
+                    }
+                } else {
+                    None // Fulu hasn't been enabled
+                }
+            }
+            None => None, // Deneb hasn't been enabled
+        }
+    }
+
     /// This method serves to get a sense of the current chain health. It is used in block proposal
     /// to determine whether we should outsource payload production duties.
     ///

@@ -8,7 +8,6 @@ use state_processing::{
 use std::borrow::Cow;
 use std::iter;
 use std::time::Duration;
-use store::metadata::DataColumnInfo;
 use store::{AnchorInfo, BlobInfo, DBColumn, Error as StoreError, KeyValueStore, KeyValueStoreOp};
 use strum::IntoStaticStr;
 use tracing::{debug, instrument};
@@ -70,7 +69,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<usize, HistoricalBlockError> {
         let anchor_info = self.store.get_anchor_info();
         let blob_info = self.store.get_blob_info();
-        let data_column_info = self.store.get_data_column_info();
 
         // Take all blocks with slots less than the oldest block slot.
         let num_relevant = blocks.partition_point(|available_block| {
@@ -97,7 +95,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut expected_block_root = anchor_info.oldest_block_parent;
         let mut prev_block_slot = anchor_info.oldest_block_slot;
         let mut new_oldest_blob_slot = blob_info.oldest_blob_slot;
-        let mut new_oldest_data_column_slot = data_column_info.oldest_data_column_slot;
 
         let mut blob_batch = Vec::<KeyValueStoreOp>::new();
         let mut cold_batch = Vec::with_capacity(blocks_to_import.len());
@@ -133,9 +130,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 AvailableBlockData::Blobs(..) => {
                     new_oldest_blob_slot = Some(block.slot());
                 }
-                AvailableBlockData::DataColumns(_) => {
-                    new_oldest_data_column_slot = Some(block.slot());
-                }
+                AvailableBlockData::DataColumns(_) => {}
             }
 
             // Store the blobs or data columns too
@@ -247,19 +242,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             anchor_and_blob_batch.push(
                 self.store
                     .compare_and_set_blob_info(blob_info, new_blob_info)?,
-            );
-        }
-
-        // Update the data column info.
-        if new_oldest_data_column_slot != data_column_info.oldest_data_column_slot
-            && let Some(oldest_data_column_slot) = new_oldest_data_column_slot
-        {
-            let new_data_column_info = DataColumnInfo {
-                oldest_data_column_slot: Some(oldest_data_column_slot),
-            };
-            anchor_and_blob_batch.push(
-                self.store
-                    .compare_and_set_data_column_info(data_column_info, new_data_column_info)?,
             );
         }
 

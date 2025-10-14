@@ -228,30 +228,3 @@ impl StoreItem for DataColumnCustodyInfo {
         Ok(DataColumnCustodyInfo::from_ssz_bytes(bytes)?)
     }
 }
-
-/// Database parameters relevant to data column sync.
-#[derive(Debug, PartialEq, Eq, Clone, Encode, Decode, Serialize, Deserialize, Default)]
-pub struct DataColumnInfo {
-    /// The slot after which data columns are or *will be* available (>=).
-    ///
-    /// If this slot is in the future, then it is the first slot of the Fulu fork, from which
-    /// data columns will be available.
-    ///
-    /// If the `oldest_data_column_slot` is `None` then this means that the Fulu fork epoch is
-    /// not yet known.
-    pub oldest_data_column_slot: Option<Slot>,
-}
-
-impl StoreItem for DataColumnInfo {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconMeta
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
-    }
-}
