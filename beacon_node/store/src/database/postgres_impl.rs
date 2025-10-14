@@ -2,19 +2,18 @@ use heck::ToSnakeCase;
 use once_cell::sync::Lazy;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
-use tokio::runtime::{Handle, Runtime};
 use std::future::Future;
-use std::path::Path;
 use std::marker::PhantomData;
+use std::path::Path;
 use std::time::Duration;
 use strum::IntoEnumIterator;
+use tokio::runtime::{Handle, Runtime};
 use types::EthSpec;
 
 use crate::{DBColumn, Error, KeyValueStoreOp};
 
-static GLOBAL_RT: Lazy<Runtime> = Lazy::new(|| {
-    Runtime::new().expect("Failed to create global tokio runtime for PostgresDB")
-});
+static GLOBAL_RT: Lazy<Runtime> =
+    Lazy::new(|| Runtime::new().expect("Failed to create global tokio runtime for PostgresDB"));
 
 pub struct PostgresDB<E: EthSpec> {
     pool: PgPool,
@@ -31,23 +30,33 @@ impl<E: EthSpec> PostgresDB<E> {
                 .acquire_timeout(Duration::from_secs(30))
                 .connect(url)
                 .await
-                .map_err(|e| Error::DBError { message: format!("Failed to connect to Postgres: {:?}", e) })
+                .map_err(|e| Error::DBError {
+                    message: format!("Failed to connect to Postgres: {:?}", e),
+                })
         })??;
-        
+
         Self::create_tables(&pool)?;
-        Ok(Self { pool, _phantom: PhantomData})
+        Ok(Self {
+            pool,
+            _phantom: PhantomData,
+        })
     }
 
     fn create_tables(pool: &PgPool) -> Result<(), Error> {
         block_on_in_runtime(async {
             for column in DBColumn::iter() {
                 let table = table_name_for_column(column);
-                let q = format!("CREATE TABLE IF NOT EXISTS {} (key BYTEA PRIMARY KEY, value BYTEA NOT NULL)", table);
+                let q = format!(
+                    "CREATE TABLE IF NOT EXISTS {} (key BYTEA PRIMARY KEY, value BYTEA NOT NULL)",
+                    table
+                );
                 sqlx::query(&q).execute(pool).await?;
             }
             Ok::<_, sqlx::Error>(())
         })?
-        .map_err(|e| Error::DBError { message: e.to_string() })
+        .map_err(|e| Error::DBError {
+            message: e.to_string(),
+        })
     }
 
     pub fn get_bytes(&self, column: DBColumn, key: &[u8]) -> Result<Option<Vec<u8>>, Error> {
@@ -60,14 +69,19 @@ impl<E: EthSpec> PostgresDB<E> {
                 .fetch_optional(&self.pool)
                 .await
         })?
-        .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+        .map_err(|e| Error::DBError {
+            message: format!("{:?}", e),
+        })?;
 
         Ok(row.map(|r| r.get::<Vec<u8>, _>("value")))
     }
 
     pub fn put_bytes(&self, column: DBColumn, key: &[u8], value: &[u8]) -> Result<(), Error> {
         let table = table_name_for_column(column);
-        let query = format!("INSERT INTO {} (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", table);
+        let query = format!(
+            "INSERT INTO {} (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            table
+        );
 
         block_on_in_runtime(async {
             sqlx::query(&query)
@@ -77,7 +91,9 @@ impl<E: EthSpec> PostgresDB<E> {
                 .await
         })?
         .map(|_| ())
-        .map_err(|e| Error::DBError { message: format!("{:?}", e) })
+        .map_err(|e| Error::DBError {
+            message: format!("{:?}", e),
+        })
     }
 
     pub fn key_exists(&self, column: DBColumn, key: &[u8]) -> Result<bool, Error> {
@@ -90,29 +106,27 @@ impl<E: EthSpec> PostgresDB<E> {
                 .fetch_one(&self.pool)
                 .await
         })?
-        .map_err(|e| Error::DBError { message: e.to_string() })
+        .map_err(|e| Error::DBError {
+            message: e.to_string(),
+        })
     }
 
     pub fn key_delete(&self, column: DBColumn, key: &[u8]) -> Result<(), Error> {
         let table = table_name_for_column(column);
         let query = format!("DELETE FROM {} WHERE key = $1", table);
 
-        block_on_in_runtime(async {
-            sqlx::query(&query)
-                .bind(key)
-                .execute(&self.pool)
-                .await
-        })
-        .map(|_| ())
-        .map_err(|e| Error::DBError { message: format!("{:?}", e) })
+        block_on_in_runtime(async { sqlx::query(&query).bind(key).execute(&self.pool).await })
+            .map(|_| ())
+            .map_err(|e| Error::DBError {
+                message: format!("{:?}", e),
+            })
     }
 
     pub fn do_atomically(&self, ops: Vec<KeyValueStoreOp>) -> Result<(), Error> {
         block_on_in_runtime(async {
-            let mut tx = self.pool
-                .begin()
-                .await
-                .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+            let mut tx = self.pool.begin().await.map_err(|e| Error::DBError {
+                message: format!("{:?}", e),
+            })?;
 
             for op in ops {
                 match op {
@@ -128,7 +142,9 @@ impl<E: EthSpec> PostgresDB<E> {
                             .bind(&value)
                             .execute(&mut *tx)
                             .await
-                            .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+                            .map_err(|e| Error::DBError {
+                                message: format!("{:?}", e),
+                            })?;
                     }
                     KeyValueStoreOp::DeleteKey(col, key) => {
                         let table = table_name_for_column(col);
@@ -137,18 +153,20 @@ impl<E: EthSpec> PostgresDB<E> {
                             .bind(&key)
                             .execute(&mut *tx)
                             .await
-                            .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+                            .map_err(|e| Error::DBError {
+                                message: format!("{:?}", e),
+                            })?;
                     }
                 }
             }
 
-            tx.commit()
-                .await
-                .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+            tx.commit().await.map_err(|e| Error::DBError {
+                message: format!("{:?}", e),
+            })?;
 
             Ok::<(), Error>(())
         })?
-    } 
+    }
 }
 
 fn table_name_for_column(column: DBColumn) -> String {
@@ -157,12 +175,7 @@ fn table_name_for_column(column: DBColumn) -> String {
 
 fn block_on_in_runtime<F: Future>(fut: F) -> Result<F::Output, Error> {
     match Handle::try_current() {
-        Ok(handle) => {
-            Ok(tokio::task::block_in_place(|| {
-                handle.block_on(fut)
-            }))
-        }
+        Ok(handle) => Ok(tokio::task::block_in_place(|| handle.block_on(fut))),
         Err(_) => Ok(GLOBAL_RT.block_on(fut)),
     }
 }
-

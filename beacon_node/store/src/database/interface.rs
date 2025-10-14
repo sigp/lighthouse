@@ -1,9 +1,9 @@
 #[cfg(feature = "leveldb")]
 use crate::database::leveldb_impl;
-#[cfg(feature = "redb")]
-use crate::database::redb_impl;
 #[cfg(feature = "postgres")]
 use crate::database::postgres_impl::{self, PostgresDB};
+#[cfg(feature = "redb")]
+use crate::database::redb_impl;
 use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore, metrics};
 use crate::{KeyValueStoreOp, StoreConfig, config::DatabaseBackend};
 use std::collections::HashSet;
@@ -16,7 +16,7 @@ pub enum BeaconNodeBackend<E: EthSpec> {
     #[cfg(feature = "redb")]
     Redb(redb_impl::Redb<E>),
     #[cfg(feature = "postgres")]
-    Postgres(PostgresDB<E>)
+    Postgres(PostgresDB<E>),
 }
 
 impl<E: EthSpec> ItemStore<E> for BeaconNodeBackend<E> {}
@@ -29,7 +29,9 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::get_bytes(txn, column, key),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::get_bytes(txn, column, key),
+            BeaconNodeBackend::Postgres(txn) => {
+                postgres_impl::PostgresDB::get_bytes(txn, column, key)
+            }
         }
     }
 
@@ -52,7 +54,9 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 txn.write_options(),
             ),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::put_bytes(txn, column, key, value),
+            BeaconNodeBackend::Postgres(txn) => {
+                postgres_impl::PostgresDB::put_bytes(txn, column, key, value)
+            }
         }
     }
 
@@ -75,7 +79,9 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
                 txn.write_options_sync(),
             ),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::put_bytes(txn, column, key, value),
+            BeaconNodeBackend::Postgres(txn) => {
+                postgres_impl::PostgresDB::put_bytes(txn, column, key, value)
+            }
         }
     }
 
@@ -86,7 +92,7 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::sync(txn),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::Postgres(_) => Ok(())
+            BeaconNodeBackend::Postgres(_) => Ok(()),
         }
     }
 
@@ -97,7 +103,9 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_exists(txn, column, key),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::key_exists(txn, column, key),
+            BeaconNodeBackend::Postgres(txn) => {
+                postgres_impl::PostgresDB::key_exists(txn, column, key)
+            }
         }
     }
 
@@ -108,7 +116,9 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::key_delete(txn, column, key),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::key_delete(txn, column, key),
+            BeaconNodeBackend::Postgres(txn) => {
+                postgres_impl::PostgresDB::key_delete(txn, column, key)
+            }
         }
     }
 
@@ -119,7 +129,9 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::do_atomically(txn, batch),
             #[cfg(feature = "postgres")]
-            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::do_atomically(txn, batch),
+            BeaconNodeBackend::Postgres(txn) => {
+                postgres_impl::PostgresDB::do_atomically(txn, batch)
+            }
         }
     }
 
