@@ -189,12 +189,9 @@ impl<E: EthSpec> PendingComponents<E> {
     fn merge_data_columns<I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<E>>>(
         &mut self,
         kzg_verified_data_columns: I,
-        columns_to_sample: &[u64],
     ) -> Result<(), AvailabilityCheckError> {
         for data_column in kzg_verified_data_columns {
-            if columns_to_sample.contains(&data_column.index())
-                && self.get_cached_data_column(data_column.index()).is_none()
-            {
+            if self.get_cached_data_column(data_column.index()).is_none() {
                 self.verified_data_columns.push(data_column);
             }
         }
@@ -554,12 +551,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             return Ok(Availability::MissingComponents(block_root));
         };
 
-        let columns_to_sample = self
-            .custody_context
-            .sampling_columns_for_epoch(epoch, &self.spec);
         let pending_components =
             self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
-                pending_components.merge_data_columns(kzg_verified_data_columns, columns_to_sample)
+                pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
         let num_expected_columns = self

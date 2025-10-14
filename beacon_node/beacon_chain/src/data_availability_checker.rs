@@ -644,8 +644,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             "Reconstructed columns"
         );
 
+        let columns_to_sample = self
+            .custody_context()
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
+        let data_columns_to_import: Vec<_> = data_columns_to_publish
+            .iter()
+            .filter(|column| columns_to_sample.contains(&column.index()))
+            .cloned()
+            .collect();
+
         self.availability_cache
-            .put_kzg_verified_data_columns(*block_root, data_columns_to_publish.clone())
+            .put_kzg_verified_data_columns(*block_root, data_columns_to_import)
             .map(|availability| {
                 DataColumnReconstructionResult::Success((
                     availability,
