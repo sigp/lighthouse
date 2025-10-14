@@ -948,61 +948,35 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         }
 
         let proposer_shuffling_decision_block =
-            if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == block_epoch {
-                parent_block
-                    .next_epoch_shuffling_id
-                    .shuffling_decision_block
-            } else {
-                parent_block.root
-            };
+            parent_block.proposer_shuffling_root_for_child_block(block_epoch, &chain.spec);
 
         // We assign to a variable instead of using `if let Some` directly to ensure we drop the
         // write lock before trying to acquire it again in the `else` clause.
-        let proposer_opt = chain
-            .beacon_proposer_cache
-            .lock()
-            .get_slot::<T::EthSpec>(proposer_shuffling_decision_block, block.slot());
-        let (expected_proposer, fork, parent, block) = if let Some(proposer) = proposer_opt {
-            // The proposer index was cached and we can return it without needing to load the
-            // parent.
-            (proposer.index, proposer.fork, None, block)
-        } else {
-            // The proposer index was *not* cached and we must load the parent in order to determine
-            // the proposer index.
-            let (mut parent, block) = load_parent(block, chain)?;
-
-            debug!(
-                parent_root = ?parent.beacon_block_root,
-                parent_slot = %parent.beacon_block.slot(),
-                ?block_root,
-                block_slot = %block.slot(),
-                "Proposer shuffling cache miss"
-            );
-
-            // The state produced is only valid for determining proposer/attester shuffling indices.
-            let state = cheap_state_advance_to_obtain_committees::<_, BlockError>(
-                &mut parent.pre_state,
-                parent.beacon_state_root,
-                block.slot(),
-                &chain.spec,
-            )?;
-
-            let epoch = state.current_epoch();
-            let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
-            let proposer_index = *proposers
-                .get(block.slot().as_usize() % T::EthSpec::slots_per_epoch() as usize)
-                .ok_or_else(|| BeaconChainError::NoProposerForSlot(block.slot()))?;
-
-            // Prime the proposer shuffling cache with the newly-learned value.
-            chain.beacon_proposer_cache.lock().insert(
-                block_epoch,
-                proposer_shuffling_decision_block,
-                proposers,
-                state.fork(),
-            )?;
-
-            (proposer_index, state.fork(), Some(parent), block)
-        };
+        let block_slot = block.slot();
+        let mut opt_parent = None;
+        let proposer = chain.with_proposer_cache::<_, BlockError>(
+            proposer_shuffling_decision_block,
+            block_epoch,
+            |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
+            || {
+                // The proposer index was *not* cached and we must load the parent in order to
+                // determine the proposer index.
+                let (mut parent, _) = load_parent(block.clone(), chain)?;
+                let parent_state_root = if let Some(state_root) = parent.beacon_state_root {
+                    state_root
+                } else {
+                    // This is potentially a little inefficient, although we are likely to need
+                    // the state's hash eventually (if the block is valid), and we are also likely
+                    // to already have the hash cached (if fetched from the state cache).
+                    parent.pre_state.canonical_root()?
+                };
+                let parent_state = parent.pre_state.clone();
+                opt_parent = Some(parent);
+                Ok((parent_state_root, parent_state))
+            },
+        )?;
+        let expected_proposer = proposer.index;
+        let fork = proposer.fork;
 
         let signature_is_valid = {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
@@ -1077,7 +1051,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         Ok(Self {
             block,
             block_root,
-            parent,
+            parent: opt_parent,
             consensus_context,
         })
     }
