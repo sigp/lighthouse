@@ -6,6 +6,7 @@ use beacon_chain::BeaconChainTypes;
 use beacon_chain::test_utils::BeaconChainHarness;
 use beacon_processor::{BeaconProcessorChannels, BeaconProcessorConfig};
 use futures::StreamExt;
+use libp2p::gossipsub;
 use lighthouse_network::types::{GossipEncoding, GossipKind};
 use lighthouse_network::{Enr, GossipTopic};
 use std::str::FromStr;
