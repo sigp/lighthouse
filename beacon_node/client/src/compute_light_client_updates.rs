@@ -3,7 +3,7 @@ use beacon_processor::work_reprocessing_queue::ReprocessQueueMessage;
 use beacon_processor::{BeaconProcessorSend, Work, WorkEvent};
 use futures::StreamExt;
 use futures::channel::mpsc::Receiver;
-use tracing::error;
+use tracing::{debug, error};
 
 // Each `LightClientProducerEvent` is ~200 bytes. With the light_client server producing only recent
 // updates it is okay to drop some events in case of overloading. In normal network conditions
@@ -27,7 +27,7 @@ pub async fn compute_light_client_updates<T: BeaconChainTypes>(
         chain
             .recompute_and_cache_light_client_updates(event)
             .unwrap_or_else(|e| {
-                error!("error computing light_client updates {:?}", e);
+                debug!("error computing light_client updates {:?}", e);
             });
 
         let msg = ReprocessQueueMessage::NewLightClientOptimisticUpdate { parent_root };
