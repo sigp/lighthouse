@@ -3399,7 +3399,7 @@ async fn revert_minority_fork_on_resume() {
             builder = builder
                 .resume_from_db()
                 .unwrap()
-                .testing_slot_clock(spec.get_slot_duration())
+                .testing_slot_clock(spec2.get_slot_duration())
                 .unwrap();
             builder
                 .get_slot_clock()
