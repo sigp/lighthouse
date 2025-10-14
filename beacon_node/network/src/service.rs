@@ -840,6 +840,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     new_fork = ?new_fork_name,
                     "Transitioned to new fork"
                 );
+                new_fork_name.fork_ascii();
             }
 
             fork_context.update_current_fork(*new_fork_name, new_fork_digest, current_epoch);

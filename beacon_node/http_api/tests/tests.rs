@@ -90,6 +90,7 @@ struct ApiTester {
 struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
+    import_all_data_columns: bool,
 }
 
 impl Default for ApiTesterConfig {
@@ -99,6 +100,7 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
+            import_all_data_columns: false,
         }
     }
 }
@@ -137,6 +139,7 @@ impl ApiTester {
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
+            .import_all_data_columns(config.import_all_data_columns)
             .build();
 
         harness
@@ -441,10 +444,7 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester_default_payload_value() -> Self {
-        let mut config = ApiTesterConfig {
-            retain_historic_states: false,
-            spec: E::default_spec(),
-        };
+        let mut config = ApiTesterConfig::default();
         config.spec.altair_fork_epoch = Some(Epoch::new(0));
         config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
         let tester = Self::new_from_config(config)
@@ -1858,7 +1858,7 @@ impl ApiTester {
         };
         let result = match self
             .client
-            .get_blobs::<E>(
+            .get_blob_sidecars::<E>(
                 CoreBlockId::Root(block_root),
                 blob_indices.as_deref(),
                 &self.chain.spec,
@@ -1875,6 +1875,77 @@ impl ApiTester {
         );
         let expected = block.slot();
         assert_eq!(result.first().unwrap().slot(), expected);
+
+        self
+    }
+
+    pub async fn test_get_blobs(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+        let num_blobs = block.num_expected_blobs();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        let result = match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(response) => response.unwrap().into_data(),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        assert_eq!(
+            result.len(),
+            versioned_hashes.map_or(num_blobs, |versioned_hashes| versioned_hashes.len())
+        );
+
+        self
+    }
+
+    pub async fn test_get_blobs_post_fulu_full_node(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(result) => panic!("Full node are unable to return blobs post-Fulu: {result:?}"),
+            // Post-Fulu, full nodes don't store blobs and return error 500
+            Err(e) => assert_eq!(e.status().unwrap(), 500),
+        };
 
         self
     }
@@ -1918,7 +1989,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
+            .get_blob_sidecars::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => {
@@ -1956,7 +2027,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
+            .get_blob_sidecars::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => panic!("queries for pre-Deneb slots should fail. got: {result:?}"),
@@ -7704,10 +7775,7 @@ async fn builder_payload_chosen_by_profit_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_capella() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7724,10 +7792,7 @@ async fn builder_works_post_capella() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_deneb() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7745,10 +7810,7 @@ async fn builder_works_post_deneb() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blob_sidecars() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7761,6 +7823,53 @@ async fn get_blob_sidecars() {
         .test_get_blob_sidecars(false)
         .await
         .test_get_blob_sidecars(true)
+        .await
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blobs_post_fulu_supernode() {
+    let mut config = ApiTesterConfig {
+        retain_historic_states: false,
+        spec: E::default_spec(),
+        // For supernode, we import all data columns
+        import_all_data_columns: true,
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        // We can call the same get_blobs function in this test
+        // because the function will call get_blobs_by_versioned_hashes which handles peerDAS post-Fulu
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blobs_post_fulu_full_node() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_blobs_post_fulu_full_node(false)
+        .await
+        .test_get_blobs_post_fulu_full_node(true)
         .await;
 }
 
