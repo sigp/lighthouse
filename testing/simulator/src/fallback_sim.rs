@@ -179,10 +179,8 @@ pub fn run_fallback_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let genesis_delay = GENESIS_DELAY;
 
-    // TODO: deprecate
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
-
     spec.slot_duration_ms /= speed_up_factor;
     spec.slot_duration_ms = max(1000, spec.slot_duration_ms);
     spec.genesis_delay = genesis_delay;

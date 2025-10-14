@@ -6,7 +6,6 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::atomic::{AtomicU64, Ordering},
 };
-use types::consts::bellatrix::MS_TO_SEC;
 use types::data_column_custody_group::{CustodyIndex, compute_columns_for_custody_group};
 use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
 
@@ -88,7 +87,7 @@ impl ValidatorRegistrations {
             // the node has enough time to subscribe to subnets etc, and to avoid having
             // inconsistent column counts within an epoch.
             let effective_delay_slots =
-                CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / spec.slot_duration_ms / MS_TO_SEC;
+                CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / spec.get_slot_duration().as_secs();
             let effective_epoch =
                 (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
             self.epoch_validator_custody_requirements

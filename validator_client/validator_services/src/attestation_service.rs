@@ -161,10 +161,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(
-                        duration_to_next_slot
-                            + self
-                                .chain_spec
-                                .get_slot_component_duration(self.chain_spec.attestation_due_bps),
+                        duration_to_next_slot + self.chain_spec.get_unaggregated_attestation_due(),
                     )
                     .await;
 

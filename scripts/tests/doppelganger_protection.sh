@@ -98,7 +98,7 @@ EOF
 
     # Check if doppelganger VC has stopped and exited. Exit code 1 means the check timed out and VC is still running.
     check_exit_cmd="until [ \$(get_service_status $service_name) != 'RUNNING' ]; do sleep 1; done"
-    doppelganger_exit=$(run_command_without_exit "timeout $(( $SLOT_DURATION_MS / 10000 * 32 * 2 )) bash -c \"$check_exit_cmd\"")
+    doppelganger_exit=$(run_command_without_exit "timeout $((($SLOT_DURATION_MS / 1000) * 32 * 2 )) bash -c \"$check_exit_cmd\"")
 
     if [[ $doppelganger_exit -eq 1 ]]; then
         echo "Test failed: expected doppelganger but VC is still running. Check the logs for details."
@@ -148,7 +148,7 @@ EOF
     #
     # See: https://lighthouse-book.sigmaprime.io/api_validator_inclusion.html
     echo "Waiting three epochs..."
-    sleep $(( $SLOT_DURATION_MS / 1000 * 32 * 3 ))
+    sleep $((($SLOT_DURATION_MS / 1000) * 32 * 3 ))
 
     # Get VC4 validator keys
     keys_path=$SCRIPT_DIR/$ENCLAVE_NAME/node_4/validators

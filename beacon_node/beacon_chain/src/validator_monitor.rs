@@ -1219,7 +1219,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            spec.get_slot_component_duration(spec.attestation_due_bps),
+            spec.get_unaggregated_attestation_due(),
             slot_clock,
         );
 
@@ -1311,7 +1311,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             data.slot,
-            spec.get_slot_component_duration(spec.aggregate_due_bps),
+            spec.get_aggregate_attestation_due(),
             slot_clock,
         );
 
@@ -1539,7 +1539,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             let delay = get_message_delay_ms(
                 seen_timestamp,
                 sync_committee_message.slot,
-                spec.get_slot_component_duration(spec.sync_message_due_bps),
+                spec.get_sync_message_due(),
                 slot_clock,
             );
 
@@ -1627,7 +1627,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let delay = get_message_delay_ms(
             seen_timestamp,
             slot,
-            spec.get_slot_component_duration(spec.contribution_due_bps),
+            spec.get_contribution_message_due(),
             slot_clock,
         );
 

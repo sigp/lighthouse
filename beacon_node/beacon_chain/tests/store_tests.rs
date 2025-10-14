@@ -2690,7 +2690,6 @@ async fn weak_subjectivity_sync_test(
     let temp2 = tempdir().unwrap();
     let store = get_store(&temp2);
     let spec = test_spec::<E>();
-    let slot_duration_ms = spec.slot_duration_ms;
 
     let kzg = get_kzg(&spec);
 
@@ -2704,7 +2703,7 @@ async fn weak_subjectivity_sync_test(
     let slot_clock = TestingSlotClock::new(
         Slot::new(0),
         Duration::from_secs(harness.chain.genesis_time),
-        Duration::from_millis(slot_duration_ms),
+        spec.get_slot_duration(),
     );
     slot_clock.set_slot(harness.get_current_slot().as_u64());
 
@@ -3281,8 +3280,6 @@ async fn revert_minority_fork_on_resume() {
     let mut spec2 = MinimalEthSpec::default_spec();
     spec2.altair_fork_epoch = Some(fork_epoch);
 
-    let slot_duration_ms = spec1.slot_duration_ms;
-
     let all_validators = (0..validator_count).collect::<Vec<usize>>();
 
     // Chain with no fork epoch configured.
@@ -3402,7 +3399,7 @@ async fn revert_minority_fork_on_resume() {
             builder = builder
                 .resume_from_db()
                 .unwrap()
-                .testing_slot_clock(Duration::from_millis(slot_duration_ms))
+                .testing_slot_clock(spec.get_slot_duration())
                 .unwrap();
             builder
                 .get_slot_clock()
