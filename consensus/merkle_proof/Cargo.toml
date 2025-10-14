@@ -4,6 +4,9 @@ version = "0.2.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = { workspace = true }
 
+[features]
+arbitrary = ["alloy-primitives/arbitrary"]
+
 [dependencies]
 alloy-primitives = { workspace = true }
 ethereum_hashing = { workspace = true }
@@ -13,6 +16,3 @@ safe_arith = { workspace = true }
 [dev-dependencies]
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
-
-[features]
-arbitrary = ["alloy-primitives/arbitrary"]

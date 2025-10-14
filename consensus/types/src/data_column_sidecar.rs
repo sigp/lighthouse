@@ -1,7 +1,10 @@
-use crate::beacon_block_body::{KzgCommitments, BLOB_KZG_COMMITMENTS_INDEX};
+use crate::beacon_block_body::{BLOB_KZG_COMMITMENTS_INDEX, KzgCommitments};
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::BeaconStateError;
-use crate::{BeaconBlockHeader, Epoch, EthSpec, Hash256, SignedBeaconBlockHeader, Slot};
+use crate::{
+    BeaconBlockHeader, BeaconStateError, Epoch, EthSpec, ForkName, Hash256,
+    SignedBeaconBlockHeader, Slot,
+};
 use bls::Signature;
 use derivative::Derivative;
 use kzg::Error as KzgError;
@@ -13,7 +16,6 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::Error as SszError;
 use ssz_types::{FixedVector, VariableList};
-use std::hash::Hash;
 use std::sync::Arc;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -23,32 +25,27 @@ pub type ColumnIndex = u64;
 pub type Cell<E> = FixedVector<u8, <E as EthSpec>::BytesPerCell>;
 pub type DataColumn<E> = VariableList<Cell<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
 
-/// Container of the data that identifies an individual data column.
-#[derive(
-    Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
-)]
-pub struct DataColumnIdentifier {
+/// Identifies a set of data columns associated with a specific beacon block.
+#[derive(Encode, Decode, Clone, Debug, PartialEq, TreeHash, Deserialize)]
+#[context_deserialize(ForkName)]
+pub struct DataColumnsByRootIdentifier<E: EthSpec> {
     pub block_root: Hash256,
-    pub index: ColumnIndex,
+    pub columns: VariableList<ColumnIndex, E::NumberOfColumns>,
 }
 
 pub type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
 #[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    Derivative,
-    arbitrary::Arbitrary,
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
 )]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
+#[context_deserialize(ForkName)]
 pub struct DataColumnSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub index: ColumnIndex,
@@ -132,13 +129,6 @@ impl<E: EthSpec> DataColumnSidecar<E> {
         .as_ssz_bytes()
         .len()
     }
-
-    pub fn id(&self) -> DataColumnIdentifier {
-        DataColumnIdentifier {
-            block_root: self.block_root(),
-            index: self.index,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -153,6 +143,7 @@ pub enum DataColumnSidecarError {
     PreDeneb,
     SszError(SszError),
     BuildSidecarFailed(String),
+    InvalidCellProofLength { expected: usize, actual: usize },
 }
 
 impl From<ArithError> for DataColumnSidecarError {

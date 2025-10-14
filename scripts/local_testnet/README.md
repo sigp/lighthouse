@@ -83,3 +83,7 @@ The script comes with some CLI options, which can be viewed with `./start_local_
 ```bash
 ./start_local_testnet.sh -b false
 ```
+
+## Further reading about Kurtosis
+
+You may refer to [this article](https://ethpandaops.io/posts/kurtosis-deep-dive/) for information about Kurtosis.

@@ -18,6 +18,8 @@
 | [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic. |
 | [`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators. |
 | [`GET /lighthouse/logs`](#get-lighthouselogs) | Get logs |
+| [`GET /lighthouse/beacon/health`](#get-lighthousebeaconhealth) | Get health information for each connected beacon node. |
+| [`POST /lighthouse/beacon/update`](#post-lighthousebeaconupdate) | Update the `--beacon-nodes` list. |
 
 The query to Lighthouse API endpoints requires authorization, see [Authorization Header](./api_vc_auth_header.md).
 
@@ -225,26 +227,33 @@ Example Response Body
 ```json
 {
   "data": {
-    "CONFIG_NAME": "holesky",
+    "CONFIG_NAME": "hoodi",
     "PRESET_BASE": "mainnet",
-    "TERMINAL_TOTAL_DIFFICULTY": "10790000",
+    "TERMINAL_TOTAL_DIFFICULTY": "0",
     "TERMINAL_BLOCK_HASH": "0x0000000000000000000000000000000000000000000000000000000000000000",
     "TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH": "18446744073709551615",
     "MIN_GENESIS_ACTIVE_VALIDATOR_COUNT": "16384",
-    "MIN_GENESIS_TIME": "1614588812",
-    "GENESIS_FORK_VERSION": "0x00001020",
-    "GENESIS_DELAY": "1919188",
-    "ALTAIR_FORK_VERSION": "0x01001020",
-    "ALTAIR_FORK_EPOCH": "36660",
-    "BELLATRIX_FORK_VERSION": "0x02001020",
-    "BELLATRIX_FORK_EPOCH": "112260",
-    "CAPELLA_FORK_VERSION": "0x03001020",
-    "CAPELLA_FORK_EPOCH": "162304",
+    "MIN_GENESIS_TIME": "1742212800",
+    "GENESIS_FORK_VERSION": "0x10000910",
+    "GENESIS_DELAY": "600",
+    "ALTAIR_FORK_VERSION": "0x20000910",
+    "ALTAIR_FORK_EPOCH": "0",
+    "BELLATRIX_FORK_VERSION": "0x30000910",
+    "BELLATRIX_FORK_EPOCH": "0",
+    "CAPELLA_FORK_VERSION": "0x40000910",
+    "CAPELLA_FORK_EPOCH": "0",
+    "DENEB_FORK_VERSION": "0x50000910",
+    "DENEB_FORK_EPOCH": "0",
+    "ELECTRA_FORK_VERSION": "0x60000910",
+    "ELECTRA_FORK_EPOCH": "2048",
+    "FULU_FORK_VERSION": "0x70000910",
+    "FULU_FORK_EPOCH": "18446744073709551615",
     "SECONDS_PER_SLOT": "12",
-    "SECONDS_PER_ETH1_BLOCK": "14",
+    "SECONDS_PER_ETH1_BLOCK": "12",
     "MIN_VALIDATOR_WITHDRAWABILITY_DELAY": "256",
     "SHARD_COMMITTEE_PERIOD": "256",
     "ETH1_FOLLOW_DISTANCE": "2048",
+    "SUBNETS_PER_NODE": "2",
     "INACTIVITY_SCORE_BIAS": "4",
     "INACTIVITY_SCORE_RECOVERY_RATE": "16",
     "EJECTION_BALANCE": "16000000000",
@@ -252,9 +261,36 @@ Example Response Body
     "MAX_PER_EPOCH_ACTIVATION_CHURN_LIMIT": "8",
     "CHURN_LIMIT_QUOTIENT": "65536",
     "PROPOSER_SCORE_BOOST": "40",
-    "DEPOSIT_CHAIN_ID": "5",
-    "DEPOSIT_NETWORK_ID": "5",
-    "DEPOSIT_CONTRACT_ADDRESS": "0xff50ed3d0ec03ac01d4c79aad74928bff48a7b2b",
+    "DEPOSIT_CHAIN_ID": "560048",
+    "DEPOSIT_NETWORK_ID": "560048",
+    "DEPOSIT_CONTRACT_ADDRESS": "0x00000000219ab540356cbb839cbe05303d7705fa",
+    "GAS_LIMIT_ADJUSTMENT_FACTOR": "1024",
+    "MAX_PAYLOAD_SIZE": "10485760",
+    "MAX_REQUEST_BLOCKS": "1024",
+    "MIN_EPOCHS_FOR_BLOCK_REQUESTS": "33024",
+    "TTFB_TIMEOUT": "5",
+    "RESP_TIMEOUT": "10",
+    "ATTESTATION_PROPAGATION_SLOT_RANGE": "32",
+    "MAXIMUM_GOSSIP_CLOCK_DISPARITY_MILLIS": "500",
+    "MESSAGE_DOMAIN_INVALID_SNAPPY": "0x00000000",
+    "MESSAGE_DOMAIN_VALID_SNAPPY": "0x01000000",
+    "ATTESTATION_SUBNET_PREFIX_BITS": "6",
+    "MAX_REQUEST_BLOCKS_DENEB": "128",
+    "MAX_REQUEST_BLOB_SIDECARS": "768",
+    "MAX_REQUEST_DATA_COLUMN_SIDECARS": "16384",
+    "MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS": "4096",
+    "BLOB_SIDECAR_SUBNET_COUNT": "6",
+    "MAX_BLOBS_PER_BLOCK": "6",
+    "MIN_PER_EPOCH_CHURN_LIMIT_ELECTRA": "128000000000",
+    "MAX_PER_EPOCH_ACTIVATION_EXIT_CHURN_LIMIT": "256000000000",
+    "MAX_BLOBS_PER_BLOCK_ELECTRA": "9",
+    "BLOB_SIDECAR_SUBNET_COUNT_ELECTRA": "9",
+    "MAX_REQUEST_BLOB_SIDECARS_ELECTRA": "1152",
+    "NUMBER_OF_COLUMNS": "128",
+    "NUMBER_OF_CUSTODY_GROUPS": "128",
+    "DATA_COLUMN_SIDECAR_SUBNET_COUNT": "128",
+    "SAMPLES_PER_SLOT": "8",
+    "CUSTODY_REQUIREMENT": "4",
     "MAX_COMMITTEES_PER_SLOT": "64",
     "TARGET_COMMITTEE_SIZE": "128",
     "MAX_VALIDATORS_PER_COMMITTEE": "2048",
@@ -303,23 +339,45 @@ Example Response Body
     "MAX_BLS_TO_EXECUTION_CHANGES": "16",
     "MAX_WITHDRAWALS_PER_PAYLOAD": "16",
     "MAX_VALIDATORS_PER_WITHDRAWALS_SWEEP": "16384",
-    "DOMAIN_DEPOSIT": "0x03000000",
-    "BLS_WITHDRAWAL_PREFIX": "0x00",
-    "RANDOM_SUBNETS_PER_VALIDATOR": "1",
-    "DOMAIN_SYNC_COMMITTEE": "0x07000000",
-    "TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE": "16",
-    "DOMAIN_BEACON_ATTESTER": "0x01000000",
-    "DOMAIN_VOLUNTARY_EXIT": "0x04000000",
-    "DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF": "0x08000000",
-    "DOMAIN_CONTRIBUTION_AND_PROOF": "0x09000000",
-    "EPOCHS_PER_RANDOM_SUBNET_SUBSCRIPTION": "256",
-    "TARGET_AGGREGATORS_PER_COMMITTEE": "16",
-    "DOMAIN_APPLICATION_MASK": "0x00000001",
-    "DOMAIN_AGGREGATE_AND_PROOF": "0x06000000",
-    "DOMAIN_RANDAO": "0x02000000",
-    "DOMAIN_SELECTION_PROOF": "0x05000000",
+    "MAX_BLOB_COMMITMENTS_PER_BLOCK": "4096",
+    "FIELD_ELEMENTS_PER_BLOB": "4096",
+    "MIN_ACTIVATION_BALANCE": "32000000000",
+    "MAX_EFFECTIVE_BALANCE_ELECTRA": "2048000000000",
+    "MIN_SLASHING_PENALTY_QUOTIENT_ELECTRA": "4096",
+    "WHISTLEBLOWER_REWARD_QUOTIENT_ELECTRA": "4096",
+    "PENDING_DEPOSITS_LIMIT": "134217728",
+    "PENDING_PARTIAL_WITHDRAWALS_LIMIT": "134217728",
+    "PENDING_CONSOLIDATIONS_LIMIT": "262144",
+    "MAX_ATTESTER_SLASHINGS_ELECTRA": "1",
+    "MAX_ATTESTATIONS_ELECTRA": "8",
+    "MAX_DEPOSIT_REQUESTS_PER_PAYLOAD": "8192",
+    "MAX_WITHDRAWAL_REQUESTS_PER_PAYLOAD": "16",
+    "MAX_CONSOLIDATION_REQUESTS_PER_PAYLOAD": "2",
+    "MAX_PENDING_PARTIALS_PER_WITHDRAWALS_SWEEP": "8",
+    "MAX_PENDING_DEPOSITS_PER_EPOCH": "16",
+    "FIELD_ELEMENTS_PER_CELL": "64",
+    "FIELD_ELEMENTS_PER_EXT_BLOB": "8192",
+    "KZG_COMMITMENTS_INCLUSION_PROOF_DEPTH": "4",
     "DOMAIN_BEACON_PROPOSER": "0x00000000",
-    "SYNC_COMMITTEE_SUBNET_COUNT": "4"
+    "DOMAIN_CONTRIBUTION_AND_PROOF": "0x09000000",
+    "DOMAIN_DEPOSIT": "0x03000000",
+    "DOMAIN_SELECTION_PROOF": "0x05000000",
+    "VERSIONED_HASH_VERSION_KZG": "1",
+    "TARGET_AGGREGATORS_PER_SYNC_SUBCOMMITTEE": "16",
+    "DOMAIN_VOLUNTARY_EXIT": "0x04000000",
+    "BLS_WITHDRAWAL_PREFIX": "0x00",
+    "DOMAIN_APPLICATION_MASK": "0x00000001",
+    "DOMAIN_SYNC_COMMITTEE_SELECTION_PROOF": "0x08000000",
+    "DOMAIN_SYNC_COMMITTEE": "0x07000000",
+    "COMPOUNDING_WITHDRAWAL_PREFIX": "0x02",
+    "TARGET_AGGREGATORS_PER_COMMITTEE": "16",
+    "SYNC_COMMITTEE_SUBNET_COUNT": "4",
+    "DOMAIN_BEACON_ATTESTER": "0x01000000",
+    "UNSET_DEPOSIT_REQUESTS_START_INDEX": "18446744073709551615",
+    "FULL_EXIT_REQUEST_AMOUNT": "0",
+    "DOMAIN_AGGREGATE_AND_PROOF": "0x06000000",
+    "ETH1_ADDRESS_WITHDRAWAL_PREFIX": "0x01",
+    "DOMAIN_RANDAO": "0x02000000"
   }
 }
 ```
@@ -351,7 +409,7 @@ Example Response Body
 
 ```json
 {
-    "token_path": "/home/karlm/.lighthouse/holesky/validators/api-token.txt"
+    "token_path": "/home/karlm/.lighthouse/hoodi/validators/api-token.txt"
 }
 ```
 
@@ -816,3 +874,110 @@ logs emitted are INFO level or higher.
   }
 }
 ```
+
+## `GET /lighthouse/beacon/health`
+
+Provides information about the sync status and execution layer health of each connected beacon node.
+For more information about how to interpret the beacon node health, see [Fallback Health](./advanced_redundancy.md#fallback-health).
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/beacon/health`                |
+| Method            | GET                                        |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
+| Typical Responses | 200, 400                                   |
+
+Command:
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X GET http://localhost:5062/lighthouse/beacon/health \
+ -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" | jq
+ ```
+
+### Example Response Body
+
+```json
+{
+    "data": {
+        "beacon_nodes": [
+            {
+                "index": 0,
+                "endpoint": "http://localhost:5052",
+                "health": {
+                    "user_index": 0,
+                    "head": 10500000,
+                    "optimistic_status": "No",
+                    "execution_status": "Healthy",
+                    "health_tier": {
+                        "tier": 1,
+                        "sync_distance": 0,
+                        "distance_tier": "Synced"
+                    }
+                }
+            },
+            {
+                "index": 1,
+                "endpoint": "http://fallbacks-r.us",
+                "health": "Offline"
+            }
+        ]
+    }
+}
+```
+
+## `POST /lighthouse/beacon/update`
+
+Updates the list of beacon nodes originally specified by the `--beacon-nodes` CLI flag.
+Use this endpoint when you don't want to restart the VC to add, remove or reorder beacon nodes.
+
+### HTTP Specification
+
+| Property          | Specification                              |
+|-------------------|--------------------------------------------|
+| Path              | `/lighthouse/beacon/update`                |
+| Method            | POST                                       |
+| Required Headers  | [`Authorization`](./api_vc_auth_header.md) |
+| Typical Responses | 200, 400                                   |
+
+### Example Request Body
+
+```json
+{
+    "beacon_nodes": [
+        "http://beacon-node1:5052",
+        "http://beacon-node2:5052",
+        "http://beacon-node3:5052"
+    ]
+}
+```
+
+Command:
+
+```bash
+DATADIR=/var/lib/lighthouse
+curl -X POST http://localhost:5062/lighthouse/beacon/update \
+ -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+ -H "Content-Type: application/json" \
+ -d "{\"beacon_nodes\":[\"http://beacon-node1:5052\",\"http://beacon-node2:5052\",\"http://beacon-node3:5052\"]}"
+```
+
+### Example Response Body
+
+```json
+{
+    "data": {
+        "new_beacon_nodes_list": [
+            "http://beacon-node1:5052",
+            "http://beacon-node2:5052",
+            "http://beacon-node3:5052"
+        ]
+    }
+}
+```
+
+If successful, the response will be a copy of the new list included in the request.
+If unsuccessful, an error will be shown and the beacon nodes list will not be updated.
+You can verify the results of the endpoint by using the `/lighthouse/beacon/health` endpoint.

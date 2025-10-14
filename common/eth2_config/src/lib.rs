@@ -212,7 +212,7 @@ macro_rules! define_net {
                 "../",
                 "deposit_contract_block.txt"
             ),
-            boot_enr: $this_crate::$include_file!($this_crate, "../", "boot_enr.yaml"),
+            boot_enr: $this_crate::$include_file!($this_crate, "../", "bootstrap_nodes.yaml"),
             genesis_state_bytes: $this_crate::$include_file!($this_crate, "../", "genesis.ssz"),
         }
     }};

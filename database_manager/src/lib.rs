@@ -3,10 +3,9 @@ use crate::cli::DatabaseManager;
 use crate::cli::Migrate;
 use crate::cli::PruneStates;
 use beacon_chain::{
-    builder::Witness, eth1_chain::CachingEth1Backend, schema_change::migrate_schema,
-    slot_clock::SystemTimeSlotClock,
+    builder::Witness, schema_change::migrate_schema, slot_clock::SystemTimeSlotClock,
 };
-use beacon_node::{get_data_dir, ClientConfig};
+use beacon_node::{ClientConfig, get_data_dir};
 use clap::ArgMatches;
 use clap::ValueEnum;
 use cli::{Compact, Inspect};
@@ -17,10 +16,10 @@ use std::io::Write;
 use std::path::PathBuf;
 use store::KeyValueStore;
 use store::{
+    DBColumn, HotColdDB,
     database::interface::BeaconNodeBackend,
     errors::Error,
-    metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION},
-    DBColumn, HotColdDB,
+    metadata::{CURRENT_SCHEMA_VERSION, SchemaVersion},
 };
 use strum::{EnumString, EnumVariantNames};
 use tracing::{info, warn};
@@ -301,7 +300,6 @@ fn parse_migrate_config(migrate_config: &Migrate) -> Result<MigrateConfig, Strin
 pub fn migrate_db<E: EthSpec>(
     migrate_config: MigrateConfig,
     client_config: ClientConfig,
-    mut genesis_state: BeaconState<E>,
     runtime_context: &RuntimeContext<E>,
 ) -> Result<(), Error> {
     let spec = runtime_context.eth2_config.spec.clone();
@@ -329,13 +327,7 @@ pub fn migrate_db<E: EthSpec>(
         "Migrating database schema"
     );
 
-    let genesis_state_root = genesis_state.canonical_root()?;
-    migrate_schema::<Witness<SystemTimeSlotClock, CachingEth1Backend<E>, _, _, _>>(
-        db,
-        Some(genesis_state_root),
-        from,
-        to,
-    )
+    migrate_schema::<Witness<SystemTimeSlotClock, _, _, _>>(db, from, to)
 }
 
 pub fn prune_payloads<E: EthSpec>(
@@ -487,8 +479,7 @@ pub fn run<E: EthSpec>(
     match &db_manager_config.subcommand {
         cli::DatabaseManagerSubcommand::Migrate(migrate_config) => {
             let migrate_config = parse_migrate_config(migrate_config)?;
-            let genesis_state = get_genesis_state()?;
-            migrate_db(migrate_config, client_config, genesis_state, &context).map_err(format_err)
+            migrate_db(migrate_config, client_config, &context).map_err(format_err)
         }
         cli::DatabaseManagerSubcommand::Inspect(inspect_config) => {
             let inspect_config = parse_inspect_config(inspect_config)?;

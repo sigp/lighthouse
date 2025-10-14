@@ -2,9 +2,10 @@
 
 use beacon_chain::StateSkipConfig;
 use node_test_rig::{
+    LocalBeaconNode,
     environment::{Environment, EnvironmentBuilder},
     eth2::types::StateId,
-    testing_client_config, LocalBeaconNode,
+    testing_client_config,
 };
 use types::{EthSpec, MinimalEthSpec, Slot};
 
@@ -41,7 +42,7 @@ fn http_server_genesis_state() {
         .block_on(remote_node.get_debug_beacon_states(StateId::Slot(Slot::new(0))))
         .expect("should fetch state from http api")
         .unwrap()
-        .data;
+        .into_data();
 
     let mut db_state = node
         .client

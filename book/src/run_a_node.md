@@ -54,7 +54,7 @@ Notable flags:
 - `--network` flag, which selects a network:
   - `lighthouse` (no flag): Mainnet.
   - `lighthouse --network mainnet`: Mainnet.
-  - `lighthouse --network holesky`: Holesky (testnet).
+  - `lighthouse --network hoodi`: Hoodi (testnet).
   - `lighthouse --network sepolia`: Sepolia (testnet).
   - `lighthouse --network chiado`: Chiado (testnet).
   - `lighthouse --network gnosis`: Gnosis chain.

@@ -26,3 +26,7 @@ MD036: false
 # MD040 code blocks should have a language specified: https://github.com/DavidAnson/markdownlint/blob/main/doc/md040.md
 # Set to false as the help_x.md files are code blocks without a language specified, which is fine and does not need to change
 MD040: false
+
+# MD059 Link text should be descriptive: https://github.com/DavidAnson/markdownlint/blob/main/doc/md059.md
+# Set to false because it is too strict
+MD059: false

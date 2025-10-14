@@ -1,9 +1,14 @@
+use crate::ContextDeserialize;
 use derivative::Derivative;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as DeError;
+use serde::{Deserialize, Deserializer, Serialize};
 use ssz::Decode;
 use ssz_types::Error;
+use std::fmt;
+use std::fmt::Debug;
 use std::ops::{Deref, Index, IndexMut};
 use std::slice::SliceIndex;
+use tree_hash::{Hash256, MerkleHasher, PackedEncoding, TreeHash, TreeHashType};
 
 /// Emulates a SSZ `List`.
 ///
@@ -20,15 +25,15 @@ use std::slice::SliceIndex;
 /// let base: Vec<u64> = vec![1, 2, 3, 4];
 ///
 /// // Create a `RuntimeVariableList` from a `Vec` that has the expected length.
-/// let exact: RuntimeVariableList<_> = RuntimeVariableList::from_vec(base.clone(), 4);
+/// let exact: RuntimeVariableList<_> = RuntimeVariableList::new(base.clone(), 4).unwrap();
 /// assert_eq!(&exact[..], &[1, 2, 3, 4]);
 ///
-/// // Create a `RuntimeVariableList` from a `Vec` that is too long and the `Vec` is truncated.
-/// let short: RuntimeVariableList<_> = RuntimeVariableList::from_vec(base.clone(), 3);
-/// assert_eq!(&short[..], &[1, 2, 3]);
+/// // Create a `RuntimeVariableList` from a `Vec` that is too long you'll get an error.
+/// let err = RuntimeVariableList::new(base.clone(), 3).unwrap_err();
+/// assert_eq!(err, ssz_types::Error::OutOfBounds { i: 4, len: 3 });
 ///
 /// // Create a `RuntimeVariableList` from a `Vec` that is shorter than the maximum.
-/// let mut long: RuntimeVariableList<_> = RuntimeVariableList::from_vec(base, 5);
+/// let mut long: RuntimeVariableList<_> = RuntimeVariableList::new(base, 5).unwrap();
 /// assert_eq!(&long[..], &[1, 2, 3, 4]);
 ///
 /// // Push a value to if it does not exceed the maximum
@@ -39,13 +44,19 @@ use std::slice::SliceIndex;
 /// assert!(long.push(6).is_err());
 ///
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derive(Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Eq, Hash(bound = "T: std::hash::Hash"))]
 #[serde(transparent)]
 pub struct RuntimeVariableList<T> {
     vec: Vec<T>,
     #[serde(skip)]
     max_len: usize,
+}
+
+impl<T: Debug> Debug for RuntimeVariableList<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} (max_len={})", self.vec, self.max_len)
+    }
 }
 
 impl<T> RuntimeVariableList<T> {
@@ -60,12 +71,6 @@ impl<T> RuntimeVariableList<T> {
                 len: max_len,
             })
         }
-    }
-
-    pub fn from_vec(mut vec: Vec<T>, max_len: usize) -> Self {
-        vec.truncate(max_len);
-
-        Self { vec, max_len }
     }
 
     /// Create an empty list with the given `max_len`.
@@ -217,6 +222,83 @@ where
     }
 }
 
+impl<'de, C, T> ContextDeserialize<'de, (C, usize)> for RuntimeVariableList<T>
+where
+    T: ContextDeserialize<'de, C>,
+    C: Clone,
+{
+    fn context_deserialize<D>(deserializer: D, context: (C, usize)) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // first parse out a Vec<C> using the Vec<C> impl you already have
+        let vec: Vec<T> = Vec::context_deserialize(deserializer, context.0)?;
+        let vec_len = vec.len();
+        RuntimeVariableList::new(vec, context.1).map_err(|e| {
+            DeError::custom(format!(
+                "RuntimeVariableList length {} exceeds max_len {}: {e:?}",
+                vec_len, context.1,
+            ))
+        })
+    }
+}
+
+impl<T: TreeHash> TreeHash for RuntimeVariableList<T> {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::List
+    }
+
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("List should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        let root = runtime_vec_tree_hash_root::<T>(&self.vec, self.max_len);
+
+        tree_hash::mix_in_length(&root, self.len())
+    }
+}
+
+// We can delete this once the upstream `vec_tree_hash_root` is modified to use a runtime max len.
+pub fn runtime_vec_tree_hash_root<T>(vec: &[T], max_len: usize) -> Hash256
+where
+    T: TreeHash,
+{
+    match T::tree_hash_type() {
+        TreeHashType::Basic => {
+            let mut hasher =
+                MerkleHasher::with_leaves(max_len.div_ceil(T::tree_hash_packing_factor()));
+
+            for item in vec {
+                hasher
+                    .write(&item.tree_hash_packed_encoding())
+                    .expect("ssz_types variable vec should not contain more elements than max");
+            }
+
+            hasher
+                .finish()
+                .expect("ssz_types variable vec should not have a remaining buffer")
+        }
+        TreeHashType::Container | TreeHashType::List | TreeHashType::Vector => {
+            let mut hasher = MerkleHasher::with_leaves(max_len);
+
+            for item in vec {
+                hasher
+                    .write(item.tree_hash_root().as_slice())
+                    .expect("ssz_types vec should not contain more elements than max");
+            }
+
+            hasher
+                .finish()
+                .expect("ssz_types vec should not have a remaining buffer")
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -242,7 +324,8 @@ mod test {
     fn indexing() {
         let vec = vec![1, 2];
 
-        let mut fixed: RuntimeVariableList<u64> = RuntimeVariableList::from_vec(vec.clone(), 8192);
+        let mut fixed: RuntimeVariableList<u64> =
+            RuntimeVariableList::new(vec.clone(), 8192).unwrap();
 
         assert_eq!(fixed[0], 1);
         assert_eq!(&fixed[0..1], &vec[0..1]);
@@ -254,24 +337,25 @@ mod test {
 
     #[test]
     fn length() {
+        // Too long.
         let vec = vec![42; 5];
-        let fixed: RuntimeVariableList<u64> = RuntimeVariableList::from_vec(vec.clone(), 4);
-        assert_eq!(&fixed[..], &vec[0..4]);
+        let err = RuntimeVariableList::<u64>::new(vec.clone(), 4).unwrap_err();
+        assert_eq!(err, Error::OutOfBounds { i: 5, len: 4 });
 
         let vec = vec![42; 3];
-        let fixed: RuntimeVariableList<u64> = RuntimeVariableList::from_vec(vec.clone(), 4);
+        let fixed: RuntimeVariableList<u64> = RuntimeVariableList::new(vec.clone(), 4).unwrap();
         assert_eq!(&fixed[0..3], &vec[..]);
         assert_eq!(&fixed[..], &vec![42, 42, 42][..]);
 
         let vec = vec![];
-        let fixed: RuntimeVariableList<u64> = RuntimeVariableList::from_vec(vec, 4);
+        let fixed: RuntimeVariableList<u64> = RuntimeVariableList::new(vec, 4).unwrap();
         assert_eq!(&fixed[..], &[] as &[u64]);
     }
 
     #[test]
     fn deref() {
         let vec = vec![0, 2, 4, 6];
-        let fixed: RuntimeVariableList<u64> = RuntimeVariableList::from_vec(vec, 4);
+        let fixed: RuntimeVariableList<u64> = RuntimeVariableList::new(vec, 4).unwrap();
 
         assert_eq!(fixed.first(), Some(&0));
         assert_eq!(fixed.get(3), Some(&6));
@@ -280,7 +364,7 @@ mod test {
 
     #[test]
     fn encode() {
-        let vec: RuntimeVariableList<u16> = RuntimeVariableList::from_vec(vec![0; 2], 2);
+        let vec: RuntimeVariableList<u16> = RuntimeVariableList::new(vec![0; 2], 2).unwrap();
         assert_eq!(vec.as_ssz_bytes(), vec![0, 0, 0, 0]);
         assert_eq!(<RuntimeVariableList<u16> as Encode>::ssz_fixed_len(), 4);
     }
@@ -297,7 +381,7 @@ mod test {
 
     #[test]
     fn u16_len_8() {
-        round_trip::<u16>(RuntimeVariableList::from_vec(vec![42; 8], 8));
-        round_trip::<u16>(RuntimeVariableList::from_vec(vec![0; 8], 8));
+        round_trip::<u16>(RuntimeVariableList::new(vec![42; 8], 8).unwrap());
+        round_trip::<u16>(RuntimeVariableList::new(vec![0; 8], 8).unwrap());
     }
 }

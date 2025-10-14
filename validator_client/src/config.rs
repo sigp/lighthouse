@@ -1,15 +1,16 @@
 use crate::cli::ValidatorClient;
-use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
 use beacon_node_fallback::ApiTopic;
+use beacon_node_fallback::beacon_node_health::BeaconNodeSyncDistanceTiers;
 use clap::ArgMatches;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_required};
 use directory::{
-    get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
-    DEFAULT_VALIDATOR_DIR,
+    DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR, DEFAULT_VALIDATOR_DIR,
+    get_network_dir,
 };
 use eth2::types::Graffiti;
 use graffiti_file::GraffitiFile;
 use initialized_validators::Config as InitializedValidatorsConfig;
+use lighthouse_validator_store::Config as ValidatorStoreConfig;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -20,7 +21,6 @@ use tracing::{info, warn};
 use types::GRAFFITI_BYTES_LEN;
 use validator_http_api::{self, PK_FILENAME};
 use validator_http_metrics;
-use validator_store::Config as ValidatorStoreConfig;
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 
@@ -102,8 +102,10 @@ impl Default for Config {
         let validator_dir = base_dir.join(DEFAULT_VALIDATOR_DIR);
         let secrets_dir = base_dir.join(DEFAULT_SECRET_DIR);
 
-        let beacon_nodes = vec![SensitiveUrl::parse(DEFAULT_BEACON_NODE)
-            .expect("beacon_nodes must always be a valid url.")];
+        let beacon_nodes = vec![
+            SensitiveUrl::parse(DEFAULT_BEACON_NODE)
+                .expect("beacon_nodes must always be a valid url."),
+        ];
         Self {
             validator_store: ValidatorStoreConfig::default(),
             validator_dir,

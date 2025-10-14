@@ -1,12 +1,12 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
-use crate::hot_cold_store::HotColdDBError;
-use crate::{hdiff, DBColumn};
+use crate::hot_cold_store::{HotColdDBError, StateSummaryIteratorError};
+use crate::{DBColumn, hdiff};
 #[cfg(feature = "leveldb")]
 use leveldb::error::Error as LevelDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{milhouse, BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot};
+use types::{BeaconStateError, EpochCacheError, Hash256, InconsistentFork, Slot, milhouse};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -26,6 +26,9 @@ pub enum Error {
     SplitPointModified(Slot, Slot),
     ConfigError(StoreConfigError),
     MigrationError(String),
+    /// The store's `anchor_info` is still the default uninitialized value when attempting a state
+    /// write
+    AnchorUninitialized,
     /// The store's `anchor_info` was mutated concurrently, the latest modification wasn't applied.
     AnchorInfoConcurrentMutation,
     /// The store's `blob_info` was mutated concurrently, the latest modification wasn't applied.
@@ -47,20 +50,26 @@ pub enum Error {
         expected: Hash256,
         computed: Hash256,
     },
+    MissingState(Hash256),
+    MissingHotStateSummary(Hash256),
+    MissingHotStateSnapshot(Hash256, Slot),
     MissingGenesisState,
     MissingSnapshot(Slot),
+    LoadingHotHdiffBufferError(String, Hash256, Box<Error>),
+    LoadingHotStateError(String, Hash256, Box<Error>),
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
-    InvalidKey,
+    InvalidKey(String),
     InvalidBytes,
     InconsistentFork(InconsistentFork),
     #[cfg(feature = "leveldb")]
     LevelDbError(LevelDBError),
     #[cfg(feature = "redb")]
-    RedbError(redb::Error),
+    RedbError(Box<redb::Error>),
     CacheBuildError(EpochCacheError),
     RandaoMixOutOfBounds,
     MilhouseError(milhouse::Error),
+    SszTypesError(ssz_types::Error),
     Compression(std::io::Error),
     FinalizedStateDecreasingSlot,
     FinalizedStateUnaligned,
@@ -75,6 +84,26 @@ pub enum Error {
     MissingBlock(Hash256),
     GenesisStateUnknown,
     ArithError(safe_arith::ArithError),
+    MismatchedDiffBaseState {
+        expected_slot: Slot,
+        stored_slot: Slot,
+    },
+    SnapshotDiffBaseState {
+        slot: Slot,
+    },
+    LoadAnchorInfo(Box<Error>),
+    LoadSplit(Box<Error>),
+    LoadBlobInfo(Box<Error>),
+    LoadDataColumnInfo(Box<Error>),
+    LoadConfig(Box<Error>),
+    LoadHotStateSummary(Hash256, Box<Error>),
+    LoadHotStateSummaryForSplit(Box<Error>),
+    StateSummaryIteratorError {
+        error: StateSummaryIteratorError,
+        from_state_root: Hash256,
+        from_state_slot: Slot,
+        target_slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {
@@ -133,6 +162,12 @@ impl From<milhouse::Error> for Error {
     }
 }
 
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Self::SszTypesError(e)
+    }
+}
+
 impl From<hdiff::Error> for Error {
     fn from(e: hdiff::Error) -> Self {
         Self::Hdiff(e)
@@ -161,49 +196,49 @@ impl From<LevelDBError> for Error {
 #[cfg(feature = "redb")]
 impl From<redb::Error> for Error {
     fn from(e: redb::Error) -> Self {
-        Error::RedbError(e)
+        Error::RedbError(Box::new(e))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::TableError> for Error {
     fn from(e: redb::TableError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::TransactionError> for Error {
     fn from(e: redb::TransactionError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::DatabaseError> for Error {
     fn from(e: redb::DatabaseError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::StorageError> for Error {
     fn from(e: redb::StorageError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::CommitError> for Error {
     fn from(e: redb::CommitError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 
 #[cfg(feature = "redb")]
 impl From<redb::CompactionError> for Error {
     fn from(e: redb::CompactionError) -> Self {
-        Error::RedbError(e.into())
+        Error::RedbError(Box::new(e.into()))
     }
 }
 

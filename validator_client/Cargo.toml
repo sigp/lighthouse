@@ -22,6 +22,7 @@ fdlimit = "0.3.0"
 graffiti_file = { workspace = true }
 hyper = { workspace = true }
 initialized_validators = { workspace = true }
+lighthouse_validator_store = { workspace = true }
 metrics = { workspace = true }
 monitoring_api = { workspace = true }
 parking_lot = { workspace = true }

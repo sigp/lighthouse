@@ -19,11 +19,11 @@ Let's take a look at an example: Initially, validators A and B are both with 0x0
     - validator A has 64 ETH
     - validator B has 0 ETH (i.e., validator B has exited the beacon chain)
 
-The consolidation process can be repeated to consolidate more validators into validator A.
+The consolidation process can be repeated to consolidate more validators into validator A. The request is made by signing a transaction using the **withdrawal address** of the source validator. The withdrawal credential of the target validator can be different from the source validator.
 
 It is important to note that there are some conditions required to perform consolidation, a few common ones are:
 
-- the **withdrawal address** of the source and target validators **must be the same**.
+- both source and target validator **must be active** (i.e., not exiting or slashed).
 - the _target validator_ **must** have a withdrawal credential **type 0x02**. The source validator could have a 0x01 or 0x02 withdrawal credential.
 - the source validator must be active for at least 256 epochs to be able to perform consolidation.
 

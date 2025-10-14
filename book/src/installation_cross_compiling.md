@@ -18,7 +18,8 @@ project.
 The `Makefile` in the project contains two targets for cross-compiling:
 
 - `build-x86_64`: builds an optimized version for x86_64 processors (suitable for most users).
-- `build-aarch64`: builds an optimized version for 64-bit ARM processors (suitable for Raspberry Pi 4).
+- `build-aarch64`: builds an optimized version for 64-bit ARM processors (suitable for Raspberry Pi 4/5).
+- `build-riscv64`: builds an optimized version for 64-bit RISC-V processors.
 
 ### Example
 

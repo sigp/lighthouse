@@ -62,7 +62,7 @@ Siren's validator management view provides a detailed overview of all validators
 
 Clicking the validator icon activates a detailed validator modal component. This component also allows users to trigger validator actions and as well to view and update validator graffiti. Each modal contains the validator total income with hourly, daily and weekly earnings estimates.
 
-<img height="450" src="imgs/ui-val-modal.png" alt="ui-validator-modal" />
+![bls-execution](imgs/ui-val-modal.png)
 
 ### Validator BLS Withdrawal Credentials
 
@@ -77,7 +77,7 @@ If you wish to convert your withdrawal address, Siren will prompt you to provide
 ### Validator Edit
 
 Siren makes it possible to edit your validator's display name by clicking the edit icon in the validator table. Note: This does not change the validator name, but gives it an alias you can use to identify each validator easily.
-These settings are stored in your browser's `localStorage`  
+These settings are stored in your browser's `localStorage`
 
 ![edit](imgs/ui-val-edit.png)
 
@@ -86,6 +86,82 @@ These settings are stored in your browser's `localStorage`
 Siren provides the ability to exit/withdraw your validators via the validator management page. In the validator modal, click the validator action `withdraw validator`. Siren will then prompt you with additional information before requiring you to validate your session password. Remember, this action is irreversible and will lock your validator into an exiting state. Please take extra caution.
 
 ![exit](imgs/ui-val-exit.png)
+
+### Deposit and Import new Validators
+
+Siren's deposit flow aims to create a smooth and easy process for depositing and importing a new Lighthouse validator. The process is separated into 6 main steps:
+
+#### Validator Setup
+
+- First, select the number of validators you wish to create, ensuring you connect a wallet with sufficient funds to cover each validator deposit. For each validator candidate, you can set a custom name and optionally enable the `0x02` withdrawal credential flag, which indicates to the deposit contract that the validator will compound and have an increased `MAX_EFFECTIVE_BALANCE`.
+
+![deposit-step-1](imgs/ui-dep-1.png)
+
+#### Phrase Verification
+
+- Enter a valid mnemonic phrase to generate corresponding deposit JSON and keystore objects. This is a sensitive step; copying and pasting your mnemonic phrase is not recommended. This information is never stored or transmitted through any communication channel.
+
+![deposit-step-2](imgs/ui-dep-2.png)
+
+#### Mnemonic Indexing
+
+- The mnemonic index is as important as the mnemonic phrase; reusing existing or previously exited indices directs deposits to existing validators and may require additional steps to recover those funds. Each index combined with the mnemonic phrase generates a deterministic public key, which Siren validates by checking against the Beacon Node. Since newly submitted deposits may not immediately appear on the Beacon Node, Siren provides [Beaconcha.in](https://beaconcha.in) links for secondary confirmation.
+
+![deposit-step-3](imgs/ui-dep-3.png)
+
+#### Withdrawal Credentials
+
+- Next, set the withdrawal and suggested fee recipient addresses. In the basic view, you can conveniently set both values to the same address, or switch to the advanced view to specify them separately. You may apply these settings uniformly to all validators or individually per candidate. Each value can be verified by connecting the relevant wallet and signing a valid message. Skipping verification is not recommended, as the withdrawal address will receive the staked validator funds and cannot be changed later.
+
+![deposit-step-4](imgs/ui-dep-4.png)
+
+#### Keystore Authentication
+
+- To securely import your validator post-deposit, set a strong keystore password. You may apply the same password across all candidates or individually assign passwords for each.
+
+![deposit-step-5](imgs/ui-dep-5.png)
+
+#### Sign and Deposit
+
+- Finally, complete each deposit by connecting a wallet with sufficient funds to Siren and signing the transaction. Upon successful inclusion of the deposit in the next block, Siren automatically imports the validator using the provided keystore credentials. Once imported, your validator will appear in Siren when the Beacon Node processes the transaction and enters the deposit queue. Processing time may vary depending on the queue length, potentially taking several days. Siren maintains a record of the deposit transaction for your review during this period.
+
+![deposit-step-6](imgs/ui-dep-6.png)
+
+### Consolidate Validator
+
+`EIP-7251` increases the `MAX_EFFECTIVE_BALANCE` limit up to `2048 ETH`, allowing validators with `0x02` withdrawal credentials to consolidate funds from multiple exited validators. Siren facilitates requests to a consolidation contract, enabling validators to upgrade their withdrawal credentials and merge several validators into one compounding target validator.
+
+![consolidation-target](imgs/consolidation-target.png)
+
+#### Eligibility requirements for consolidation
+
+- Validators must have at least `0x01` withdrawal credentials. Validators with `0x00` credentials must first perform a [BLS Execution Change](./ui_usage.md#validator-bls-withdrawal-credentials).
+
+- Target validators with `0x01` withdrawal credentials must initiate a self-consolidation request to upgrade credentials to `0x02`, enabling them to accept funds and benefit from the increased balance cap.
+
+- Source validators must first have been active long enough to become eligible for exit and must not have any pending withdrawal requests.
+
+![consolidation-source](imgs/consolidation-source.png)
+
+#### Post-consolidation
+
+- All source validators will exit automatically, and their funds will be transferred to the target validator.
+
+- Validators consolidated under the new credentials (`0x02`) will no longer participate in automatic partial withdrawal sweeps. Instead, withdrawal requests must be explicitly submitted to the withdrawal contract as defined in `EIP-7002`.
+
+### Partial Validator Withdrawal
+
+`EIP-7002` enables partial withdrawals from validators with `0x02` withdrawal credentials and balances exceeding the `MIN_ACTIVATION_BALANCE`. Additionally, validators with upgraded `0x02` credentials will no longer participate in the automatic withdrawal sweeps, making this tool very valuable for Lighthouse validators.
+
+In order to request a partial withdrawal you must have access to the wallet set in the validator's withdrawal credentials and enough ETH to cover the withdrawal request and gas fees. Connect this wallet to the Siren dashboard to start withdrawing funds. All pending withdrawals will be visible in the same view for your convenience.
+
+![partial-withdrawal](imgs/partial-withdrawal-siren.png)
+
+### Partial Validator Top-ups
+
+If your validator's `EFFECTIVE_BALANCE` drops, or you've upgraded to `0x02` compounding withdrawal credentials, you can add additional funds. Simply connect any wallet to Siren and enter the desired amount to deposit to your validator. Once prompted sign the deposit transaction and your funds will enter the deposit queue and processed by the Beacon Node.
+
+![deposit-funds](imgs/deposit-funds.png)
 
 ________________________________________________________________________________________________________________________________
 

@@ -5,8 +5,8 @@ use beacon_chain::sync_committee_verification::{
     Error as SyncVerificationError, VerifiedSyncCommitteeMessage,
 };
 use beacon_chain::{
-    validator_monitor::timestamp_now, BeaconChain, BeaconChainError, BeaconChainTypes,
-    StateSkipConfig,
+    BeaconChain, BeaconChainError, BeaconChainTypes, StateSkipConfig,
+    validator_monitor::timestamp_now,
 };
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
@@ -17,8 +17,8 @@ use std::collections::HashMap;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, error, warn};
 use types::{
-    slot_data::SlotData, BeaconStateError, Epoch, EthSpec, SignedContributionAndProof,
-    SyncCommitteeMessage, SyncDuty, SyncSubnetId,
+    BeaconStateError, Epoch, EthSpec, SignedContributionAndProof, SyncCommitteeMessage, SyncDuty,
+    SyncSubnetId, slot_data::SlotData,
 };
 
 /// The struct that is returned to the requesting HTTP client.
@@ -49,7 +49,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
             return Ok(convert_to_response(
                 verify_unknown_validators(duties, request_epoch, chain)?,
                 execution_optimistic,
-            ))
+            ));
         }
         Err(BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             ..
@@ -59,7 +59,7 @@ pub fn sync_committee_duties<T: BeaconChainTypes>(
     }
 
     let duties = duties_from_state_load(request_epoch, request_indices, altair_fork_epoch, chain)
-        .map_err(|e| match e {
+        .map_err(|e| match *e {
         BeaconChainError::SyncDutiesError(BeaconStateError::SyncCommitteeNotKnown {
             current_epoch,
             ..
@@ -81,7 +81,7 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     request_indices: &[u64],
     altair_fork_epoch: Epoch,
     chain: &BeaconChain<T>,
-) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, BeaconChainError> {
+) -> Result<Vec<Result<Option<SyncDuty>, BeaconStateError>>, Box<BeaconChainError>> {
     // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
     //
@@ -92,11 +92,17 @@ fn duties_from_state_load<T: BeaconChainTypes>(
     let tolerant_current_epoch = chain
         .slot_clock
         .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
-        .ok_or(BeaconChainError::UnableToReadSlot)?
+        .ok_or(BeaconChainError::UnableToReadSlot)
+        .map_err(Box::new)?
         .epoch(T::EthSpec::slots_per_epoch());
 
-    let max_sync_committee_period = tolerant_current_epoch.sync_committee_period(&chain.spec)? + 1;
-    let sync_committee_period = request_epoch.sync_committee_period(&chain.spec)?;
+    let max_sync_committee_period = tolerant_current_epoch
+        .sync_committee_period(&chain.spec)
+        .map_err(|e| Box::new(e.into()))?
+        + 1;
+    let sync_committee_period = request_epoch
+        .sync_committee_period(&chain.spec)
+        .map_err(|e| Box::new(e.into()))?;
 
     if tolerant_current_epoch < altair_fork_epoch {
         // Empty response if the epoch is pre-Altair.
@@ -119,13 +125,14 @@ fn duties_from_state_load<T: BeaconChainTypes>(
         state
             .get_sync_committee_duties(request_epoch, request_indices, &chain.spec)
             .map_err(BeaconChainError::SyncDutiesError)
+            .map_err(Box::new)
     } else {
-        Err(BeaconChainError::SyncDutiesError(
+        Err(Box::new(BeaconChainError::SyncDutiesError(
             BeaconStateError::SyncCommitteeNotKnown {
                 current_epoch,
                 epoch: request_epoch,
             },
-        ))
+        )))
     }
 }
 
@@ -266,15 +273,15 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
             }
         }
 
-        if let Some(verified) = verified_for_pool {
-            if let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified) {
-                error!(
-                    error = ?e,
-                    slot = %sync_committee_signature.slot,
-                    validator_index = sync_committee_signature.validator_index,
-                    "Unable to add sync committee signature to pool"
-                );
-            }
+        if let Some(verified) = verified_for_pool
+            && let Err(e) = chain.add_to_naive_sync_aggregation_pool(verified)
+        {
+            error!(
+                error = ?e,
+                slot = %sync_committee_signature.slot,
+                validator_index = sync_committee_signature.validator_index,
+                "Unable to add sync committee signature to pool"
+            );
         }
     }
 
@@ -312,6 +319,38 @@ pub fn process_signed_contribution_and_proofs<T: BeaconChainTypes>(
     let mut failures = vec![];
 
     let seen_timestamp = timestamp_now();
+
+    if let Some(latest_optimistic_update) = chain
+        .light_client_server_cache
+        .should_broadcast_latest_optimistic_update()
+    {
+        let _ = publish_pubsub_message(
+            &network_tx,
+            PubsubMessage::LightClientOptimisticUpdate(Box::new(latest_optimistic_update)),
+        )
+        .inspect_err(|e| {
+            error!(
+                error = ?e,
+                "Unable to broadcast latest light client optimistic update"
+            );
+        });
+    };
+
+    if let Some(latest_finality_update) = chain
+        .light_client_server_cache
+        .should_broadcast_latest_finality_update()
+    {
+        let _ = publish_pubsub_message(
+            &network_tx,
+            PubsubMessage::LightClientFinalityUpdate(Box::new(latest_finality_update)),
+        )
+        .inspect_err(|e| {
+            error!(
+                error = ?e,
+                "Unable to broadcast latest light client finality update"
+            );
+        });
+    };
 
     // Verify contributions & broadcast to the network.
     for (index, contribution) in signed_contribution_and_proofs.into_iter().enumerate() {

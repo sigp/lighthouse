@@ -46,11 +46,7 @@ fn do_round(seed: &[u8], index: usize, pivot: usize, round: u8, list_size: usize
     let source = hash_with_round_and_position(seed, round, position);
     let byte = source[(position % 256) / 8];
     let bit = (byte >> (position % 8)) % 2;
-    if bit == 1 {
-        flip
-    } else {
-        index
-    }
+    if bit == 1 { flip } else { index }
 }
 
 fn hash_with_round_and_position(seed: &[u8], round: u8, position: usize) -> Hash256 {

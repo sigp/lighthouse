@@ -1,14 +1,15 @@
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{
-    beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX, AbstractExecPayload, BeaconBlockHeader,
-    BeaconStateError, Blob, ChainSpec, Epoch, EthSpec, FixedVector, ForkName,
-    ForkVersionDeserialize, Hash256, KzgProofs, RuntimeFixedVector, RuntimeVariableList,
+    AbstractExecPayload, BeaconBlockHeader, BeaconStateError, Blob, ChainSpec, Epoch, EthSpec,
+    FixedVector, ForkName, Hash256, KzgProofs, RuntimeFixedVector, RuntimeVariableList,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot, VariableList,
+    beacon_block_body::BLOB_KZG_COMMITMENTS_INDEX,
 };
 use bls::Signature;
 use derivative::Derivative;
-use kzg::{Blob as KzgBlob, Kzg, KzgCommitment, KzgProof, BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT};
-use merkle_proof::{merkle_root_from_branch, verify_merkle_proof, MerkleTreeError};
+use kzg::{BYTES_PER_BLOB, BYTES_PER_FIELD_ELEMENT, Blob as KzgBlob, Kzg, KzgCommitment, KzgProof};
+use merkle_proof::{MerkleTreeError, merkle_root_from_branch, verify_merkle_proof};
 use rand::Rng;
 use safe_arith::ArithError;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,7 @@ use tree_hash_derive::TreeHash;
 #[derive(
     Serialize, Deserialize, Encode, Decode, TreeHash, Copy, Clone, Debug, PartialEq, Eq, Hash,
 )]
+#[context_deserialize(ForkName)]
 pub struct BlobIdentifier {
     pub block_root: Hash256,
     pub index: u64,
@@ -42,20 +44,16 @@ impl Ord for BlobIdentifier {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    Derivative,
-    arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
+)]
+#[context_deserialize(ForkName)]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[derivative(PartialEq, Eq, Hash(bound = "E: EthSpec"))]
 pub struct BlobSidecar<E: EthSpec> {
     #[serde(with = "serde_utils::quoted_u64")]
@@ -86,6 +84,7 @@ pub enum BlobSidecarError {
     MissingKzgCommitment,
     BeaconState(BeaconStateError),
     MerkleTree(MerkleTreeError),
+    SszTypes(ssz_types::Error),
     ArithError(ArithError),
 }
 
@@ -285,10 +284,11 @@ impl<E: EthSpec> BlobSidecar<E> {
             let blob_sidecar = BlobSidecar::new(i, blob, block, *kzg_proof)?;
             blob_sidecars.push(Arc::new(blob_sidecar));
         }
-        Ok(RuntimeVariableList::from_vec(
+        RuntimeVariableList::new(
             blob_sidecars,
             spec.max_blobs_per_block(block.epoch()) as usize,
-        ))
+        )
+        .map_err(BlobSidecarError::SszTypes)
     }
 }
 
@@ -296,12 +296,3 @@ pub type BlobSidecarList<E> = RuntimeVariableList<Arc<BlobSidecar<E>>>;
 /// Alias for a non length-constrained list of `BlobSidecar`s.
 pub type FixedBlobSidecarList<E> = RuntimeFixedVector<Option<Arc<BlobSidecar<E>>>>;
 pub type BlobsList<E> = VariableList<Blob<E>, <E as EthSpec>::MaxBlobCommitmentsPerBlock>;
-
-impl<E: EthSpec> ForkVersionDeserialize for BlobSidecarList<E> {
-    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
-        value: serde_json::value::Value,
-        _: ForkName,
-    ) -> Result<Self, D::Error> {
-        serde_json::from_value::<BlobSidecarList<E>>(value).map_err(serde::de::Error::custom)
-    }
-}

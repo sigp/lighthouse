@@ -20,15 +20,15 @@
 //! or consider a lookup complete. These caches are read from the `SyncNetworkContext` and its state
 //! returned to this module as `LookupRequestResult` variants.
 
-use self::parent_chain::{compute_parent_chains, NodeChain};
+use self::parent_chain::{NodeChain, compute_parent_chains};
 pub use self::single_block_lookup::DownloadResult;
 use self::single_block_lookup::{LookupRequestError, LookupResult, SingleBlockLookup};
 use super::manager::{BlockProcessType, BlockProcessingResult, SLOT_IMPORT_TOLERANCE};
 use super::network_context::{PeerGroup, RpcResponseError, SyncNetworkContext};
 use crate::metrics;
+use crate::sync::SyncMessage;
 use crate::sync::block_lookups::common::ResponseType;
 use crate::sync::block_lookups::parent_chain::find_oldest_fork_ancestor;
-use crate::sync::SyncMessage;
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_availability_checker::{
     AvailabilityCheckError, AvailabilityCheckErrorCategory,
@@ -36,7 +36,6 @@ use beacon_chain::data_availability_checker::{
 use beacon_chain::{AvailabilityProcessingStatus, BeaconChainTypes, BlockError};
 pub use common::RequestState;
 use fnv::FnvHashMap;
-use itertools::Itertools;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
@@ -45,7 +44,7 @@ use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
 use store::Hash256;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, warn};
 use types::{BlobSidecar, DataColumnSidecar, EthSpec, SignedBeaconBlock};
 
 pub mod common;
@@ -60,7 +59,7 @@ mod single_block_lookup;
 /// reaches the maximum depth it will force trigger range sync.
 pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE;
 
-const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
+const IGNORED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 pub const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 4;
 
 /// Maximum time we allow a lookup to exist before assuming it is stuck and will never make
@@ -106,13 +105,15 @@ pub type SingleLookupId = u32;
 enum Action {
     Retry,
     ParentUnknown { parent_root: Hash256 },
-    Drop,
+    Drop(/* reason: */ String),
     Continue,
 }
 
 pub struct BlockLookups<T: BeaconChainTypes> {
-    /// A cache of failed chain lookups to prevent duplicate searches.
-    failed_chains: LRUTimeCache<Hash256>,
+    /// A cache of block roots that must be ignored for some time to prevent useless searches. For
+    /// example if a chain is too long, its lookup chain is dropped, and range sync is expected to
+    /// eventually sync those blocks
+    ignored_chains: LRUTimeCache<Hash256>,
 
     // TODO: Why not index lookups by block_root?
     single_block_lookups: FnvHashMap<SingleLookupId, SingleBlockLookup<T>>,
@@ -127,45 +128,26 @@ use lighthouse_network::service::api_types::Id;
 pub(crate) type BlockLookupSummary = (Id, Hash256, Option<Hash256>, Vec<PeerId>);
 
 impl<T: BeaconChainTypes> BlockLookups<T> {
-    #[instrument(parent = None,level = "info", fields(service = "lookup_sync"), name = "lookup_sync")]
     pub fn new() -> Self {
         Self {
-            failed_chains: LRUTimeCache::new(Duration::from_secs(
-                FAILED_CHAINS_CACHE_EXPIRY_SECONDS,
+            ignored_chains: LRUTimeCache::new(Duration::from_secs(
+                IGNORED_CHAINS_CACHE_EXPIRY_SECONDS,
             )),
             single_block_lookups: Default::default(),
         }
     }
 
     #[cfg(test)]
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
-    pub(crate) fn insert_failed_chain(&mut self, block_root: Hash256) {
-        self.failed_chains.insert(block_root);
+    pub(crate) fn insert_ignored_chain(&mut self, block_root: Hash256) {
+        self.ignored_chains.insert(block_root);
     }
 
     #[cfg(test)]
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
-    pub(crate) fn get_failed_chains(&mut self) -> Vec<Hash256> {
-        self.failed_chains.keys().cloned().collect()
+    pub(crate) fn get_ignored_chains(&mut self) -> Vec<Hash256> {
+        self.ignored_chains.keys().cloned().collect()
     }
 
     #[cfg(test)]
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub(crate) fn active_single_lookups(&self) -> Vec<BlockLookupSummary> {
         self.single_block_lookups
             .iter()
@@ -174,12 +156,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Returns a vec of all parent lookup chains by tip, in descending slot order (tip first)
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub(crate) fn active_parent_lookups(&self) -> Vec<NodeChain> {
         compute_parent_chains(
             &self
@@ -194,26 +170,23 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Creates a parent lookup for the block with the given `block_root` and immediately triggers it.
     /// If a parent lookup exists or is triggered, a current lookup will be created.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
+    ///
+    /// Returns true if the lookup is created or already exists
+    #[must_use = "only reference the new lookup if returns true"]
     pub fn search_child_and_parent(
         &mut self,
         block_root: Hash256,
         block_component: BlockComponent<T::EthSpec>,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T>,
-    ) {
+    ) -> bool {
         let parent_root = block_component.parent_root();
 
         let parent_lookup_exists =
             self.search_parent_of_child(parent_root, block_root, &[peer_id], cx);
         // Only create the child lookup if the parent exists
         if parent_lookup_exists {
-            // `search_parent_of_child` ensures that parent root is not a failed chain
+            // `search_parent_of_child` ensures that the parent lookup exists so we can safely wait for it
             self.new_current_lookup(
                 block_root,
                 Some(block_component),
@@ -223,25 +196,23 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // the lookup with zero peers to house the block components.
                 &[],
                 cx,
-            );
+            )
+        } else {
+            false
         }
     }
 
     /// Seach a block whose parent root is unknown.
+    ///
     /// Returns true if the lookup is created or already exists
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
+    #[must_use = "only reference the new lookup if returns true"]
     pub fn search_unknown_block(
         &mut self,
         block_root: Hash256,
         peer_source: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
-    ) {
-        self.new_current_lookup(block_root, None, None, peer_source, cx);
+    ) -> bool {
+        self.new_current_lookup(block_root, None, None, peer_source, cx)
     }
 
     /// A block or blob triggers the search of a parent.
@@ -250,12 +221,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// - `block_root_to_search` is a failed chain
     ///
     /// Returns true if the lookup is created or already exists
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
+    #[must_use = "only reference the new lookup if returns true"]
     pub fn search_parent_of_child(
         &mut self,
         block_root_to_search: Hash256,
@@ -280,8 +246,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 debug!(block_root = ?block_root_to_search, "Parent lookup chain too long");
 
                 // Searching for this parent would extend a parent chain over the max
-                // Insert the tip only to failed chains
-                self.failed_chains.insert(parent_chain.tip);
+                // Insert the tip only to chains to ignore
+                self.ignored_chains.insert(parent_chain.tip);
 
                 // Note: Drop only the chain that's too long until it merges with another chain
                 // that's not too long. Consider this attack: there's a chain of valid unknown
@@ -357,12 +323,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
     /// constructed.
     /// Returns true if the lookup is created or already exists
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
+    #[must_use = "only reference the new lookup if returns true"]
     fn new_current_lookup(
         &mut self,
         block_root: Hash256,
@@ -371,12 +332,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peers: &[PeerId],
         cx: &mut SyncNetworkContext<T>,
     ) -> bool {
-        // If this block or it's parent is part of a known failed chain, ignore it.
-        if self.failed_chains.contains(&block_root) {
-            debug!(?block_root, "Block is from a past failed chain. Dropping");
-            for peer_id in peers {
-                cx.report_peer(*peer_id, PeerAction::MidToleranceError, "failed_chain");
-            }
+        // If this block or it's parent is part of a known ignored chain, ignore it.
+        if self.ignored_chains.contains(&block_root) {
+            debug!(?block_root, "Dropping lookup for block marked ignored");
             return false;
         }
 
@@ -405,15 +363,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         // Ensure that awaiting parent exists, otherwise this lookup won't be able to make progress
-        if let Some(awaiting_parent) = awaiting_parent {
-            if !self
+        if let Some(awaiting_parent) = awaiting_parent
+            && !self
                 .single_block_lookups
                 .iter()
                 .any(|(_, lookup)| lookup.is_for_block(awaiting_parent))
-            {
-                warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
-                return false;
-            }
+        {
+            warn!(block_root = ?awaiting_parent, "Ignoring child lookup parent lookup not found");
+            return false;
         }
 
         // Lookups contain untrusted data, bound the total count of lookups hold in memory to reduce
@@ -426,6 +383,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // If we know that this lookup has unknown parent (is awaiting a parent lookup to resolve),
         // signal here to hold processing downloaded data.
         let mut lookup = SingleBlockLookup::new(block_root, peers, cx.next_id(), awaiting_parent);
+        let _guard = lookup.span.clone().entered();
 
         // Add block components to the new request
         if let Some(block_component) = block_component {
@@ -465,12 +423,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Lookup responses */
 
     /// Process a block or blob response received from a single lookup request.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn on_download_response<R: RequestState<T>>(
         &mut self,
         id: SingleLookupReqId,
@@ -556,12 +508,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Error responses */
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn peer_disconnected(&mut self, peer_id: &PeerId) {
         for (_, lookup) in self.single_block_lookups.iter_mut() {
             lookup.remove_peer(peer_id);
@@ -570,12 +516,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Processing responses */
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn on_processing_result(
         &mut self,
         process_type: BlockProcessType,
@@ -596,12 +536,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn on_processing_result_inner<R: RequestState<T>>(
         &mut self,
         lookup_id: SingleLookupId,
@@ -656,7 +590,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // This is unreachable because RPC blocks do not undergo gossip verification, and
                 // this error can *only* come from gossip verification.
                 error!(?block_root, "Single block lookup hit unreachable condition");
-                Action::Drop
+                Action::Drop("DuplicateImportStatusUnknown".to_owned())
             }
             BlockProcessingResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -665,14 +599,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     component = ?R::response_type(),
                     "Lookup component processing ignored, cpu might be overloaded"
                 );
-                Action::Drop
+                Action::Drop("Block processing ignored".to_owned())
             }
             BlockProcessingResult::Err(e) => {
                 match e {
                     BlockError::BeaconChainError(e) => {
                         // Internal error
                         error!(%block_root, error = ?e, "Beacon chain error processing lookup component");
-                        Action::Drop
+                        Action::Drop(format!("{e:?}"))
                     }
                     BlockError::ParentUnknown { parent_root, .. } => {
                         // Reverts the status of this request to `AwaitingProcessing` holding the
@@ -691,7 +625,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             error = ?e,
                             "Single block lookup failed. Execution layer is offline / unsynced / misconfigured"
                         );
-                        Action::Drop
+                        Action::Drop(format!("{e:?}"))
                     }
                     BlockError::AvailabilityCheck(e)
                         if e.category() == AvailabilityCheckErrorCategory::Internal =>
@@ -703,7 +637,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         // lookup state transition. This error invalidates both blob and block requests, and we don't know the
                         // state of both requests. Blobs may have already successfullly processed for example.
                         // We opt to drop the lookup instead.
-                        Action::Drop
+                        Action::Drop(format!("{e:?}"))
                     }
                     other => {
                         debug!(
@@ -718,15 +652,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             // but future errors may follow the same pattern. Generalize this
                             // pattern with https://github.com/sigp/lighthouse/pull/6321
                             BlockError::AvailabilityCheck(
-                                AvailabilityCheckError::InvalidColumn(errors),
-                            ) => errors
-                                .iter()
-                                // Collect all peers that sent a column that was invalid. Must
-                                // run .unique as a single peer can send multiple invalid
-                                // columns. Penalize once to avoid insta-bans
-                                .flat_map(|(index, _)| peer_group.of_index((*index) as usize))
-                                .unique()
-                                .collect(),
+                                AvailabilityCheckError::InvalidColumn((index_opt, _)),
+                            ) => {
+                                match index_opt {
+                                    Some(index) => peer_group.of_index(index as usize).collect(),
+                                    // If no index supplied this is an un-attributable fault. In practice
+                                    // this should never happen.
+                                    None => vec![],
+                                }
+                            }
                             _ => peer_group.all().collect(),
                         };
                         for peer in peers_to_penalize {
@@ -757,19 +691,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Action::ParentUnknown { parent_root } => {
                 let peers = lookup.all_peers();
+                // Mark lookup as awaiting **before** creating the parent lookup. At this point the
+                // lookup maybe inconsistent.
                 lookup.set_awaiting_parent(parent_root);
-                debug!(
-                    id = lookup.id,
-                    ?block_root,
-                    ?parent_root,
-                    "Marking lookup as awaiting parent"
-                );
-                self.search_parent_of_child(parent_root, block_root, &peers, cx);
-                Ok(LookupResult::Pending)
+                let parent_lookup_exists =
+                    self.search_parent_of_child(parent_root, block_root, &peers, cx);
+                if parent_lookup_exists {
+                    // The parent lookup exist or has been created. It's safe for `lookup` to
+                    // reference the parent as awaiting.
+                    debug!(
+                        id = lookup_id,
+                        ?block_root,
+                        ?parent_root,
+                        "Marking lookup as awaiting parent"
+                    );
+                    Ok(LookupResult::Pending)
+                } else {
+                    // The parent lookup is faulty and was not created, we must drop the `lookup` as
+                    // it's in an inconsistent state. We must drop all of its children too.
+                    Err(LookupRequestError::Failed(format!(
+                        "Parent lookup is faulty {parent_root:?}"
+                    )))
+                }
             }
-            Action::Drop => {
+            Action::Drop(reason) => {
                 // Drop with noop
-                Err(LookupRequestError::Failed)
+                Err(LookupRequestError::Failed(reason))
             }
             Action::Continue => {
                 // Drop this completed lookup only
@@ -778,12 +725,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn on_external_processing_result(
         &mut self,
         block_root: Hash256,
@@ -809,12 +750,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Makes progress on the immediate children of `block_root`
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn continue_child_lookups(&mut self, block_root: Hash256, cx: &mut SyncNetworkContext<T>) {
         let mut lookup_results = vec![]; // < need to buffer lookup results to not re-borrow &mut self
 
@@ -840,12 +775,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Drops `dropped_id` lookup and all its children recursively. Lookups awaiting a parent need
     /// the parent to make progress to resolve, therefore we must drop them if the parent is
     /// dropped.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn drop_lookup_and_children(&mut self, dropped_id: SingleLookupId) {
         if let Some(dropped_lookup) = self.single_block_lookups.remove(&dropped_id) {
             debug!(
@@ -870,12 +799,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /// Common handler a lookup request error, drop it and update metrics
     /// Returns true if the lookup is created or already exists
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     fn on_lookup_result(
         &mut self,
         id: SingleLookupId,
@@ -913,24 +836,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /* Helper functions */
 
     /// Drops all the single block requests and returns how many requests were dropped.
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn drop_single_block_requests(&mut self) -> usize {
         let requests_to_drop = self.single_block_lookups.len();
         self.single_block_lookups.clear();
         requests_to_drop
     }
 
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn update_metrics(&self) {
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
@@ -939,12 +850,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Perform some prune operations on lookups on some interval
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     pub fn prune_lookups(&mut self) {
         self.drop_lookups_without_peers();
         self.drop_stuck_lookups();
@@ -968,12 +873,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ///
     /// Instead there's no negative for keeping lookups with no peers around for some time. If we
     /// regularly prune them, it should not be a memory concern (TODO: maybe yes!).
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     fn drop_lookups_without_peers(&mut self) {
         for (lookup_id, block_root) in self
             .single_block_lookups
@@ -1011,12 +910,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ///
     /// - One single clear warn level log per stuck incident
     /// - If the original bug is sporadic, it reduces the time a node is stuck from forever to 15 min
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     fn drop_stuck_lookups(&mut self) {
         // While loop to find and drop all disjoint trees of potentially stuck lookups.
         while let Some(stuck_lookup) = self.single_block_lookups.values().find(|lookup| {
@@ -1054,12 +947,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     }
 
     /// Recursively find the oldest ancestor lookup of another lookup
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     fn find_oldest_ancestor_lookup<'a>(
         &'a self,
         lookup: &'a SingleBlockLookup<T>,
@@ -1084,12 +971,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     /// Adds peers to a lookup and its ancestors recursively.
     /// Note: Takes a `lookup_id` as argument to allow recursion on mutable lookups, without having
     /// to duplicate the code to add peers to a lookup
-    #[instrument(parent = None,
-        level = "info",
-        fields(service = "lookup_sync"),
-        name = "lookup_sync",
-        skip_all
-    )]
     fn add_peers_to_lookup_and_ancestors(
         &mut self,
         lookup_id: SingleLookupId,

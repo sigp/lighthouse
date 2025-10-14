@@ -1,7 +1,7 @@
 //! Tests related to the beacon node's sync status
 use beacon_chain::{
-    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
     BlockError,
+    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
 };
 use eth2::StatusCode;
 use execution_layer::{PayloadStatusV1, PayloadStatusV1Status};

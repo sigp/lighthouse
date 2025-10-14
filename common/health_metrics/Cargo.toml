@@ -8,5 +8,5 @@ eth2 = { workspace = true }
 metrics = { workspace = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-psutil = "3.3.0"
 procfs = "0.15.1"
+psutil = "3.3.0"

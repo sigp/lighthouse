@@ -15,6 +15,7 @@ task_executor = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
+validator_store = { workspace = true }
 
 [dev-dependencies]
 futures = { workspace = true }

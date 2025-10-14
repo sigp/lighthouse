@@ -22,6 +22,7 @@ eth2_wallet_manager = { path = "../common/eth2_wallet_manager" }
 filesystem = { workspace = true }
 safe_arith = { workspace = true }
 sensitive_url = { workspace = true }
+serde_json = { workspace = true }
 slashing_protection = { workspace = true }
 slot_clock = { workspace = true }
 tokio = { workspace = true }

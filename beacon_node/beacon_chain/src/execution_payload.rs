@@ -24,7 +24,7 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tracing::{debug, warn};
+use tracing::{Instrument, debug, debug_span, warn};
 use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
 use types::*;
@@ -310,7 +310,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             ExecutionStatus::Invalid(_) => {
                 return Err(BlockError::ParentExecutionPayloadInvalid {
                     parent_root: parent_block.root,
-                })
+                });
             }
         };
 
@@ -319,9 +319,9 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
                 .slot_clock
                 .start_of(block.slot())
                 .map(|d| d.as_secs())
-                .ok_or(BlockError::BeaconChainError(
+                .ok_or(BlockError::BeaconChainError(Box::new(
                     BeaconChainError::UnableToComputeTimeAtSlot,
-                ))?;
+                )))?;
 
             // The block's execution payload timestamp is correct with respect to the slot
             if execution_payload.timestamp() != expected_timestamp {
@@ -403,8 +403,9 @@ pub fn get_execution_payload<T: BeaconChainTypes>(
                     block_production_version,
                 )
                 .await
-            },
-            "get_execution_payload",
+            }
+            .instrument(debug_span!("prepare_execution_payload")),
+            "prepare_execution_payload",
         )
         .ok_or(BlockProductionError::ShuttingDown)?;
 
@@ -503,8 +504,9 @@ where
             },
             "prepare_execution_payload_forkchoice_update_params",
         )
+        .instrument(debug_span!("forkchoice_update_params"))
         .await
-        .map_err(BlockProductionError::BeaconChain)?;
+        .map_err(|e| BlockProductionError::BeaconChain(Box::new(e)))?;
 
     let suggested_fee_recipient = execution_layer
         .get_suggested_fee_recipient(proposer_index)

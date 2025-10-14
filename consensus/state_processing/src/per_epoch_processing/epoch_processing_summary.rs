@@ -1,10 +1,10 @@
-use super::base::{validator_statuses::InclusionInfo, TotalBalances, ValidatorStatus};
+use super::base::{TotalBalances, ValidatorStatus, validator_statuses::InclusionInfo};
 use crate::metrics;
 use std::sync::Arc;
 use types::{
-    consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
     BeaconStateError, Epoch, EthSpec, List, ParticipationFlags, ProgressiveBalancesCache,
     SyncCommittee, Validator,
+    consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
 };
 
 /// Provides a summary of validator participation during the epoch.
@@ -17,7 +17,7 @@ pub enum EpochProcessingSummary<E: EthSpec> {
     Altair {
         progressive_balances: ProgressiveBalancesCache,
         current_epoch_total_active_balance: u64,
-        participation: ParticipationEpochSummary<E>,
+        participation: Box<ParticipationEpochSummary<E>>,
         sync_committee: Arc<SyncCommittee<E>>,
     },
 }

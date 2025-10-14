@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use tracing::Subscriber;
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
-use tracing_subscriber::{layer::Context, Layer};
+use tracing_subscriber::{Layer, layer::Context};
 
 pub struct Libp2pDiscv5TracingLayer {
     pub libp2p_non_blocking_writer: NonBlocking,
@@ -59,28 +59,31 @@ impl tracing_core::field::Visit for LogMessageExtractor {
 pub fn create_libp2p_discv5_tracing_layer(
     base_tracing_log_path: Option<PathBuf>,
     max_log_size: u64,
+    file_mode: u32,
 ) -> Option<Libp2pDiscv5TracingLayer> {
     if let Some(mut tracing_log_path) = base_tracing_log_path {
         // Ensure that `tracing_log_path` only contains directories.
         for p in tracing_log_path.clone().iter() {
             tracing_log_path = tracing_log_path.join(p);
-            if let Ok(metadata) = tracing_log_path.metadata() {
-                if !metadata.is_dir() {
-                    tracing_log_path.pop();
-                    break;
-                }
+            if let Ok(metadata) = tracing_log_path.metadata()
+                && !metadata.is_dir()
+            {
+                tracing_log_path.pop();
+                break;
             }
         }
 
         let libp2p_writer =
             LogRollerBuilder::new(tracing_log_path.clone(), PathBuf::from("libp2p.log"))
                 .rotation(Rotation::SizeBased(RotationSize::MB(max_log_size)))
-                .max_keep_files(1);
+                .max_keep_files(1)
+                .file_mode(file_mode);
 
         let discv5_writer =
             LogRollerBuilder::new(tracing_log_path.clone(), PathBuf::from("discv5.log"))
                 .rotation(Rotation::SizeBased(RotationSize::MB(max_log_size)))
-                .max_keep_files(1);
+                .max_keep_files(1)
+                .file_mode(file_mode);
 
         let libp2p_writer = match libp2p_writer.build() {
             Ok(writer) => writer,

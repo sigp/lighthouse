@@ -13,13 +13,13 @@
 
 use bytes::Bytes;
 use discv5::enr::{CombinedKey, Enr};
-use eth2_config::{instantiate_hardcoded_nets, HardcodedNet};
+use eth2_config::{HardcodedNet, instantiate_hardcoded_nets};
 use kzg::trusted_setup::get_trusted_setup;
 use pretty_reqwest_error::PrettyReqwestError;
 use reqwest::{Client, Error};
 use sensitive_url::SensitiveUrl;
 use sha2::{Digest, Sha256};
-use std::fs::{create_dir_all, File};
+use std::fs::{File, create_dir_all};
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -31,7 +31,7 @@ use url::Url;
 pub use eth2_config::GenesisStateSource;
 
 pub const DEPLOY_BLOCK_FILE: &str = "deposit_contract_block.txt";
-pub const BOOT_ENR_FILE: &str = "boot_enr.yaml";
+pub const BOOT_ENR_FILE: &str = "bootstrap_nodes.yaml";
 pub const GENESIS_STATE_FILE: &str = "genesis.ssz";
 pub const BASE_CONFIG_FILE: &str = "config.yaml";
 

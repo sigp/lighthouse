@@ -6,15 +6,6 @@ edition = { workspace = true }
 
 build = "build.rs"
 
-[build-dependencies]
-eth2_config = { workspace = true }
-zip = { workspace = true }
-
-[dev-dependencies]
-ethereum_ssz = { workspace = true }
-tempfile = { workspace = true }
-tokio = { workspace = true }
-
 [dependencies]
 bytes = { workspace = true }
 discv5 = { workspace = true }
@@ -28,3 +19,12 @@ sha2 = { workspace = true }
 tracing = { workspace = true }
 types = { workspace = true }
 url = { workspace = true }
+
+[build-dependencies]
+eth2_config = { workspace = true }
+zip = { workspace = true }
+
+[dev-dependencies]
+ethereum_ssz = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }

@@ -4,6 +4,9 @@ version = "0.2.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
 edition = { workspace = true }
 
+[features]
+portable = ["beacon_chain/portable"]
+
 [dependencies]
 bitvec = { workspace = true }
 derivative = { workspace = true }
@@ -23,6 +26,3 @@ types = { workspace = true }
 beacon_chain = { workspace = true }
 maplit = { workspace = true }
 tokio = { workspace = true }
-
-[features]
-portable = ["beacon_chain/portable"]

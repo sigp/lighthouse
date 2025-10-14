@@ -5,20 +5,11 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
+    Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
+#[context_deserialize(ForkName)]
 pub struct SignedBlsToExecutionChange {
     pub message: BlsToExecutionChange,
     pub signature: Signature,

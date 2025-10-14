@@ -1,6 +1,9 @@
 use lighthouse_network::rpc::methods::DataColumnsByRootRequest;
+use ssz_types::VariableList;
 use std::sync::Arc;
-use types::{ChainSpec, DataColumnIdentifier, DataColumnSidecar, EthSpec, Hash256};
+use types::{
+    ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkName, Hash256,
+};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
@@ -11,16 +14,19 @@ pub struct DataColumnsByRootSingleBlockRequest {
 }
 
 impl DataColumnsByRootSingleBlockRequest {
-    pub fn into_request(self, spec: &ChainSpec) -> DataColumnsByRootRequest {
+    pub fn try_into_request<E: EthSpec>(
+        self,
+        fork_name: ForkName,
+        spec: &ChainSpec,
+    ) -> Result<DataColumnsByRootRequest<E>, &'static str> {
+        let columns = VariableList::new(self.indices)
+            .map_err(|_| "Number of indices exceeds total number of columns")?;
         DataColumnsByRootRequest::new(
-            self.indices
-                .into_iter()
-                .map(|index| DataColumnIdentifier {
-                    block_root: self.block_root,
-                    index,
-                })
-                .collect(),
-            spec,
+            vec![DataColumnsByRootIdentifier {
+                block_root: self.block_root,
+                columns,
+            }],
+            spec.max_request_blocks(fork_name),
         )
     }
 }

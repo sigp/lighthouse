@@ -3,11 +3,11 @@
 
 use eth2_keystore::Keystore;
 use eth2_wallet::{
-    bip39::{Language, Mnemonic, MnemonicType},
     Wallet,
+    bip39::{Language, Mnemonic, MnemonicType},
 };
-use filesystem::{create_with_600_perms, Error as FsError};
-use rand::{distributions::Alphanumeric, Rng};
+use filesystem::{Error as FsError, create_with_600_perms};
+use rand::{Rng, distr::Alphanumeric};
 use std::fs::{self, File};
 use std::io;
 use std::io::prelude::*;
@@ -115,7 +115,7 @@ pub fn random_password_string() -> Zeroizing<String> {
 
 /// Common implementation for `random_password` and `random_password_string`.
 fn random_password_raw_string() -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(DEFAULT_PASSWORD_LEN)
         .map(char::from)

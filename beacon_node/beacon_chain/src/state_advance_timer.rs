@@ -15,17 +15,17 @@
 //! 2. There's a possibility that the head block is never built upon, causing wasted CPU cycles.
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::{
-    chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconChain, BeaconChainError, BeaconChainTypes, chain_config::FORK_CHOICE_LOOKAHEAD_FACTOR,
 };
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, sleep_until, Instant};
-use tracing::{debug, error, warn};
+use tokio::time::{Instant, sleep, sleep_until};
+use tracing::{Instrument, debug, debug_span, error, instrument, warn};
 use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
@@ -33,7 +33,7 @@ use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, Relative
 ///
 /// This avoids doing unnecessary work whilst the node is syncing or has perhaps been put to sleep
 /// for some period of time.
-const MAX_ADVANCE_DISTANCE: u64 = 4;
+const MAX_ADVANCE_DISTANCE: u64 = 256;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.
 ///
@@ -44,27 +44,17 @@ const MAX_FORK_CHOICE_DISTANCE: u64 = 256;
 
 #[derive(Debug)]
 enum Error {
-    BeaconChain(BeaconChainError),
+    BeaconChain(Box<BeaconChainError>),
     // We don't use the inner value directly, but it's used in the Debug impl.
     HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     BeaconState(#[allow(dead_code)] BeaconStateError),
     Store(#[allow(dead_code)] store::Error),
-    MaxDistanceExceeded {
-        current_slot: Slot,
-        head_slot: Slot,
-    },
-    StateAlreadyAdvanced {
-        block_root: Hash256,
-    },
-    BadStateSlot {
-        _state_slot: Slot,
-        _block_slot: Slot,
-    },
+    MaxDistanceExceeded { current_slot: Slot, head_slot: Slot },
 }
 
 impl From<BeaconChainError> for Error {
     fn from(e: BeaconChainError) -> Self {
-        Self::BeaconChain(e)
+        Self::BeaconChain(e.into())
     }
 }
 
@@ -180,9 +170,6 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                             error = ?e,
                             "Failed to advance head state"
                         ),
-                        Err(Error::StateAlreadyAdvanced { block_root }) => {
-                            debug!(?block_root, "State already advanced on slot")
-                        }
                         Err(Error::MaxDistanceExceeded {
                             current_slot,
                             head_slot,
@@ -241,19 +228,20 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                 beacon_chain.task_executor.clone().spawn_blocking(
                     move || {
                         // Signal block proposal for the next slot (if it happens to be waiting).
-                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
-                            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
-                                warn!(
-                                    error = ?e,
-                                    slot = %next_slot,
-                                    "Error signalling fork choice waiter"
-                                );
-                            }
+                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx
+                            && let Err(e) = tx.notify_fork_choice_complete(next_slot)
+                        {
+                            warn!(
+                                error = ?e,
+                                slot = %next_slot,
+                                "Error signalling fork choice waiter"
+                            );
                         }
                     },
                     "fork_choice_advance_signal_tx",
                 );
-            },
+            }
+            .instrument(debug_span!("fork_choice_advance")),
             "fork_choice_advance",
         );
     }
@@ -264,6 +252,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 /// slot then placed in the `state_cache` to be used for block verification.
 ///
 /// See the module-level documentation for rationale.
+#[instrument(skip_all)]
 fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Result<(), Error> {
     let current_slot = beacon_chain.slot()?;
 
@@ -292,25 +281,6 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         .store
         .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
-
-    // Protect against advancing a state more than a single slot.
-    //
-    // Advancing more than one slot without storing the intermediate state would corrupt the
-    // database. Future works might store intermediate states inside this function.
-    match state.slot().cmp(&state.latest_block_header().slot) {
-        std::cmp::Ordering::Equal => (),
-        std::cmp::Ordering::Greater => {
-            return Err(Error::StateAlreadyAdvanced {
-                block_root: head_block_root,
-            });
-        }
-        std::cmp::Ordering::Less => {
-            return Err(Error::BadStateSlot {
-                _block_slot: state.latest_block_header().slot,
-                _state_slot: state.slot(),
-            });
-        }
-    }
 
     let initial_slot = state.slot();
     let initial_epoch = state.current_epoch();
@@ -377,7 +347,7 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
                 state.current_epoch(),
                 head_block_root,
                 state
-                    .get_beacon_proposer_indices(&beacon_chain.spec)
+                    .get_beacon_proposer_indices(state.current_epoch(), &beacon_chain.spec)
                     .map_err(BeaconChainError::from)?,
                 state.fork(),
             )

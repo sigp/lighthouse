@@ -39,9 +39,6 @@ There are a few interesting properties about the list of `--beacon-nodes`:
  earlier in the list.
 - *Synced is preferred*: the validator client prefers a synced beacon node over
  one that is still syncing.
-- *Failure is sticky*: if a beacon node fails, it will be flagged as offline
-    and won't be retried again for the rest of the slot (12 seconds). This helps prevent the impact
-    of time-outs and other lengthy errors.
 
 > Note: When supplying multiple beacon nodes the `http://localhost:5052` address must be explicitly
 > provided (if it is desired). It will only be used as default if no `--beacon-nodes` flag is
@@ -75,6 +72,22 @@ Prior to v3.2.0 fallback beacon nodes also required the `--subscribe-all-subnets
 `--import-all-attestations` flags. These flags are no longer required as the validator client will
 now broadcast subscriptions to all connected beacon nodes by default. This broadcast behaviour
 can be disabled using the `--broadcast none` flag for `lighthouse vc`.
+
+### Fallback Health
+
+Since v6.0.0, the validator client will be more aggressive in switching to a fallback node. To do this,
+it uses the concept of "Health". Every slot, the validator client checks each connected beacon node
+to determine which node is the "Healthiest". In general, the validator client will prefer nodes
+which are synced, have synced execution layers and which are not currently optimistically
+syncing.
+
+Sync distance is separated out into 4 tiers: "Synced", "Small", "Medium", "Large". Nodes are then
+sorted into tiers based onto sync distance and execution layer status. You can use the
+`--beacon-nodes-sync-tolerances` to change how many slots wide each tier is. In the case where
+multiple nodes fall into the same tier, user order is used to tie-break.
+
+To see health information for each connected node, you can use the
+[`/lighthouse/beacon/health` API endpoint](./api_vc_endpoints.md#get-lighthousebeaconhealth).
 
 ### Broadcast modes
 

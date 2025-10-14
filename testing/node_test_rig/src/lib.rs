@@ -4,10 +4,9 @@
 
 use beacon_node::ProductionBeaconNode;
 use environment::RuntimeContext;
-use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, Timeouts};
+use eth2::{BeaconNodeHttpClient, Timeouts, reqwest::ClientBuilder};
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::{Builder as TempBuilder, TempDir};
@@ -249,7 +248,7 @@ impl<E: EthSpec> LocalExecutionNode<E> {
         if let Err(e) = std::fs::write(jwt_file_path, config.jwt_key.hex_string()) {
             panic!("Failed to write jwt file {}", e);
         }
-        let spec = Arc::new(E::default_spec());
+        let spec = context.eth2_config.spec.clone();
         Self {
             server: MockServer::new_with_config(
                 &context.executor.handle().unwrap(),

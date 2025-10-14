@@ -1,16 +1,15 @@
 use account_utils::validator_definitions::{PasswordStorage, ValidatorDefinition};
 use account_utils::{
     eth2_keystore::Keystore,
-    eth2_wallet::{bip39::Mnemonic, WalletBuilder},
+    eth2_wallet::{WalletBuilder, bip39::Mnemonic},
     random_mnemonic, random_password,
 };
 use eth2::lighthouse_vc::types::{self as api_types};
+use lighthouse_validator_store::LighthouseValidatorStore;
 use slot_clock::SlotClock;
 use std::path::{Path, PathBuf};
-use types::ChainSpec;
-use types::EthSpec;
-use validator_dir::{keystore_password_path, Builder as ValidatorDirBuilder};
-use validator_store::ValidatorStore;
+use types::{ChainSpec, EthSpec};
+use validator_dir::{Builder as ValidatorDirBuilder, keystore_password_path};
 use zeroize::Zeroizing;
 
 /// Create some validator EIP-2335 keystores and store them on disk. Then, enroll the validators in
@@ -30,7 +29,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
     validator_requests: &[api_types::ValidatorRequest],
     validator_dir: P,
     secrets_dir: Option<PathBuf>,
-    validator_store: &ValidatorStore<T, E>,
+    validator_store: &LighthouseValidatorStore<T, E>,
     spec: &ChainSpec,
 ) -> Result<(Vec<api_types::CreatedValidator>, Mnemonic), warp::Rejection> {
     let mnemonic = mnemonic_opt.unwrap_or_else(random_mnemonic);
@@ -178,7 +177,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
 
 pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
     validators: Vec<ValidatorDefinition>,
-    validator_store: &ValidatorStore<T, E>,
+    validator_store: &LighthouseValidatorStore<T, E>,
 ) -> Result<(), warp::Rejection> {
     for validator in validators {
         validator_store

@@ -12,7 +12,7 @@ managing servers. You'll also need at least 32 ETH!
 
 Being educated is critical to a validator's success. Before submitting your mainnet deposit, we recommend:
 
-- Thoroughly exploring the [Staking Launchpad][launchpad] website, try running through the deposit process using a testnet launchpad such as the [Holesky staking launchpad](https://holesky.launchpad.ethereum.org/en/).
+- Thoroughly exploring the [Staking Launchpad][launchpad] website, try running through the deposit process using a testnet launchpad such as the [Hoodi staking launchpad](https://hoodi.launchpad.ethereum.org/en/).
 - Running a testnet validator.
 - Reading through this documentation, especially the [Slashing Protection][slashing] section.
 - Performing a web search and doing your own research.
@@ -38,21 +38,21 @@ There are five primary steps to become a validator:
 > **Important note**: The guide below contains both mainnet and testnet instructions. We highly recommend *all* users to **run a testnet validator** prior to staking mainnet ETH.  By far, the best technical learning experience is to run a testnet validator. You can get hands-on experience with all the tools and it's a great way to test your staking
 hardware. 32 ETH is a significant outlay and joining a testnet is a great way to "try before you buy".
 
-> **Never use real ETH to join a testnet!** Testnet such as the Holesky testnet uses Holesky ETH which is worthless. This allows experimentation without real-world costs.
+> **Never use real ETH to join a testnet!** Testnet such as the Hoodi testnet uses Hoodi ETH which is worthless. This allows experimentation without real-world costs.
 
 ### Step 1. Create validator keys
 
-The Ethereum Foundation provides the [staking-deposit-cli](https://github.com/ethereum/staking-deposit-cli/releases) for creating validator keys. Download and run the `staking-deposit-cli` with the command:
+EthStaker provides the [ethstaker-deposit-cli](https://github.com/eth-educators/ethstaker-deposit-cli/releases) for creating validator keys. Download and run the `ethstaker-deposit-cli` with the command:
 
 ```bash
 ./deposit new-mnemonic
 ```
 
-and follow the instructions to generate the keys. When prompted for a network, select `mainnet` if you want to run a mainnet validator, or select `holesky` if you want to run a Holesky testnet validator. A new mnemonic will be generated in the process.
+and follow the instructions to generate the keys. When prompted for a network, select `mainnet` if you want to run a mainnet validator, or select `hoodi` if you want to run a Hoodi testnet validator. A new mnemonic will be generated in the process.
 
 > **Important note:** A mnemonic (or seed phrase) is a 24-word string randomly generated in the process. It is highly recommended to write down the mnemonic and keep it safe offline. It is important to ensure that the mnemonic is never stored in any digital form (computers, mobile phones, etc) connected to the internet. Please also make one or more backups of the mnemonic to ensure your ETH is not lost in the case of data loss. It is very important to keep your mnemonic private as it represents the ultimate control of your ETH.
 
-Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.json` will be created. The keys that are generated from staking-deposit-cli can be easily loaded into a Lighthouse validator client (`lighthouse vc`) in [Step 3](#step-3-import-validator-keys-to-lighthouse). In fact, both of these programs are designed to work with each other.
+Upon completing this step, the files `deposit_data-*.json` and `keystore-m_*.json` will be created. The keys that are generated from `ethstaker-deposit-cli` can be easily loaded into a Lighthouse validator client (`lighthouse vc`) in [Step 3](#step-3-import-validator-keys-to-lighthouse). In fact, both of these programs are designed to work with each other.
 
 > Lighthouse also supports creating validator keys, see [Validator Manager Create](./validator_manager_create.md) for more info.
 
@@ -62,19 +62,19 @@ Start an execution client and Lighthouse beacon node according to the [Run a Nod
 
 ### Step 3. Import validator keys to Lighthouse
 
-In [Step 1](#step-1-create-validator-keys), the staking-deposit-cli will generate the validator keys into a `validator_keys` directory. Let's assume that
-this directory is `$HOME/staking-deposit-cli/validator_keys`. Using the default `validators` directory in Lighthouse (`~/.lighthouse/mainnet/validators`), run the following command to import validator keys:
+In [Step 1](#step-1-create-validator-keys), the `ethstaker-deposit-cli` will generate the validator keys into a `validator_keys` directory. Let's assume that
+this directory is `$HOME/ethstaker-deposit-cli/validator_keys`. Using the default `validators` directory in Lighthouse (`~/.lighthouse/mainnet/validators`), run the following command to import validator keys:
 
 Mainnet:
 
 ```bash
-lighthouse --network mainnet account validator import --directory $HOME/staking-deposit-cli/validator_keys
+lighthouse --network mainnet account validator import --directory $HOME/ethstaker-deposit-cli/validator_keys
 ```
 
-Holesky testnet:
+Hoodi testnet:
 
 ```bash
-lighthouse --network holesky account validator import --directory $HOME/staking-deposit-cli/validator_keys
+lighthouse --network hoodi account validator import --directory $HOME/ethstaker-deposit-cli/validator_keys
 ```
 
 > Note: The user must specify the consensus client network that they are importing the keys by using the `--network` flag.
@@ -88,7 +88,7 @@ lighthouse --network holesky account validator import --directory $HOME/staking-
 The user will be prompted for a password for each keystore discovered:
 
 ```
-Keystore found at "/home/{username}/staking-deposit-cli/validator_keys/keystore-m_12381_3600_0_0_0-1595406747.json":
+Keystore found at "/home/{username}/ethstaker-deposit-cli/validator_keys/keystore-m_12381_3600_0_0_0-1595406747.json":
 
  - Public key: 0xa5e8702533f6d66422e042a0bf3471ab9b302ce115633fa6fdc5643f804b6b4f1c33baf95f125ec21969a3b1e0dd9e56
  - UUID: 8ea4cf99-8719-43c5-9eda-e97b8a4e074f
@@ -132,10 +132,10 @@ Mainnet:
 lighthouse vc --network mainnet --suggested-fee-recipient YourFeeRecipientAddress
 ```
 
-Holesky testnet:
+Hoodi testnet:
 
 ```bash
-lighthouse vc --network holesky --suggested-fee-recipient YourFeeRecipientAddress
+lighthouse vc --network hoodi --suggested-fee-recipient YourFeeRecipientAddress
 ```
 
 The `validator client` manages validators using data obtained from the beacon node via a HTTP API. You are highly recommended to enter a fee-recipient by changing `YourFeeRecipientAddress` to an Ethereum address under your control.
@@ -153,7 +153,7 @@ by the protocol.
 
 ### Step 5: Submit deposit (a minimum of 32ETH to activate one validator)
 
-After you have successfully run and synced the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Holesky staking launchpad](https://holesky.launchpad.ethereum.org/en/) for testnet validator) and carefully go through the steps to becoming a validator. Once you are ready, you can submit the deposit by sending ETH to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
+After you have successfully run and synced the execution client, beacon node and validator client, you can now proceed to submit the deposit. Go to the mainnet [Staking launchpad](https://launchpad.ethereum.org/en/) (or [Hoodi staking launchpad](https://hoodi.launchpad.ethereum.org/en/) for testnet validator) and carefully go through the steps to becoming a validator. Once you are ready, you can submit the deposit by sending ETH to the deposit contract. Upload the `deposit_data-*.json` file generated in [Step 1](#step-1-create-validator-keys) to the Staking launchpad.
 
 > **Important note:** Double check that the deposit contract for mainnet is `0x00000000219ab540356cBB839Cbe05303d7705Fa` before you confirm the transaction.
 

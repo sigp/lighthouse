@@ -3,8 +3,7 @@ use decode::ssz_decode_light_client_update;
 use serde::Deserialize;
 use types::{LightClientUpdate, Slot};
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone)]
 pub struct LightClientVerifyIsBetterUpdate<E: EthSpec> {
     light_client_updates: Vec<LightClientUpdate<E>>,
 }

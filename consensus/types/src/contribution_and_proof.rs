@@ -1,7 +1,8 @@
 use super::{
-    ChainSpec, EthSpec, Fork, Hash256, SecretKey, Signature, SignedRoot, SyncCommitteeContribution,
-    SyncSelectionProof,
+    ChainSpec, EthSpec, Fork, ForkName, Hash256, SecretKey, Signature, SignedRoot,
+    SyncCommitteeContribution, SyncSelectionProof,
 };
+use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -9,20 +10,15 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// A Validators aggregate sync committee contribution and selection proof.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
-    TreeHash,
-    arbitrary::Arbitrary,
+
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
+#[context_deserialize(ForkName)]
 pub struct ContributionAndProof<E: EthSpec> {
     /// The index of the validator that created the sync contribution.
     #[serde(with = "serde_utils::quoted_u64")]

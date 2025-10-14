@@ -1,27 +1,24 @@
 use crate::sync::network_context::{
     DataColumnsByRootRequestId, DataColumnsByRootSingleBlockRequest,
 };
-use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::BeaconChainTypes;
+use beacon_chain::validator_monitor::timestamp_now;
 use fnv::FnvHashMap;
-use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
 use lighthouse_network::PeerId;
-use lru_cache::LRUTimeCache;
+use lighthouse_network::service::api_types::{CustodyId, DataColumnsByRootRequester};
+use lighthouse_tracing::SPAN_OUTGOING_CUSTODY_REQUEST;
 use parking_lot::RwLock;
-use rand::Rng;
 use std::collections::HashSet;
+use std::hash::{BuildHasher, RandomState};
 use std::time::{Duration, Instant};
 use std::{collections::HashMap, marker::PhantomData, sync::Arc};
-use tracing::{debug, warn};
-use types::EthSpec;
-use types::{data_column_sidecar::ColumnIndex, DataColumnSidecar, Hash256};
+use tracing::{Span, debug, debug_span, warn};
+use types::{DataColumnSidecar, Hash256, data_column_sidecar::ColumnIndex};
+use types::{DataColumnSidecarList, EthSpec};
 
 use super::{LookupRequestResult, PeerGroup, RpcResponseResult, SyncNetworkContext};
 
-const FAILED_PEERS_CACHE_EXPIRY_SECONDS: u64 = 5;
 const MAX_STALE_NO_PEERS_DURATION: Duration = Duration::from_secs(30);
-
-type DataColumnSidecarList<E> = Vec<Arc<DataColumnSidecar<E>>>;
 
 pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     block_root: Hash256,
@@ -31,12 +28,11 @@ pub struct ActiveCustodyRequest<T: BeaconChainTypes> {
     /// Active requests for 1 or more columns each
     active_batch_columns_requests:
         FnvHashMap<DataColumnsByRootRequestId, ActiveBatchColumnsRequest>,
-    /// Peers that have recently failed to successfully respond to a columns by root request.
-    /// Having a LRUTimeCache allows this request to not have to track disconnecting peers.
-    failed_peers: LRUTimeCache<PeerId>,
+    peer_attempts: HashMap<PeerId, usize>,
     /// Set of peers that claim to have imported this block and their custody columns
     lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
-
+    /// Span for tracing the lifetime of this request.
+    span: Span,
     _phantom: PhantomData<T>,
 }
 
@@ -45,7 +41,7 @@ pub enum Error {
     SendFailed(&'static str),
     TooManyFailures,
     BadState(String),
-    NoPeers(ColumnIndex),
+    NoPeer(ColumnIndex),
     /// Received a download result for a different request id than the in-flight request.
     /// There should only exist a single request at a time. Having multiple requests is a bug and
     /// can result in undefined state, so it's treated as a hard error and the lookup is dropped.
@@ -56,8 +52,9 @@ pub enum Error {
 }
 
 struct ActiveBatchColumnsRequest {
-    peer_id: PeerId,
     indices: Vec<ColumnIndex>,
+    /// Span for tracing the lifetime of this request.
+    span: Span,
 }
 
 pub type CustodyRequestResult<E> =
@@ -70,6 +67,11 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         column_indices: &[ColumnIndex],
         lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
     ) -> Self {
+        let span = debug_span!(
+            parent: Span::current(),
+            SPAN_OUTGOING_CUSTODY_REQUEST,
+            %block_root,
+        );
         Self {
             block_root,
             custody_id,
@@ -79,8 +81,9 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     .map(|index| (*index, ColumnRequest::new())),
             ),
             active_batch_columns_requests: <_>::default(),
-            failed_peers: LRUTimeCache::new(Duration::from_secs(FAILED_PEERS_CACHE_EXPIRY_SECONDS)),
+            peer_attempts: HashMap::new(),
             lookup_peers,
+            span,
             _phantom: PhantomData,
         }
     }
@@ -108,6 +111,8 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             );
             return Ok(None);
         };
+
+        let _guard = batch_request.span.clone().entered();
 
         match resp {
             Ok((data_columns, seen_timestamp)) => {
@@ -162,12 +167,9 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         block_root = ?self.block_root,
                         %req_id,
                         %peer_id,
-                        // TODO(das): this property can become very noisy, being the full range 0..128
                         ?missing_column_indexes,
                         "Custody column peer claims to not have some data"
                     );
-
-                    self.failed_peers.insert(peer_id);
                 }
             }
             Err(err) => {
@@ -186,8 +188,6 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                         .ok_or(Error::BadState("unknown column_index".to_owned()))?
                         .on_download_error_and_mark_failure(req_id)?;
                 }
-
-                self.failed_peers.insert(peer_id);
             }
         };
 
@@ -198,6 +198,7 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
         &mut self,
         cx: &mut SyncNetworkContext<T>,
     ) -> CustodyRequestResult<T::EthSpec> {
+        let _guard = self.span.clone().entered();
         if self.column_requests.values().all(|r| r.is_downloaded()) {
             // All requests have completed successfully.
             let mut peers = HashMap::<PeerId, Vec<usize>>::new();
@@ -220,55 +221,32 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
             return Ok(Some((columns, peer_group, max_seen_timestamp)));
         }
 
+        let active_request_count_by_peer = cx.active_request_count_by_peer();
         let mut columns_to_request_by_peer = HashMap::<PeerId, Vec<ColumnIndex>>::new();
         let lookup_peers = self.lookup_peers.read();
+        // Create deterministic hasher per request to ensure consistent peer ordering within
+        // this request (avoiding fragmentation) while varying selection across different requests
+        let random_state = RandomState::new();
 
-        // Need to:
-        // - track how many active requests a peer has for load balancing
-        // - which peers have failures to attempt others
-        // - which peer returned what to have PeerGroup attributability
-
-        for (column_index, request) in self.column_requests.iter_mut() {
+        for (column_index, request) in self.column_requests.iter() {
             if let Some(wait_duration) = request.is_awaiting_download() {
+                // Note: an empty response is considered a successful response, so we may end up
+                // retrying many more times than `MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS`.
                 if request.download_failures > MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS {
                     return Err(Error::TooManyFailures);
                 }
 
-                // TODO(das): When is a fork and only a subset of your peers know about a block, we should
-                // only query the peers on that fork. Should this case be handled? How to handle it?
-                let custodial_peers = cx.get_custodial_peers(*column_index);
+                let peer_to_request = self.select_column_peer(
+                    cx,
+                    &active_request_count_by_peer,
+                    &lookup_peers,
+                    *column_index,
+                    &random_state,
+                );
 
-                // TODO(das): cache this computation in a OneCell or similar to prevent having to
-                // run it every loop
-                let mut active_requests_by_peer = HashMap::<PeerId, usize>::new();
-                for batch_request in self.active_batch_columns_requests.values() {
-                    *active_requests_by_peer
-                        .entry(batch_request.peer_id)
-                        .or_default() += 1;
-                }
-
-                let mut priorized_peers = custodial_peers
-                    .iter()
-                    .map(|peer| {
-                        (
-                            // Prioritize peers that claim to know have imported this block
-                            if lookup_peers.contains(peer) { 0 } else { 1 },
-                            // De-prioritize peers that have failed to successfully respond to
-                            // requests recently
-                            self.failed_peers.contains(peer),
-                            // Prefer peers with less requests to load balance across peers
-                            active_requests_by_peer.get(peer).copied().unwrap_or(0),
-                            // Final random factor to give all peers a shot in each retry
-                            rand::thread_rng().gen::<u32>(),
-                            *peer,
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                priorized_peers.sort_unstable();
-
-                if let Some((_, _, _, _, peer_id)) = priorized_peers.first() {
+                if let Some(peer_id) = peer_to_request {
                     columns_to_request_by_peer
-                        .entry(*peer_id)
+                        .entry(peer_id)
                         .or_default()
                         .push(*column_index);
                 } else if wait_duration > MAX_STALE_NO_PEERS_DURATION {
@@ -276,11 +254,28 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
                     // `MAX_STALE_NO_PEERS_DURATION`, else error and drop the request. Note that
                     // lookup will naturally retry when other peers send us attestations for
                     // descendants of this un-available lookup.
-                    return Err(Error::NoPeers(*column_index));
+                    return Err(Error::NoPeer(*column_index));
                 } else {
                     // Do not issue requests if there is no custody peer on this column
                 }
             }
+        }
+
+        let peer_requests = columns_to_request_by_peer.len();
+        if peer_requests > 0 {
+            let columns_requested_count = columns_to_request_by_peer
+                .values()
+                .map(|v| v.len())
+                .sum::<usize>();
+            debug!(
+                lookup_peers = lookup_peers.len(),
+                "Requesting {} columns from {} peers", columns_requested_count, peer_requests,
+            );
+        } else {
+            debug!(
+                lookup_peers = lookup_peers.len(),
+                "No column peers found for look up",
+            );
         }
 
         for (peer_id, indices) in columns_to_request_by_peer.into_iter() {
@@ -302,17 +297,32 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
             match request_result {
                 LookupRequestResult::RequestSent(req_id) => {
+                    *self.peer_attempts.entry(peer_id).or_insert(0) += 1;
+
+                    let client = cx.network_globals().client(&peer_id).kind;
+                    let batch_columns_req_span = debug_span!(
+                        "batch_columns_req",
+                        %peer_id,
+                        %client,
+                    );
+                    let _guard = batch_columns_req_span.clone().entered();
                     for column_index in &indices {
                         let column_request = self
                             .column_requests
                             .get_mut(column_index)
+                            // Should never happen: column_index is iterated from column_requests
                             .ok_or(Error::BadState("unknown column_index".to_owned()))?;
 
                         column_request.on_download_start(req_id)?;
                     }
 
-                    self.active_batch_columns_requests
-                        .insert(req_id, ActiveBatchColumnsRequest { indices, peer_id });
+                    self.active_batch_columns_requests.insert(
+                        req_id,
+                        ActiveBatchColumnsRequest {
+                            indices,
+                            span: batch_columns_req_span,
+                        },
+                    );
                 }
                 LookupRequestResult::NoRequestNeeded(_) => unreachable!(),
                 LookupRequestResult::Pending(_) => unreachable!(),
@@ -321,10 +331,53 @@ impl<T: BeaconChainTypes> ActiveCustodyRequest<T> {
 
         Ok(None)
     }
+
+    fn select_column_peer(
+        &self,
+        cx: &mut SyncNetworkContext<T>,
+        active_request_count_by_peer: &HashMap<PeerId, usize>,
+        lookup_peers: &HashSet<PeerId>,
+        column_index: ColumnIndex,
+        random_state: &RandomState,
+    ) -> Option<PeerId> {
+        // We draw from the total set of peers, but prioritize those peers who we have
+        // received an attestation or a block from (`lookup_peers`), as the `lookup_peers` may take
+        // time to build up and we are likely to not find any column peers initially.
+        let custodial_peers = cx.get_custodial_peers(column_index);
+        let mut prioritized_peers = custodial_peers
+            .iter()
+            .filter(|peer| {
+                // Exclude peers that we have already made too many attempts to.
+                self.peer_attempts.get(peer).copied().unwrap_or(0) <= MAX_CUSTODY_PEER_ATTEMPTS
+            })
+            .map(|peer| {
+                (
+                    // Prioritize peers that claim to know have imported this block
+                    if lookup_peers.contains(peer) { 0 } else { 1 },
+                    // De-prioritize peers that we have already attempted to download from
+                    self.peer_attempts.get(peer).copied().unwrap_or(0),
+                    // Prefer peers with fewer requests to load balance across peers.
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // The hash ensures consistent peer ordering within this request
+                    // to avoid fragmentation while varying selection across different requests.
+                    random_state.hash_one(peer),
+                    *peer,
+                )
+            })
+            .collect::<Vec<_>>();
+        prioritized_peers.sort_unstable();
+
+        prioritized_peers
+            .first()
+            .map(|(_, _, _, _, peer_id)| *peer_id)
+    }
 }
 
 /// TODO(das): this attempt count is nested into the existing lookup request count.
 const MAX_CUSTODY_COLUMN_DOWNLOAD_ATTEMPTS: usize = 3;
+
+/// Max number of attempts to request custody columns from a single peer.
+const MAX_CUSTODY_PEER_ATTEMPTS: usize = 3;
 
 struct ColumnRequest<E: EthSpec> {
     status: Status<E>,
