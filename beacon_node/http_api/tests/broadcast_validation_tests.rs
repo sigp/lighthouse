@@ -822,6 +822,14 @@ pub async fn blinded_gossip_invalid() {
 
     tester.harness.advance_slot();
 
+    // Ensure there's at least one blob in the block, so we don't run into failures when the
+    // block generator logic changes, as different errors could be returned:
+    // * Invalidity of blocks: `NotFinalizedDescendant`
+    // * Invalidity of blobs: `ParentUnknown`
+    tester
+        .harness
+        .execution_block_generator()
+        .set_min_blob_count(1);
     let (blinded_block, _) = tester
         .harness
         .make_blinded_block_with_modifier(chain_state_before, slot, |b| {
