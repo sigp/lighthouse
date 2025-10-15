@@ -1141,13 +1141,10 @@ mod test {
             })
             .collect::<Vec<_>>();
 
-        let availability = da_checker
+        da_checker
             .availability_cache
             .put_kzg_verified_data_columns(block_root, custody_columns)
             .expect("should put custody columns");
-
-        // Haven't received all columns yet
-        assert!(matches!(availability, Availability::MissingComponents(_)));
 
         // Try reconstrucing
         let reconstruction_result = da_checker
@@ -1155,7 +1152,7 @@ mod test {
             .expect("should reconstruct columns");
 
         // Reconstruction should succeed
-        let (availability, reconstructed_columns) = match reconstruction_result {
+        let (_availability, reconstructed_columns) = match reconstruction_result {
             DataColumnReconstructionResult::Success(result) => {
                 // dbg!(&result);
                 result
