@@ -1153,10 +1153,7 @@ mod test {
 
         // Reconstruction should succeed
         let (_availability, reconstructed_columns) = match reconstruction_result {
-            DataColumnReconstructionResult::Success(result) => {
-                // dbg!(&result);
-                result
-            }
+            DataColumnReconstructionResult::Success(result) => result,
             e => {
                 panic!("Expected successful reconstruction {:?}", e);
             }
