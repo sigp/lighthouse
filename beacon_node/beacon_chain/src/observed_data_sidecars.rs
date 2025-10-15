@@ -58,8 +58,8 @@ impl<E: EthSpec> ObservableDataSidecar for DataColumnSidecar<E> {
         self.index
     }
 
-    fn max_num_of_items(spec: &ChainSpec, _slot: Slot) -> usize {
-        spec.number_of_columns as usize
+    fn max_num_of_items(_spec: &ChainSpec, _slot: Slot) -> usize {
+        E::number_of_columns()
     }
 }
 
@@ -122,6 +122,10 @@ impl<T: ObservableDataSidecar> ObservedDataSidecars<T> {
             })
             .is_some_and(|indices| indices.contains(&data_sidecar.index()));
         Ok(is_known)
+    }
+
+    pub fn known_for_proposal(&self, proposal_key: &ProposalKey) -> Option<&HashSet<u64>> {
+        self.items.get(proposal_key)
     }
 
     fn sanitize_data_sidecar(&self, data_sidecar: &T) -> Result<(), Error> {

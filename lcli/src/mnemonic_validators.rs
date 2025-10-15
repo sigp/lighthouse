@@ -1,9 +1,9 @@
-use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
+use account_utils::eth2_keystore::{Keystore, KeystoreBuilder, keypair_from_secret};
 use account_utils::random_password;
 use clap::ArgMatches;
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::bip39::{Language, Mnemonic};
-use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType};
+use eth2_wallet::{KeyType, recover_validator_secret_from_mnemonic};
 use rayon::prelude::*;
 use std::fs;
 use std::path::PathBuf;

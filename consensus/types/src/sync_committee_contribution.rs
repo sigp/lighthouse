@@ -1,7 +1,7 @@
 use super::{AggregateSignature, EthSpec, ForkName, SignedRoot};
 use crate::context_deserialize;
 use crate::slot_data::SlotData;
-use crate::{test_utils::TestRandom, BitVector, Hash256, Slot, SyncCommitteeMessage};
+use crate::{BitVector, Hash256, Slot, SyncCommitteeMessage, test_utils::TestRandom};
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
@@ -15,20 +15,13 @@ pub enum Error {
 }
 
 /// An aggregation of `SyncCommitteeMessage`s, used in creating a `SignedContributionAndProof`.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
-    arbitrary::Arbitrary,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 #[serde(bound = "E: EthSpec")]
-#[arbitrary(bound = "E: EthSpec")]
 #[context_deserialize(ForkName)]
 pub struct SyncCommitteeContribution<E: EthSpec> {
     pub slot: Slot,

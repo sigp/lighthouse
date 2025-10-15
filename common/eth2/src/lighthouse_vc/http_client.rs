@@ -1,11 +1,11 @@
 use super::types::*;
 use crate::Error;
 use reqwest::{
-    header::{HeaderMap, HeaderValue},
     IntoUrl,
+    header::{HeaderMap, HeaderValue},
 };
 use sensitive_url::SensitiveUrl;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::fmt::{self, Display};
 use std::fs;
 use std::path::Path;

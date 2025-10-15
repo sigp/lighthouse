@@ -60,7 +60,7 @@ DELAY=$(( $SECONDS_PER_SLOT * 32 + $GENESIS_DELAY + $MIN_GENESIS_TIME - $CURRENT
 sleep $DELAY
 
 # Use BN2 for the next validator client
-bn_2_url=$(kurtosis service inspect $ENCLAVE_NAME cl-2-lighthouse-geth | grep 'enr-address' | cut -d'=' -f2)
+bn_2_url=$(kurtosis service inspect $ENCLAVE_NAME cl-2-lighthouse-geth | grep -oP '(?<=--enr-address=)[^ ]+')
 bn_2_port=4000
 
 if [[ "$BEHAVIOR" == "failure" ]]; then

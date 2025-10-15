@@ -1,4 +1,5 @@
 use super::*;
+use context_deserialize::ContextDeserialize;
 use fs2::FileExt;
 use snap::raw::Decoder;
 use std::fs::{self};
@@ -33,6 +34,27 @@ pub fn log_file_access<P: AsRef<Path>>(file_accessed: P) {
 
 pub fn yaml_decode<T: serde::de::DeserializeOwned>(string: &str) -> Result<T, Error> {
     serde_yaml::from_str(string).map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+}
+
+pub fn context_yaml_decode<'de, T, C>(string: &'de str, context: C) -> Result<T, Error>
+where
+    T: ContextDeserialize<'de, C>,
+{
+    let deserializer = serde_yaml::Deserializer::from_str(string);
+    T::context_deserialize(deserializer, context)
+        .map_err(|e| Error::FailedToParseTest(format!("{:?}", e)))
+}
+
+pub fn context_yaml_decode_file<T, C>(path: &Path, context: C) -> Result<T, Error>
+where
+    T: for<'de> ContextDeserialize<'de, C>,
+{
+    log_file_access(path);
+    fs::read_to_string(path)
+        .map_err(|e| {
+            Error::FailedToParseTest(format!("Unable to load {}: {:?}", path.display(), e))
+        })
+        .and_then(|s| context_yaml_decode(&s, context))
 }
 
 pub fn yaml_decode_file<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, Error> {

@@ -4,13 +4,14 @@
 
 pub mod beacon_node_health;
 use beacon_node_health::{
-    check_node_health, BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth,
-    IsOptimistic, SyncDistanceTier,
+    BeaconNodeHealth, BeaconNodeSyncDistanceTiers, ExecutionEngineHealth, IsOptimistic,
+    SyncDistanceTier, check_node_health,
 };
 use clap::ValueEnum;
-use eth2::BeaconNodeHttpClient;
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use futures::future;
-use serde::{ser::SerializeStruct, Deserialize, Serialize, Serializer};
+use sensitive_url::SensitiveUrl;
+use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
 use std::fmt;
@@ -24,7 +25,7 @@ use task_executor::TaskExecutor;
 use tokio::{sync::RwLock, time::sleep};
 use tracing::{debug, error, warn};
 use types::{ChainSpec, Config as ConfigSpec, EthSpec, Slot};
-use validator_metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
+use validator_metrics::{ENDPOINT_ERRORS, ENDPOINT_REQUESTS, inc_counter_vec};
 
 /// Message emitted when the VC detects the BN is using a different spec.
 const UPDATE_REQUIRED_LOG_HINT: &str = "this VC or the remote BN may need updating";
@@ -358,6 +359,13 @@ impl CandidateBeaconNode {
             hint = UPDATE_REQUIRED_LOG_HINT,
             "Beacon node has mismatched Fulu fork epoch"
             );
+        } else if beacon_node_spec.gloas_fork_epoch != spec.gloas_fork_epoch {
+            warn!(
+            endpoint = %self.beacon_node,
+            endpoint_gloas_fork_epoch = ?beacon_node_spec.gloas_fork_epoch,
+            hint = UPDATE_REQUIRED_LOG_HINT,
+            "Beacon node has mismatched Gloas fork epoch"
+            );
         }
 
         Ok(())
@@ -453,6 +461,39 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         }
 
         (candidate_info, num_available, num_synced)
+    }
+
+    /// Update the list of candidates with a new list.
+    /// Returns `Ok(new_list)` if the update was successful.
+    /// Returns `Err(some_err)` if the list is empty.
+    pub async fn update_candidates_list(
+        &self,
+        new_list: Vec<SensitiveUrl>,
+        use_long_timeouts: bool,
+    ) -> Result<Vec<SensitiveUrl>, String> {
+        if new_list.is_empty() {
+            return Err("list cannot be empty".to_string());
+        }
+
+        let timeouts: Timeouts = if new_list.len() == 1 || use_long_timeouts {
+            Timeouts::set_all(Duration::from_secs(self.spec.seconds_per_slot))
+        } else {
+            Timeouts::use_optimized_timeouts(Duration::from_secs(self.spec.seconds_per_slot))
+        };
+
+        let new_candidates: Vec<CandidateBeaconNode> = new_list
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(|(index, url)| {
+                CandidateBeaconNode::new(BeaconNodeHttpClient::new(url, timeouts.clone()), index)
+            })
+            .collect();
+
+        let mut candidates = self.candidates.write().await;
+        *candidates = new_candidates;
+
+        Ok(new_list)
     }
 
     /// Loop through ALL candidates in `self.candidates` and update their sync status.
@@ -749,10 +790,12 @@ mod tests {
         let mut variants = ApiTopic::VARIANTS.to_vec();
         variants.retain(|s| *s != "none");
         assert_eq!(all.len(), variants.len());
-        assert!(variants
-            .iter()
-            .map(|topic| ApiTopic::from_str(topic, true).unwrap())
-            .eq(all.into_iter()));
+        assert!(
+            variants
+                .iter()
+                .map(|topic| ApiTopic::from_str(topic, true).unwrap())
+                .eq(all.into_iter())
+        );
     }
 
     #[tokio::test]

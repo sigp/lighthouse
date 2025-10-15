@@ -21,6 +21,7 @@ pub enum Error<T> {
     GreaterThanCurrentEpoch { epoch: Epoch, current_epoch: Epoch },
     UnableToSignAttestation(AttestationError),
     SpecificError(T),
+    Middleware(String),
 }
 
 impl<T> From<T> for Error<T> {

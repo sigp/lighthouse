@@ -15,10 +15,11 @@ use std::fmt;
 use std::sync::Mutex;
 use std::time::Duration;
 use store::MemoryStore;
+use types::SingleAttestation;
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
-    Epoch, EthSpec, FixedBytesExtended, ForkName, Hash256, IndexedAttestation, MainnetEthSpec,
-    RelativeEpoch, SignedBeaconBlock, Slot, SubnetId,
+    BeaconBlockRef, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, FixedBytesExtended,
+    ForkName, Hash256, IndexedAttestation, MainnetEthSpec, RelativeEpoch, SignedBeaconBlock, Slot,
+    SubnetId, test_utils::generate_deterministic_keypair,
 };
 
 pub type E = MainnetEthSpec;
@@ -463,10 +464,17 @@ impl ForkChoiceTest {
             )
             .expect("should sign attestation");
 
+        let single_attestation = SingleAttestation {
+            attester_index: validator_index as u64,
+            committee_index: validator_committee_index as u64,
+            data: attestation.data().clone(),
+            signature: attestation.signature().clone(),
+        };
+
         let mut verified_attestation = self
             .harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
+            .verify_unaggregated_attestation_for_gossip(&single_attestation, Some(subnet_id))
             .expect("precondition: should gossip verify attestation");
 
         if let MutationDelay::Blocks(slots) = delay {
@@ -744,10 +752,10 @@ async fn invalid_attestation_empty_bitfield() {
         .apply_attestation_to_chain(
             MutationDelay::NoDelay,
             |attestation, _| match attestation {
-                IndexedAttestation::Base(ref mut att) => {
+                IndexedAttestation::Base(att) => {
                     att.attesting_indices = vec![].into();
                 }
-                IndexedAttestation::Electra(ref mut att) => {
+                IndexedAttestation::Electra(att) => {
                     att.attesting_indices = vec![].into();
                 }
             },

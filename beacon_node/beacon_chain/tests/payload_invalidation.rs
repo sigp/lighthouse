@@ -2,15 +2,15 @@
 
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{
+    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, NotifyExecutionLayer, OverrideForkchoiceUpdate,
+    StateSkipConfig, WhenSlotSkipped,
     canonical_head::{CachedHead, CanonicalHead},
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ChainConfig, ExecutionPayloadError, NotifyExecutionLayer,
-    OverrideForkchoiceUpdate, StateSkipConfig, WhenSlotSkipped,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
     ExecutionLayer, ForkchoiceState, PayloadAttributes,
+    json_structures::{JsonForkchoiceStateV1, JsonPayloadAttributes, JsonPayloadAttributesV1},
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
@@ -22,7 +22,6 @@ use task_executor::ShutdownReason;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
-const CGC: usize = 8;
 
 type E = MainnetEthSpec;
 
@@ -686,8 +685,7 @@ async fn invalidates_all_descendants() {
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
-    let fork_rpc_block =
-        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
@@ -789,8 +787,7 @@ async fn switches_heads() {
     let ((fork_block, _), _fork_post_state) =
         rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
-    let fork_rpc_block =
-        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     let fork_block_root = rig
         .harness
         .chain
@@ -825,9 +822,10 @@ async fn switches_heads() {
     assert_eq!(rig.harness.head_block_root(), fork_parent_root);
 
     // The fork block has not yet been validated.
-    assert!(rig
-        .execution_status(fork_block_root)
-        .is_optimistic_or_invalid());
+    assert!(
+        rig.execution_status(fork_block_root)
+            .is_optimistic_or_invalid()
+    );
 
     for root in blocks {
         let slot = rig
@@ -875,12 +873,13 @@ async fn invalid_during_processing() {
     ];
 
     // 0 should be present in the chain.
-    assert!(rig
-        .harness
-        .chain
-        .get_blinded_block(&roots[0])
-        .unwrap()
-        .is_some());
+    assert!(
+        rig.harness
+            .chain
+            .get_blinded_block(&roots[0])
+            .unwrap()
+            .is_some()
+    );
     // 1 should *not* be present in the chain.
     assert_eq!(
         rig.harness.chain.get_blinded_block(&roots[1]).unwrap(),
@@ -1054,14 +1053,13 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.clone().verify_block_for_gossip(block.clone(), CGC).await,
+        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
-    let rpc_block =
-        RpcBlock::new_without_blobs(None, block.clone(), rig.harness.sampling_column_count);
+    let rpc_block = RpcBlock::new_without_blobs(None, block.clone());
     assert!(matches!(
         rig.harness.chain.process_block(rpc_block.block_root(), rpc_block, NotifyExecutionLayer::Yes, BlockImportSource::Lookup,
             || Ok(()),
@@ -1197,10 +1195,10 @@ async fn attesting_to_optimistic_head() {
             .unwrap();
 
         match &mut attestation {
-            Attestation::Base(ref mut att) => {
+            Attestation::Base(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
-            Attestation::Electra(ref mut att) => {
+            Attestation::Electra(att) => {
                 att.aggregation_bits.set(0, true).unwrap();
             }
         }
@@ -1358,11 +1356,12 @@ impl InvalidHeadSetup {
         // head block as invalid should not result in another head being chosen.
         // Rather, it should fail to run fork choice and leave the invalid block as
         // the head.
-        assert!(rig
-            .canonical_head()
-            .head_execution_status()
-            .unwrap()
-            .is_invalid());
+        assert!(
+            rig.canonical_head()
+                .head_execution_status()
+                .unwrap()
+                .is_invalid()
+        );
 
         // Ensure that we're getting the correct error when trying to find a new
         // head.
@@ -1385,8 +1384,7 @@ async fn recover_from_invalid_head_by_importing_blocks() {
     } = InvalidHeadSetup::new().await;
 
     // Import the fork block, it should become the head.
-    let fork_rpc_block =
-        RpcBlock::new_without_blobs(None, fork_block.clone(), rig.harness.sampling_column_count);
+    let fork_rpc_block = RpcBlock::new_without_blobs(None, fork_block.clone());
     rig.harness
         .chain
         .process_block(
@@ -1516,7 +1514,12 @@ async fn weights_after_resetting_optimistic_status() {
             .fork_choice_read_lock()
             .get_block_weight(&head.head_block_root())
             .unwrap(),
-        head.snapshot.beacon_state.validators().get(0).unwrap().effective_balance,
+        head.snapshot
+            .beacon_state
+            .validators()
+            .get(0)
+            .unwrap()
+            .effective_balance,
         "proposer boost should be removed from the head block and the vote of a single validator applied"
     );
 
