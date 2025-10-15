@@ -1105,7 +1105,7 @@ mod test {
         // Set custody requirement to 65 columns (enough to trigger reconstruction)
         let epoch = Epoch::new(1);
         custody_context.register_validators(
-            vec![(0, 2048_000_000_000), (1, 32_000_000_000)], // 64 + 1
+            vec![(0, 2_048_000_000_000), (1, 32_000_000_000)], // 64 + 1
             Slot::new(0),
             &spec,
         );
