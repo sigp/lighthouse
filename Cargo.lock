@@ -11409,8 +11409,10 @@ dependencies = [
 name = "zkvm_execution_layer"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "lru",
  "serde",
+ "thiserror 2.0.12",
  "tokio",
  "types",
 ]
