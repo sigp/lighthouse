@@ -27,7 +27,7 @@ metrics = { workspace = true }
 monitoring_api = { workspace = true }
 parking_lot = { workspace = true }
 reqwest = { workspace = true }
-sensitive_url = { workspace = true, features = ["serde"] }
+sensitive_url = { workspace = true }
 serde = { workspace = true }
 slashing_protection = { workspace = true }
 slot_clock = { workspace = true }
