@@ -275,7 +275,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
-    /// Produce and publish aggregated attestations for validators
+    /// If an attestation was produced, make an aggregate
     async fn handle_aggregates(
         self,
         slot: Slot,
