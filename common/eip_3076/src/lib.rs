@@ -190,7 +190,7 @@ mod tests {
                     signed_attestations: vec![SignedAttestation {
                         source_epoch: Epoch::new(0),
                         target_epoch: Epoch::new(5),
-                        signing_root: None,
+                        signing_root: Some(Hash256::from_low_u64_be(2)),
                     }],
                 },
                 InterchangeData {
