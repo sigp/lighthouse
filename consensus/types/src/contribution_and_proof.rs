@@ -10,7 +10,6 @@ use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
 /// A Validators aggregate sync committee contribution and selection proof.
-
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),
