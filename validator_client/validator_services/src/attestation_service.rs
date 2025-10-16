@@ -192,10 +192,41 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         // Create and publish an `Attestation` for all validators only once
         // as the committee_index is the same (index 0) post-Electra
-        let attestation_duties = self.duties_service.attesters(slot).into_iter().collect();
+        let attestation_duties: Vec<_> = self.duties_service.attesters(slot).into_iter().collect();
 
+        let attestation_data_cache = Arc::new(tokio::sync::RwLock::new(None));
+        let attestation_data_cache_clone = attestation_data_cache.clone();
+
+        let attestation_service = self.clone();
         self.inner.executor.spawn_ignoring_error(
-            self.clone().publish_attestations(slot, attestation_duties),
+            async move {
+                let attestation_data = attestation_service
+                    .beacon_nodes
+                    .first_success(|beacon_node| async move {
+                        beacon_node
+                            .get_validator_attestation_data(slot, 0)
+                            .await
+                            .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
+                            .map(|result| result.data)
+                    })
+                    .await;
+
+                match attestation_data {
+                    Ok(attestation_data) => {
+                        *attestation_data_cache_clone.write().await =
+                            Some(attestation_data.clone());
+
+                        attestation_service
+                            .publish_attestations(slot, &attestation_duties, attestation_data)
+                            .await
+                            .ok();
+                    }
+                    Err(e) => {
+                        error!(error = %e, slot = slot.as_u64(), "Failed to get attestation data from beacon nodes");
+                    }
+                }
+                Ok(())
+            },
             "attestation publish",
         );
 
@@ -221,13 +252,15 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         // Create and publish `SignedAggregateAndProof` for all aggregating validators.
         aggregate_duties_by_committee_index.into_iter().for_each(
             |(committee_index, validator_duties)| {
+                let attestation_data = attestation_data_cache.clone();
                 // Spawn a separate task for each attestation.
                 self.inner.executor.spawn_ignoring_error(
-                    self.clone().publish_aggregates(
+                    self.clone().handle_aggregates(
                         slot,
                         committee_index,
                         validator_duties,
                         aggregate_production_instant,
+                        attestation_data,
                     ),
                     "aggregate publish",
                 );
@@ -242,46 +275,14 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
-    /// Produce and publish unaggregated attestations for all validators.
-    /// This is only called once per slot post-Electra as the committee index will be 0.
-    async fn publish_attestations(
-        self,
-        slot: Slot,
-        validator_duties: Vec<DutyAndProof>,
-    ) -> Result<(), ()> {
-        let attestations_timer = validator_metrics::start_timer_vec(
-            &validator_metrics::ATTESTATION_SERVICE_TIMES,
-            &[validator_metrics::ATTESTATIONS],
-        );
-
-        // There's not need to produce `Attestation` if we do not have
-        // any validators for the given `slot`.
-        if validator_duties.is_empty() {
-            return Ok(());
-        }
-
-        // Download, sign and publish an `Attestation` for all validators at once
-        self.produce_and_publish_attestations(slot, &validator_duties)
-            .await
-            .map_err(move |e| {
-                crit!(
-                    error = format!("{:?}", e),
-                    slot = slot.as_u64(),
-                    "Error during attestation routine"
-                )
-            })?;
-
-        drop(attestations_timer);
-        Ok(())
-    }
-
     /// Produce and publish aggregated attestations for validators
-    async fn publish_aggregates(
+    async fn handle_aggregates(
         self,
         slot: Slot,
         committee_index: CommitteeIndex,
         validator_duties: Vec<DutyAndProof>,
         aggregate_production_instant: Instant,
+        attestation_data: Arc<tokio::sync::RwLock<Option<AttestationData>>>,
     ) -> Result<(), ()> {
         // There's not need to produce `SignedAggregateAndProof` if we do not have
         // any validators for the given `slot` and `committee_index`.
@@ -301,28 +302,29 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             &[validator_metrics::AGGREGATES],
         );
 
-        let attestation_data = self
-            .beacon_nodes
-            .first_success(|beacon_node| async move {
-                beacon_node
-                    .get_validator_attestation_data(slot, 0)
+        let attestation_data = {
+            let attestation_data_opt = attestation_data.read().await;
+            if let Some(attestation_data) = attestation_data_opt.as_ref() {
+                attestation_data.clone()
+            } else {
+                self.beacon_nodes
+                    .first_success(|beacon_node| async move {
+                        beacon_node
+                            .get_validator_attestation_data(slot, 0)
+                            .await
+                            .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
+                            .map(|result| result.data)
+                    })
                     .await
                     .map_err(|e| {
-                        format!(
-                            "Failed to produce attestation data for aggregation: {:?}",
-                            e
-                        )
-                    })
-                    .map(|result| result.data)
-            })
-            .await
-            .map_err(|e| {
-                error!(
-                    error = %e,
-                    slot = slot.as_u64(),
-                    "Failed to produce attestation data for aggregation"
-                );
-            })?;
+                        error!(
+                            error = %e,
+                            slot = slot.as_u64(),
+                            "Failed to get attestation data from beacon nodes"
+                        );
+                    })?
+            }
+        };
 
         // Download, sign and publish a `SignedAggregateAndProof` for each
         // validator that is elected to aggregate for this `slot` and
@@ -353,13 +355,19 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
     ///
     /// Only one `Attestation` is downloaded from the BN. It is then cloned and signed by each
     /// validator and the list of individually-signed `Attestation` objects is returned to the BN.
-    async fn produce_and_publish_attestations(
+    async fn publish_attestations(
         &self,
         slot: Slot,
         validator_duties: &[DutyAndProof],
-    ) -> Result<Option<AttestationData>, String> {
+        attestation_data: AttestationData,
+    ) -> Result<(), String> {
+        let attestations_timer = validator_metrics::start_timer_vec(
+            &validator_metrics::ATTESTATION_SERVICE_TIMES,
+            &[validator_metrics::ATTESTATIONS],
+        );
+
         if validator_duties.is_empty() {
-            return Ok(None);
+            return Ok(());
         }
 
         let current_epoch = self
@@ -367,23 +375,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .now()
             .ok_or("Unable to determine current slot from clock")?
             .epoch(S::E::slots_per_epoch());
-
-        let attestation_data = self
-            .beacon_nodes
-            .first_success(|beacon_node| async move {
-                let _timer = validator_metrics::start_timer_vec(
-                    &validator_metrics::ATTESTATION_SERVICE_TIMES,
-                    &[validator_metrics::ATTESTATIONS_HTTP_GET],
-                );
-                beacon_node
-                    // Post-Electra, the request to beacon node for AttestationData must have a committee_index of 0
-                    .get_validator_attestation_data(slot, 0)
-                    .await
-                    .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
-                    .map(|result| result.data)
-            })
-            .await
-            .map_err(|e| e.to_string())?;
 
         // Create futures to produce signed `Attestation` objects.
         let attestation_data_ref = &attestation_data;
@@ -468,7 +459,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         if attestations.is_empty() {
             warn!("No attestations were published");
-            return Ok(None);
+            return Ok(());
         }
         let fork_name = self
             .chain_spec
@@ -529,7 +520,8 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             ),
         }
 
-        Ok(Some(attestation_data))
+        drop(attestations_timer);
+        Ok(())
     }
 
     /// Performs the second step of the attesting process: downloading an aggregated `Attestation`,
