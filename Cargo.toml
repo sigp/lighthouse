@@ -91,6 +91,7 @@ members = [
     "validator_client/validator_metrics",
     "validator_client/validator_services",
     "validator_manager",
+    "zkvm_execution_layer",
 ]
 resolver = "2"
 

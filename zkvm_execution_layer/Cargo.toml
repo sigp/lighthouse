@@ -1,0 +1,9 @@
+[package]
+name = "zkvm_execution_layer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+types = { path = "../consensus/types" }
+
+[dev-dependencies]
