@@ -913,7 +913,9 @@ mod test {
         let ((block, _blobs_opt), _state) = harness
             .make_block_with_modifier(state, slot, |block| {
                 *block.body_mut().blob_kzg_commitments_mut().unwrap() =
-                    vec![preloaded_commitments_single[0]; blob_count].into();
+                    vec![preloaded_commitments_single[0]; blob_count]
+                        .try_into()
+                        .unwrap();
             })
             .await;
 
