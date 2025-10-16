@@ -644,8 +644,17 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             "Reconstructed columns"
         );
 
+        let columns_to_sample = self
+            .custody_context()
+            .sampling_columns_for_epoch(slot.epoch(T::EthSpec::slots_per_epoch()), &self.spec);
+        let data_columns_to_import: Vec<_> = data_columns_to_publish
+            .iter()
+            .filter(|column| columns_to_sample.contains(&column.index()))
+            .cloned()
+            .collect();
+
         self.availability_cache
-            .put_kzg_verified_data_columns(*block_root, data_columns_to_publish.clone())
+            .put_kzg_verified_data_columns(*block_root, data_columns_to_import)
             .map(|availability| {
                 DataColumnReconstructionResult::Success((
                     availability,
@@ -1080,6 +1089,95 @@ mod test {
 
         // THEN batch block verification should fail due to 128 invalid columns in the second block
         verification_result.expect_err("should have failed to verify blocks");
+    }
+
+    #[test]
+    fn should_exclude_reconstructed_columns_not_required_for_sampling() {
+        // SETUP
+        let spec = Arc::new(ForkName::Fulu.make_genesis_spec(E::default_spec()));
+        let mut rng = StdRng::seed_from_u64(0xDEADBEEF0BAD5EEDu64);
+
+        let da_checker = new_da_checker(spec.clone());
+        let custody_context = &da_checker.custody_context;
+        let all_column_indices_ordered =
+            init_custody_context_with_ordered_columns(custody_context, &mut rng, &spec);
+
+        // Set custody requirement to 65 columns (enough to trigger reconstruction)
+        let epoch = Epoch::new(1);
+        custody_context.register_validators(
+            vec![(0, 2_048_000_000_000), (1, 32_000_000_000)], // 64 + 1
+            Slot::new(0),
+            &spec,
+        );
+        let sampling_requirement = custody_context.num_of_data_columns_to_sample(epoch, &spec);
+        assert_eq!(
+            sampling_requirement, 65,
+            "sampling requirement should be 65"
+        );
+
+        let (block, data_columns) = generate_rand_block_and_data_columns::<E>(
+            ForkName::Fulu,
+            NumBlobs::Number(1),
+            &mut rng,
+            &spec,
+        );
+        let block_root = Hash256::random();
+        // Add the block to the DA checker
+        da_checker
+            .availability_cache
+            .put_pre_execution_block(block_root, Arc::new(block), BlockImportSource::Gossip)
+            .expect("should put block");
+
+        // Add 64 columns to the da checker (enough to be able to reconstruct)
+        // Order by all_column_indices_ordered, then take first 64
+        let custody_columns = all_column_indices_ordered
+            .iter()
+            .filter_map(|&col_idx| data_columns.iter().find(|d| d.index == col_idx).cloned())
+            .take(64)
+            .map(|d| {
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(
+                    KzgVerifiedDataColumn::__new_for_testing(d),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        da_checker
+            .availability_cache
+            .put_kzg_verified_data_columns(block_root, custody_columns)
+            .expect("should put custody columns");
+
+        // Try reconstrucing
+        let reconstruction_result = da_checker
+            .reconstruct_data_columns(&block_root)
+            .expect("should reconstruct columns");
+
+        // Reconstruction should succeed
+        let (_availability, reconstructed_columns) = match reconstruction_result {
+            DataColumnReconstructionResult::Success(result) => result,
+            e => {
+                panic!("Expected successful reconstruction {:?}", e);
+            }
+        };
+
+        // Remaining 64 columns should be reconstructed
+        assert_eq!(
+            reconstructed_columns.len(),
+            64,
+            "should reconstruct the remaining 64 columns"
+        );
+
+        // Only the columns required for custody (65) should be imported into the cache
+        let sampling_columns = custody_context.sampling_columns_for_epoch(epoch, &spec);
+        let actual_cached: HashSet<ColumnIndex> = da_checker
+            .cached_data_column_indexes(&block_root)
+            .expect("should have cached data columns")
+            .into_iter()
+            .collect();
+        let expected_sampling_columns = sampling_columns.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(
+            actual_cached, expected_sampling_columns,
+            "should cache only the required custody columns, not all reconstructed columns"
+        );
     }
 
     fn init_custody_context_with_ordered_columns(
