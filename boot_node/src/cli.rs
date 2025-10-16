@@ -76,7 +76,7 @@ pub fn cli_app() -> Command {
         )
         .arg(
             Arg::new("enr-udp-port")
-                .long("enr-port")
+                .long("enr-udp-port")
                 .value_name("PORT")
                 .help("The UDP port of the boot node's ENR. This is the port that external peers will dial to reach this boot node. Set this only if the external port differs from the listening port.")
                 .action(ArgAction::Set)
