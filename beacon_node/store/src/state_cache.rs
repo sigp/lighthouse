@@ -104,9 +104,27 @@ impl<E: EthSpec> StateCache<E> {
     pub fn get_hdiff_buffer_by_state_root(&self, state_root: Hash256) -> Option<HDiffBuffer> {
         let mut inner = self.inner.lock();
 
-        let buffer_cell = inner.hdiff_buffers.hdiff_buffers.get(&state_root).clone();
-
-        if let Some((_, buffer)) = buffer_cell.get() {
+        if let Some((_, buffer)) = inner
+            .hdiff_buffers
+            .hdiff_buffers
+            .get(&state_root)
+            .and_then(|cell| cell.get_or_try_init(|| Err(())).ok())
+            .cloned()
+        {
+            // Gets an entry from the hdiff_buffers HashMap:
+            // - Some: Some thread has computed or is computing the buffer. Call
+            //         OnceCell::get_or_try_init to lock if the OnceCell is in RUNNING state. The
+            //         behaviour on each possible OnceCell state is:
+            //         - COMPLETE: Another thread has completed computing the value:
+            //           get_or_try_init returns Ok(T) and we move into this if branch
+            //         - RUNNING: Another thread is currently computing the value: get_or_try_init
+            //           will block and return Ok(T)
+            //         - INCOMPLETE: The cell exists but it's not initializing nor initialized. The
+            //           clousure of get_or_try_init will be invoked, return an immediate error
+            //           and we move into this if branch. The OnceCell returns to INCOMPLETE state.
+            //           If another thread was locking on `get_or_init` it will run the clousure and
+            //           compute the value.
+            // - None: No other thread is computing or has computed the buffer
             drop(inner);
 
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
@@ -116,24 +134,26 @@ impl<E: EthSpec> StateCache<E> {
         } else if let Some(state) = inner.get_by_state_root(state_root) {
             // Insert an empty cell to the cache. Use get_or_insert to get a reference of the
             // inserted value.
+            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
+
             let buffer_cell = inner
                 .hdiff_buffers
                 .hdiff_buffers
-                .get_or_insert(&state_root, || Arc::new(OnceCell::new()))
+                .get_or_insert(state_root, || Arc::new(OnceCell::new()))
                 .clone();
             // Drop the lock before performing the conversion from state to buffer, as this
             // conversion is somewhat expensive.
+            // Drop after setting the metric to minimize the time the OnceCell is in INCOMPLETE
+            // state
             drop(inner);
-
-            metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
 
             // Put the buffer back into the cache without re-locking, by using the OnceCell.
             let (_, buffer) = buffer_cell.get_or_init(|| {
                 let slot = state.slot();
                 let buffer = HDiffBuffer::from_state(state);
-                (slot, buffer.clone())
+                (slot, buffer)
             });
-            Some(buffer)
+            Some(buffer.clone())
         } else {
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_MISS, HOT_METRIC);
             None
