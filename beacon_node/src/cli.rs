@@ -699,38 +699,6 @@ pub fn cli_app() -> Command {
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
-
-        /*
-         * Eth1 Integration
-         */
-        .arg(
-            Arg::new("eth1-purge-cache")
-                .long("eth1-purge-cache")
-                .value_name("PURGE-CACHE")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("eth1-blocks-per-log-query")
-                .long("eth1-blocks-per-log-query")
-                .value_name("BLOCKS")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("eth1-cache-follow-distance")
-                .long("eth1-cache-follow-distance")
-                .value_name("BLOCKS")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .display_order(0)
-                .hide(true)
-        )
         .arg(
             Arg::new("slots-per-restore-point")
                 .long("slots-per-restore-point")
@@ -1499,16 +1467,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-deposit-contract-sync")
-                .long("disable-deposit-contract-sync")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("staking")
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
             Arg::new("disable-optimistic-finalized-sync")
                 .long("disable-optimistic-finalized-sync")
                 .action(ArgAction::SetTrue)
@@ -1516,15 +1474,6 @@ pub fn cli_app() -> Command {
                 .help("Force Lighthouse to verify every execution block hash with the execution \
                        client during finalized sync. By default block hashes will be checked in \
                        Lighthouse and only passed to the EL if initial verification fails.")
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("light-client-server")
-                .long("light-client-server")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-
-                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(

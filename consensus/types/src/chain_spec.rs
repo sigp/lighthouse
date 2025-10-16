@@ -227,7 +227,7 @@ pub struct ChainSpec {
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub attestation_propagation_slot_range: u64,
-    pub maximum_gossip_clock_disparity_millis: u64,
+    pub maximum_gossip_clock_disparity: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
     pub subnets_per_node: u8,
@@ -670,7 +670,7 @@ impl ChainSpec {
     }
 
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
-        Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
+        Duration::from_millis(self.maximum_gossip_clock_disparity)
     }
 
     pub fn ttfb_timeout(&self) -> Duration {
@@ -1112,7 +1112,7 @@ impl ChainSpec {
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 2,
-            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
+            maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
             max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
@@ -1458,7 +1458,7 @@ impl ChainSpec {
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
-            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
+            maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
             max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: 33024,
@@ -1779,9 +1779,9 @@ pub struct Config {
     #[serde(default = "default_attestation_propagation_slot_range")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_propagation_slot_range: u64,
-    #[serde(default = "default_maximum_gossip_clock_disparity_millis")]
+    #[serde(default = "default_maximum_gossip_clock_disparity")]
     #[serde(with = "serde_utils::quoted_u64")]
-    maximum_gossip_clock_disparity_millis: u64,
+    maximum_gossip_clock_disparity: u64,
     #[serde(default = "default_message_domain_invalid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_invalid_snappy: [u8; 4],
@@ -1995,7 +1995,7 @@ const fn default_attestation_propagation_slot_range() -> u64 {
     32
 }
 
-const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
+const fn default_maximum_gossip_clock_disparity() -> u64 {
     500
 }
 
@@ -2214,7 +2214,7 @@ impl Config {
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
             attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis: spec.maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity: spec.maximum_gossip_clock_disparity,
             message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
@@ -2302,7 +2302,7 @@ impl Config {
             message_domain_valid_snappy,
             max_request_blocks,
             attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
@@ -2378,7 +2378,7 @@ impl Config {
             attestation_subnet_prefix_bits,
             max_request_blocks,
             attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
