@@ -111,6 +111,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationServiceBuil
                     .head_monitor_rx
                     .ok_or("Cannot build AttestationService without head_monitor_rx")?,
                 disable: self.disable,
+                latest_attested_slot: Mutex::new(Slot::default()),
             }),
         })
     }
@@ -126,9 +127,11 @@ pub struct Inner<S, T> {
     chain_spec: Arc<ChainSpec>,
     head_monitor_rx: Arc<Mutex<mpsc::Receiver<HeadEvent>>>,
     disable: bool,
+    latest_attested_slot: Mutex<Slot>,
 }
 
-/// Attempts to produce attestations for all known validators 1/3rd of the way through each slot.
+/// Attempts to produce attestations for all known validators 1/3rd of the way through each slot
+/// or when a head event is received from the BNs.
 ///
 /// If any validators are on the same committee, a single attestation will be downloaded and
 /// returned to the beacon node. This attestation will have a signature from each of the
@@ -178,6 +181,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             loop {
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     let mut beacon_node_index: Option<usize> = None;
+
                     tokio::select! {
                         _ = sleep(duration_to_next_slot + slot_duration / 3) => {},
                         head_event = self.poll_for_head_events() => {
@@ -187,14 +191,26 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         }
                     }
 
-                    if let Err(e) = self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
-                        crit!(error = e, "Failed to spawn attestation tasks")
+                    if let Some(current_slot) = self.slot_clock.now() {
+                        let mut last_slot = self.latest_attested_slot.lock().await;
+
+                        if current_slot > *last_slot {
+                            if let Err(e) =
+                                self.spawn_attestation_tasks(slot_duration, beacon_node_index)
+                            {
+                                crit!(error = e, "Failed to spawn attestation tasks")
+                            } else {
+                                *last_slot = current_slot;
+                                trace!(?current_slot, "Spawned attestation tasks");
+                            }
+                        } else {
+                            debug!(?current_slot, ?last_slot, "Already attested for this slot");
+                        }
                     } else {
-                        trace!("Spawned attestation tasks");
+                        error!("Failed to read slot clock after trigger");
                     }
                 } else {
                     error!("Failed to read slot clock");
-                    // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;
                     continue;
                 }
@@ -221,9 +237,10 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         beacon_node_index: Option<usize>,
     ) -> Result<(), String> {
         info!(
-            "process attestation from beacon_node_index {:?}",
-            beacon_node_index
+            ?beacon_node_index,
+            "process attestation from beacon_node_index",
         );
+
         let slot = self.slot_clock.now().ok_or("Failed to read slot clock")?;
         let duration_to_next_slot = self
             .slot_clock
