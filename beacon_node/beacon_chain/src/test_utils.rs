@@ -3380,7 +3380,7 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
 }
 
 /// Generate data column sidecars from pre-computed cells and proofs.
-fn generate_data_column_sidecars_from_block<E: EthSpec>(
+pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {

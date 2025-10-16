@@ -161,6 +161,15 @@ pub enum GossipDataColumnError {
     ///
     /// The column sidecar is invalid and the peer is faulty
     InconsistentProofsLength { cells_len: usize, proofs_len: usize },
+    /// The number of KZG commitments exceeds the maximum number of blobs allowed for the fork. The
+    /// sidecar is invalid.
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    MaxBlobsPerBlockExceeded {
+        max_blobs_per_block: usize,
+        commitments_len: usize,
+    },
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -220,7 +229,7 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        verify_data_column_sidecar(&column_sidecar)?;
+        verify_data_column_sidecar(&column_sidecar, &chain.spec)?;
 
         // Check if the data column is already in the DA checker cache. This happens when data columns
         // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
@@ -475,7 +484,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     chain: &BeaconChain<T>,
 ) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
     let column_slot = data_column.slot();
-    verify_data_column_sidecar(&data_column)?;
+    verify_data_column_sidecar(&data_column, &chain.spec)?;
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
@@ -529,6 +538,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
 /// Verify if the data column sidecar is valid.
 fn verify_data_column_sidecar<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
+    spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
     if data_column.index >= E::number_of_columns() as u64 {
         return Err(GossipDataColumnError::InvalidColumnIndex(data_column.index));
@@ -540,6 +550,14 @@ fn verify_data_column_sidecar<E: EthSpec>(
     let cells_len = data_column.column.len();
     let commitments_len = data_column.kzg_commitments.len();
     let proofs_len = data_column.kzg_proofs.len();
+    let max_blobs_per_block = spec.max_blobs_per_block(data_column.epoch()) as usize;
+
+    if commitments_len > max_blobs_per_block {
+        return Err(GossipDataColumnError::MaxBlobsPerBlockExceeded {
+            max_blobs_per_block,
+            commitments_len,
+        });
+    }
 
     if cells_len != commitments_len {
         return Err(GossipDataColumnError::InconsistentCommitmentsLength {
@@ -782,16 +800,22 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 #[cfg(test)]
 mod test {
     use crate::data_column_verification::{
-        GossipDataColumnError, validate_data_column_sidecar_for_gossip,
+        GossipDataColumnError, GossipVerifiedDataColumn, validate_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
-    use crate::test_utils::BeaconChainHarness;
+    use crate::test_utils::{
+        BeaconChainHarness, EphemeralHarnessType, generate_data_column_sidecars_from_block,
+    };
+    use eth2::types::BlobsBundle;
+    use execution_layer::test_utils::generate_blobs;
+    use std::sync::Arc;
     use types::{DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkName, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
     #[tokio::test]
-    async fn empty_data_column_sidecars_fails_validation() {
+    async fn test_validate_data_column_sidecar_for_gossip() {
+        // Setting up harness is slow, we initialise once and use it for all gossip validation tests.
         let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.into())
@@ -801,6 +825,44 @@ mod test {
             .build();
         harness.advance_slot();
 
+        let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
+            let col_index = column_sidecar.index;
+            validate_data_column_sidecar_for_gossip::<_, Observe>(
+                column_sidecar.into(),
+                DataColumnSubnetId::from_column_index(col_index, &harness.spec),
+                &harness.chain,
+            )
+        };
+        empty_data_column_sidecars_fails_validation(&harness, &verify_fn).await;
+        data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
+    }
+
+    #[tokio::test]
+    async fn test_new_for_block_publishing() {
+        // Setting up harness is slow, we initialise once and use it for all gossip validation tests.
+        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec.into())
+            .deterministic_keypairs(64)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        harness.advance_slot();
+
+        let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
+            GossipVerifiedDataColumn::<_>::new_for_block_publishing(
+                column_sidecar.into(),
+                &harness.chain,
+            )
+        };
+        empty_data_column_sidecars_fails_validation(&harness, &verify_fn).await;
+        data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
+    }
+
+    async fn empty_data_column_sidecars_fails_validation<D>(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
+    ) {
         let slot = harness.get_current_slot();
         let state = harness.get_current_state();
         let ((block, _blobs_opt), _state) = harness
@@ -823,14 +885,47 @@ mod test {
                 .unwrap(),
         };
 
-        let result = validate_data_column_sidecar_for_gossip::<_, Observe>(
-            column_sidecar.into(),
-            DataColumnSubnetId::from_column_index(index, &harness.spec),
-            &harness.chain,
-        );
+        let result = verify_fn(column_sidecar);
         assert!(matches!(
             result.err(),
             Some(GossipDataColumnError::UnexpectedDataColumn)
+        ));
+    }
+
+    async fn data_column_sidecar_commitments_exceed_max_blobs_per_block<D>(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
+    ) {
+        let slot = harness.get_current_slot();
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let state = harness.get_current_state();
+        let max_blobs_per_block = harness.spec.max_blobs_per_block(epoch) as usize;
+        let fork = harness.spec.fork_name_at_epoch(epoch);
+
+        // Generate data column sidecar with blob count exceeding max_blobs_per_block.
+        let blob_count = max_blobs_per_block + 1;
+        let BlobsBundle::<E> {
+            commitments: preloaded_commitments_single,
+            proofs: _,
+            blobs: _,
+        } = generate_blobs(1, fork).unwrap().0;
+
+        let ((block, _blobs_opt), _state) = harness
+            .make_block_with_modifier(state, slot, |block| {
+                *block.body_mut().blob_kzg_commitments_mut().unwrap() =
+                    vec![preloaded_commitments_single[0]; blob_count].into();
+            })
+            .await;
+
+        let column_sidecar = generate_data_column_sidecars_from_block(&block, &harness.spec)
+            .into_iter()
+            .next()
+            .unwrap();
+
+        let result = verify_fn(Arc::try_unwrap(column_sidecar).unwrap());
+        assert!(matches!(
+            result.err(),
+            Some(GossipDataColumnError::MaxBlobsPerBlockExceeded { .. })
         ));
     }
 }
