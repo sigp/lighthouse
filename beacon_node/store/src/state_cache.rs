@@ -108,23 +108,13 @@ impl<E: EthSpec> StateCache<E> {
             .hdiff_buffers
             .hdiff_buffers
             .get(&state_root)
-            .and_then(|cell| cell.get_or_try_init(|| Err(())).ok())
+            .and_then(|cell| cell.get())
             .cloned()
         {
-            // Gets an entry from the hdiff_buffers HashMap:
-            // - Some: Some thread has computed or is computing the buffer. Call
-            //         OnceCell::get_or_try_init to lock if the OnceCell is in RUNNING state. The
-            //         behaviour on each possible OnceCell state is:
-            //         - COMPLETE: Another thread has completed computing the value:
-            //           get_or_try_init returns Ok(T) and we move into this if branch
-            //         - RUNNING: Another thread is currently computing the value: get_or_try_init
-            //           will block and return Ok(T)
-            //         - INCOMPLETE: The cell exists but it's not initializing nor initialized. The
-            //           clousure of get_or_try_init will be invoked, return an immediate error
-            //           and we move into this if branch. The OnceCell returns to INCOMPLETE state.
-            //           If another thread was locking on `get_or_init` it will run the clousure and
-            //           compute the value.
-            // - None: No other thread is computing or has computed the buffer
+            // If no entry exist for `state_root` no other thread is or has computed the value. If
+            // an entry exists for OnceCell::get returns None, another thread is about to start to
+            // compute the value or is currently computing the value. In those cases we jump to the
+            // next `else` condition and compute the value only if the cell is in INCOMPLETE state.
             drop(inner);
 
             metrics::inc_counter_vec(&metrics::STORE_BEACON_HDIFF_BUFFER_CACHE_HIT, HOT_METRIC);
