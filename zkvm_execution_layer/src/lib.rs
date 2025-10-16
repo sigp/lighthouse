@@ -1,4 +1,5 @@
 pub mod config;
+pub mod proof_cache;
 
 #[test]
 fn add() {

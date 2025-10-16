@@ -11409,7 +11409,9 @@ dependencies = [
 name = "zkvm_execution_layer"
 version = "0.1.0"
 dependencies = [
+ "lru",
  "serde",
+ "tokio",
  "types",
 ]
 

@@ -8,4 +8,8 @@ types = { path = "../consensus/types" }
 
 serde = { version = "1.0", features = ["derive"] }
 
+tokio = { version = "1", features = ["full"] }
+
+lru = "0.12"
+
 [dev-dependencies]
