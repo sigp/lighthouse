@@ -29,7 +29,7 @@ use reqwest::{
 };
 pub use reqwest::{StatusCode, Url};
 use reqwest_eventsource::{Event, EventSource};
-pub use sensitive_url::{SensitiveError, SensitiveUrl};
+pub use sensitive_url::SensitiveUrl;
 use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
@@ -229,12 +229,6 @@ impl fmt::Display for BeaconNodeHttpClient {
     }
 }
 
-impl AsRef<str> for BeaconNodeHttpClient {
-    fn as_ref(&self) -> &str {
-        self.server.as_ref()
-    }
-}
-
 impl BeaconNodeHttpClient {
     pub fn new(server: SensitiveUrl, timeouts: Timeouts) -> Self {
         Self {
@@ -255,10 +249,14 @@ impl BeaconNodeHttpClient {
             timeouts,
         }
     }
+    // Returns a reference to the `SensitiveUrl` of the server.
+    pub fn server(&self) -> &SensitiveUrl {
+        &self.server
+    }
 
     /// Return the path with the standard `/eth/vX` prefix applied.
     fn eth_path(&self, version: EndpointVersion) -> Result<Url, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -2681,7 +2679,7 @@ impl BeaconNodeHttpClient {
         ids: &[u64],
         epoch: Epoch,
     ) -> Result<GenericResponse<Vec<LivenessResponseData>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?

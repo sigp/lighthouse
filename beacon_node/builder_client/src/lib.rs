@@ -278,7 +278,7 @@ impl BuilderHttpClient {
         &self,
         validator: &[SignedValidatorRegistrationData],
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -297,7 +297,7 @@ impl BuilderHttpClient {
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<FullPayloadContents<E>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         let body = blinded_block.as_ssz_bytes();
 
@@ -345,7 +345,7 @@ impl BuilderHttpClient {
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         let body = blinded_block.as_ssz_bytes();
 
@@ -395,7 +395,7 @@ impl BuilderHttpClient {
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<ForkVersionedResponse<FullPayloadContents<E>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -438,7 +438,7 @@ impl BuilderHttpClient {
         &self,
         blinded_block: &SignedBlindedBeaconBlock<E>,
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -488,7 +488,7 @@ impl BuilderHttpClient {
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
     ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E>>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -529,7 +529,7 @@ impl BuilderHttpClient {
 
     /// `GET /eth/v1/builder/status`
     pub async fn get_builder_status<E: EthSpec>(&self) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.server.expose_full().clone();
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
