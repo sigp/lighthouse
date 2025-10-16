@@ -61,12 +61,8 @@ pub enum Error<T> {
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
     },
-    MissingJustifiedBlock {
-        justified_checkpoint: Checkpoint,
-    },
-    MissingFinalizedBlock {
-        finalized_checkpoint: Checkpoint,
-    },
+    MissingJustifiedBlock(Hash256),
+    MissingFinalizedBlock(Hash256),
     WrongSlotForGetProposerHead {
         current_slot: Slot,
         fc_store_slot: Slot,
@@ -295,10 +291,48 @@ pub struct ForkchoiceUpdateParameters {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ForkChoiceCheckpoint {
+    Local {
+        local: Checkpoint,
+        on_chain: Checkpoint,
+    },
+    OnChain(Checkpoint),
+}
+
+impl ForkChoiceCheckpoint {
+    pub fn on_chain(&self) -> Checkpoint {
+        match self {
+            Self::Local { on_chain, .. } => *on_chain,
+            Self::OnChain(cp) => *cp,
+        }
+    }
+
+    pub fn local(&self) -> Checkpoint {
+        match self {
+            Self::Local { local, .. } => *local,
+            Self::OnChain(cp) => *cp,
+        }
+    }
+}
+
+impl std::fmt::Display for ForkChoiceCheckpoint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Local { local, on_chain } => write!(
+                f,
+                "{}/{}/local/{}/{}",
+                on_chain.root, on_chain.epoch, local.root, local.epoch,
+            ),
+            Self::OnChain(cp) => write!(f, "{}/{}", cp.root, cp.epoch),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ForkChoiceView {
     pub head_block_root: Hash256,
-    pub justified_checkpoint: Checkpoint,
-    pub finalized_checkpoint: Checkpoint,
+    pub justified_checkpoint: ForkChoiceCheckpoint,
+    pub finalized_checkpoint: ForkChoiceCheckpoint,
 }
 
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
@@ -318,8 +352,6 @@ pub struct ForkChoice<T, E> {
     proto_array: ProtoArrayForkChoice,
     /// Attestations that arrived at the current slot and must be queued for later processing.
     queued_attestations: Vec<QueuedAttestation>,
-    /// Stores a cache of the values required to be sent to the execution layer.
-    forkchoice_update_parameters: ForkchoiceUpdateParameters,
     _phantom: PhantomData<E>,
 }
 
@@ -389,8 +421,8 @@ where
             current_slot,
             finalized_block_slot,
             finalized_block_state_root,
-            *fc_store.justified_checkpoint(),
-            *fc_store.finalized_checkpoint(),
+            fc_store.justified_checkpoint().local(),
+            fc_store.finalized_checkpoint().local(),
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             execution_status,
@@ -400,14 +432,6 @@ where
             fc_store,
             proto_array,
             queued_attestations: vec![],
-            // This will be updated during the next call to `Self::get_head`.
-            forkchoice_update_parameters: ForkchoiceUpdateParameters {
-                head_hash: None,
-                justified_hash: None,
-                finalized_hash: None,
-                // This will be updated during the next call to `Self::get_head`.
-                head_root: Hash256::zero(),
-            },
             _phantom: PhantomData,
         };
 
@@ -415,14 +439,6 @@ where
         fork_choice.get_head(current_slot, spec)?;
 
         Ok(fork_choice)
-    }
-
-    /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
-    /// execution engine.
-    ///
-    /// These values are updated each time `Self::get_head` is called.
-    pub fn get_forkchoice_update_parameters(&self) -> ForkchoiceUpdateParameters {
-        self.forkchoice_update_parameters
     }
 
     /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot` refers
@@ -488,33 +504,14 @@ where
         let store = &mut self.fc_store;
 
         let head_root = self.proto_array.find_head::<E>(
-            *store.justified_checkpoint(),
-            *store.finalized_checkpoint(),
+            store.justified_checkpoint().local(),
+            store.finalized_checkpoint().local(),
             store.justified_balances(),
             store.proposer_boost_root(),
             store.equivocating_indices(),
             current_slot,
             spec,
         )?;
-
-        // Cache some values for the next forkchoiceUpdate call to the execution layer.
-        let head_hash = self
-            .get_block(&head_root)
-            .and_then(|b| b.execution_status.block_hash());
-        let justified_root = self.justified_checkpoint().root;
-        let finalized_root = self.finalized_checkpoint().root;
-        let justified_hash = self
-            .get_block(&justified_root)
-            .and_then(|b| b.execution_status.block_hash());
-        let finalized_hash = self
-            .get_block(&finalized_root)
-            .and_then(|b| b.execution_status.block_hash());
-        self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
-            head_root,
-            head_hash,
-            justified_hash,
-            finalized_hash,
-        };
 
         Ok(head_root)
     }
@@ -591,24 +588,12 @@ where
             .map_err(ProposerHeadError::convert_inner_error)
     }
 
-    /// Return information about:
-    ///
-    /// - The LMD head of the chain.
-    /// - The FFG checkpoints.
-    ///
-    /// The information is "cached" since the last call to `Self::get_head`.
-    ///
-    /// ## Notes
-    ///
-    /// The finalized/justified checkpoints are determined from the fork choice store. Therefore,
-    /// it's possible that the state corresponding to `get_state(get_block(head_block_root))` will
-    /// have *differing* finalized and justified information.
-    pub fn cached_fork_choice_view(&self) -> ForkChoiceView {
-        ForkChoiceView {
-            head_block_root: self.forkchoice_update_parameters.head_root,
-            justified_checkpoint: self.justified_checkpoint(),
-            finalized_checkpoint: self.finalized_checkpoint(),
-        }
+    /// Returns the ExecutionBlockHash of a block. Return None if `block_root` is not known or if
+    /// the exeucution status of the block is `Irrelevant`
+    pub fn execution_hash(&self, block_root: Hash256) -> Option<ExecutionBlockHash> {
+        self.proto_array
+            .get_block(&block_root)
+            .and_then(|block| block.execution_status.block_hash())
     }
 
     /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
@@ -700,7 +685,7 @@ where
         // Check that block is later than the finalized epoch slot (optimization to reduce calls to
         // get_ancestor).
         let finalized_slot =
-            compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
+            compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().local().epoch);
         if block.slot() <= finalized_slot {
             return Err(Error::InvalidBlock(InvalidBlock::FinalizedSlot {
                 finalized_slot,
@@ -718,7 +703,7 @@ where
         //
         // https://github.com/ethereum/eth2.0-specs/pull/1884
         let block_ancestor = self.get_ancestor(block.parent_root(), finalized_slot)?;
-        let finalized_root = self.fc_store.finalized_checkpoint().root;
+        let finalized_root = self.fc_store.finalized_checkpoint().local().root;
         if block_ancestor != Some(finalized_root) {
             return Err(Error::InvalidBlock(InvalidBlock::NotFinalizedDescendant {
                 finalized_root,
@@ -921,7 +906,7 @@ where
         justified_state_root_producer: impl FnOnce() -> Result<Hash256, Error<T::Error>>,
     ) -> Result<(), Error<T::Error>> {
         // Update justified checkpoint.
-        if justified_checkpoint.epoch > self.fc_store.justified_checkpoint().epoch {
+        if justified_checkpoint.epoch > self.fc_store.justified_checkpoint().local().epoch {
             let justified_state_root = justified_state_root_producer()?;
             self.fc_store
                 .set_justified_checkpoint(justified_checkpoint, justified_state_root)
@@ -929,7 +914,7 @@ where
         }
 
         // Update finalized checkpoint.
-        if finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().epoch {
+        if finalized_checkpoint.epoch > self.fc_store.finalized_checkpoint().local().epoch {
             self.fc_store.set_finalized_checkpoint(finalized_checkpoint);
         }
 
@@ -1262,29 +1247,6 @@ where
         self.proto_array.get_weight(block_root)
     }
 
-    /// Returns the `ProtoBlock` for the justified checkpoint.
-    ///
-    /// ## Notes
-    ///
-    /// This does *not* return the "best justified checkpoint". It returns the justified checkpoint
-    /// that is used for computing balances.
-    pub fn get_justified_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
-        let justified_checkpoint = self.justified_checkpoint();
-        self.get_block(&justified_checkpoint.root)
-            .ok_or(Error::MissingJustifiedBlock {
-                justified_checkpoint,
-            })
-    }
-
-    /// Returns the `ProtoBlock` for the finalized checkpoint.
-    pub fn get_finalized_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
-        let finalized_checkpoint = self.finalized_checkpoint();
-        self.get_block(&finalized_checkpoint.root)
-            .ok_or(Error::MissingFinalizedBlock {
-                finalized_checkpoint,
-            })
-    }
-
     /// Return `true` if `block_root` is equal to the finalized checkpoint, or a known descendant of it.
     pub fn is_finalized_checkpoint_or_descendant(&self, block_root: Hash256) -> bool {
         self.proto_array
@@ -1313,7 +1275,7 @@ where
             Ok(status.is_optimistic_or_invalid())
         } else {
             Ok(self
-                .get_finalized_block()?
+                .local_irreversible_block()?
                 .execution_status
                 .is_optimistic_or_invalid())
         }
@@ -1335,14 +1297,21 @@ where
         }
     }
 
+    /// Returns the local irreversible block, which may be ahead of the network's finalized block
+    pub fn local_irreversible_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let local_irreversible_root = self.finalized_checkpoint().local().root;
+        self.get_block(&local_irreversible_root)
+            .ok_or(Error::MissingFinalizedBlock(local_irreversible_root))
+    }
+
     /// Return the current finalized checkpoint.
-    pub fn finalized_checkpoint(&self) -> Checkpoint {
-        *self.fc_store.finalized_checkpoint()
+    pub fn finalized_checkpoint(&self) -> ForkChoiceCheckpoint {
+        self.fc_store.finalized_checkpoint()
     }
 
     /// Return the justified checkpoint.
-    pub fn justified_checkpoint(&self) -> Checkpoint {
-        *self.fc_store.justified_checkpoint()
+    pub fn justified_checkpoint(&self) -> ForkChoiceCheckpoint {
+        self.fc_store.justified_checkpoint()
     }
 
     pub fn unrealized_justified_checkpoint(&self) -> Checkpoint {
@@ -1393,7 +1362,7 @@ where
 
     /// Prunes the underlying fork choice DAG.
     pub fn prune(&mut self) -> Result<(), Error<T::Error>> {
-        let finalized_root = self.fc_store.finalized_checkpoint().root;
+        let finalized_root = self.fc_store.finalized_checkpoint().local().root;
 
         self.proto_array
             .maybe_prune(finalized_root)
@@ -1471,13 +1440,6 @@ where
             proto_array,
             queued_attestations: persisted.queued_attestations,
             // Will be updated in the following call to `Self::get_head`.
-            forkchoice_update_parameters: ForkchoiceUpdateParameters {
-                head_hash: None,
-                justified_hash: None,
-                finalized_hash: None,
-                // Will be updated in the following call to `Self::get_head`.
-                head_root: Hash256::zero(),
-            },
             _phantom: PhantomData,
         };
 

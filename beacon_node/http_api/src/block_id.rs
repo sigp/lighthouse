@@ -57,15 +57,23 @@ impl BlockId {
             }
             CoreBlockId::Genesis => Ok((chain.genesis_block_root, false, true)),
             CoreBlockId::Finalized => {
-                let finalized_checkpoint =
-                    chain.canonical_head.cached_head().finalized_checkpoint();
+                // Return the network's finalized checkpoint not the node's local irreversible view.
+                let finalized_checkpoint = chain
+                    .canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .on_chain();
                 let (_slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
                 Ok((finalized_checkpoint.root, execution_optimistic, true))
             }
             CoreBlockId::Justified => {
-                let justified_checkpoint =
-                    chain.canonical_head.cached_head().justified_checkpoint();
+                // Return the network's justified checkpoint not the node's local irreversible view.
+                let justified_checkpoint = chain
+                    .canonical_head
+                    .cached_head()
+                    .justified_checkpoint()
+                    .on_chain();
                 let (_slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
                 Ok((justified_checkpoint.root, execution_optimistic, false))
@@ -90,6 +98,7 @@ impl BlockId {
                         .canonical_head
                         .cached_head()
                         .finalized_checkpoint()
+                        .on_chain()
                         .epoch
                         .start_slot(T::EthSpec::slots_per_epoch());
                 Ok((root, execution_optimistic, finalized))

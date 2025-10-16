@@ -1,5 +1,7 @@
 use crate::{
-    beacon_fork_choice_store::{PersistedForkChoiceStoreV17, PersistedForkChoiceStoreV28},
+    beacon_fork_choice_store::{
+        PersistedForkChoiceStoreV17, PersistedForkChoiceStoreV28, PersistedForkChoiceStoreV29,
+    },
     metrics,
 };
 use ssz::{Decode, Encode};
@@ -9,22 +11,24 @@ use superstruct::superstruct;
 use types::Hash256;
 
 // If adding a new version you should update this type alias and fix the breakages.
-pub type PersistedForkChoice = PersistedForkChoiceV28;
+pub type PersistedForkChoice = PersistedForkChoiceV29;
 
 #[superstruct(
-    variants(V17, V28),
+    variants(V17, V28, V29),
     variant_attributes(derive(Encode, Decode)),
     no_enum
 )]
 pub struct PersistedForkChoice {
     #[superstruct(only(V17))]
     pub fork_choice_v17: fork_choice::PersistedForkChoiceV17,
-    #[superstruct(only(V28))]
+    #[superstruct(only(V28, V29))]
     pub fork_choice: fork_choice::PersistedForkChoiceV28,
     #[superstruct(only(V17))]
     pub fork_choice_store_v17: PersistedForkChoiceStoreV17,
     #[superstruct(only(V28))]
-    pub fork_choice_store: PersistedForkChoiceStoreV28,
+    pub fork_choice_store_v28: PersistedForkChoiceStoreV28,
+    #[superstruct(only(V29))]
+    pub fork_choice_store: PersistedForkChoiceStoreV29,
 }
 
 macro_rules! impl_store_item {
@@ -47,7 +51,7 @@ macro_rules! impl_store_item {
 
 impl_store_item!(PersistedForkChoiceV17);
 
-impl PersistedForkChoiceV28 {
+impl PersistedForkChoiceV29 {
     pub fn from_bytes(bytes: &[u8], store_config: &StoreConfig) -> Result<Self, Error> {
         let decompressed_bytes = store_config
             .decompress_bytes(bytes)

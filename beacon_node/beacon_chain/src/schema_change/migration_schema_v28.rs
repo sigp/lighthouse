@@ -121,7 +121,7 @@ pub fn downgrade_from_v28<T: BeaconChainTypes>(
     // Recreate V28 persisted fork choice, then convert each field back to its V17 version.
     let persisted_fork_choice = PersistedForkChoiceV28 {
         fork_choice: fork_choice.to_persisted(),
-        fork_choice_store: fork_choice.fc_store().to_persisted(),
+        fork_choice_store_v28: fork_choice.fc_store().to_persisted().into(),
     };
 
     let justified_balances = fork_choice.fc_store().justified_balances();
@@ -134,7 +134,7 @@ pub fn downgrade_from_v28<T: BeaconChainTypes>(
         .into();
 
     let fork_choice_store_v17: PersistedForkChoiceStoreV17 = (
-        persisted_fork_choice.fork_choice_store,
+        persisted_fork_choice.fork_choice_store_v28,
         justified_balances.clone(),
     )
         .into();

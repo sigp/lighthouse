@@ -829,6 +829,7 @@ where
             .canonical_head
             .cached_head()
             .finalized_checkpoint()
+            .local()
     }
 
     pub fn justified_checkpoint(&self) -> Checkpoint {
@@ -836,6 +837,7 @@ where
             .canonical_head
             .cached_head()
             .justified_checkpoint()
+            .local()
     }
 
     pub fn get_current_slot(&self) -> Slot {

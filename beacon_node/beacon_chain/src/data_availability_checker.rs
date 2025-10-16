@@ -714,11 +714,7 @@ async fn availability_cache_maintenance_service<T: BeaconChainTypes>(
                     continue;
                 }
 
-                let finalized_epoch = chain
-                    .canonical_head
-                    .fork_choice_read_lock()
-                    .finalized_checkpoint()
-                    .epoch;
+                let finalized_epoch = chain.head().finalized_checkpoint().on_chain().epoch;
 
                 let Some(min_epochs_for_blobs) = chain
                     .spec

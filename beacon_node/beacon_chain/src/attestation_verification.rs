@@ -1409,6 +1409,7 @@ fn verify_attestation_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>
     let attestation_block_root = attestation_data.beacon_block_root;
     let finalized_slot = fork_choice
         .finalized_checkpoint()
+        .local()
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
     let split = chain.store.get_split_info();

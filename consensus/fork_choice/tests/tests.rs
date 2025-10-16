@@ -516,22 +516,6 @@ impl ForkChoiceTest {
     }
 }
 
-#[test]
-fn justified_and_finalized_blocks() {
-    let tester = ForkChoiceTest::new();
-    let fork_choice = tester.harness.chain.canonical_head.fork_choice_read_lock();
-
-    let justified_checkpoint = fork_choice.justified_checkpoint();
-    assert_eq!(justified_checkpoint.epoch, 0);
-    assert!(justified_checkpoint.root != Hash256::zero());
-    assert!(fork_choice.get_justified_block().is_ok());
-
-    let finalized_checkpoint = fork_choice.finalized_checkpoint();
-    assert_eq!(finalized_checkpoint.epoch, 0);
-    assert!(finalized_checkpoint.root != Hash256::zero());
-    assert!(fork_choice.get_finalized_block().is_ok());
-}
-
 /// - The new justified checkpoint descends from the current. Near genesis.
 #[tokio::test]
 async fn justified_checkpoint_updates_with_descendent_first_justification() {

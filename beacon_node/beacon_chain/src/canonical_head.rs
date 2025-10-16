@@ -43,8 +43,8 @@ use crate::{
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{
-    ExecutionStatus, ForkChoiceStore, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock,
-    ResetPayloadStatuses,
+    ExecutionStatus, ForkChoiceCheckpoint, ForkChoiceStore, ForkChoiceView,
+    ForkchoiceUpdateParameters, ProtoBlock, ResetPayloadStatuses,
 };
 use itertools::process_results;
 use lighthouse_tracing::SPAN_RECOMPUTE_HEAD;
@@ -102,12 +102,12 @@ pub struct CachedHead<E: EthSpec> {
     ///
     /// This value may be distinct to the `self.snapshot.beacon_state.justified_checkpoint`.
     /// This value should be used over the beacon state value in practically all circumstances.
-    justified_checkpoint: Checkpoint,
+    justified_checkpoint: ForkChoiceCheckpoint,
     /// The finalized checkpoint as per `self.fork_choice`.
     ///
     /// This value may be distinct to the `self.snapshot.beacon_state.finalized_checkpoint`.
     /// This value should be used over the beacon state value in practically all circumstances.
-    finalized_checkpoint: Checkpoint,
+    finalized_checkpoint: ForkChoiceCheckpoint,
     /// The `execution_payload.block_hash` of the block at the head of the chain. Set to `None`
     /// before Bellatrix.
     head_hash: Option<ExecutionBlockHash>,
@@ -205,7 +205,7 @@ impl<E: EthSpec> CachedHead<E> {
     /// This is *not* the finalized checkpoint of the `head_snapshot.beacon_state`, rather it is the
     /// best finalized checkpoint that has been observed by `self.fork_choice`. It is possible that
     /// the `head_snapshot.beacon_state` finalized value is earlier than the one returned here.
-    pub fn finalized_checkpoint(&self) -> Checkpoint {
+    pub fn finalized_checkpoint(&self) -> ForkChoiceCheckpoint {
         self.finalized_checkpoint
     }
 
@@ -217,8 +217,12 @@ impl<E: EthSpec> CachedHead<E> {
     /// it is the justified checkpoint in the view of `self.fork_choice`. It is possible that the
     /// `head_snapshot.beacon_state` justified value is different to, but not conflicting with, the
     /// one returned here.
-    pub fn justified_checkpoint(&self) -> Checkpoint {
+    pub fn justified_checkpoint(&self) -> ForkChoiceCheckpoint {
         self.justified_checkpoint
+    }
+
+    pub fn finalied_checkpoint_from_head_state(&self) -> Checkpoint {
+        self.snapshot.beacon_state.finalized_checkpoint()
     }
 
     /// Returns the cached values of `ForkChoice::forkchoice_update_parameters`.
@@ -263,15 +267,18 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
     ) -> Self {
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+        let head_block_root = snapshot.beacon_block_root;
+        let justified_checkpoint = fork_choice.justified_checkpoint();
+        let finalized_checkpoint = fork_choice.finalized_checkpoint();
+
         let cached_head = CachedHead {
             snapshot,
-            justified_checkpoint: fork_choice_view.justified_checkpoint,
-            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            head_hash: forkchoice_update_params.head_hash,
-            justified_hash: forkchoice_update_params.justified_hash,
-            finalized_hash: forkchoice_update_params.finalized_hash,
+            justified_checkpoint,
+            finalized_checkpoint,
+            // TODO: Do we need to cache this nodes?
+            head_hash: fork_choice.execution_hash(head_block_root),
+            justified_hash: fork_choice.execution_hash(justified_checkpoint.on_chain().root),
+            finalized_hash: fork_choice.execution_hash(finalized_checkpoint.on_chain().root),
         };
 
         Self {
@@ -296,15 +303,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         store: &BeaconStore<T>,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        let fork_choice =
+        let mut fork_choice =
             <BeaconChain<T>>::load_fork_choice(store.clone(), reset_payload_statuses, spec)?
                 .ok_or(Error::MissingPersistedForkChoice)?;
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-        let beacon_block_root = fork_choice_view.head_block_root;
+        let current_slot = fork_choice.fc_store().get_current_slot();
+        let beacon_block_root = fork_choice.get_head(current_slot, spec)?;
         let beacon_block = store
             .get_full_block(&beacon_block_root)?
             .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
-        let current_slot = fork_choice.fc_store().get_current_slot();
         let (_, beacon_state) = store
             .get_advanced_hot_state(beacon_block_root, current_slot, beacon_block.state_root())?
             .ok_or(Error::MissingBeaconState(beacon_block.state_root()))?;
@@ -315,14 +321,15 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             beacon_state,
         };
 
-        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+        let justified_checkpoint = fork_choice.justified_checkpoint();
+        let finalized_checkpoint = fork_choice.finalized_checkpoint();
         let cached_head = CachedHead {
             snapshot: Arc::new(snapshot),
-            justified_checkpoint: fork_choice_view.justified_checkpoint,
-            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            head_hash: forkchoice_update_params.head_hash,
-            justified_hash: forkchoice_update_params.justified_hash,
-            finalized_hash: forkchoice_update_params.finalized_hash,
+            justified_checkpoint,
+            finalized_checkpoint,
+            head_hash: fork_choice.execution_hash(beacon_block_root),
+            justified_hash: fork_choice.execution_hash(justified_checkpoint.on_chain().root),
+            finalized_hash: fork_choice.execution_hash(finalized_checkpoint.on_chain().root),
         };
 
         *fork_choice_write_lock = fork_choice;
@@ -597,19 +604,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
 
         // Recompute the current head via the fork choice algorithm.
-        fork_choice_write_lock.get_head(current_slot, &self.spec)?;
+        // TODO: Just with get_head, is it possible for finality to advance?
+        let new_head_block_root = fork_choice_write_lock.get_head(current_slot, &self.spec)?;
 
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
         // other writers.
         let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
 
         // Read the current head value from the fork choice algorithm.
-        let new_view = fork_choice_read_lock.cached_fork_choice_view();
+        let new_view = ForkChoiceView {
+            head_block_root: new_head_block_root,
+            justified_checkpoint: fork_choice_read_lock.justified_checkpoint(),
+            finalized_checkpoint: fork_choice_read_lock.finalized_checkpoint(),
+        };
 
         // Check to ensure that the finalized block hasn't been marked as invalid. If it has,
         // shut down Lighthouse.
-        let finalized_proto_block = fork_choice_read_lock.get_finalized_block()?;
-        check_finalized_payload_validity(self, &finalized_proto_block)?;
+        check_finalized_payload_validity(self, &fork_choice_read_lock.local_irreversible_block()?)?;
 
         // Sanity check the finalized checkpoint.
         //
@@ -654,8 +665,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Get the parameters to update the execution layer since either the head or some finality
         // parameters have changed.
-        let new_forkchoice_update_parameters =
-            fork_choice_read_lock.get_forkchoice_update_parameters();
+        let new_forkchoice_update_parameters = ForkchoiceUpdateParameters {
+            head_root: new_view.head_block_root,
+            head_hash: fork_choice_read_lock.execution_hash(new_view.head_block_root),
+            justified_hash: fork_choice_read_lock
+                .execution_hash(new_view.justified_checkpoint.on_chain().root),
+            finalized_hash: fork_choice_read_lock
+                .execution_hash(new_view.finalized_checkpoint.on_chain().root),
+        };
 
         perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock);
 
@@ -763,8 +780,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The `after_finalization` function will take a write-lock on `fork_choice`, therefore it
         // is a dead-lock risk to hold any other lock on fork choice at this point.
         if new_view.finalized_checkpoint != old_view.finalized_checkpoint
-            && let Err(e) =
-                self.after_finalization(&new_cached_head, new_view, finalized_proto_block)
+            && let Err(e) = self.after_finalization(&new_cached_head, new_view)
         {
             crit!(
                 error = ?e,
@@ -929,50 +945,56 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         new_cached_head: &CachedHead<T::EthSpec>,
         new_view: ForkChoiceView,
-        finalized_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_AFTER_FINALIZATION_TIMES);
         let new_snapshot = &new_cached_head.snapshot;
-        let finalized_block_is_optimistic = finalized_proto_block
-            .execution_status
-            .is_optimistic_or_invalid();
 
-        self.observed_block_producers.write().prune(
-            new_view
-                .finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-        );
+        let on_chain_finalized_checkpoint = new_view.finalized_checkpoint.on_chain();
+        let new_local_finalized_checkpoint = new_view.finalized_checkpoint.local();
+        let new_local_finalized_slot = new_local_finalized_checkpoint
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
 
-        self.observed_blob_sidecars.write().prune(
-            new_view
-                .finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-        );
+        // observed_block_producers uses the finalized slot to reject blocks prior to that slot. It
+        // acts as a local irreversible slot, so use the fork-choice's local to match gossip
+        // verification.
+        self.observed_block_producers
+            .write()
+            .prune(new_local_finalized_slot);
 
-        self.observed_slashable.write().prune(
-            new_view
-                .finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-        );
+        // Same as observed_block_producers
+        self.observed_blob_sidecars
+            .write()
+            .prune(new_local_finalized_slot);
 
+        self.observed_slashable
+            .write()
+            .prune(new_local_finalized_slot);
+
+        // TODO: Should this use the local finality of the network?
         self.attester_cache
-            .prune_below(new_view.finalized_checkpoint.epoch);
+            .prune_below(new_local_finalized_checkpoint.epoch);
 
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_finalized_subscribers()
         {
-            event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
-                epoch: new_view.finalized_checkpoint.epoch,
-                block: new_view.finalized_checkpoint.root,
-                // Provide the state root of the latest finalized block, rather than the
-                // specific state root at the first slot of the finalized epoch (which
-                // might be a skip slot).
-                state: finalized_proto_block.state_root,
-                execution_optimistic: finalized_block_is_optimistic,
-            }));
+            if let Some(on_chain_finalized_block) = self
+                .canonical_head
+                .fork_choice_read_lock()
+                .get_block(&on_chain_finalized_checkpoint.root)
+            {
+                event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
+                    epoch: on_chain_finalized_checkpoint.epoch,
+                    block: on_chain_finalized_checkpoint.root,
+                    // Provide the state root of the latest finalized block, rather than the
+                    // specific state root at the first slot of the finalized epoch (which
+                    // might be a skip slot).
+                    state: on_chain_finalized_block.state_root,
+                    execution_optimistic: on_chain_finalized_block
+                        .execution_status
+                        .is_optimistic_or_invalid(),
+                }));
+            }
         }
 
         // The store migration task and op pool pruning require the *state at the first slot of the
@@ -981,15 +1003,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Use the `StateRootsIterator` directly rather than `BeaconChain::state_root_at_slot`
         // to ensure we use the same state that we just set as the head.
-        let new_finalized_slot = new_view
-            .finalized_checkpoint
+        let new_local_finalized_slot = new_local_finalized_checkpoint
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
-        let new_finalized_state_root = process_results(
+        let new_local_finalized_state_root = process_results(
             StateRootsIterator::new(&self.store, &new_snapshot.beacon_state),
             |mut iter| {
                 iter.find_map(|(state_root, slot)| {
-                    if slot == new_finalized_slot {
+                    if slot == new_local_finalized_slot {
                         Some(state_root)
                     } else {
                         None
@@ -997,13 +1018,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
             },
         )?
-        .ok_or(Error::MissingFinalizedStateRoot(new_finalized_slot))?;
+        .ok_or(Error::MissingFinalizedStateRoot(new_local_finalized_slot))?;
 
         let update_cache = true;
         let new_finalized_state = self
             .store
-            .get_hot_state(&new_finalized_state_root, update_cache)?
-            .ok_or(Error::MissingBeaconState(new_finalized_state_root))?;
+            .get_hot_state(&new_local_finalized_state_root, update_cache)?
+            .ok_or(Error::MissingBeaconState(new_local_finalized_state_root))?;
 
         self.op_pool.prune_all(
             &new_snapshot.beacon_block,
@@ -1017,8 +1038,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // state from the state_cache near instantly anyway. We could experiment with sending the
         // state over a channel in future, but it's probably no quicker.
         self.store_migrator.process_finalization(
-            new_finalized_state_root.into(),
-            new_view.finalized_checkpoint,
+            new_local_finalized_state_root.into(),
+            new_local_finalized_checkpoint,
         )?;
 
         // Prune blobs in the background.
@@ -1104,16 +1125,17 @@ fn check_against_finality_reversion(
     old_view: &ForkChoiceView,
     new_view: &ForkChoiceView,
 ) -> Result<(), Error> {
-    let finalization_equal = new_view.finalized_checkpoint == old_view.finalized_checkpoint;
-    let finalization_advanced =
-        new_view.finalized_checkpoint.epoch > old_view.finalized_checkpoint.epoch;
+    let new_checkpoint = new_view.finalized_checkpoint.on_chain();
+    let old_checkpoint = old_view.finalized_checkpoint.on_chain();
+    let finalization_equal = new_checkpoint == old_checkpoint;
+    let finalization_advanced = new_checkpoint.epoch > old_checkpoint.epoch;
 
     if finalization_equal || finalization_advanced {
         Ok(())
     } else {
         Err(Error::RevertedFinalizedEpoch {
-            old: old_view.finalized_checkpoint,
-            new: new_view.finalized_checkpoint,
+            old: old_checkpoint,
+            new: new_checkpoint,
         })
     }
 }
@@ -1136,19 +1158,15 @@ fn perform_debug_logging<T: BeaconChainTypes>(
     }
     if new_view.justified_checkpoint != old_view.justified_checkpoint {
         debug!(
-            new_root = ?new_view.justified_checkpoint.root,
-            new_epoch = %new_view.justified_checkpoint.epoch,
-            old_root = ?old_view.justified_checkpoint.root,
-            old_epoch = %old_view.justified_checkpoint.epoch,
+            new = %new_view.justified_checkpoint,
+            old = %old_view.justified_checkpoint,
             "Fork choice justified"
         )
     }
     if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
         debug!(
-            new_root = ?new_view.finalized_checkpoint.root,
-            new_epoch = %new_view.finalized_checkpoint.epoch,
-            old_root = ?old_view.finalized_checkpoint.root,
-            old_epoch = %old_view.finalized_checkpoint.epoch,
+            new = %new_view.finalized_checkpoint,
+            old = %old_view.finalized_checkpoint,
             "Fork choice finalized"
         )
     }

@@ -6,7 +6,7 @@
 
 use crate::{BeaconSnapshot, metrics};
 use derivative::Derivative;
-use fork_choice::ForkChoiceStore;
+use fork_choice::{ForkChoiceCheckpoint, ForkChoiceStore};
 use proto_array::JustifiedBalances;
 use safe_arith::ArithError;
 use ssz_derive::{Decode, Encode};
@@ -136,6 +136,7 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     time: Slot,
     finalized_checkpoint: Checkpoint,
     justified_checkpoint: Checkpoint,
+    local_irreversible_checkpoint: Checkpoint,
     justified_balances: JustifiedBalances,
     justified_state_root: Hash256,
     unrealized_justified_checkpoint: Checkpoint,
@@ -189,25 +190,25 @@ where
         }
         let anchor_block_root = anchor_block_header.canonical_root();
         let anchor_epoch = anchor_state.current_epoch();
-        let justified_checkpoint = Checkpoint {
+        let anchor_block_checkpoint = Checkpoint {
             epoch: anchor_epoch,
             root: anchor_block_root,
         };
-        let finalized_checkpoint = justified_checkpoint;
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
-        let justified_state_root = anchor_state.canonical_root()?;
+        let anchor_state_root = anchor_state.canonical_root()?;
 
         Ok(Self {
             store,
             balances_cache: <_>::default(),
             time: anchor_state.slot(),
-            justified_checkpoint,
+            justified_checkpoint: anchor_state.current_justified_checkpoint(),
             justified_balances,
-            justified_state_root,
-            finalized_checkpoint,
-            unrealized_justified_checkpoint: justified_checkpoint,
-            unrealized_justified_state_root: justified_state_root,
-            unrealized_finalized_checkpoint: finalized_checkpoint,
+            justified_state_root: anchor_state_root,
+            finalized_checkpoint: anchor_state.finalized_checkpoint(),
+            local_irreversible_checkpoint: anchor_block_checkpoint,
+            unrealized_justified_checkpoint: anchor_block_checkpoint,
+            unrealized_justified_state_root: anchor_state_root,
+            unrealized_finalized_checkpoint: anchor_block_checkpoint,
             proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
@@ -222,6 +223,7 @@ where
             finalized_checkpoint: self.finalized_checkpoint,
             justified_checkpoint: self.justified_checkpoint,
             justified_state_root: self.justified_state_root,
+            local_irreversible_checkpoint: self.local_irreversible_checkpoint,
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
             unrealized_justified_state_root: self.unrealized_justified_state_root,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
@@ -250,6 +252,7 @@ where
             justified_checkpoint: persisted.justified_checkpoint,
             justified_balances,
             justified_state_root,
+            local_irreversible_checkpoint: persisted.finalized_checkpoint,
             unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
             unrealized_justified_state_root,
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
@@ -282,6 +285,7 @@ where
             justified_checkpoint,
             justified_balances,
             justified_state_root,
+            local_irreversible_checkpoint: persisted.local_irreversible_checkpoint,
             unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
             unrealized_justified_state_root: persisted.unrealized_justified_state_root,
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
@@ -317,8 +321,15 @@ where
         self.balances_cache.process_state(block_root, state)
     }
 
-    fn justified_checkpoint(&self) -> &Checkpoint {
-        &self.justified_checkpoint
+    fn justified_checkpoint(&self) -> ForkChoiceCheckpoint {
+        if self.local_irreversible_checkpoint.epoch > self.justified_checkpoint.epoch {
+            ForkChoiceCheckpoint::Local {
+                local: self.local_irreversible_checkpoint,
+                on_chain: self.justified_checkpoint,
+            }
+        } else {
+            ForkChoiceCheckpoint::OnChain(self.justified_checkpoint)
+        }
     }
 
     fn justified_state_root(&self) -> Hash256 {
@@ -329,8 +340,15 @@ where
         &self.justified_balances
     }
 
-    fn finalized_checkpoint(&self) -> &Checkpoint {
-        &self.finalized_checkpoint
+    fn finalized_checkpoint(&self) -> ForkChoiceCheckpoint {
+        if self.local_irreversible_checkpoint.epoch > self.finalized_checkpoint.epoch {
+            ForkChoiceCheckpoint::Local {
+                local: self.local_irreversible_checkpoint,
+                on_chain: self.finalized_checkpoint,
+            }
+        } else {
+            ForkChoiceCheckpoint::OnChain(self.finalized_checkpoint)
+        }
     }
 
     fn unrealized_justified_checkpoint(&self) -> &Checkpoint {
@@ -361,10 +379,7 @@ where
         self.justified_checkpoint = checkpoint;
         self.justified_state_root = justified_state_root;
 
-        if let Some(balances) = self.balances_cache.get(
-            self.justified_checkpoint.root,
-            self.justified_checkpoint.epoch,
-        ) {
+        if let Some(balances) = self.balances_cache.get(checkpoint.root, checkpoint.epoch) {
             // NOTE: could avoid this re-calculation by introducing a `PersistedCacheItem`.
             metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
             self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
@@ -407,11 +422,11 @@ where
     }
 }
 
-pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV28;
+pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV29;
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
 #[superstruct(
-    variants(V17, V28),
+    variants(V17, V28, V29),
     variant_attributes(derive(Encode, Decode)),
     no_enum
 )]
@@ -422,14 +437,16 @@ pub struct PersistedForkChoiceStore {
     pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
+    #[superstruct(only(V29))]
+    pub local_irreversible_checkpoint: Checkpoint,
     /// The justified balances were removed from disk storage in schema V28.
     #[superstruct(only(V17))]
     pub justified_balances: Vec<u64>,
     /// The justified state root is stored so that it can be used to load the justified balances.
-    #[superstruct(only(V28))]
+    #[superstruct(only(V28, V29))]
     pub justified_state_root: Hash256,
     pub unrealized_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V28))]
+    #[superstruct(only(V28, V29))]
     pub unrealized_justified_state_root: Hash256,
     pub unrealized_finalized_checkpoint: Checkpoint,
     pub proposer_boost_root: Hash256,
@@ -449,6 +466,22 @@ impl From<(PersistedForkChoiceStoreV28, JustifiedBalances)> for PersistedForkCho
             unrealized_finalized_checkpoint: v28.unrealized_finalized_checkpoint,
             proposer_boost_root: v28.proposer_boost_root,
             equivocating_indices: v28.equivocating_indices,
+        }
+    }
+}
+
+impl From<PersistedForkChoiceStoreV29> for PersistedForkChoiceStoreV28 {
+    fn from(fcs: PersistedForkChoiceStoreV29) -> Self {
+        Self {
+            time: fcs.time,
+            finalized_checkpoint: fcs.finalized_checkpoint,
+            justified_checkpoint: fcs.justified_checkpoint,
+            justified_state_root: fcs.justified_state_root,
+            unrealized_justified_checkpoint: fcs.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: fcs.unrealized_finalized_checkpoint,
+            unrealized_justified_state_root: fcs.unrealized_justified_state_root,
+            proposer_boost_root: fcs.proposer_boost_root,
+            equivocating_indices: fcs.equivocating_indices,
         }
     }
 }

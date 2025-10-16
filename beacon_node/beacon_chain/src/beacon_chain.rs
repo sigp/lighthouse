@@ -549,10 +549,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
         block_slot: Slot,
     ) -> Result<bool, Error> {
+        // Used by the API: finalized if prior to the network finality not the local view
         let finalized_slot = self
             .canonical_head
             .cached_head()
             .finalized_checkpoint()
+            .on_chain()
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
         let is_canonical = self
@@ -579,10 +581,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state_root: &Hash256,
         state_slot: Slot,
     ) -> Result<FinalizationAndCanonicity, Error> {
+        // Used by the API: finalized if prior to the network finality not the local view
         let finalized_slot = self
             .canonical_head
             .cached_head()
             .finalized_checkpoint()
+            .on_chain()
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
         let slot_is_finalized = state_slot <= finalized_slot;
@@ -593,6 +597,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot_is_finalized,
             canonical,
         })
+    }
+
+    pub fn irreversible_slot(&self) -> Slot {
+        let local_finalized_slot = self
+            .head()
+            .finalized_checkpoint()
+            .local()
+            .epoch
+            .start_slot(T::EthSpec::slots_per_epoch());
+        let split = self.store.get_split_info();
+        std::cmp::max(local_finalized_slot, split.slot)
     }
 
     /// Return a database operation for writing the `PersistedBeaconChain` to disk.
@@ -4088,8 +4103,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We are doing this to ensure that we detect changes in finalization. It's possible
         // that fork choice has already been updated to the finalized checkpoint in the block
         // we're importing.
-        let current_head_finalized_checkpoint =
-            self.canonical_head.cached_head().finalized_checkpoint();
+        let current_head_finalized_checkpoint = self
+            .canonical_head
+            .cached_head()
+            .finalied_checkpoint_from_head_state();
         // Compare the existing finalized checkpoint with the incoming block's finalized checkpoint.
         let new_finalized_checkpoint = state.finalized_checkpoint();
 
@@ -5875,16 +5892,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let justified_block = self
             .spawn_blocking_handle(
                 move || {
-                    chain
-                        .canonical_head
-                        .fork_choice_read_lock()
-                        .get_justified_block()
+                    let fork_choice = chain.canonical_head.fork_choice_read_lock();
+                    fork_choice.get_block(&fork_choice.justified_checkpoint().on_chain().root)
                 },
                 "invalid_payload_fork_choice_get_justified",
             )
-            .await??;
+            .await?;
 
-        if justified_block.execution_status.is_invalid() {
+        if let Some(justified_block) = justified_block
+            && justified_block.execution_status.is_invalid()
+        {
             crit!(
                 msg = "ensure you are not connected to a malicious network. This error is not \
                 recoverable, please reach out to the lighthouse developers for assistance.",
@@ -6952,7 +6969,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Check if finalization is advancing.
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
         let epochs_since_finalization =
-            current_epoch.saturating_sub(cached_head.finalized_checkpoint().epoch);
+            current_epoch.saturating_sub(cached_head.finalized_checkpoint().on_chain().epoch);
         let finalization_check = epochs_since_finalization.as_usize()
             <= self.config.builder_fallback_epochs_since_finalization;
 

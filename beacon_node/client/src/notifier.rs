@@ -179,8 +179,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             debug!(
                 peers = peer_count_pretty(connected_peer_count),
-                finalized_root = %finalized_checkpoint.root,
-                finalized_epoch = %finalized_checkpoint.epoch,
+                %finalized_checkpoint,
                 head_block = %head_root,
                 %head_slot,
                 %current_slot,
@@ -298,8 +297,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
                     exec_hash = block_hash,
-                    finalized_root = %finalized_checkpoint.root,
-                    finalized_epoch = %finalized_checkpoint.epoch,
+                    %finalized_checkpoint,
                     epoch = %current_epoch,
                     block = block_info,
                     slot = %current_slot,
@@ -309,8 +307,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 metrics::set_gauge(&metrics::IS_SYNCED, 0);
                 info!(
                     peers = peer_count_pretty(connected_peer_count),
-                    finalized_root = %finalized_checkpoint.root,
-                    finalized_epoch = %finalized_checkpoint.epoch,
+                    %finalized_checkpoint,
                     %head_slot,
                     %current_slot,
                     "Searching for peers"

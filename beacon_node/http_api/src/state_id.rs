@@ -39,15 +39,15 @@ impl StateId {
             }
             CoreStateId::Genesis => return Ok((chain.genesis_state_root, false, true)),
             CoreStateId::Finalized => {
-                let finalized_checkpoint =
-                    chain.canonical_head.cached_head().finalized_checkpoint();
+                // Return the network's finalized checkpoint not the node's local irreversible view.
+                let finalized_checkpoint = chain.head().finalized_checkpoint().on_chain();
                 let (slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, finalized_checkpoint)?;
                 (slot, execution_optimistic, true)
             }
             CoreStateId::Justified => {
-                let justified_checkpoint =
-                    chain.canonical_head.cached_head().justified_checkpoint();
+                // Return the network's justified checkpoint not the node's local irreversible view.
+                let justified_checkpoint = chain.head().justified_checkpoint().on_chain();
                 let (slot, execution_optimistic) =
                     checkpoint_slot_and_execution_optimistic(chain, justified_checkpoint)?;
                 (slot, execution_optimistic, false)
@@ -59,9 +59,9 @@ impl StateId {
                     .map_err(warp_utils::reject::unhandled_error)?,
                 *slot
                     <= chain
-                        .canonical_head
-                        .cached_head()
+                        .head()
                         .finalized_checkpoint()
+                        .on_chain()
                         .epoch
                         .start_slot(T::EthSpec::slots_per_epoch()),
             ),
@@ -104,10 +104,9 @@ impl StateId {
                     .map_err(warp_utils::reject::unhandled_error)?
                 {
                     let fork_choice = chain.canonical_head.fork_choice_read_lock();
-                    let finalized_root = fork_choice
-                        .cached_fork_choice_view()
-                        .finalized_checkpoint
-                        .root;
+                    // Retrieve the status of the oldest irreversible block in fork-choice. The
+                    // network finalized checkpoint may not be available.
+                    let finalized_root = fork_choice.finalized_checkpoint().local().root;
                     let execution_optimistic = fork_choice
                         .is_optimistic_or_invalid_block_no_fallback(&finalized_root)
                         .map_err(BeaconChainError::ForkChoiceError)
@@ -262,12 +261,15 @@ pub fn checkpoint_slot_and_execution_optimistic<T: BeaconChainTypes>(
 ) -> Result<(Slot, ExecutionOptimistic), warp::reject::Rejection> {
     let slot = checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch());
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
-    let finalized_checkpoint = fork_choice.cached_fork_choice_view().finalized_checkpoint;
+    // Use the local irreversible checkpoint of fork-choice. We need to default to a known block in
+    // fork-choice and oldest block in fork-choice might be more recent that the network's finalized
+    // checkpoint.
+    let local_finalized_checkpoint = fork_choice.finalized_checkpoint().local();
 
     // If the checkpoint is pre-finalization, just use the optimistic status of the finalized
     // block.
-    let root = if checkpoint.epoch < finalized_checkpoint.epoch {
-        &finalized_checkpoint.root
+    let root = if checkpoint.epoch < local_finalized_checkpoint.epoch {
+        &local_finalized_checkpoint.root
     } else {
         &checkpoint.root
     };

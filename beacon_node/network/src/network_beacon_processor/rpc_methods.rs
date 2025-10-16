@@ -843,11 +843,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         req_type: &str,
     ) -> Result<Vec<Hash256>, (RpcErrorResponse, &'static str)> {
         let start_time = std::time::Instant::now();
+        // We care about blocks being in fork-choice, use its view of finality
         let finalized_slot = self
             .chain
             .canonical_head
             .cached_head()
             .finalized_checkpoint()
+            .local()
             .epoch
             .start_slot(T::EthSpec::slots_per_epoch());
 

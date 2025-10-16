@@ -1683,16 +1683,9 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
-    // The finalized checkpoint is being read from fork choice, rather than the cached head.
-    //
-    // Fork choice has the most up-to-date view of finalization and there's no point importing a
-    // block which conflicts with the fork-choice view of finalization.
-    let finalized_slot = chain
-        .canonical_head
-        .cached_head()
-        .finalized_checkpoint()
-        .epoch
-        .start_slot(T::EthSpec::slots_per_epoch());
+    // Reject blocks that conflict with the local node's irreversible slot. Could be the finalized
+    // slot, or a more recent slot that the user marked as irreversible.
+    let finalized_slot = chain.irreversible_slot();
 
     if block.slot() <= finalized_slot {
         chain.pre_finalization_block_rejected(block_root);
@@ -1722,8 +1715,10 @@ pub fn check_block_is_finalized_checkpoint_or_descendant<
     // descended from that split block. It's important not to try checking `is_descendant` if
     // finality is ahead of the split and the split block has been pruned, as `is_descendant` will
     // return `false` in this case.
-    let finalized_slot = fork_choice
+    let finalized_slot = chain
+        .head()
         .finalized_checkpoint()
+        .local()
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
     let split = chain.store.get_split_info();

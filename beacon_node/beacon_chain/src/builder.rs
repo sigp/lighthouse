@@ -818,7 +818,7 @@ where
         // consistent.
         //
         // This is a sanity check to detect database corruption.
-        let fc_finalized = fork_choice.finalized_checkpoint();
+        let fc_finalized = fork_choice.finalized_checkpoint().on_chain();
         let head_finalized = head_snapshot.beacon_state.finalized_checkpoint();
         if fc_finalized.epoch < head_finalized.epoch {
             return Err(format!(

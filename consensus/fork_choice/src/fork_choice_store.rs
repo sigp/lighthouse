@@ -1,3 +1,4 @@
+use crate::ForkChoiceCheckpoint;
 use proto_array::JustifiedBalances;
 use std::collections::BTreeSet;
 use std::fmt::Debug;
@@ -42,7 +43,7 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
     ) -> Result<(), Self::Error>;
 
     /// Returns the `justified_checkpoint`.
-    fn justified_checkpoint(&self) -> &Checkpoint;
+    fn justified_checkpoint(&self) -> ForkChoiceCheckpoint;
 
     /// Returns the state root of the justified checkpoint.
     fn justified_state_root(&self) -> Hash256;
@@ -51,7 +52,7 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
     fn justified_balances(&self) -> &JustifiedBalances;
 
     /// Returns the `finalized_checkpoint`.
-    fn finalized_checkpoint(&self) -> &Checkpoint;
+    fn finalized_checkpoint(&self) -> ForkChoiceCheckpoint;
 
     /// Returns the `unrealized_justified_checkpoint`.
     fn unrealized_justified_checkpoint(&self) -> &Checkpoint;

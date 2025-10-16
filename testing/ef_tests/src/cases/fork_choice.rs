@@ -788,13 +788,14 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_justified_checkpoint(&self, expected_checkpoint: Checkpoint) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.justified_checkpoint();
+        let head_checkpoint = self.find_head()?.justified_checkpoint().local();
         let fc_checkpoint = self
             .harness
             .chain
             .canonical_head
             .fork_choice_read_lock()
-            .justified_checkpoint();
+            .justified_checkpoint()
+            .local();
 
         assert_checkpoints_eq("justified_checkpoint", head_checkpoint, fc_checkpoint);
 
@@ -805,13 +806,14 @@ impl<E: EthSpec> Tester<E> {
         &self,
         expected_checkpoint_root: Hash256,
     ) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.justified_checkpoint();
+        let head_checkpoint = self.find_head()?.justified_checkpoint().local();
         let fc_checkpoint = self
             .harness
             .chain
             .canonical_head
             .fork_choice_read_lock()
-            .justified_checkpoint();
+            .justified_checkpoint()
+            .local();
 
         assert_checkpoints_eq("justified_checkpoint_root", head_checkpoint, fc_checkpoint);
 
@@ -823,13 +825,14 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_finalized_checkpoint(&self, expected_checkpoint: Checkpoint) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.finalized_checkpoint();
+        let head_checkpoint = self.find_head()?.finalized_checkpoint().local();
         let fc_checkpoint = self
             .harness
             .chain
             .canonical_head
             .fork_choice_read_lock()
-            .finalized_checkpoint();
+            .finalized_checkpoint()
+            .local();
 
         assert_checkpoints_eq("finalized_checkpoint", head_checkpoint, fc_checkpoint);
 
