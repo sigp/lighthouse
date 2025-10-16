@@ -5,7 +5,7 @@ use super::{
 };
 use crate::rpc::rate_limiter::RateLimiterItem;
 use futures::FutureExt;
-use libp2p::{swarm::NotifyHandler, PeerId};
+use libp2p::{PeerId, swarm::NotifyHandler};
 use logging::crit;
 use smallvec::SmallVec;
 use std::time::{SystemTime, UNIX_EPOCH};
