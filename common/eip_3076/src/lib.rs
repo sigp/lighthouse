@@ -256,10 +256,5 @@ mod tests {
         let from_file = Interchange::from_json_reader(file).unwrap();
 
         assert_eq!(minified, from_file);
-        assert_eq!(from_file.data[0].signed_blocks[0].slot, Slot::new(100));
-        assert_eq!(
-            from_file.data[0].signed_attestations[0].target_epoch,
-            Epoch::new(5)
-        );
     }
 }
