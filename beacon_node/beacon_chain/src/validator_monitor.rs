@@ -12,7 +12,7 @@ use slot_clock::SlotClock;
 use smallvec::SmallVec;
 use state_processing::common::get_attestation_participation_flag_indices;
 use state_processing::per_epoch_processing::{
-    errors::EpochProcessingError, EpochProcessingSummary,
+    EpochProcessingSummary, errors::EpochProcessingError,
 };
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -163,7 +163,7 @@ impl EpochSummary {
     /// - It is `None`.
     /// - `new` is greater than its current value.
     fn update_if_lt<T: Ord>(current: &mut Option<T>, new: T) {
-        if let Some(ref mut current) = current {
+        if let Some(current) = current {
             if new < *current {
                 *current = new
             }
@@ -460,11 +460,12 @@ impl<E: EthSpec> ValidatorMonitor<E> {
         let unaggregated_attestations = &mut self.unaggregated_attestations;
 
         // Pruning, this removes the oldest key/pair of the hashmap if it's greater than MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH
-        if unaggregated_attestations.len() >= MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH {
-            if let Some(oldest_slot) = unaggregated_attestations.keys().min().copied() {
-                unaggregated_attestations.remove(&oldest_slot);
-            }
+        if unaggregated_attestations.len() >= MAX_UNAGGREGATED_ATTESTATION_HASHMAP_LENGTH
+            && let Some(oldest_slot) = unaggregated_attestations.keys().min().copied()
+        {
+            unaggregated_attestations.remove(&oldest_slot);
         }
+
         let slot = attestation.data().slot;
         self.unaggregated_attestations.insert(slot, attestation);
     }
@@ -496,7 +497,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             });
 
         // Add missed non-finalized blocks for the monitored validators
-        self.add_validators_missed_blocks(state);
+        self.add_validators_missed_blocks(state, spec);
         self.process_unaggregated_attestations(state, spec);
 
         // Update metrics for individual validators.
@@ -587,7 +588,7 @@ impl<E: EthSpec> ValidatorMonitor<E> {
     }
 
     /// Add missed non-finalized blocks for the monitored validators
-    fn add_validators_missed_blocks(&mut self, state: &BeaconState<E>) {
+    fn add_validators_missed_blocks(&mut self, state: &BeaconState<E>, spec: &ChainSpec) {
         // Define range variables
         let current_slot = state.slot();
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
@@ -615,8 +616,8 @@ impl<E: EthSpec> ValidatorMonitor<E> {
                 if block_root == prev_block_root {
                     let slot_epoch = slot.epoch(E::slots_per_epoch());
 
-                    if let Ok(shuffling_decision_block) =
-                        state.proposer_shuffling_decision_root_at_epoch(slot_epoch, *block_root)
+                    if let Ok(shuffling_decision_block) = state
+                        .proposer_shuffling_decision_root_at_epoch(slot_epoch, *block_root, spec)
                     {
                         // Update the cache if it has not yet been initialised, or if it is
                         // initialised for a prior epoch. This is an optimisation to avoid bouncing
@@ -1095,19 +1096,19 @@ impl<E: EthSpec> ValidatorMonitor<E> {
             return;
         }
 
-        if let Some(pubkey) = self.indices.get(&validator_index) {
-            if !self.validators.contains_key(pubkey) {
-                info!(
-                    %pubkey,
-                    validator = %validator_index,
-                    "Started monitoring validator"
-                );
+        if let Some(pubkey) = self.indices.get(&validator_index)
+            && !self.validators.contains_key(pubkey)
+        {
+            info!(
+                %pubkey,
+                validator = %validator_index,
+                "Started monitoring validator"
+            );
 
-                self.validators.insert(
-                    *pubkey,
-                    MonitoredValidator::new(*pubkey, Some(validator_index)),
-                );
-            }
+            self.validators.insert(
+                *pubkey,
+                MonitoredValidator::new(*pubkey, Some(validator_index)),
+            );
         }
     }
 

@@ -3,7 +3,8 @@ use super::TopicConfig;
 use crate::peer_manager::peerdb::PeerDB;
 use crate::rpc::{MetaData, MetaDataV3};
 use crate::types::{BackFillState, SyncState};
-use crate::{Client, Enr, EnrExt, GossipTopic, Multiaddr, NetworkConfig, PeerId};
+use crate::{Client, Enr, GossipTopic, Multiaddr, NetworkConfig, PeerId};
+use network_utils::enr_ext::EnrExt;
 use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -70,7 +71,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
 
         let mut sampling_subnets = HashSet::new();
         for custody_index in &custody_groups {
-            let subnets = compute_subnets_from_custody_group(*custody_index, &spec)
+            let subnets = compute_subnets_from_custody_group::<E>(*custody_index, &spec)
                 .expect("should compute custody subnets for node");
             sampling_subnets.extend(subnets);
         }
@@ -106,7 +107,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
 
         let mut sampling_subnets = self.sampling_subnets.write();
         for custody_index in &custody_groups {
-            let subnets = compute_subnets_from_custody_group(*custody_index, &self.spec)
+            let subnets = compute_subnets_from_custody_group::<E>(*custody_index, &self.spec)
                 .expect("should compute custody subnets for node");
             sampling_subnets.extend(subnets);
         }
@@ -250,7 +251,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
         config: Arc<NetworkConfig>,
         spec: Arc<ChainSpec>,
     ) -> NetworkGlobals<E> {
-        use crate::CombinedKeyExt;
+        use network_utils::enr_ext::CombinedKeyExt;
         let keypair = libp2p::identity::secp256k1::Keypair::generate();
         let enr_key: discv5::enr::CombinedKey = discv5::enr::CombinedKey::from_secp256k1(&keypair);
         let enr = discv5::enr::Enr::builder().build(&enr_key).unwrap();

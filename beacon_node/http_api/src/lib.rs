@@ -36,9 +36,9 @@ use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::beacon_response;
 use beacon_chain::{
-    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
-    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
-    BeaconChainTypes, WhenSlotSkipped,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    WhenSlotSkipped, attestation_verification::VerifiedAttestation,
+    observed_operations::ObservationOutcome, validator_monitor::timestamp_now,
 };
 use beacon_processor::BeaconProcessorSend;
 pub use block_id::BlockId;
@@ -54,14 +54,15 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{types::SyncState, Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
+use lighthouse_network::{Enr, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
 use lighthouse_version::version_with_platform;
-use logging::{crit, SSELoggingComponents};
+use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use network_utils::enr_ext::EnrExt;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 pub use publish_blocks::{
-    publish_blinded_block, publish_block, reconstruct_block, ProvenancedBlock,
+    ProvenancedBlock, publish_blinded_block, publish_block, reconstruct_block,
 };
 use serde::{Deserialize, Serialize};
 use slot_clock::SlotClock;
@@ -82,8 +83,8 @@ use tokio::sync::{
     oneshot,
 };
 use tokio_stream::{
-    wrappers::{errors::BroadcastStreamRecvError, BroadcastStream},
     StreamExt,
+    wrappers::{BroadcastStream, errors::BroadcastStreamRecvError},
 };
 use tracing::{debug, error, info, warn};
 use types::{
@@ -96,15 +97,15 @@ use types::{
 };
 use validator::pubkey_to_validator_index;
 use version::{
-    add_consensus_version_header, add_ssz_content_type_header,
+    ResponseIncludesVersion, V1, V2, V3, add_consensus_version_header, add_ssz_content_type_header,
     execution_optimistic_finalized_beacon_response, inconsistent_fork_rejection,
-    unsupported_version_rejection, ResponseIncludesVersion, V1, V2, V3,
+    unsupported_version_rejection,
 };
+use warp::Reply;
 use warp::http::StatusCode;
 use warp::hyper::Body;
 use warp::sse::Event;
-use warp::Reply;
-use warp::{http::Response, Filter, Rejection};
+use warp::{Filter, Rejection, http::Response};
 use warp_utils::{query::multi_key_query, reject::convert_rejection, uor::UnifyingOrFilter};
 
 const API_PREFIX: &str = "eth";
@@ -213,6 +214,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
             equals("v1/beacon/blocks")
                 .or_else(|| starts_with("v2/beacon/blocks"))
                 .or_else(|| starts_with("v1/beacon/blob_sidecars"))
+                .or_else(|| starts_with("v1/beacon/blobs"))
                 .or_else(|| starts_with("v1/beacon/blocks/head/root"))
                 .or_else(|| starts_with("v1/beacon/blinded_blocks"))
                 .or_else(|| starts_with("v2/beacon/blinded_blocks"))
@@ -293,10 +295,7 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
         let path = info.path();
         let method = info.method().to_string();
 
-        if status == StatusCode::OK
-            || status == StatusCode::NOT_FOUND
-            || status == StatusCode::PARTIAL_CONTENT
-        {
+        if status.is_success() {
             debug!(
                 elapsed_ms = %elapsed,
                 status = %status,
@@ -457,7 +456,7 @@ pub fn serve<T: BeaconChainTypes>(
                 move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
-                        SyncState::SyncingFinalized { .. } => {
+                        SyncState::SyncingFinalized { .. } | SyncState::SyncingHead { .. } => {
                             let head_slot = chain.canonical_head.cached_head().head_slot();
 
                             let current_slot =
@@ -479,9 +478,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 )))
                             }
                         }
-                        SyncState::SyncingHead { .. }
-                        | SyncState::SyncTransition
-                        | SyncState::BackFillSyncing { .. } => Ok(()),
+                        SyncState::SyncTransition | SyncState::BackFillSyncing { .. } => Ok(()),
                         SyncState::Synced => Ok(()),
                         SyncState::Stalled => Ok(()),
                     }
@@ -920,79 +917,76 @@ pub fn serve<T: BeaconChainTypes>(
                                     None
                                 };
 
-                                let committee_cache = if let Some(shuffling) =
-                                    maybe_cached_shuffling
-                                {
-                                    shuffling
-                                } else {
-                                    let possibly_built_cache =
-                                        match RelativeEpoch::from_epoch(current_epoch, epoch) {
-                                            Ok(relative_epoch)
-                                                if state.committee_cache_is_initialized(
-                                                    relative_epoch,
-                                                ) =>
-                                            {
-                                                state.committee_cache(relative_epoch).cloned()
+                                let committee_cache =
+                                    if let Some(shuffling) = maybe_cached_shuffling {
+                                        shuffling
+                                    } else {
+                                        let possibly_built_cache =
+                                            match RelativeEpoch::from_epoch(current_epoch, epoch) {
+                                                Ok(relative_epoch)
+                                                    if state.committee_cache_is_initialized(
+                                                        relative_epoch,
+                                                    ) =>
+                                                {
+                                                    state.committee_cache(relative_epoch).cloned()
+                                                }
+                                                _ => CommitteeCache::initialized(
+                                                    state,
+                                                    epoch,
+                                                    &chain.spec,
+                                                ),
                                             }
-                                            _ => CommitteeCache::initialized(
-                                                state,
-                                                epoch,
-                                                &chain.spec,
-                                            ),
-                                        }
-                                        .map_err(|e| {
-                                            match e {
-                                                BeaconStateError::EpochOutOfBounds => {
-                                                    let max_sprp =
-                                                        T::EthSpec::slots_per_historical_root()
-                                                            as u64;
-                                                    let first_subsequent_restore_point_slot =
-                                                        ((epoch.start_slot(
-                                                            T::EthSpec::slots_per_epoch(),
-                                                        ) / max_sprp)
-                                                            + 1)
-                                                            * max_sprp;
-                                                    if epoch < current_epoch {
-                                                        warp_utils::reject::custom_bad_request(
-                                                            format!(
+                                            .map_err(
+                                                |e| match e {
+                                                    BeaconStateError::EpochOutOfBounds => {
+                                                        let max_sprp =
+                                                            T::EthSpec::slots_per_historical_root()
+                                                                as u64;
+                                                        let first_subsequent_restore_point_slot =
+                                                            ((epoch.start_slot(
+                                                                T::EthSpec::slots_per_epoch(),
+                                                            ) / max_sprp)
+                                                                + 1)
+                                                                * max_sprp;
+                                                        if epoch < current_epoch {
+                                                            warp_utils::reject::custom_bad_request(
+                                                                format!(
                                                                 "epoch out of bounds, \
                                                                  try state at slot {}",
                                                                 first_subsequent_restore_point_slot,
                                                             ),
-                                                        )
-                                                    } else {
-                                                        warp_utils::reject::custom_bad_request(
-                                                            "epoch out of bounds, \
+                                                            )
+                                                        } else {
+                                                            warp_utils::reject::custom_bad_request(
+                                                                "epoch out of bounds, \
                                                              too far in future"
-                                                                .into(),
-                                                        )
+                                                                    .into(),
+                                                            )
+                                                        }
                                                     }
-                                                }
-                                                _ => warp_utils::reject::unhandled_error(
-                                                    BeaconChainError::from(e),
-                                                ),
-                                            }
-                                        })?;
+                                                    _ => warp_utils::reject::unhandled_error(
+                                                        BeaconChainError::from(e),
+                                                    ),
+                                                },
+                                            )?;
 
-                                    // Attempt to write to the beacon cache (only if the cache
-                                    // size is not the default value).
-                                    if chain.config.shuffling_cache_size
-                                        != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
-                                    {
-                                        if let Some(shuffling_id) = shuffling_id {
-                                            if let Some(mut cache_write) = chain
+                                        // Attempt to write to the beacon cache (only if the cache
+                                        // size is not the default value).
+                                        if chain.config.shuffling_cache_size
+                                            != beacon_chain::shuffling_cache::DEFAULT_CACHE_SIZE
+                                            && let Some(shuffling_id) = shuffling_id
+                                            && let Some(mut cache_write) = chain
                                                 .shuffling_cache
                                                 .try_write_for(std::time::Duration::from_secs(1))
-                                            {
-                                                cache_write.insert_committee_cache(
-                                                    shuffling_id,
-                                                    &possibly_built_cache,
-                                                );
-                                            }
+                                        {
+                                            cache_write.insert_committee_cache(
+                                                shuffling_id,
+                                                &possibly_built_cache,
+                                            );
                                         }
-                                    }
-                                    possibly_built_cache
-                                };
+
+                                        possibly_built_cache
+                                    };
 
                                 // Use either the supplied slot or all slots in the epoch.
                                 let slots =
@@ -1340,13 +1334,13 @@ pub fn serve<T: BeaconChainTypes>(
 
                                 // If the parent root was supplied, check that it matches the block
                                 // obtained via a slot lookup.
-                                if let Some(parent_root) = parent_root_opt {
-                                    if block.parent_root() != parent_root {
-                                        return Err(warp_utils::reject::custom_not_found(format!(
-                                            "no canonical block at slot {} with parent root {}",
-                                            slot, parent_root
-                                        )));
-                                    }
+                                if let Some(parent_root) = parent_root_opt
+                                    && block.parent_root() != parent_root
+                                {
+                                    return Err(warp_utils::reject::custom_not_found(format!(
+                                        "no canonical block at slot {} with parent root {}",
+                                        slot, parent_root
+                                    )));
                                 }
 
                                 (root, block, execution_optimistic, finalized)
@@ -1645,16 +1639,27 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp_utils::json::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
+                  blinded_block_json: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let blinded_block =
+                        SignedBlindedBeaconBlock::<T::EthSpec>::context_deserialize(
+                            &blinded_block_json,
+                            consensus_version,
+                        )
+                        .map(Arc::new)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         blinded_block,
                         chain,
@@ -1893,7 +1898,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // GET beacon/blob_sidecars/{block_id}
-    let get_blobs = eth_v1
+    let get_blob_sidecars = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
@@ -1939,6 +1944,52 @@ pub fn serve<T: BeaconChainTypes>(
                         }
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    // GET beacon/blobs/{block_id}
+    let get_blobs = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blobs"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(multi_key_query::<api_types::BlobsVersionedHashesQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |block_id: BlockId,
+             version_hashes_res: Result<api_types::BlobsVersionedHashesQuery, warp::Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let versioned_hashes = version_hashes_res?;
+                    let response =
+                        block_id.get_blobs_by_versioned_hashes(versioned_hashes, &chain)?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .body(response.data.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => {
+                            let res = execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::No,
+                                response.metadata.execution_optimistic.unwrap_or(false),
+                                response.metadata.finalized.unwrap_or(false),
+                                response.data,
+                            )?;
+                            Ok(warp::reply::json(&res).into_response())
+                        }
+                    }
                 })
             },
         );
@@ -4790,6 +4841,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_attestations)
                 .uor(get_beacon_blinded_block)
                 .uor(get_beacon_block_root)
+                .uor(get_blob_sidecars)
                 .uor(get_blobs)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)

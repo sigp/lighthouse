@@ -4,16 +4,15 @@
 //! queries and manages access to the discovery routing table.
 
 pub(crate) mod enr;
-pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
 use crate::service::TARGET_SUBNET_PEERS;
-use crate::{metrics, ClearDialError};
+use crate::{ClearDialError, metrics};
 use crate::{Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
-use discv5::{enr::NodeId, Discv5};
-pub use enr::{build_enr, load_enr_from_disk, use_or_load_enr, CombinedKey, Eth2Enr};
-pub use enr_ext::{peer_id_to_node_id, CombinedKeyExt, EnrExt};
+use discv5::{Discv5, enr::NodeId};
+pub use enr::{CombinedKey, Eth2Enr, build_enr, load_enr_from_disk, use_or_load_enr};
 pub use libp2p::identity::{Keypair, PublicKey};
+use network_utils::enr_ext::{CombinedKeyExt, EnrExt, peer_id_to_node_id};
 
 use alloy_rlp::bytes::Bytes;
 use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
@@ -21,18 +20,19 @@ use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::transport::PortUse;
 use libp2p::multiaddr::Protocol;
-use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 use libp2p::swarm::THandlerInEvent;
+use libp2p::swarm::behaviour::{DialFailure, FromSwarm};
 pub use libp2p::{
-    core::{transport::ListenerId, ConnectedPoint, Multiaddr},
+    core::{ConnectedPoint, Multiaddr, transport::ListenerId},
     identity::PeerId,
     swarm::{
-        dummy::ConnectionHandler, ConnectionId, DialError, NetworkBehaviour, NotifyHandler,
-        SubstreamProtocol, ToSwarm,
+        ConnectionId, DialError, NetworkBehaviour, NotifyHandler, SubstreamProtocol, ToSwarm,
+        dummy::ConnectionHandler,
     },
 };
 use logging::crit;
 use lru::LruCache;
+use network_utils::discovery_metrics;
 use ssz::Encode;
 use std::num::NonZeroUsize;
 use std::{
@@ -687,7 +687,10 @@ impl<E: EthSpec> Discovery<E> {
                 min_ttl,
                 retries,
             });
-            metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+            metrics::set_gauge(
+                &discovery_metrics::DISCOVERY_QUEUE,
+                self.queued_queries.len() as i64,
+            );
         }
     }
 
@@ -722,7 +725,10 @@ impl<E: EthSpec> Discovery<E> {
             }
         }
         // Update the queue metric
-        metrics::set_gauge(&metrics::DISCOVERY_QUEUE, self.queued_queries.len() as i64);
+        metrics::set_gauge(
+            &discovery_metrics::DISCOVERY_QUEUE,
+            self.queued_queries.len() as i64,
+        );
         processed
     }
 
@@ -1132,7 +1138,10 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             self.update_enr_quic_port(port, false)
                         }
                         _ => {
-                            debug!(?addr, "Encountered unacceptable multiaddr for listening (unsupported transport)");
+                            debug!(
+                                ?addr,
+                                "Encountered unacceptable multiaddr for listening (unsupported transport)"
+                            );
                             return;
                         }
                     },
@@ -1154,7 +1163,10 @@ impl<E: EthSpec> NetworkBehaviour for Discovery<E> {
                             self.update_enr_quic_port(port, true)
                         }
                         _ => {
-                            debug!(?addr, "Encountered unacceptable multiaddr for listening (unsupported transport)");
+                            debug!(
+                                ?addr,
+                                "Encountered unacceptable multiaddr for listening (unsupported transport)"
+                            );
                             return;
                         }
                     },
@@ -1217,7 +1229,7 @@ impl<E: EthSpec> Discovery<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rpc::methods::{MetaData, MetaDataV2};
+    use crate::rpc::methods::{MetaData, MetaDataV3};
     use libp2p::identity::secp256k1;
     use types::{BitVector, MinimalEthSpec, SubnetId};
 
@@ -1227,7 +1239,7 @@ mod tests {
         let spec = Arc::new(ChainSpec::default());
         let keypair = secp256k1::Keypair::generate();
         let mut config = NetworkConfig::default();
-        config.set_listening_addr(crate::ListenAddress::unused_v4_ports());
+        config.set_listening_addr(network_utils::listen_addr::ListenAddress::unused_v4_ports());
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let next_fork_digest = [0; 4];
@@ -1242,10 +1254,11 @@ mod tests {
         .unwrap();
         let globals = NetworkGlobals::new(
             enr,
-            MetaData::V2(MetaDataV2 {
+            MetaData::V3(MetaDataV3 {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
+                custody_group_count: spec.custody_requirement,
             }),
             vec![],
             false,

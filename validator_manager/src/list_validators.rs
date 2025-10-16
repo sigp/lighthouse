@@ -8,7 +8,7 @@ use std::time::Duration;
 use types::{ChainSpec, EthSpec, PublicKeyBytes};
 
 use crate::exit_validators::get_current_epoch;
-use crate::{common::vc_http_client, DumpConfig};
+use crate::{DumpConfig, common::vc_http_client};
 
 pub const CMD: &str = "list";
 pub const VC_URL_FLAG: &str = "vc-url";
@@ -224,7 +224,7 @@ mod test {
         common::ValidatorSpecification, import_validators::tests::TestBuilder as ImportTestBuilder,
     };
     use types::MainnetEthSpec;
-    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
     type E = MainnetEthSpec;
 
     struct TestBuilder {

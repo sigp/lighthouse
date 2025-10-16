@@ -2,8 +2,8 @@ use beacon_chain::blob_verification::GossipVerifiedBlob;
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::test_utils::{BeaconChainHarness, TEST_DATA_COLUMN_SIDECARS_SSZ};
 use eth2::types::{EventKind, SseBlobSidecar, SseDataColumnSidecar};
-use rand::rngs::StdRng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::test_utils::TestRandom;
@@ -162,7 +162,7 @@ async fn data_column_sidecar_event_on_process_rpc_columns() {
     // load the precomputed column sidecar to avoid computing them for every block in the tests.
     let mut sidecar = RuntimeVariableList::<DataColumnSidecar<E>>::from_ssz_bytes(
         TEST_DATA_COLUMN_SIDECARS_SSZ,
-        spec.number_of_columns as usize,
+        E::number_of_columns(),
     )
     .unwrap()[0]
         .clone();

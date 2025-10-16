@@ -2,8 +2,8 @@ use crate::context_deserialize;
 use crate::indexed_attestation::{
     IndexedAttestationBase, IndexedAttestationElectra, IndexedAttestationRef,
 };
-use crate::{test_utils::TestRandom, EthSpec};
 use crate::{ContextDeserialize, ForkName};
+use crate::{EthSpec, test_utils::TestRandom};
 use derivative::Derivative;
 use rand::{Rng, RngCore};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -171,7 +171,7 @@ impl<E: EthSpec> AttesterSlashing<E> {
 
 impl<E: EthSpec> TestRandom for AttesterSlashing<E> {
     fn random_for_test(rng: &mut impl RngCore) -> Self {
-        if rng.gen_bool(0.5) {
+        if rng.random_bool(0.5) {
             AttesterSlashing::Base(AttesterSlashingBase::random_for_test(rng))
         } else {
             AttesterSlashing::Electra(AttesterSlashingElectra::random_for_test(rng))

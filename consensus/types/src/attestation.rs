@@ -3,11 +3,11 @@ use super::{
     Signature, SignedRoot,
 };
 use crate::slot_data::SlotData;
-use crate::{context_deserialize, IndexedAttestation};
-use crate::{test_utils::TestRandom, Hash256, Slot};
 use crate::{
     Checkpoint, ContextDeserialize, ForkName, IndexedAttestationBase, IndexedAttestationElectra,
 };
+use crate::{Hash256, Slot, test_utils::TestRandom};
+use crate::{IndexedAttestation, context_deserialize};
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
 use ssz_derive::{Decode, Encode};

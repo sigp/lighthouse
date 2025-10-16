@@ -10,16 +10,17 @@ use state_processing::per_block_processing::process_operations::{
     process_consolidation_requests, process_deposit_requests, process_withdrawal_requests,
 };
 use state_processing::{
+    ConsensusContext,
     per_block_processing::{
+        VerifyBlockRoot, VerifySignatures,
         errors::BlockProcessingError,
         process_block_header, process_execution_payload,
         process_operations::{
             altair_deneb, base, process_attester_slashings, process_bls_to_execution_changes,
             process_deposits, process_exits, process_proposer_slashings,
         },
-        process_sync_aggregate, process_withdrawals, VerifyBlockRoot, VerifySignatures,
+        process_sync_aggregate, process_withdrawals,
     },
-    ConsensusContext,
 };
 use std::fmt::Debug;
 use types::{
@@ -597,10 +598,10 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
         let mut state = pre_state.clone();
         let mut expected = self.post.clone();
 
-        if O::handler_name() != "withdrawals" {
-            if let Some(post_state) = expected.as_mut() {
-                post_state.build_all_committee_caches(spec).unwrap();
-            }
+        if O::handler_name() != "withdrawals"
+            && let Some(post_state) = expected.as_mut()
+        {
+            post_state.build_all_committee_caches(spec).unwrap();
         }
 
         let mut result = self

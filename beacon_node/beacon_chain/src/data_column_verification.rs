@@ -1,17 +1,16 @@
-use crate::beacon_proposer_cache::EpochBlockProposers;
 use crate::block_verification::{
-    cheap_state_advance_to_obtain_committees, get_validator_pubkey_cache, process_block_slash_info,
-    BlockSlashInfo,
+    BlockSlashInfo, get_validator_pubkey_cache, process_block_slash_info,
 };
 use crate::kzg_utils::{reconstruct_data_columns, validate_data_columns};
 use crate::observed_data_sidecars::{ObservationStrategy, Observe};
-use crate::{metrics, BeaconChain, BeaconChainError, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes, metrics};
 use derivative::Derivative;
 use fork_choice::ProtoBlock;
 use kzg::{Error as KzgError, Kzg};
 use proto_array::Block;
 use slot_clock::SlotClock;
 use ssz_derive::{Decode, Encode};
+use ssz_types::VariableList;
 use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -19,7 +18,7 @@ use tracing::{debug, instrument};
 use types::data_column_sidecar::ColumnIndex;
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    RuntimeVariableList, SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -162,6 +161,15 @@ pub enum GossipDataColumnError {
     ///
     /// The column sidecar is invalid and the peer is faulty
     InconsistentProofsLength { cells_len: usize, proofs_len: usize },
+    /// The number of KZG commitments exceeds the maximum number of blobs allowed for the fork. The
+    /// sidecar is invalid.
+    ///
+    /// ## Peer scoring
+    /// The column sidecar is invalid and the peer is faulty
+    MaxBlobsPerBlockExceeded {
+        max_blobs_per_block: usize,
+        commitments_len: usize,
+    },
 }
 
 impl From<BeaconChainError> for GossipDataColumnError {
@@ -214,6 +222,40 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         )
     }
 
+    /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for block production ONLY.
+    /// When publishing a block constructed locally, the EL will have already verified the cell proofs.
+    /// When publishing a block constructed externally, there will be no columns here.
+    pub fn new_for_block_publishing(
+        column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, GossipDataColumnError> {
+        verify_data_column_sidecar(&column_sidecar, &chain.spec)?;
+
+        // Check if the data column is already in the DA checker cache. This happens when data columns
+        // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
+        // it has already passed the gossip checks, even though this particular instance hasn't been
+        // seen / published on the gossip network yet (passed the `verify_is_unknown_sidecar` check above).
+        // In this case, we should accept it for gossip propagation.
+        verify_is_unknown_sidecar(chain, &column_sidecar)?;
+
+        if chain
+            .data_availability_checker
+            .is_data_column_cached(&column_sidecar.block_root(), &column_sidecar)
+        {
+            // Observe this data column so we don't process it again.
+            if O::observe() {
+                observe_gossip_data_column(&column_sidecar, chain)?;
+            }
+            return Err(GossipDataColumnError::PriorKnownUnpublished);
+        }
+
+        Ok(Self {
+            block_root: column_sidecar.block_root(),
+            data_column: KzgVerifiedDataColumn::from_execution_verified(column_sidecar),
+            _phantom: Default::default(),
+        })
+    }
+
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
     pub fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
         Self {
@@ -262,7 +304,10 @@ pub struct KzgVerifiedDataColumn<E: EthSpec> {
 }
 
 impl<E: EthSpec> KzgVerifiedDataColumn<E> {
-    pub fn new(data_column: Arc<DataColumnSidecar<E>>, kzg: &Kzg) -> Result<Self, KzgError> {
+    pub fn new(
+        data_column: Arc<DataColumnSidecar<E>>,
+        kzg: &Kzg,
+    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
@@ -277,22 +322,11 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
         Self { data: data_column }
     }
 
-    pub fn from_batch(
-        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
-        kzg: &Kzg,
-    ) -> Result<Vec<Self>, KzgError> {
-        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
-        Ok(data_columns
-            .into_iter()
-            .map(|column| Self { data: column })
-            .collect())
-    }
-
     pub fn from_batch_with_scoring(
         data_columns: Vec<Arc<DataColumnSidecar<E>>>,
         kzg: &Kzg,
-    ) -> Result<Vec<Self>, Vec<(ColumnIndex, KzgError)>> {
-        verify_kzg_for_data_column_list_with_scoring(data_columns.iter(), kzg)?;
+    ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
+        verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
             .map(|column| Self { data: column })
@@ -315,7 +349,8 @@ impl<E: EthSpec> KzgVerifiedDataColumn<E> {
     }
 }
 
-pub type CustodyDataColumnList<E> = RuntimeVariableList<CustodyDataColumn<E>>;
+pub type CustodyDataColumnList<E> =
+    VariableList<CustodyDataColumn<E>, <E as EthSpec>::NumberOfColumns>;
 
 /// Data column that we must custody
 #[derive(Debug, Derivative, Clone, Encode, Decode)]
@@ -365,7 +400,10 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     }
 
     /// Verify a column already marked as custody column
-    pub fn new(data_column: CustodyDataColumn<E>, kzg: &Kzg) -> Result<Self, KzgError> {
+    pub fn new(
+        data_column: CustodyDataColumn<E>,
+        kzg: &Kzg,
+    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column(data_column.clone_arc(), kzg)?;
         Ok(Self {
             data: data_column.data,
@@ -379,7 +417,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
     ) -> Result<Vec<KzgVerifiedCustodyDataColumn<E>>, KzgError> {
         let all_data_columns = reconstruct_data_columns(
             kzg,
-            &partial_set_of_columns
+            partial_set_of_columns
                 .iter()
                 .map(|d| d.clone_arc())
                 .collect::<Vec<_>>(),
@@ -416,60 +454,27 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 pub fn verify_kzg_for_data_column<E: EthSpec>(
     data_column: Arc<DataColumnSidecar<E>>,
     kzg: &Kzg,
-) -> Result<KzgVerifiedDataColumn<E>, KzgError> {
+) -> Result<KzgVerifiedDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
     validate_data_columns(kzg, iter::once(&data_column))?;
     Ok(KzgVerifiedDataColumn { data: data_column })
 }
 
 /// Complete kzg verification for a list of `DataColumnSidecar`s.
-/// Returns an error if any of the `DataColumnSidecar`s fails kzg verification.
+/// Returns an error for the first `DataColumnSidecar`s that fails kzg verification.
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
-#[instrument(skip_all, level = "debug")]
 pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
     data_column_iter: I,
     kzg: &'a Kzg,
-) -> Result<(), KzgError>
+) -> Result<(), (Option<ColumnIndex>, KzgError)>
 where
     I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
 {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
     validate_data_columns(kzg, data_column_iter)?;
     Ok(())
-}
-
-/// Complete kzg verification for a list of `DataColumnSidecar`s.
-///
-/// If there's at least one invalid column, it re-verifies all columns individually to identify the
-/// first column that is invalid. This is necessary to attribute fault to the specific peer that
-/// sent bad data. The re-verification cost should not be significant. If a peer sends invalid data it
-/// will be quickly banned.
-pub fn verify_kzg_for_data_column_list_with_scoring<'a, E: EthSpec, I>(
-    data_column_iter: I,
-    kzg: &'a Kzg,
-) -> Result<(), Vec<(ColumnIndex, KzgError)>>
-where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
-{
-    if verify_kzg_for_data_column_list(data_column_iter.clone(), kzg).is_ok() {
-        return Ok(());
-    };
-
-    // Find all columns that are invalid and identify by index. If we hit this condition there
-    // should be at least one invalid column
-    let errors = data_column_iter
-        .filter_map(|data_column| {
-            if let Err(e) = verify_kzg_for_data_column(data_column.clone(), kzg) {
-                Some((data_column.index, e))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-
-    Err(errors)
 }
 
 #[instrument(skip_all, level = "debug")]
@@ -483,12 +488,12 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
     verify_sidecar_not_from_future_slot(chain, column_slot)?;
     verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
-    verify_is_first_sidecar(chain, &data_column)?;
+    verify_is_unknown_sidecar(chain, &data_column)?;
 
     // Check if the data column is already in the DA checker cache. This happens when data columns
     // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
     // it has already passed the gossip checks, even though this particular instance hasn't been
-    // seen / published on the gossip network yet (passed the `verify_is_first_sidecar` check above).
+    // seen / published on the gossip network yet (passed the `verify_is_unknown_sidecar` check above).
     // In this case, we should accept it for gossip propagation.
     if chain
         .data_availability_checker
@@ -507,7 +512,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_proposer_and_signature(&data_column, &parent_block, chain)?;
     let kzg = &chain.kzg;
     let kzg_verified_data_column = verify_kzg_for_data_column(data_column.clone(), kzg)
-        .map_err(GossipDataColumnError::InvalidKzgProof)?;
+        .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
 
     chain
         .observed_slashable
@@ -535,7 +540,7 @@ fn verify_data_column_sidecar<E: EthSpec>(
     data_column: &DataColumnSidecar<E>,
     spec: &ChainSpec,
 ) -> Result<(), GossipDataColumnError> {
-    if data_column.index >= spec.number_of_columns {
+    if data_column.index >= E::number_of_columns() as u64 {
         return Err(GossipDataColumnError::InvalidColumnIndex(data_column.index));
     }
     if data_column.kzg_commitments.is_empty() {
@@ -545,6 +550,14 @@ fn verify_data_column_sidecar<E: EthSpec>(
     let cells_len = data_column.column.len();
     let commitments_len = data_column.kzg_commitments.len();
     let proofs_len = data_column.kzg_proofs.len();
+    let max_blobs_per_block = spec.max_blobs_per_block(data_column.epoch()) as usize;
+
+    if commitments_len > max_blobs_per_block {
+        return Err(GossipDataColumnError::MaxBlobsPerBlockExceeded {
+            max_blobs_per_block,
+            commitments_len,
+        });
+    }
 
     if cells_len != commitments_len {
         return Err(GossipDataColumnError::InconsistentCommitmentsLength {
@@ -563,22 +576,22 @@ fn verify_data_column_sidecar<E: EthSpec>(
     Ok(())
 }
 
-// Verify that this is the first column sidecar received for the tuple:
-// (block_header.slot, block_header.proposer_index, column_sidecar.index)
-fn verify_is_first_sidecar<T: BeaconChainTypes>(
+/// Verify that `column_sidecar` is not yet known, i.e. this is the first time `column_sidecar` has been received for the tuple:
+/// `(block_header.slot, block_header.proposer_index, column_sidecar.index)`
+fn verify_is_unknown_sidecar<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    data_column: &DataColumnSidecar<T::EthSpec>,
+    column_sidecar: &DataColumnSidecar<T::EthSpec>,
 ) -> Result<(), GossipDataColumnError> {
     if chain
         .observed_column_sidecars
         .read()
-        .proposer_is_known(data_column)
+        .proposer_is_known(column_sidecar)
         .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
     {
         return Err(GossipDataColumnError::PriorKnown {
-            proposer: data_column.block_proposer_index(),
-            slot: data_column.slot(),
-            index: data_column.index,
+            proposer: column_sidecar.block_proposer_index(),
+            slot: column_sidecar.slot(),
+            index: column_sidecar.index,
         });
     }
     Ok(())
@@ -613,21 +626,20 @@ fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<ProtoBlock, GossipDataColumnError> {
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
+    let block_parent_root = data_column.block_parent_root();
+
+    // Do not process a column that does not descend from the finalized root.
+    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
+        return Err(GossipDataColumnError::NotFinalizedDescendant { block_parent_root });
+    }
 
     // We have already verified that the column is past finalization, so we can
     // just check fork choice for the block's parent.
-    let block_parent_root = data_column.block_parent_root();
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
         return Err(GossipDataColumnError::ParentUnknown {
             parent_root: block_parent_root,
         });
     };
-
-    // Do not process a column that does not descend from the finalized root.
-    // We just loaded the parent_block, so we can be sure that it exists in fork choice.
-    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
-        return Err(GossipDataColumnError::NotFinalizedDescendant { block_parent_root });
-    }
 
     Ok(parent_block)
 }
@@ -644,65 +656,34 @@ fn verify_proposer_and_signature<T: BeaconChainTypes>(
     let block_root = data_column.block_root();
     let block_parent_root = data_column.block_parent_root();
 
-    let proposer_shuffling_root = if parent_block.slot.epoch(slots_per_epoch) == column_epoch {
-        parent_block
-            .next_epoch_shuffling_id
-            .shuffling_decision_block
-    } else {
-        parent_block.root
-    };
+    let proposer_shuffling_root =
+        parent_block.proposer_shuffling_root_for_child_block(column_epoch, &chain.spec);
 
-    // We lock the cache briefly to get or insert a OnceCell, then drop the lock
-    // before doing proposer shuffling calculation via `OnceCell::get_or_try_init`. This avoids
-    // holding the lock during the computation, while still ensuring the result is cached and
-    // initialised only once.
-    //
-    // This approach exposes the cache internals (`OnceCell` & `EpochBlockProposers`)
-    //  as a trade-off for avoiding lock contention.
-    let epoch_proposers_cell = chain
-        .beacon_proposer_cache
-        .lock()
-        .get_or_insert_key(column_epoch, proposer_shuffling_root);
-
-    let epoch_proposers = epoch_proposers_cell.get_or_try_init(move || {
-        debug!(
-            %block_root,
-            index = %column_index,
-            "Proposer shuffling cache miss for column verification"
-        );
-        let (parent_state_root, mut parent_state) = chain
-            .store
-            .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
-            .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
-            .ok_or_else(|| {
-                BeaconChainError::DBInconsistent(format!(
-                    "Missing state for parent block {block_parent_root:?}",
-                ))
-            })?;
-
-        let state = cheap_state_advance_to_obtain_committees::<_, GossipDataColumnError>(
-            &mut parent_state,
-            Some(parent_state_root),
-            column_slot,
-            &chain.spec,
-        )?;
-
-        let epoch = state.current_epoch();
-        let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
-        // Prime the proposer shuffling cache with the newly-learned value.
-        Ok::<_, GossipDataColumnError>(EpochBlockProposers {
-            epoch: column_epoch,
-            fork: state.fork(),
-            proposers: proposers.into(),
-        })
-    })?;
-
-    let proposer_index = *epoch_proposers
-        .proposers
-        .get(column_slot.as_usize() % slots_per_epoch as usize)
-        .ok_or_else(|| BeaconChainError::NoProposerForSlot(column_slot))?;
-
-    let fork = epoch_proposers.fork;
+    let proposer = chain.with_proposer_cache(
+        proposer_shuffling_root,
+        column_epoch,
+        |proposers| proposers.get_slot::<T::EthSpec>(column_slot),
+        || {
+            debug!(
+                %block_root,
+                index = %column_index,
+                "Proposer shuffling cache miss for column verification"
+            );
+            chain
+                .store
+                .get_advanced_hot_state(block_parent_root, column_slot, parent_block.state_root)
+                .map_err(|e| GossipDataColumnError::BeaconChainError(Box::new(e.into())))?
+                .ok_or_else(|| {
+                    GossipDataColumnError::BeaconChainError(Box::new(
+                        BeaconChainError::DBInconsistent(format!(
+                            "Missing state for parent block {block_parent_root:?}",
+                        )),
+                    ))
+                })
+        },
+    )?;
+    let proposer_index = proposer.index;
+    let fork = proposer.fork;
 
     // Signature verify the signed block header.
     let signature_is_valid = {
@@ -819,16 +800,22 @@ pub fn observe_gossip_data_column<T: BeaconChainTypes>(
 #[cfg(test)]
 mod test {
     use crate::data_column_verification::{
-        validate_data_column_sidecar_for_gossip, GossipDataColumnError,
+        GossipDataColumnError, GossipVerifiedDataColumn, validate_data_column_sidecar_for_gossip,
     };
     use crate::observed_data_sidecars::Observe;
-    use crate::test_utils::BeaconChainHarness;
+    use crate::test_utils::{
+        BeaconChainHarness, EphemeralHarnessType, generate_data_column_sidecars_from_block,
+    };
+    use eth2::types::BlobsBundle;
+    use execution_layer::test_utils::generate_blobs;
+    use std::sync::Arc;
     use types::{DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkName, MainnetEthSpec};
 
     type E = MainnetEthSpec;
 
     #[tokio::test]
-    async fn empty_data_column_sidecars_fails_validation() {
+    async fn test_validate_data_column_sidecar_for_gossip() {
+        // Setting up harness is slow, we initialise once and use it for all gossip validation tests.
         let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
         let harness = BeaconChainHarness::builder(E::default())
             .spec(spec.into())
@@ -838,6 +825,44 @@ mod test {
             .build();
         harness.advance_slot();
 
+        let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
+            let col_index = column_sidecar.index;
+            validate_data_column_sidecar_for_gossip::<_, Observe>(
+                column_sidecar.into(),
+                DataColumnSubnetId::from_column_index(col_index, &harness.spec),
+                &harness.chain,
+            )
+        };
+        empty_data_column_sidecars_fails_validation(&harness, &verify_fn).await;
+        data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
+    }
+
+    #[tokio::test]
+    async fn test_new_for_block_publishing() {
+        // Setting up harness is slow, we initialise once and use it for all gossip validation tests.
+        let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+        let harness = BeaconChainHarness::builder(E::default())
+            .spec(spec.into())
+            .deterministic_keypairs(64)
+            .fresh_ephemeral_store()
+            .mock_execution_layer()
+            .build();
+        harness.advance_slot();
+
+        let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
+            GossipVerifiedDataColumn::<_>::new_for_block_publishing(
+                column_sidecar.into(),
+                &harness.chain,
+            )
+        };
+        empty_data_column_sidecars_fails_validation(&harness, &verify_fn).await;
+        data_column_sidecar_commitments_exceed_max_blobs_per_block(&harness, &verify_fn).await;
+    }
+
+    async fn empty_data_column_sidecars_fails_validation<D>(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
+    ) {
         let slot = harness.get_current_slot();
         let state = harness.get_current_state();
         let ((block, _blobs_opt), _state) = harness
@@ -860,14 +885,47 @@ mod test {
                 .unwrap(),
         };
 
-        let result = validate_data_column_sidecar_for_gossip::<_, Observe>(
-            column_sidecar.into(),
-            DataColumnSubnetId::from_column_index(index, &harness.spec),
-            &harness.chain,
-        );
+        let result = verify_fn(column_sidecar);
         assert!(matches!(
             result.err(),
             Some(GossipDataColumnError::UnexpectedDataColumn)
+        ));
+    }
+
+    async fn data_column_sidecar_commitments_exceed_max_blobs_per_block<D>(
+        harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
+        verify_fn: &impl Fn(DataColumnSidecar<E>) -> Result<D, GossipDataColumnError>,
+    ) {
+        let slot = harness.get_current_slot();
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let state = harness.get_current_state();
+        let max_blobs_per_block = harness.spec.max_blobs_per_block(epoch) as usize;
+        let fork = harness.spec.fork_name_at_epoch(epoch);
+
+        // Generate data column sidecar with blob count exceeding max_blobs_per_block.
+        let blob_count = max_blobs_per_block + 1;
+        let BlobsBundle::<E> {
+            commitments: preloaded_commitments_single,
+            proofs: _,
+            blobs: _,
+        } = generate_blobs(1, fork).unwrap().0;
+
+        let ((block, _blobs_opt), _state) = harness
+            .make_block_with_modifier(state, slot, |block| {
+                *block.body_mut().blob_kzg_commitments_mut().unwrap() =
+                    vec![preloaded_commitments_single[0]; blob_count].into();
+            })
+            .await;
+
+        let column_sidecar = generate_data_column_sidecars_from_block(&block, &harness.spec)
+            .into_iter()
+            .next()
+            .unwrap();
+
+        let result = verify_fn(Arc::try_unwrap(column_sidecar).unwrap());
+        assert!(matches!(
+            result.err(),
+            Some(GossipDataColumnError::MaxBlobsPerBlockExceeded { .. })
         ));
     }
 }

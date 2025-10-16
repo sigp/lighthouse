@@ -1,5 +1,5 @@
 use derivative::Derivative;
-use smallvec::{smallvec, SmallVec};
+use smallvec::{SmallVec, smallvec};
 use state_processing::{SigVerifiedOp, TransformPersist, VerifyOperation, VerifyOperationAt};
 use std::collections::HashSet;
 use std::marker::PhantomData;

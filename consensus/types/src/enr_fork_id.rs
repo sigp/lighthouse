@@ -1,5 +1,5 @@
-use crate::test_utils::TestRandom;
 use crate::Epoch;
+use crate::test_utils::TestRandom;
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

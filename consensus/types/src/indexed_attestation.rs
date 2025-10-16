@@ -1,6 +1,6 @@
 use crate::context_deserialize;
 use crate::{
-    test_utils::TestRandom, AggregateSignature, AttestationData, EthSpec, ForkName, VariableList,
+    AggregateSignature, AttestationData, EthSpec, ForkName, VariableList, test_utils::TestRandom,
 };
 use core::slice::Iter;
 use derivative::Derivative;
@@ -207,9 +207,9 @@ impl<E: EthSpec> Hash for IndexedAttestation<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::MainnetEthSpec;
     use crate::slot_epoch::Epoch;
     use crate::test_utils::{SeedableRng, XorShiftRng};
-    use crate::MainnetEthSpec;
 
     #[test]
     pub fn test_is_double_vote_true() {

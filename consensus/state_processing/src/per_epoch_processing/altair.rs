@@ -3,7 +3,7 @@ use crate::common::update_progressive_balances_cache::{
     initialize_progressive_balances_cache, update_progressive_balances_on_epoch_transition,
 };
 use crate::epoch_cache::initialize_epoch_cache;
-use crate::per_epoch_processing::single_pass::{process_epoch_single_pass, SinglePassConfig};
+use crate::per_epoch_processing::single_pass::{SinglePassConfig, process_epoch_single_pass};
 use crate::per_epoch_processing::{
     capella::process_historical_summaries_update,
     historical_roots_update::process_historical_roots_update,

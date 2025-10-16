@@ -1,11 +1,11 @@
 #![cfg(feature = "redb")]
 use crate::{
+    Config, Error,
     config::REDB_DATA_FILENAME,
     database::{
         interface::{Key, OpenDatabases, Value},
         *,
     },
-    Config, Error,
 };
 use derivative::Derivative;
 use redb::{ReadableTable, TableDefinition};

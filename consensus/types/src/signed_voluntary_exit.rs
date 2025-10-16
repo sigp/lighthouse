@@ -1,5 +1,5 @@
 use crate::context_deserialize;
-use crate::{test_utils::TestRandom, ForkName, VoluntaryExit};
+use crate::{ForkName, VoluntaryExit, test_utils::TestRandom};
 use bls::Signature;
 
 use serde::{Deserialize, Serialize};

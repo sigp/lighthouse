@@ -1,7 +1,7 @@
-use super::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use super::VerifySignatures;
-use crate::per_block_processing::is_valid_indexed_attestation;
+use super::errors::{AttestationInvalid as Invalid, BlockOperationError};
 use crate::ConsensusContext;
+use crate::per_block_processing::is_valid_indexed_attestation;
 use safe_arith::SafeArith;
 use types::*;
 

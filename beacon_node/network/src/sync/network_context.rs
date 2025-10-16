@@ -3,10 +3,10 @@
 
 use self::custody::{ActiveCustodyRequest, Error as CustodyRequestError};
 pub use self::requests::{BlocksByRootSingleRequest, DataColumnsByRootSingleBlockRequest};
+use super::SyncMessage;
 use super::block_sidecar_coupling::RangeBlockComponentsRequest;
 use super::manager::BlockProcessType;
 use super::range_sync::ByRangeRequestType;
-use super::SyncMessage;
 use crate::metrics;
 use crate::network_beacon_processor::NetworkBeaconProcessor;
 #[cfg(test)]
@@ -29,6 +29,7 @@ use lighthouse_network::service::api_types::{
     DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
+use lighthouse_tracing::{SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST, SPAN_OUTGOING_RANGE_REQUEST};
 use parking_lot::RwLock;
 pub use requests::LookupVerifyError;
 use requests::{
@@ -45,15 +46,30 @@ use std::time::Duration;
 #[cfg(test)]
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{Span, debug, debug_span, error, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec, ForkContext,
-    Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
 mod requests;
+
+macro_rules! new_range_request_span {
+    ($self:expr, $name:literal, $parent:expr, $peer_id:expr) => {{
+        let client = $self.client_type(&$peer_id).kind;
+        debug_span!(
+            parent: $parent,
+            $name,
+            peer_id = %$peer_id,
+            client = %client
+        )
+    }};
+}
+
+/// Max retries for block components after which we fail the batch.
+pub const MAX_COLUMN_RETRIES: usize = 3;
 
 #[derive(Debug)]
 pub enum RpcEvent<T> {
@@ -435,19 +451,23 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     /// the batch.
     pub fn retry_columns_by_range(
         &mut self,
-        request_id: Id,
+        id: Id,
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
         request: BlocksByRangeRequest,
         failed_columns: &HashSet<ColumnIndex>,
     ) -> Result<(), String> {
-        let Some(requester) = self.components_by_range_requests.keys().find_map(|r| {
-            if r.id == request_id {
-                Some(r.requester)
-            } else {
-                None
-            }
-        }) else {
+        let Some((requester, parent_request_span)) = self
+            .components_by_range_requests
+            .iter()
+            .find_map(|(key, value)| {
+                if key.id == id {
+                    Some((key.requester, value.request_span.clone()))
+                } else {
+                    None
+                }
+            })
+        else {
             return Err("request id not present".to_string());
         };
 
@@ -455,6 +475,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
 
         debug!(
             ?failed_columns,
+            ?id,
+            ?requester,
             "Retrying only failed column requests from other peers"
         );
 
@@ -469,10 +491,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .map_err(|e| format!("{:?}", e))?;
 
         // Reuse the id for the request that received partially correct responses
-        let id = ComponentsByRangeRequestId {
-            id: request_id,
-            requester,
-        };
+        let id = ComponentsByRangeRequestId { id, requester };
 
         let data_column_requests = columns_by_range_peers_to_request
             .into_iter()
@@ -485,6 +504,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         columns,
                     },
                     id,
+                    new_range_request_span!(
+                        self,
+                        "outgoing_columns_by_range_retry",
+                        parent_request_span.clone(),
+                        peer_id
+                    ),
                 )
             })
             .collect::<Result<Vec<_>, _>>()
@@ -511,6 +536,13 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
+        let range_request_span = debug_span!(
+            parent: None,
+            SPAN_OUTGOING_RANGE_REQUEST,
+            range_req_id = %requester,
+            peers = peers.len()
+        );
+        let _guard = range_request_span.clone().entered();
         let active_request_count_by_peer = self.active_request_count_by_peer();
 
         let Some(block_peer) = peers
@@ -561,7 +593,17 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             requester,
         };
 
-        let blocks_req_id = self.send_blocks_by_range_request(block_peer, request.clone(), id)?;
+        let blocks_req_id = self.send_blocks_by_range_request(
+            block_peer,
+            request.clone(),
+            id,
+            new_range_request_span!(
+                self,
+                "outgoing_blocks_by_range",
+                range_request_span.clone(),
+                block_peer
+            ),
+        )?;
 
         let blobs_req_id = if matches!(batch_type, ByRangeRequestType::BlocksAndBlobs) {
             Some(self.send_blobs_by_range_request(
@@ -571,6 +613,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     count: *request.count(),
                 },
                 id,
+                new_range_request_span!(
+                    self,
+                    "outgoing_blobs_by_range",
+                    range_request_span.clone(),
+                    block_peer
+                ),
             )?)
         } else {
             None
@@ -589,6 +637,12 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                                 columns,
                             },
                             id,
+                            new_range_request_span!(
+                                self,
+                                "outgoing_columns_by_range",
+                                range_request_span.clone(),
+                                peer_id
+                            ),
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()
@@ -605,6 +659,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     self.chain.sampling_columns_for_epoch(epoch).to_vec(),
                 )
             }),
+            range_request_span,
         );
         self.components_by_range_requests.insert(id, info);
 
@@ -683,18 +738,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             match range_block_component {
                 RangeBlockComponent::Block(req_id, resp) => resp.and_then(|(blocks, _)| {
                     request.add_blocks(req_id, blocks).map_err(|e| {
-                        RpcResponseError::BlockComponentCouplingError(CouplingError {
-                            msg: e,
-                            column_and_peer: None,
-                        })
+                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
+                            e,
+                        ))
                     })
                 }),
                 RangeBlockComponent::Blob(req_id, resp) => resp.and_then(|(blobs, _)| {
                     request.add_blobs(req_id, blobs).map_err(|e| {
-                        RpcResponseError::BlockComponentCouplingError(CouplingError {
-                            msg: e,
-                            column_and_peer: None,
-                        })
+                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
+                            e,
+                        ))
                     })
                 }),
                 RangeBlockComponent::CustodyColumns(req_id, resp) => {
@@ -702,10 +755,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                         request
                             .add_custody_columns(req_id, custody_columns)
                             .map_err(|e| {
-                                RpcResponseError::BlockComponentCouplingError(CouplingError {
-                                    msg: e,
-                                    column_and_peer: None,
-                                })
+                                RpcResponseError::BlockComponentCouplingError(
+                                    CouplingError::InternalError(e),
+                                )
                             })
                     })
                 }
@@ -715,10 +767,27 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             return Some(Err(e));
         }
 
-        if let Some(blocks_result) = entry.get_mut().responses(&self.chain.spec) {
-            if blocks_result.is_ok() {
-                // remove the entry only if it coupled successfully with
-                // no errors
+        let range_req = entry.get_mut();
+        if let Some(blocks_result) = range_req.responses(&self.chain.spec) {
+            if let Err(CouplingError::DataColumnPeerFailure {
+                action: _,
+                error,
+                faulty_peers: _,
+                exceeded_retries,
+            }) = &blocks_result
+            {
+                // Remove the entry if it's a peer failure **and** retry counter is exceeded
+                if *exceeded_retries {
+                    debug!(
+                        entry=?entry.key(),
+                        msg = error,
+                        "Request exceeded max retries, failing batch"
+                    );
+                    entry.remove();
+                };
+            } else {
+                // also remove the entry only if it coupled successfully
+                // or if it isn't a column peer failure.
                 entry.remove();
             }
             // If the request is finished, dequeue everything
@@ -766,20 +835,32 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         match self.chain.get_block_process_status(&block_root) {
             // Unknown block, continue request to download
             BlockProcessStatus::Unknown => {}
-            // Block is known are currently processing, expect a future event with the result of
-            // processing.
-            BlockProcessStatus::NotValidated { .. } => {
-                // Lookup sync event safety: If the block is currently in the processing cache, we
-                // are guaranteed to receive a `SyncMessage::GossipBlockProcessResult` that will
-                // make progress on this lookup
-                return Ok(LookupRequestResult::Pending("block in processing cache"));
-            }
+            // Block is known and currently processing. Imports from gossip and HTTP API insert the
+            // block in the da_cache. However, HTTP API is unable to notify sync when it completes
+            // block import. Returning `Pending` here will result in stuck lookups if the block is
+            // importing from sync.
+            BlockProcessStatus::NotValidated(_, source) => match source {
+                BlockImportSource::Gossip => {
+                    // Lookup sync event safety: If the block is currently in the processing cache, we
+                    // are guaranteed to receive a `SyncMessage::GossipBlockProcessResult` that will
+                    // make progress on this lookup
+                    return Ok(LookupRequestResult::Pending("block in processing cache"));
+                }
+                BlockImportSource::Lookup
+                | BlockImportSource::RangeSync
+                | BlockImportSource::HttpApi => {
+                    // Lookup, RangeSync or HttpApi block import don't emit the GossipBlockProcessResult
+                    // event. If a lookup happens to be created during block import from one of
+                    // those sources just import the block twice. Otherwise the lookup will get
+                    // stuck. Double imports are fine, they just waste resources.
+                }
+            },
             // Block is fully validated. If it's not yet imported it's waiting for missing block
             // components. Consider this request completed and do nothing.
             BlockProcessStatus::ExecutionValidated { .. } => {
                 return Ok(LookupRequestResult::NoRequestNeeded(
                     "block execution validated",
-                ))
+                ));
             }
         }
 
@@ -796,10 +877,15 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // - RPCError(request_id): handled by `Self::on_single_block_response`
         // - Disconnect(peer_id) handled by `Self::peer_disconnected``which converts it to a
         // ` RPCError(request_id)`event handled by the above method
+        let network_request = RequestType::BlocksByRoot(
+            request
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlocksByRoot(request.into_request(&self.fork_context)),
+                request: network_request,
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlock { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
@@ -812,6 +898,11 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             "Sync RPC request sent"
         );
 
+        let request_span = debug_span!(
+            parent: Span::current(),
+            SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST,
+            %block_root,
+        );
         self.blocks_by_root_requests.insert(
             id,
             peer_id,
@@ -819,6 +910,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // block and the peer must have it.
             true,
             BlocksByRootRequestItems::new(request),
+            request_span,
         );
 
         Ok(LookupRequestResult::RequestSent(id.req_id))
@@ -888,10 +980,16 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         };
 
         // Lookup sync event safety: Refer to `Self::block_lookup_request` `network_send.send` call
+        let network_request = RequestType::BlobsByRoot(
+            request
+                .clone()
+                .into_request(&self.fork_context)
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
         self.network_send
             .send(NetworkMessage::SendRequest {
                 peer_id,
-                request: RequestType::BlobsByRoot(request.clone().into_request(&self.fork_context)),
+                request: network_request,
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleBlob { id }),
             })
             .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
@@ -913,6 +1011,8 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // have imported the block+blobs.
             true,
             BlobsByRootRequestItems::new(request),
+            // Not implemented
+            Span::none(),
         );
 
         Ok(LookupRequestResult::RequestSent(id.req_id))
@@ -934,9 +1034,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
             request: RequestType::DataColumnsByRoot(
-                request
-                    .clone()
-                    .try_into_request(self.fork_context.current_fork_name(), &self.chain.spec)?,
+                request.clone().try_into_request::<T::EthSpec>(
+                    self.fork_context.current_fork_name(),
+                    &self.chain.spec,
+                )?,
             ),
             app_request_id: AppRequestId::Sync(SyncRequestId::DataColumnsByRoot(id)),
         })?;
@@ -955,6 +1056,9 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             peer_id,
             expect_max_responses,
             DataColumnsByRootRequestItems::new(request),
+            // Span is tracked in `self.custody_columns_by_root_requests` in the
+            // `ActiveCustodyRequest` struct.
+            Span::none(),
         );
 
         Ok(LookupRequestResult::RequestSent(id))
@@ -1050,6 +1154,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlocksByRangeRequest,
         parent_request_id: ComponentsByRangeRequestId,
+        request_span: Span,
     ) -> Result<BlocksByRangeRequestId, RpcRequestSendError> {
         let id = BlocksByRangeRequestId {
             id: self.next_id(),
@@ -1079,6 +1184,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // know if there are missed blocks.
             false,
             BlocksByRangeRequestItems::new(request),
+            request_span,
         );
         Ok(id)
     }
@@ -1088,6 +1194,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlobsByRangeRequest,
         parent_request_id: ComponentsByRangeRequestId,
+        request_span: Span,
     ) -> Result<BlobsByRangeRequestId, RpcRequestSendError> {
         let id = BlobsByRangeRequestId {
             id: self.next_id(),
@@ -1121,6 +1228,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // know if there are missed blocks.
             false,
             BlobsByRangeRequestItems::new(request, max_blobs_per_block),
+            request_span,
         );
         Ok(id)
     }
@@ -1130,6 +1238,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: DataColumnsByRangeRequest,
         parent_request_id: ComponentsByRangeRequestId,
+        request_span: Span,
     ) -> Result<(DataColumnsByRangeRequestId, Vec<u64>), RpcRequestSendError> {
         let requested_columns = request.columns.clone();
         let id = DataColumnsByRangeRequestId {
@@ -1162,6 +1271,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             // know if there are missed blocks.
             false,
             DataColumnsByRangeRequestItems::new(request),
+            request_span,
         );
         Ok((id, requested_columns))
     }

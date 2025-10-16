@@ -1,4 +1,4 @@
-use crate::{common::vc_http_client, DumpConfig};
+use crate::{DumpConfig, common::vc_http_client};
 
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
@@ -302,7 +302,7 @@ mod test {
         sync::Arc,
     };
     use types::{ChainSpec, MainnetEthSpec};
-    use validator_http_api::{test_utils::ApiTester, Config as HttpConfig};
+    use validator_http_api::{Config as HttpConfig, test_utils::ApiTester};
     use zeroize::Zeroizing;
     type E = MainnetEthSpec;
 
@@ -533,13 +533,17 @@ mod test {
             let beacon_exit_epoch = current_epoch + 1 + max_seed_lookahead;
             let beacon_withdrawable_epoch = beacon_exit_epoch + min_withdrawability_delay;
 
-            assert!(validator_exit_epoch
-                .iter()
-                .all(|&epoch| epoch == beacon_exit_epoch));
+            assert!(
+                validator_exit_epoch
+                    .iter()
+                    .all(|&epoch| epoch == beacon_exit_epoch)
+            );
 
-            assert!(validator_withdrawable_epoch
-                .iter()
-                .all(|&epoch| epoch == beacon_withdrawable_epoch));
+            assert!(
+                validator_withdrawable_epoch
+                    .iter()
+                    .all(|&epoch| epoch == beacon_withdrawable_epoch)
+            );
 
             if result.is_ok() {
                 return TestResult { result: Ok(()) };

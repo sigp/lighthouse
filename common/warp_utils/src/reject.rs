@@ -3,7 +3,7 @@ use std::convert::Infallible;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
-use warp::{http::StatusCode, reject::Reject, reply::Response, Reply};
+use warp::{Reply, http::StatusCode, reject::Reject, reply::Response};
 
 #[derive(Debug)]
 pub struct ServerSentEventError(pub String);

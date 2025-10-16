@@ -7,8 +7,8 @@ use crate::{BlockProcessingError, EpochProcessingError};
 use metrics::set_gauge;
 use tracing::instrument;
 use types::{
-    is_progressive_balances_enabled, BeaconState, BeaconStateError, ChainSpec, Epoch,
-    EpochTotalBalances, EthSpec, ParticipationFlags, ProgressiveBalancesCache, Validator,
+    BeaconState, BeaconStateError, ChainSpec, Epoch, EpochTotalBalances, EthSpec,
+    ParticipationFlags, ProgressiveBalancesCache, Validator, is_progressive_balances_enabled,
 };
 
 /// Initializes the `ProgressiveBalancesCache` if it is unbuilt.

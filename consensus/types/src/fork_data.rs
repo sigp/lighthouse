@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::{ForkName, Hash256, SignedRoot};
-use context_deserialize_derive::context_deserialize;
+use context_deserialize::context_deserialize;
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

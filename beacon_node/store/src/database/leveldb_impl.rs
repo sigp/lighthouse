@@ -1,14 +1,14 @@
-use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::Key;
+use crate::hot_cold_store::{BytesKey, HotColdDBError};
 use crate::{
-    get_key_for_col, metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp,
+    ColumnIter, ColumnKeyIter, DBColumn, Error, KeyValueStoreOp, get_key_for_col, metrics,
 };
 use leveldb::{
     compaction::Compaction,
     database::{
+        Database,
         batch::{Batch, Writebatch},
         kv::KV,
-        Database,
     },
     iterator::{Iterable, LevelDBIterator},
     options::{Options, ReadOptions},
@@ -282,7 +282,8 @@ impl<E: EthSpec> LevelDB<E> {
     ) -> Result<(), Error> {
         let mut leveldb_batch = Writebatch::new();
         let iter = self.db.iter(self.read_options());
-
+        let start_key = BytesKey::from_vec(column.as_bytes().to_vec());
+        iter.seek(&start_key);
         iter.take_while(move |(key, _)| key.matches_column(column))
             .for_each(|(key, value)| {
                 if f(&value).unwrap_or(false) {

@@ -1,6 +1,6 @@
 use lighthouse_network::rpc::methods::BlobsByRootRequest;
 use std::sync::Arc;
-use types::{blob_sidecar::BlobIdentifier, BlobSidecar, EthSpec, ForkContext, Hash256};
+use types::{BlobSidecar, EthSpec, ForkContext, Hash256, blob_sidecar::BlobIdentifier};
 
 use super::{ActiveRequestItems, LookupVerifyError};
 
@@ -11,7 +11,7 @@ pub struct BlobsByRootSingleBlockRequest {
 }
 
 impl BlobsByRootSingleBlockRequest {
-    pub fn into_request(self, spec: &ForkContext) -> BlobsByRootRequest {
+    pub fn into_request(self, spec: &ForkContext) -> Result<BlobsByRootRequest, String> {
         BlobsByRootRequest::new(
             self.indices
                 .into_iter()

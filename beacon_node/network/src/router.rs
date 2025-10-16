@@ -14,11 +14,11 @@ use beacon_processor::{BeaconProcessorSend, DuplicateCache};
 use futures::prelude::*;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
-    service::api_types::{AppRequestId, SyncRequestId},
     MessageId, NetworkGlobals, PeerId, PubsubMessage, Response,
+    service::api_types::{AppRequestId, SyncRequestId},
 };
-use logging::crit;
 use logging::TimeLatch;
+use logging::crit;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -186,11 +186,11 @@ impl<T: BeaconChainTypes> Router<T> {
     /* RPC - Related functionality */
 
     /// A new RPC request has been received from the network.
-    fn handle_rpc_request<E: EthSpec>(
+    fn handle_rpc_request(
         &mut self,
         peer_id: PeerId,
         inbound_request_id: InboundRequestId, // Use ResponseId here
-        request_type: RequestType<E>,
+        request_type: RequestType<T::EthSpec>,
     ) {
         if !self.network_globals.peers.read().is_connected(&peer_id) {
             debug!(%peer_id, request = ?request_type, "Dropping request of disconnected peer");

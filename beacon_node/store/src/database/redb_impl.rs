@@ -1,4 +1,4 @@
-use crate::{metrics, ColumnIter, ColumnKeyIter, Key};
+use crate::{ColumnIter, ColumnKeyIter, Key, metrics};
 use crate::{DBColumn, Error, KeyValueStoreOp};
 use parking_lot::RwLock;
 use redb::TableDefinition;

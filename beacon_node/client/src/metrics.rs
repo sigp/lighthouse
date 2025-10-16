@@ -11,7 +11,7 @@ pub static SYNC_SLOTS_PER_SECOND: LazyLock<Result<IntGauge>> = LazyLock::new(|| 
 pub static IS_SYNCED: LazyLock<Result<IntGauge>> = LazyLock::new(|| {
     try_create_int_gauge(
         "sync_eth2_synced",
-        "Metric to check if the beacon chain is synced to head. 0 if not synced and non-zero if synced"
+        "Metric to check if the beacon chain is synced to head. 0 if not synced and non-zero if synced",
     )
 });
 

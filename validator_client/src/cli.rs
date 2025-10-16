@@ -1,8 +1,8 @@
 use beacon_node_fallback::ApiTopic;
 use clap::builder::ArgPredicate;
 pub use clap::{FromArgMatches, Parser};
-use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
+use clap_utils::get_color_style;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::Address;

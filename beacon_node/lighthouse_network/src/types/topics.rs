@@ -531,8 +531,10 @@ mod tests {
         let s = get_sampling_subnets();
         let topic_config = get_topic_config(&s);
         for fork in ForkName::list_all() {
-            assert!(core_topics_to_subscribe::<E>(fork, &topic_config, &spec,)
-                .contains(&GossipKind::BeaconBlock));
+            assert!(
+                core_topics_to_subscribe::<E>(fork, &topic_config, &spec,)
+                    .contains(&GossipKind::BeaconBlock)
+            );
         }
     }
 

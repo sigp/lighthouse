@@ -5,20 +5,20 @@ use beacon_chain::beacon_proposer_cache::compute_proposer_duties_from_head;
 use beacon_chain::blob_verification::GossipBlobError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::chain_config::{
-    DisallowedReOrgOffsets, DEFAULT_RE_ORG_HEAD_THRESHOLD,
-    DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_RE_ORG_PARENT_THRESHOLD,
+    DEFAULT_RE_ORG_HEAD_THRESHOLD, DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION,
+    DEFAULT_RE_ORG_PARENT_THRESHOLD, DisallowedReOrgOffsets,
 };
 use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
 use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
+    AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
     attestation_verification::{
-        obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
+        VerifiedAttestation, obtain_indexed_attestation_and_committees_per_slot,
     },
     blob_verification::GossipVerifiedBlob,
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    AvailabilityProcessingStatus, BeaconChainTypes, CachedHead, ChainConfig, NotifyExecutionLayer,
 };
-use execution_layer::{json_structures::JsonPayloadStatusV1Status, PayloadStatusV1};
+use execution_layer::{PayloadStatusV1, json_structures::JsonPayloadStatusV1Status};
 use serde::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;

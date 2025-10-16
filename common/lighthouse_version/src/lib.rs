@@ -1,5 +1,5 @@
 use git_version::git_version;
-use target_info::Target;
+use std::env::consts;
 
 /// Returns the current version of this build of Lighthouse.
 ///
@@ -17,8 +17,8 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v7.1.0-",
-    fallback = "Lighthouse/v7.1.0"
+    prefix = "Lighthouse/v8.0.0-rc.1-",
+    fallback = "Lighthouse/v8.0.0-rc.1"
 );
 
 /// Returns the first eight characters of the latest commit hash for this build.
@@ -45,7 +45,7 @@ pub const COMMIT_PREFIX: &str = git_version!(
 ///
 /// `Lighthouse/v1.5.1-67da032+/x86_64-linux`
 pub fn version_with_platform() -> String {
-    format!("{}/{}-{}", VERSION, Target::arch(), Target::os())
+    format!("{}/{}-{}", VERSION, consts::ARCH, consts::OS)
 }
 
 /// Returns semantic versioning information only.
@@ -54,7 +54,7 @@ pub fn version_with_platform() -> String {
 ///
 /// `1.5.1`
 pub fn version() -> &'static str {
-    "7.1.0"
+    "8.0.0-rc.1"
 }
 
 /// Returns the name of the current client running.

@@ -1,5 +1,5 @@
 use crate::*;
-use ethereum_hashing::{hash32_concat, ZERO_HASHES};
+use ethereum_hashing::{ZERO_HASHES, hash32_concat};
 use int_to_bytes::int_to_bytes32;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

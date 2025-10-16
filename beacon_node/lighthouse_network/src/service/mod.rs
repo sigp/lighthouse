@@ -1,49 +1,49 @@
 use self::gossip_cache::GossipCache;
-use crate::config::{gossipsub_config, GossipsubConfigParams, NetworkLoad};
+use crate::Eth2Enr;
+use crate::config::{GossipsubConfigParams, NetworkLoad, gossipsub_config};
 use crate::discovery::{
-    subnet_predicate, DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS,
+    DiscoveredPeers, Discovery, FIND_NODE_QUERY_CLOSEST_PEERS, subnet_predicate,
 };
 use crate::peer_manager::{
-    config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
-    ConnectionDirection, PeerManager, PeerManagerEvent,
+    ConnectionDirection, PeerManager, PeerManagerEvent, config::Config as PeerManagerCfg,
+    peerdb::score::PeerAction, peerdb::score::ReportSource,
 };
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::rpc::methods::MetadataRequest;
 use crate::rpc::{
-    GoodbyeReason, HandlerErr, InboundRequestId, NetworkParams, Protocol, RPCError, RPCMessage,
-    RPCReceived, RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse, RPC,
+    GoodbyeReason, HandlerErr, InboundRequestId, Protocol, RPC, RPCError, RPCMessage, RPCReceived,
+    RequestType, ResponseTermination, RpcResponse, RpcSuccessResponse,
 };
 use crate::types::{
-    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
     GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet, SubnetDiscovery,
+    all_topics_at_fork, core_topics_to_subscribe, is_fork_non_core_topic, subnet_from_topic_hash,
 };
-use crate::EnrExt;
-use crate::Eth2Enr;
-use crate::{metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
     IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
     TopicScoreParams,
 };
-use gossipsub_scoring_parameters::{lighthouse_gossip_thresholds, PeerScoreSettings};
+use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
 use libp2p::multiaddr::{self, Multiaddr, Protocol as MProtocol};
 use libp2p::swarm::behaviour::toggle::Toggle;
 use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmEvent};
 use libp2p::upnp::tokio::Behaviour as Upnp;
-use libp2p::{identify, PeerId, SwarmBuilder};
+use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
+use network_utils::enr_ext::EnrExt;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
-use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
-};
 use types::{ChainSpec, ForkName};
-use utils::{build_transport, strip_peer_id, Context as ServiceContext};
+use types::{
+    EnrForkId, EthSpec, ForkContext, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
+};
+use utils::{Context as ServiceContext, build_transport, strip_peer_id};
 
 pub mod api_types;
 mod gossip_cache;
@@ -328,25 +328,24 @@ impl<E: EthSpec> Network<E> {
                 max_subscriptions_per_request: max_topics_at_any_fork * 2,
             };
 
-            // If metrics are enabled for libp2p build the configuration
-            let gossipsub_metrics = ctx.libp2p_registry.as_mut().map(|registry| {
-                (
-                    registry.sub_registry_with_prefix("gossipsub"),
-                    Default::default(),
-                )
-            });
-
             let spec = &ctx.chain_spec;
             let snappy_transform =
                 SnappyTransform::new(spec.max_payload_size as usize, spec.max_compressed_len());
             let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
                 MessageAuthenticity::Anonymous,
                 gs_config.clone(),
-                gossipsub_metrics,
                 filter,
                 snappy_transform,
             )
             .map_err(|e| format!("Could not construct gossipsub: {:?}", e))?;
+
+            // If metrics are enabled for libp2p build the configuration
+            if let Some(ref mut registry) = ctx.libp2p_registry {
+                gossipsub = gossipsub.with_metrics(
+                    registry.sub_registry_with_prefix("gossipsub"),
+                    Default::default(),
+                );
+            }
 
             gossipsub
                 .with_peer_score(params, thresholds)
@@ -368,17 +367,11 @@ impl<E: EthSpec> Network<E> {
             (gossipsub, update_gossipsub_scores)
         };
 
-        let network_params = NetworkParams {
-            max_payload_size: ctx.chain_spec.max_payload_size as usize,
-            ttfb_timeout: ctx.chain_spec.ttfb_timeout(),
-            resp_timeout: ctx.chain_spec.resp_timeout(),
-        };
         let eth2_rpc = RPC::new(
             ctx.fork_context.clone(),
             config.enable_light_client_server,
             config.inbound_rate_limiter_config.clone(),
             config.outbound_rate_limiter_config.clone(),
-            network_params,
             seq_number,
         );
 
@@ -906,19 +899,17 @@ impl<E: EthSpec> Network<E> {
             MessageAcceptance::Accept => None,
             MessageAcceptance::Ignore => Some("ignore"),
             MessageAcceptance::Reject => Some("reject"),
-        } {
-            if let Some(client) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(propagation_source)
-                .map(|info| info.client().kind.as_ref())
-            {
-                metrics::inc_counter_vec(
-                    &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
-                    &[client, result],
-                )
-            }
+        } && let Some(client) = self
+            .network_globals
+            .peers
+            .read()
+            .peer_info(propagation_source)
+            .map(|info| info.client().kind.as_ref())
+        {
+            metrics::inc_counter_vec(
+                &metrics::GOSSIP_UNACCEPTED_MESSAGES_PER_CLIENT,
+                &[client, result],
+            )
         }
 
         self.gossipsub_mut().report_message_validation_result(
@@ -1000,12 +991,11 @@ impl<E: EthSpec> Network<E> {
         if let Err(response) = self
             .eth2_rpc_mut()
             .send_response(inbound_request_id, response.into())
+            && self.network_globals.peers.read().is_connected(&peer_id)
         {
-            if self.network_globals.peers.read().is_connected(&peer_id) {
-                error!(%peer_id, ?inbound_request_id, %response,
-                    "Request not found in RPC active requests"
-                );
-            }
+            error!(%peer_id, ?inbound_request_id, %response,
+                "Request not found in RPC active requests"
+            );
         }
     }
 
@@ -1377,14 +1367,12 @@ impl<E: EthSpec> Network<E> {
             } => {
                 debug!(
                     peer_id = %peer_id,
-                    publish = failed_messages.publish,
-                    forward = failed_messages.forward,
                     priority = failed_messages.priority,
                     non_priority = failed_messages.non_priority,
                     "Slow gossipsub peer"
                 );
                 // Punish the peer if it cannot handle priority messages
-                if failed_messages.timeout > 10 {
+                if failed_messages.priority > 10 {
                     debug!(%peer_id, "Slow gossipsub peer penalized for priority failure");
                     self.peer_manager_mut().report_peer(
                         &peer_id,
@@ -1393,7 +1381,7 @@ impl<E: EthSpec> Network<E> {
                         None,
                         "publish_timeout_penalty",
                     );
-                } else if failed_messages.total_queue_full() > 10 {
+                } else if failed_messages.non_priority > 10 {
                     debug!(%peer_id, "Slow gossipsub peer penalized for send queue full");
                     self.peer_manager_mut().report_peer(
                         &peer_id,
@@ -1891,6 +1879,7 @@ impl<E: EthSpec> Network<E> {
                 send_back_addr,
                 error,
                 connection_id: _,
+                peer_id: _,
             } => {
                 let error_repr = match error {
                     libp2p::swarm::ListenError::Aborted => {
@@ -1899,8 +1888,8 @@ impl<E: EthSpec> Network<E> {
                     libp2p::swarm::ListenError::WrongPeerId { obtained, endpoint } => {
                         format!("Wrong peer id, obtained {obtained}, endpoint {endpoint:?}")
                     }
-                    libp2p::swarm::ListenError::LocalPeerId { endpoint } => {
-                        format!("Dialing local peer id {endpoint:?}")
+                    libp2p::swarm::ListenError::LocalPeerId { address } => {
+                        format!("Dialing local peer id {address:?}")
                     }
                     libp2p::swarm::ListenError::Denied { cause } => {
                         format!("Connection was denied with cause: {cause:?}")

@@ -633,18 +633,24 @@ mod tests {
         let value = Hash256::zero();
 
         // Assert there is no entry.
-        assert!(store
-            .observation_for_validator(key, validator_index)
-            .unwrap()
-            .is_none());
-        assert!(!store
-            .validator_has_been_observed(key, validator_index)
-            .unwrap());
+        assert!(
+            store
+                .observation_for_validator(key, validator_index)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            !store
+                .validator_has_been_observed(key, validator_index)
+                .unwrap()
+        );
 
         // Add an entry.
-        assert!(!store
-            .observe_validator(key, validator_index, value)
-            .unwrap());
+        assert!(
+            !store
+                .observe_validator(key, validator_index, value)
+                .unwrap()
+        );
 
         // Assert there is a correct entry.
         assert_eq!(
@@ -653,9 +659,11 @@ mod tests {
                 .unwrap(),
             Some(value)
         );
-        assert!(store
-            .validator_has_been_observed(key, validator_index)
-            .unwrap());
+        assert!(
+            store
+                .validator_has_been_observed(key, validator_index)
+                .unwrap()
+        );
 
         let alternate_value = Hash256::from_low_u64_be(1);
 

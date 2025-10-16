@@ -5,7 +5,7 @@ use core::num::NonZeroUsize;
 use derivative::Derivative;
 use safe_arith::SafeArith;
 use serde::{Deserialize, Serialize};
-use ssz::{four_byte_option_impl, Decode, DecodeError, Encode};
+use ssz::{Decode, DecodeError, Encode, four_byte_option_impl};
 use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use std::sync::Arc;

@@ -165,17 +165,17 @@ pub trait Field<E: EthSpec>: Copy {
             if vindex >= start_vindex && vindex < end_vindex {
                 let vector_value = Self::get_value(state, vindex as u64, spec)?;
 
-                if let Some(existing_value) = existing_chunk.values.get(i) {
-                    if *existing_value != vector_value && *existing_value != Self::Value::default()
-                    {
-                        return Err(ChunkError::Inconsistent {
-                            field: Self::column(),
-                            chunk_index,
-                            existing_value: format!("{:?}", existing_value),
-                            new_value: format!("{:?}", vector_value),
-                        }
-                        .into());
+                if let Some(existing_value) = existing_chunk.values.get(i)
+                    && *existing_value != vector_value
+                    && *existing_value != Self::Value::default()
+                {
+                    return Err(ChunkError::Inconsistent {
+                        field: Self::column(),
+                        chunk_index,
+                        existing_value: format!("{:?}", existing_value),
+                        new_value: format!("{:?}", vector_value),
                     }
+                    .into());
                 }
 
                 new_chunk.values[i] = vector_value;

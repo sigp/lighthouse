@@ -4,12 +4,12 @@ use crate::{DBColumn, Error, StoreItem};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::num::NonZeroUsize;
 use strum::{Display, EnumString, EnumVariantNames};
-use types::non_zero_usize::new_non_zero_usize;
 use types::EthSpec;
-use zstd::Encoder;
+use types::non_zero_usize::new_non_zero_usize;
+use zstd::{Decoder, Encoder};
 
 #[cfg(all(feature = "redb", not(feature = "leveldb")))]
 pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::Redb;
@@ -19,7 +19,7 @@ pub const DEFAULT_BACKEND: DatabaseBackend = DatabaseBackend::LevelDb;
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
 pub const DEFAULT_EPOCHS_PER_STATE_DIFF: u64 = 8;
-pub const DEFAULT_BLOCK_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(64);
+pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 0;
 pub const DEFAULT_STATE_CACHE_SIZE: NonZeroUsize = new_non_zero_usize(128);
 pub const DEFAULT_STATE_CACHE_HEADROOM: NonZeroUsize = new_non_zero_usize(1);
 pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
@@ -34,7 +34,7 @@ pub const DEFAULT_BLOB_PUNE_MARGIN_EPOCHS: u64 = 0;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StoreConfig {
     /// Maximum number of blocks to store in the in-memory block cache.
-    pub block_cache_size: NonZeroUsize,
+    pub block_cache_size: usize,
     /// Maximum number of states to store in the in-memory state cache.
     pub state_cache_size: NonZeroUsize,
     /// Minimum number of states to cull from the state cache upon fullness.
@@ -194,14 +194,22 @@ impl StoreConfig {
         }
     }
 
-    pub fn compress_bytes(&self, ssz_bytes: &[u8]) -> Result<Vec<u8>, Error> {
+    /// Compress bytes using zstd and the compression level from `self`.
+    pub fn compress_bytes(&self, ssz_bytes: &[u8]) -> Result<Vec<u8>, std::io::Error> {
         let mut compressed_value =
             Vec::with_capacity(self.estimate_compressed_size(ssz_bytes.len()));
-        let mut encoder = Encoder::new(&mut compressed_value, self.compression_level)
-            .map_err(Error::Compression)?;
-        encoder.write_all(ssz_bytes).map_err(Error::Compression)?;
-        encoder.finish().map_err(Error::Compression)?;
+        let mut encoder = Encoder::new(&mut compressed_value, self.compression_level)?;
+        encoder.write_all(ssz_bytes)?;
+        encoder.finish()?;
         Ok(compressed_value)
+    }
+
+    /// Decompress bytes compressed using zstd.
+    pub fn decompress_bytes(&self, input: &[u8]) -> Result<Vec<u8>, std::io::Error> {
+        let mut out = Vec::with_capacity(self.estimate_decompressed_size(input.len()));
+        let mut decoder = Decoder::new(input)?;
+        decoder.read_to_end(&mut out)?;
+        Ok(out)
     }
 }
 

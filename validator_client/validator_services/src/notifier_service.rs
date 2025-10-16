@@ -2,7 +2,7 @@ use crate::duties_service::DutiesService;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info};
 use types::{ChainSpec, EthSpec};
 use validator_metrics::set_gauge;

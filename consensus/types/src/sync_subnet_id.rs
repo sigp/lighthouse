@@ -1,6 +1,6 @@
 //! Identifies each sync committee subnet by an integer identifier.
-use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use crate::EthSpec;
+use crate::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz_types::typenum::Unsigned;

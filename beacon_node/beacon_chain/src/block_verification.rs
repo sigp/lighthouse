@@ -54,16 +54,17 @@ use crate::block_verification_types::{AsBlock, BlockImportData, RpcBlock};
 use crate::data_availability_checker::{AvailabilityCheckError, MaybeAvailableBlock};
 use crate::data_column_verification::GossipDataColumnError;
 use crate::execution_payload::{
-    validate_execution_payload_for_gossip, validate_merge_block, AllowOptimisticImport,
-    NotifyExecutionLayer, PayloadNotifier,
+    AllowOptimisticImport, NotifyExecutionLayer, PayloadNotifier,
+    validate_execution_payload_for_gossip, validate_merge_block,
 };
 use crate::kzg_utils::blobs_to_data_column_sidecars;
 use crate::observed_block_producers::SeenBlock;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
+    BeaconChain, BeaconChainError, BeaconChainTypes,
     beacon_chain::{BeaconForkChoice, ForkChoiceError},
-    metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
+    metrics,
 };
 use derivative::Derivative;
 use eth2::types::{BlockGossip, EventKind};
@@ -78,11 +79,11 @@ use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use state_processing::per_block_processing::{errors::IntoWithIndex, is_merge_transition_block};
 use state_processing::{
+    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
+    VerifyBlockRoot,
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
-    AllCaches, BlockProcessingError, BlockSignatureStrategy, ConsensusContext, SlotProcessingError,
-    VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fmt::Debug;
@@ -92,12 +93,12 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore};
 use strum::AsRefStr;
 use task_executor::JoinHandle;
-use tracing::{debug, debug_span, error, info_span, instrument, Instrument, Span};
+use tracing::{Instrument, Span, debug, debug_span, error, info_span, instrument};
 use types::{
-    data_column_sidecar::DataColumnSidecarError, BeaconBlockRef, BeaconState, BeaconStateError,
-    BlobsList, ChainSpec, DataColumnSidecarList, Epoch, EthSpec, ExecutionBlockHash, FullPayload,
-    Hash256, InconsistentFork, KzgProofs, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlobsList, ChainSpec, DataColumnSidecarList,
+    Epoch, EthSpec, ExecutionBlockHash, FullPayload, Hash256, InconsistentFork, KzgProofs,
+    PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    data_column_sidecar::DataColumnSidecarError,
 };
 
 pub const POS_PANDA_BANNER: &str = r#"
@@ -825,7 +826,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
     /// on the p2p network.
     ///
     /// Returns an error if the block is invalid, or if the block was unable to be verified.
-    #[instrument(name = "verify_gossip_block", skip_all)]
+    #[instrument(name = "verify_gossip_block", skip_all, fields(block_root = tracing::field::Empty))]
     pub fn new(
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
         chain: &BeaconChain<T>,
@@ -947,61 +948,35 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         }
 
         let proposer_shuffling_decision_block =
-            if parent_block.slot.epoch(T::EthSpec::slots_per_epoch()) == block_epoch {
-                parent_block
-                    .next_epoch_shuffling_id
-                    .shuffling_decision_block
-            } else {
-                parent_block.root
-            };
+            parent_block.proposer_shuffling_root_for_child_block(block_epoch, &chain.spec);
 
         // We assign to a variable instead of using `if let Some` directly to ensure we drop the
         // write lock before trying to acquire it again in the `else` clause.
-        let proposer_opt = chain
-            .beacon_proposer_cache
-            .lock()
-            .get_slot::<T::EthSpec>(proposer_shuffling_decision_block, block.slot());
-        let (expected_proposer, fork, parent, block) = if let Some(proposer) = proposer_opt {
-            // The proposer index was cached and we can return it without needing to load the
-            // parent.
-            (proposer.index, proposer.fork, None, block)
-        } else {
-            // The proposer index was *not* cached and we must load the parent in order to determine
-            // the proposer index.
-            let (mut parent, block) = load_parent(block, chain)?;
-
-            debug!(
-                parent_root = ?parent.beacon_block_root,
-                parent_slot = %parent.beacon_block.slot(),
-                ?block_root,
-                block_slot = %block.slot(),
-                "Proposer shuffling cache miss"
-            );
-
-            // The state produced is only valid for determining proposer/attester shuffling indices.
-            let state = cheap_state_advance_to_obtain_committees::<_, BlockError>(
-                &mut parent.pre_state,
-                parent.beacon_state_root,
-                block.slot(),
-                &chain.spec,
-            )?;
-
-            let epoch = state.current_epoch();
-            let proposers = state.get_beacon_proposer_indices(epoch, &chain.spec)?;
-            let proposer_index = *proposers
-                .get(block.slot().as_usize() % T::EthSpec::slots_per_epoch() as usize)
-                .ok_or_else(|| BeaconChainError::NoProposerForSlot(block.slot()))?;
-
-            // Prime the proposer shuffling cache with the newly-learned value.
-            chain.beacon_proposer_cache.lock().insert(
-                block_epoch,
-                proposer_shuffling_decision_block,
-                proposers,
-                state.fork(),
-            )?;
-
-            (proposer_index, state.fork(), Some(parent), block)
-        };
+        let block_slot = block.slot();
+        let mut opt_parent = None;
+        let proposer = chain.with_proposer_cache::<_, BlockError>(
+            proposer_shuffling_decision_block,
+            block_epoch,
+            |proposers| proposers.get_slot::<T::EthSpec>(block_slot),
+            || {
+                // The proposer index was *not* cached and we must load the parent in order to
+                // determine the proposer index.
+                let (mut parent, _) = load_parent(block.clone(), chain)?;
+                let parent_state_root = if let Some(state_root) = parent.beacon_state_root {
+                    state_root
+                } else {
+                    // This is potentially a little inefficient, although we are likely to need
+                    // the state's hash eventually (if the block is valid), and we are also likely
+                    // to already have the hash cached (if fetched from the state cache).
+                    parent.pre_state.canonical_root()?
+                };
+                let parent_state = parent.pre_state.clone();
+                opt_parent = Some(parent);
+                Ok((parent_state_root, parent_state))
+            },
+        )?;
+        let expected_proposer = proposer.index;
+        let fork = proposer.fork;
 
         let signature_is_valid = {
             let pubkey_cache = get_validator_pubkey_cache(chain)?;
@@ -1043,7 +1018,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 return Err(BlockError::Slashable);
             }
             SeenBlock::Duplicate => {
-                return Err(BlockError::DuplicateImportStatusUnknown(block_root))
+                return Err(BlockError::DuplicateImportStatusUnknown(block_root));
             }
             SeenBlock::UniqueNonSlashable => {}
         };
@@ -1059,13 +1034,13 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         // Beacon API block_gossip events
-        if let Some(event_handler) = chain.event_handler.as_ref() {
-            if event_handler.has_block_gossip_subscribers() {
-                event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
-                    slot: block.slot(),
-                    block: block_root,
-                })));
-            }
+        if let Some(event_handler) = chain.event_handler.as_ref()
+            && event_handler.has_block_gossip_subscribers()
+        {
+            event_handler.register(EventKind::BlockGossip(Box::new(BlockGossip {
+                slot: block.slot(),
+                block: block_root,
+            })));
         }
 
         // Having checked the proposer index and the block root we can cache them.
@@ -1076,7 +1051,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         Ok(Self {
             block,
             block_root,
-            parent,
+            parent: opt_parent,
             consensus_context,
         })
     }
@@ -1226,27 +1201,20 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
         signature_verifier
             .include_all_signatures_except_proposal(block.as_ref(), &mut consensus_context)?;
 
-        let sig_verify_span = info_span!("signature_verify", result = "started").entered();
-        let result = signature_verifier.verify();
+        let result = info_span!("signature_verify").in_scope(|| signature_verifier.verify());
         match result {
-            Ok(_) => {
-                sig_verify_span.record("result", "ok");
-                Ok(Self {
-                    block: MaybeAvailableBlock::AvailabilityPending {
-                        block_root: from.block_root,
-                        block,
-                    },
+            Ok(_) => Ok(Self {
+                block: MaybeAvailableBlock::AvailabilityPending {
                     block_root: from.block_root,
-                    parent: Some(parent),
-                    consensus_context,
-                })
-            }
-            Err(_) => {
-                sig_verify_span.record("result", "fail");
-                Err(BlockError::InvalidSignature(
-                    InvalidSignature::BlockBodySignatures,
-                ))
-            }
+                    block,
+                },
+                block_root: from.block_root,
+                parent: Some(parent),
+                consensus_context,
+            }),
+            Err(_) => Err(BlockError::InvalidSignature(
+                InvalidSignature::BlockBodySignatures,
+            )),
         }
     }
 
@@ -1593,18 +1561,18 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
          * If we have block reward listeners, compute the block reward and push it to the
          * event handler.
          */
-        if let Some(ref event_handler) = chain.event_handler {
-            if event_handler.has_block_reward_subscribers() {
-                let mut reward_cache = Default::default();
-                let block_reward = chain.compute_block_reward(
-                    block.message(),
-                    block_root,
-                    &state,
-                    &mut reward_cache,
-                    true,
-                )?;
-                event_handler.register(EventKind::BlockReward(block_reward));
-            }
+        if let Some(ref event_handler) = chain.event_handler
+            && event_handler.has_block_reward_subscribers()
+        {
+            let mut reward_cache = Default::default();
+            let block_reward = chain.compute_block_reward(
+                block.message(),
+                block_root,
+                &state,
+                &mut reward_cache,
+                true,
+            )?;
+            event_handler.register(EventKind::BlockReward(block_reward));
         }
 
         /*
@@ -2067,7 +2035,7 @@ impl BlockBlobError for GossipDataColumnError {
 /// and `Cow::Borrowed(state)` will be returned. Otherwise, the state will be cloned, cheaply
 /// advanced and then returned as a `Cow::Owned`. The end result is that the given `state` is never
 /// mutated to be invalid (in fact, it is never changed beyond a simple committee cache build).
-#[instrument(skip(state, spec), level = "debug")]
+#[instrument(skip_all, fields(?state_root_opt, %block_slot), level = "debug")]
 pub fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec, Err: BlockBlobError>(
     state: &'a mut BeaconState<E>,
     state_root_opt: Option<Hash256>,

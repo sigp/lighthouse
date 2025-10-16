@@ -70,8 +70,8 @@ impl StoreItem for PersistedDht {
 mod tests {
     use super::*;
     use std::str::FromStr;
-    use store::config::StoreConfig;
     use store::MemoryStore;
+    use store::config::StoreConfig;
     use types::{ChainSpec, MinimalEthSpec};
     #[test]
     fn test_persisted_dht() {

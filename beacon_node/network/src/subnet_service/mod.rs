@@ -13,7 +13,7 @@ use tokio::time::Instant;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use delay_map::HashSetDelay;
 use futures::prelude::*;
-use lighthouse_network::{discv5::enr::NodeId, NetworkConfig, Subnet, SubnetDiscovery};
+use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery, discv5::enr::NodeId};
 use slot_clock::SlotClock;
 use tracing::{debug, error, info, warn};
 use types::{
@@ -347,11 +347,11 @@ impl<T: BeaconChainTypes> SubnetService<T> {
 
         // If the discovery mechanism isn't disabled, attempt to set up a peer discovery for the
         // required subnets.
-        if !self.discovery_disabled {
-            if let Err(e) = self.discover_peers_request(subnets_to_discover.into_iter()) {
-                warn!(error = e, "Discovery lookup request error");
-            };
-        }
+        if !self.discovery_disabled
+            && let Err(e) = self.discover_peers_request(subnets_to_discover.into_iter())
+        {
+            warn!(error = e, "Discovery lookup request error");
+        };
     }
 
     /// Checks if we have subscribed aggregate validators for the subnet. If not, checks the gossip
@@ -671,13 +671,13 @@ impl<T: BeaconChainTypes> Stream for SubnetService<T> {
         }
 
         // Poll to remove entries on expiration, no need to act on expiration events.
-        if let Some(tracked_vals) = self.aggregate_validators_on_subnet.as_mut() {
-            if let Poll::Ready(Some(Err(e))) = tracked_vals.poll_next_unpin(cx) {
-                error!(
-                    error = e,
-                    "Failed to check for aggregate validator on subnet expirations"
-                );
-            }
+        if let Some(tracked_vals) = self.aggregate_validators_on_subnet.as_mut()
+            && let Poll::Ready(Some(Err(e))) = tracked_vals.poll_next_unpin(cx)
+        {
+            error!(
+                error = e,
+                "Failed to check for aggregate validator on subnet expirations"
+            );
         }
 
         Poll::Pending

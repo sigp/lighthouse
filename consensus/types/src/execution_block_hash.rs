@@ -1,6 +1,6 @@
-use crate::test_utils::TestRandom;
 use crate::FixedBytesExtended;
 use crate::Hash256;
+use crate::test_utils::TestRandom;
 use derivative::Derivative;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};

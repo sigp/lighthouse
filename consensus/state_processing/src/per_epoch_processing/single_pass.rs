@@ -3,7 +3,7 @@ use crate::{
         decrease_balance, increase_balance,
         update_progressive_balances_cache::initialize_progressive_balances_cache,
     },
-    epoch_cache::{initialize_epoch_cache, PreEpochCache},
+    epoch_cache::{PreEpochCache, initialize_epoch_cache},
     per_block_processing::is_valid_deposit_signature,
     per_epoch_processing::{Delta, Error, ParticipationEpochSummary},
 };
@@ -13,14 +13,14 @@ use std::cmp::{max, min};
 use std::collections::{BTreeSet, HashMap};
 use tracing::instrument;
 use types::{
+    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
+    EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
+    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator, Vector,
     consts::altair::{
         NUM_FLAG_INDICES, PARTICIPATION_FLAG_WEIGHTS, TIMELY_HEAD_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX, WEIGHT_DENOMINATOR,
     },
     milhouse::Cow,
-    ActivationQueue, BeaconState, BeaconStateError, ChainSpec, Checkpoint, DepositData, Epoch,
-    EthSpec, ExitCache, ForkName, List, ParticipationFlags, PendingDeposit,
-    ProgressiveBalancesCache, RelativeEpoch, Unsigned, Validator, Vector,
 };
 
 pub struct SinglePassConfig {

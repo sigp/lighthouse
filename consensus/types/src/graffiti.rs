@@ -1,9 +1,9 @@
 use crate::{
-    test_utils::{RngCore, TestRandom},
     Hash256,
+    test_utils::{RngCore, TestRandom},
 };
 use regex::bytes::Regex;
-use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 use std::str::FromStr;

@@ -1,11 +1,11 @@
 use crate::{
+    JustifiedBalances,
     error::Error,
     proto_array::{
-        calculate_committee_fraction, InvalidationOperation, Iter, ProposerBoost, ProtoArray,
-        ProtoNode,
+        InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode,
+        calculate_committee_fraction,
     },
     ssz_container::SszContainer,
-    JustifiedBalances,
 };
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -158,6 +158,56 @@ pub struct Block {
     pub execution_status: ExecutionStatus,
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
+}
+
+impl Block {
+    /// Compute the proposer shuffling decision root of a child block in `child_block_epoch`.
+    ///
+    /// This function assumes that `child_block_epoch >= self.epoch`. It is the responsibility of
+    /// the caller to check this condition, or else incorrect results will be produced.
+    pub fn proposer_shuffling_root_for_child_block(
+        &self,
+        child_block_epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Hash256 {
+        let block_epoch = self.current_epoch_shuffling_id.shuffling_epoch;
+
+        // For child blocks in the Fulu fork epoch itself, we want to use the old logic. There is no
+        // lookahead in the first Fulu epoch. So we check whether Fulu is enabled at
+        // `child_block_epoch - 1`, i.e. whether `child_block_epoch > fulu_fork_epoch`.
+        if !spec
+            .fork_name_at_epoch(child_block_epoch.saturating_sub(1_u64))
+            .fulu_enabled()
+        {
+            // Prior to Fulu the proposer shuffling decision root for the current epoch is the same
+            // as the attestation shuffling for the *next* epoch, i.e. it is determined at the start
+            // of the current epoch.
+            if block_epoch == child_block_epoch {
+                self.next_epoch_shuffling_id.shuffling_decision_block
+            } else {
+                // Otherwise, the child block epoch is greater, so its decision root is its parent
+                // root itself (this block's root).
+                self.root
+            }
+        } else {
+            // After Fulu the proposer shuffling is determined with lookahead, so if the block
+            // lies in the same epoch as its parent, its decision root is the same as the
+            // parent's current epoch attester shuffling
+            //
+            // i.e. the block from the end of epoch N - 2.
+            if child_block_epoch == block_epoch {
+                self.current_epoch_shuffling_id.shuffling_decision_block
+            } else if child_block_epoch == block_epoch + 1 {
+                // If the block is the next epoch, then it instead shares its decision root with
+                // the parent's *next epoch* attester shuffling.
+                self.next_epoch_shuffling_id.shuffling_decision_block
+            } else {
+                // The child block lies in the future beyond the lookahead, at the point where this
+                // block (its parent) will be the decision block.
+                self.root
+            }
+        }
+    }
 }
 
 /// A Vec-wrapper which will grow to match any request.
@@ -705,24 +755,22 @@ impl ProtoArrayForkChoice {
 
                     // If the invalid root was boosted, apply the weight to it and
                     // ancestors.
-                    if let Some(proposer_score_boost) = spec.proposer_score_boost {
-                        if self.proto_array.previous_proposer_boost.root == node.root {
-                            // Compute the score based upon the current balances. We can't rely on
-                            // the `previous_proposr_boost.score` since it is set to zero with an
-                            // invalid node.
-                            let proposer_score = calculate_committee_fraction::<E>(
-                                &self.balances,
-                                proposer_score_boost,
-                            )
-                            .ok_or("Failed to compute proposer boost")?;
-                            // Store the score we've applied here so it can be removed in
-                            // a later call to `apply_score_changes`.
-                            self.proto_array.previous_proposer_boost.score = proposer_score;
-                            // Apply this boost to this node.
-                            restored_weight = restored_weight
-                                .checked_add(proposer_score)
-                                .ok_or("Overflow when adding boost to weight")?;
-                        }
+                    if let Some(proposer_score_boost) = spec.proposer_score_boost
+                        && self.proto_array.previous_proposer_boost.root == node.root
+                    {
+                        // Compute the score based upon the current balances. We can't rely on
+                        // the `previous_proposr_boost.score` since it is set to zero with an
+                        // invalid node.
+                        let proposer_score =
+                            calculate_committee_fraction::<E>(&self.balances, proposer_score_boost)
+                                .ok_or("Failed to compute proposer boost")?;
+                        // Store the score we've applied here so it can be removed in
+                        // a later call to `apply_score_changes`.
+                        self.proto_array.previous_proposer_boost.score = proposer_score;
+                        // Apply this boost to this node.
+                        restored_weight = restored_weight
+                            .checked_add(proposer_score)
+                            .ok_or("Overflow when adding boost to weight")?;
                     }
 
                     // Add the restored weight to the node and all ancestors.
@@ -864,18 +912,29 @@ impl ProtoArrayForkChoice {
     pub fn iter_block_roots(
         &self,
         block_root: &Hash256,
-    ) -> impl Iterator<Item = (Hash256, Slot)> + use<'_> {
+    ) -> impl Iterator<Item = (Hash256, Slot)> + '_ {
         self.proto_array.iter_block_roots(block_root)
+    }
+
+    pub fn as_ssz_container(&self) -> SszContainer {
+        SszContainer::from(self)
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {
         SszContainer::from(self).as_ssz_bytes()
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, String> {
+    pub fn from_bytes(bytes: &[u8], balances: JustifiedBalances) -> Result<Self, String> {
         let container = SszContainer::from_ssz_bytes(bytes)
             .map_err(|e| format!("Failed to decode ProtoArrayForkChoice: {:?}", e))?;
-        container
+        Self::from_container(container, balances)
+    }
+
+    pub fn from_container(
+        container: SszContainer,
+        balances: JustifiedBalances,
+    ) -> Result<Self, String> {
+        (container, balances)
             .try_into()
             .map_err(|e| format!("Failed to initialize ProtoArrayForkChoice: {e:?}"))
     }
