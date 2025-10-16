@@ -6,4 +6,6 @@ edition = "2021"
 [dependencies]
 types = { path = "../consensus/types" }
 
+serde = { version = "1.0", features = ["derive"] }
+
 [dev-dependencies]
