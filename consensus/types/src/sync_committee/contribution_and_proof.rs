@@ -13,7 +13,6 @@ use crate::{
 };
 
 /// A Validators aggregate sync committee contribution and selection proof.
-
 #[cfg_attr(
     feature = "arbitrary",
     derive(arbitrary::Arbitrary),

@@ -1,0 +1,20 @@
+[package]
+name = "eip_3076"
+version = "0.1.0"
+authors = ["Sigma Prime <contact@sigmaprime.io>"]
+edition = { workspace = true }
+
+[features]
+default = []
+arbitrary-fuzz = ["dep:arbitrary", "types/arbitrary"]
+json = ["dep:serde_json"]
+
+[dependencies]
+arbitrary = { workspace = true, features = ["derive"], optional = true }
+ethereum_serde_utils = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+types = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

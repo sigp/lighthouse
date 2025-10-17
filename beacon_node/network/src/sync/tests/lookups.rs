@@ -41,8 +41,8 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use tokio::sync::mpsc;
 use tracing::info;
 use types::{
-    BeaconState, BeaconStateBase, BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, ForkName,
-    Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    BeaconState, BeaconStateBase, BlobSidecar, BlockImportSource, DataColumnSidecar, EthSpec,
+    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
     data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
@@ -1113,7 +1113,7 @@ impl TestRig {
         self.harness
             .chain
             .data_availability_checker
-            .put_pre_execution_block(block.canonical_root(), block)
+            .put_pre_execution_block(block.canonical_root(), block, BlockImportSource::Gossip)
             .unwrap();
     }
 

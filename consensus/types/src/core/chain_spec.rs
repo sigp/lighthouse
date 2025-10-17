@@ -235,7 +235,7 @@ pub struct ChainSpec {
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub attestation_propagation_slot_range: u64,
-    pub maximum_gossip_clock_disparity_millis: u64,
+    pub maximum_gossip_clock_disparity: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
     pub subnets_per_node: u8,
@@ -678,7 +678,7 @@ impl ChainSpec {
     }
 
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
-        Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
+        Duration::from_millis(self.maximum_gossip_clock_disparity)
     }
 
     pub fn ttfb_timeout(&self) -> Duration {
@@ -871,6 +871,34 @@ impl ChainSpec {
             //1MB
             1024 * 1024,
         )
+    }
+
+    /// Returns the slot at which the proposer shuffling was decided.
+    ///
+    /// The block root at this slot can be used to key the proposer shuffling for the given epoch.
+    pub fn proposer_shuffling_decision_slot<E: EthSpec>(&self, epoch: Epoch) -> Slot {
+        // At the Fulu fork epoch itself, the shuffling is computed "the old way" with no lookahead.
+        // Therefore for `epoch == fulu_fork_epoch` we must take the `else` branch. Checking if Fulu
+        // is enabled at `epoch - 1` accomplishes this neatly.
+        if self
+            .fork_name_at_epoch(epoch.saturating_sub(1_u64))
+            .fulu_enabled()
+        {
+            // Post-Fulu the proposer shuffling decision slot for epoch N is the slot at the end
+            // of epoch N - 2 (note: min_seed_lookahead=1 in all current configs).
+            epoch
+                .saturating_sub(self.min_seed_lookahead)
+                .start_slot(E::slots_per_epoch())
+                .saturating_sub(1_u64)
+        } else {
+            // Pre-Fulu the proposer shuffling decision slot for epoch N is the slot at the end of
+            // epoch N - 1 (note: +1 -1 for min_seed_lookahead=1 in all current configs).
+            epoch
+                .saturating_add(Epoch::new(1))
+                .saturating_sub(self.min_seed_lookahead)
+                .start_slot(E::slots_per_epoch())
+                .saturating_sub(1_u64)
+        }
     }
 
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
@@ -1092,7 +1120,7 @@ impl ChainSpec {
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 2,
-            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
+            maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
             max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
@@ -1438,7 +1466,7 @@ impl ChainSpec {
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
-            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
+            maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
             max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: 33024,
@@ -1759,9 +1787,9 @@ pub struct Config {
     #[serde(default = "default_attestation_propagation_slot_range")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_propagation_slot_range: u64,
-    #[serde(default = "default_maximum_gossip_clock_disparity_millis")]
+    #[serde(default = "default_maximum_gossip_clock_disparity")]
     #[serde(with = "serde_utils::quoted_u64")]
-    maximum_gossip_clock_disparity_millis: u64,
+    maximum_gossip_clock_disparity: u64,
     #[serde(default = "default_message_domain_invalid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_invalid_snappy: [u8; 4],
@@ -1975,7 +2003,7 @@ const fn default_attestation_propagation_slot_range() -> u64 {
     32
 }
 
-const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
+const fn default_maximum_gossip_clock_disparity() -> u64 {
     500
 }
 
@@ -2194,7 +2222,7 @@ impl Config {
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
             attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis: spec.maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity: spec.maximum_gossip_clock_disparity,
             message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
@@ -2282,7 +2310,7 @@ impl Config {
             message_domain_valid_snappy,
             max_request_blocks,
             attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
@@ -2358,7 +2386,7 @@ impl Config {
             attestation_subnet_prefix_bits,
             max_request_blocks,
             attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
@@ -2985,5 +3013,33 @@ mod yaml_tests {
             Some(expected_data_column_retention_epoch),
             spec.min_epoch_data_availability_boundary(current_epoch)
         );
+    }
+
+    #[test]
+    fn proposer_shuffling_decision_root_around_epoch_boundary() {
+        type E = MainnetEthSpec;
+        let fulu_fork_epoch = 5;
+        let spec = {
+            let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+            spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch));
+            Arc::new(spec)
+        };
+
+        // For epochs prior to AND including the Fulu fork epoch, the decision slot is the end
+        // of the previous epoch (i.e. only 1 slot lookahead).
+        for epoch in (0..=fulu_fork_epoch).map(Epoch::new) {
+            assert_eq!(
+                spec.proposer_shuffling_decision_slot::<E>(epoch),
+                epoch.start_slot(E::slots_per_epoch()) - 1
+            );
+        }
+
+        // For epochs after Fulu, the decision slot is the end of the epoch two epochs prior.
+        for epoch in ((fulu_fork_epoch + 1)..(fulu_fork_epoch + 10)).map(Epoch::new) {
+            assert_eq!(
+                spec.proposer_shuffling_decision_slot::<E>(epoch),
+                (epoch - 1).start_slot(E::slots_per_epoch()) - 1
+            );
+        }
     }
 }
