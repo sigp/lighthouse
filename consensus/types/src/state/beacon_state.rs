@@ -948,7 +948,10 @@ impl<E: EthSpec> BeaconState<E> {
         self.proposer_shuffling_decision_root_at_epoch(self.current_epoch(), block_root, spec)
     }
 
-    pub fn epoch_cache_decision_root(&self, block_root: Hash256) -> Result<Hash256, Error> {
+    pub fn epoch_cache_decision_root(
+        &self,
+        block_root: Hash256,
+    ) -> Result<Hash256, BeaconStateError> {
         // Epoch cache decision root for the current epoch (N) is the block root at the end of epoch
         // N - 1. This is the same as the root that determines the next epoch attester shuffling.
         self.attester_shuffling_decision_root(block_root, RelativeEpoch::Next)
@@ -1038,7 +1041,7 @@ impl<E: EthSpec> BeaconState<E> {
         // Regardless of fork, we never support computing proposer indices for past epochs.
         let current_epoch = self.current_epoch();
         if epoch < current_epoch {
-            return Err(Error::ComputeProposerIndicesPastEpoch {
+            return Err(BeaconStateError::ComputeProposerIndicesPastEpoch {
                 current_epoch,
                 request_epoch: epoch,
             });
@@ -1057,17 +1060,19 @@ impl<E: EthSpec> BeaconState<E> {
             if self.fork_name_unchecked().fulu_enabled()
                 && epoch < current_epoch.safe_add(spec.min_seed_lookahead)?
             {
-                return Err(Error::ComputeProposerIndicesInsufficientLookahead {
-                    current_epoch,
-                    request_epoch: epoch,
-                });
+                return Err(
+                    BeaconStateError::ComputeProposerIndicesInsufficientLookahead {
+                        current_epoch,
+                        request_epoch: epoch,
+                    },
+                );
             }
         } else {
             // Pre-Fulu the situation is reversed, we *should not* compute proposer indices using
             // too much lookahead. To do so would make us vulnerable to changes in the proposer
             // indices caused by effective balance changes.
             if epoch >= current_epoch.safe_add(spec.min_seed_lookahead)? {
-                return Err(Error::ComputeProposerIndicesExcessiveLookahead {
+                return Err(BeaconStateError::ComputeProposerIndicesExcessiveLookahead {
                     current_epoch,
                     request_epoch: epoch,
                 });
