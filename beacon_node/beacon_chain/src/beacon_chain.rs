@@ -74,6 +74,7 @@ use crate::{
     AvailabilityPendingExecutedBlock, BeaconChainError, BeaconForkChoiceStore, BeaconSnapshot,
     CachedHead, metrics,
 };
+use eth2::beacon_response::ForkVersionedResponse;
 use eth2::types::{
     EventKind, SseBlobSidecar, SseBlock, SseDataColumnSidecar, SseExtendedPayloadAttributes,
 };

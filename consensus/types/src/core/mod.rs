@@ -16,6 +16,8 @@ mod slot_data;
 #[macro_use]
 mod slot_epoch_macros;
 mod slot_epoch;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
 pub use application_domain::{APPLICATION_DOMAIN_BUILDER, ApplicationDomain};
 pub use chain_spec::{BlobParameters, BlobSchedule, ChainSpec, Config, Domain};

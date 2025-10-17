@@ -22,6 +22,12 @@ use test_random_derive::TestRandom;
 use types::test_utils::TestRandom;
 pub use types::*;
 
+// Temporary module and re-export hack to expose old `consensus/types` via `eth2/types`.
+pub use crate::beacon_response::*;
+pub mod beacon_response {
+    pub use crate::beacon_response::*;
+}
+
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;
 

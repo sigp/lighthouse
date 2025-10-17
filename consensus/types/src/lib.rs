@@ -24,7 +24,6 @@ pub mod exit;
 pub mod fork;
 pub mod kzg_ext;
 pub mod light_client;
-pub mod misc;
 pub mod slashing;
 pub mod state;
 pub mod sync_committee;
@@ -44,7 +43,6 @@ pub use exit::*;
 pub use fork::*;
 pub use kzg_ext::*;
 pub use light_client::*;
-pub use misc::*;
 pub use slashing::*;
 pub use state::*;
 pub use sync_committee::*;
@@ -97,13 +95,6 @@ pub mod epoch_cache {
 
 pub mod non_zero_usize {
     pub use crate::core::new_non_zero_usize;
-}
-
-pub mod beacon_response {
-    pub use crate::misc::{
-        EmptyMetadata, ExecutionOptimisticFinalizedBeaconResponse,
-        ExecutionOptimisticFinalizedMetadata,
-    };
 }
 
 pub mod data_column_sidecar {

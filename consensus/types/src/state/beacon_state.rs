@@ -36,12 +36,11 @@ use crate::{
         ExecutionPayloadHeaderDeneb, ExecutionPayloadHeaderElectra, ExecutionPayloadHeaderFulu,
         ExecutionPayloadHeaderGloas, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
     },
-    fork::{Fork, ForkName, InconsistentFork, map_fork_name},
+    fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     light_client::consts::{
         CURRENT_SYNC_COMMITTEE_INDEX, CURRENT_SYNC_COMMITTEE_INDEX_ELECTRA, FINALIZED_ROOT_INDEX,
         FINALIZED_ROOT_INDEX_ELECTRA, NEXT_SYNC_COMMITTEE_INDEX, NEXT_SYNC_COMMITTEE_INDEX_ELECTRA,
     },
-    misc::ForkVersionDecode,
     state::{
         BlockRootsIter, CommitteeCache, EpochCache, EpochCacheError, ExitCache, HistoricalBatch,
         HistoricalSummary, ProgressiveBalancesCache, PubkeyCache, SlashingsCache,

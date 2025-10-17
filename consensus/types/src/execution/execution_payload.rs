@@ -12,8 +12,7 @@ use tree_hash_derive::TreeHash;
 use crate::{
     core::{Address, EthSpec, Hash256},
     execution::ExecutionBlockHash,
-    fork::ForkName,
-    misc::ForkVersionDecode,
+    fork::{ForkName, ForkVersionDecode},
     state::BeaconStateError,
     test_utils::TestRandom,
     withdrawal::Withdrawals,

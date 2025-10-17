@@ -2,13 +2,7 @@ use context_deserialize::ContextDeserialize;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::value::Value;
-
-use crate::fork::ForkName;
-
-pub trait ForkVersionDecode: Sized {
-    /// SSZ decode with explicit fork variant.
-    fn from_ssz_bytes_by_fork(bytes: &[u8], fork_name: ForkName) -> Result<Self, ssz::DecodeError>;
-}
+use types::ForkName;
 
 /// The metadata of type M should be set to `EmptyMetadata` if you don't care about adding fields other than
 /// version. If you *do* care about adding other fields you can mix in any type that implements

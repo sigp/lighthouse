@@ -16,9 +16,8 @@ use crate::{
         ExecutionPayloadHeaderGloas, ExecutionPayloadHeaderRef, ExecutionPayloadHeaderRefMut,
         ExecutionRequests,
     },
-    fork::ForkName,
+    fork::{ForkName, ForkVersionDecode},
     kzg_ext::KzgCommitments,
-    misc::ForkVersionDecode,
     test_utils::TestRandom,
 };
 

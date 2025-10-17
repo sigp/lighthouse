@@ -30,9 +30,8 @@ use crate::{
         ExecutionPayloadGloas, FullPayload, FullPayloadBellatrix, FullPayloadCapella,
         FullPayloadDeneb, FullPayloadElectra, FullPayloadFulu, FullPayloadGloas,
     },
-    fork::{Fork, ForkName, InconsistentFork, map_fork_name},
+    fork::{Fork, ForkName, ForkVersionDecode, InconsistentFork, map_fork_name},
     kzg_ext::format_kzg_commitments,
-    misc::ForkVersionDecode,
     state::BeaconStateError,
     test_utils::TestRandom,
 };
