@@ -54,7 +54,7 @@ pub mod summaries_dag;
 pub mod sync_committee_rewards;
 pub mod sync_committee_verification;
 pub mod test_utils;
-pub mod validator_custody;
+pub mod custody_context;
 pub mod validator_monitor;
 pub mod validator_pubkey_cache;
 
@@ -98,4 +98,4 @@ pub use state_processing::per_block_processing::errors::{
 };
 pub use store;
 pub use types;
-pub use validator_custody::CustodyContext;
+pub use custody_context::CustodyContext;
