@@ -350,16 +350,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 match blob_list_result.as_ref() {
                     Ok(blobs_sidecar_list) => {
-                        'inner: for blob_sidecar in blobs_sidecar_list.iter() {
-                            if blob_sidecar.index == *index {
-                                self.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    Response::BlobsByRoot(Some(blob_sidecar.clone())),
-                                );
-                                send_blob_count += 1;
-                                break 'inner;
-                            }
+                        if let Some(blob_sidecar) =
+                            blobs_sidecar_list.iter().find(|b| b.index == *index)
+                        {
+                            self.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                Response::BlobsByRoot(Some(blob_sidecar.clone())),
+                            );
+                            send_blob_count += 1;
                         }
                     }
                     Err(e) => {
