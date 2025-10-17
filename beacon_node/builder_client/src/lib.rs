@@ -155,7 +155,7 @@ impl BuilderHttpClient {
             }
             ContentType::Json => {
                 self.ssz_available.store(false, Ordering::SeqCst);
-                deserialize_json_fork_versioned_response(&response_bytes)
+                serde_json::from_slice(&response_bytes).map_err(Error::InvalidJson)
             }
         }
     }
@@ -535,47 +535,9 @@ impl BuilderHttpClient {
     }
 }
 
-/// Deserialize a JSON response containing a `ForkVersionedResponse` wrapper.
-///
-/// This handles the case where the response body contains:
-/// ```json
-/// {
-///   "version": "fulu",
-///   "data": { ... }
-/// }
-/// ```
-fn deserialize_json_fork_versioned_response<T>(
-    response_bytes: &[u8],
-) -> Result<ForkVersionedResponse<T>, Error>
-where
-    T: DeserializeOwned + ForkVersionDecode + for<'de> ContextDeserialize<'de, ForkName>,
-{
-    #[derive(serde::Deserialize)]
-    struct ResponseWrapper {
-        version: ForkName,
-        data: serde_json::Value,
-    }
-
-    let ResponseWrapper { version, data } =
-        serde_json::from_slice(response_bytes).map_err(Error::InvalidJson)?;
-
-    let data = T::context_deserialize(data, version).map_err(Error::InvalidJson)?;
-
-    Ok(ForkVersionedResponse {
-        version,
-        metadata: EmptyMetadata {},
-        data,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eth2::types::builder_bid::{BuilderBid, BuilderBidFulu, SignedBuilderBid};
-    use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
-    use eth2::types::{MainnetEthSpec, Signature};
-
-    type E = MainnetEthSpec;
 
     #[test]
     fn test_headers_no_panic() {
@@ -585,27 +547,5 @@ mod tests {
         assert!(HeaderValue::from_str(PREFERENCE_ACCEPT_VALUE).is_ok());
         assert!(HeaderValue::from_str(JSON_ACCEPT_VALUE).is_ok());
         assert!(HeaderValue::from_str(JSON_CONTENT_TYPE_HEADER).is_ok());
-    }
-
-    #[test]
-    fn test_get_header_json_response_deserialize() {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let message = BuilderBid::Fulu(BuilderBidFulu::<E>::random_for_test(rng));
-        let signed_bid = SignedBuilderBid {
-            message,
-            signature: Signature::empty(),
-        };
-
-        let resp = ForkVersionedResponse {
-            version: ForkName::Fulu,
-            metadata: EmptyMetadata {},
-            data: signed_bid,
-        };
-
-        let json = serde_json::to_string(&resp).expect("should serialize");
-        let deserialized: ForkVersionedResponse<SignedBuilderBid<E>> =
-            deserialize_json_fork_versioned_response(json.as_bytes()).expect("should deserialize");
-
-        assert_eq!(deserialized, resp);
     }
 }
