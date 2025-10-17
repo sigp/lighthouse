@@ -191,15 +191,19 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
             .ok_or("Unable to determine duration to next slot")?;
 
         // Create and publish an `Attestation` for all validators only once
-        // as the committee_index is the same (index 0) post-Electra
+        // as the committee_index is not included in AttestationData post-Electra
         let attestation_duties: Vec<_> = self.duties_service.attesters(slot).into_iter().collect();
-        let attestation_service = self.clone();
+        let attestation_service: AttestationService<S, T> = self.clone();
 
-        let attestation_handle = self.inner.executor.spawn_handle(
+        let attestation_data_handle = self.inner.executor.spawn_handle(
             async move {
                 let attestation_data = attestation_service
                     .beacon_nodes
                     .first_success(|beacon_node| async move {
+                        let _timer = validator_metrics::start_timer_vec(
+                            &validator_metrics::ATTESTATION_SERVICE_TIMES,
+                            &[validator_metrics::ATTESTATIONS_HTTP_GET],
+                        );
                         beacon_node
                             .get_validator_attestation_data(slot, 0)
                             .await
@@ -243,13 +247,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                 map
             });
 
-        // Spawn a task that awaits the attestation handle and then spawns aggregate tasks
+        // Spawn a task that awaits the attestation data handle and then spawns aggregate tasks
         let attestation_service_clone = self.clone();
         let executor = self.inner.executor.clone();
         self.inner.executor.spawn(
             async move {
-                // Await the attestation handle to get the attestation data
-                let Some(handle) = attestation_handle else {
+                // Log an error if the handle fails and return, skipping aggregates
+                let Some(handle) = attestation_data_handle else {
                     error!(slot = slot.as_u64(), "Failed to spawn attestation task");
                     return;
                 };
@@ -265,7 +269,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                     |(committee_index, validator_duties)| {
                         let attestation_service = attestation_service_clone.clone();
                         let attestation_data = attestation_data.clone();
-                        // Spawn a separate task for each committee's aggregates.
                         executor.spawn_ignoring_error(
                             async move {
                                 attestation_service
@@ -294,7 +297,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         Ok(())
     }
 
-    /// If an attestation was produced, make an aggregate
     async fn handle_aggregates(
         self,
         slot: Slot,
