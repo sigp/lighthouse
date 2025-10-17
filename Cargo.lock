@@ -1235,10 +1235,13 @@ dependencies = [
  "eth2",
  "ethereum_ssz",
  "lighthouse_version",
+ "mockito",
+ "regex",
  "reqwest 0.11.27",
  "sensitive_url",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

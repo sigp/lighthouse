@@ -538,6 +538,13 @@ impl BuilderHttpClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eth2::types::builder_bid::{BuilderBid, BuilderBidFulu};
+    use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use eth2::types::{MainnetEthSpec, Signature};
+    use mockito::{Matcher, Server, ServerGuard};
+    use regex::Regex;
+
+    type E = MainnetEthSpec;
 
     #[test]
     fn test_headers_no_panic() {
@@ -547,5 +554,145 @@ mod tests {
         assert!(HeaderValue::from_str(PREFERENCE_ACCEPT_VALUE).is_ok());
         assert!(HeaderValue::from_str(JSON_ACCEPT_VALUE).is_ok());
         assert!(HeaderValue::from_str(JSON_CONTENT_TYPE_HEADER).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_get_builder_header_ssz_response() {
+        // Set up mock server
+        let mut server = Server::new_async().await;
+        let mock_response_body = fulu_signed_builder_bid();
+        mock_get_header_response(
+            &mut server,
+            Some("fulu"),
+            ContentType::Ssz,
+            mock_response_body.clone(),
+        );
+
+        let builder_client = BuilderHttpClient::new(
+            SensitiveUrl::from_str(&server.url()).unwrap(),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let response = builder_client
+            .get_builder_header(
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                &PublicKeyBytes::empty(),
+            )
+            .await
+            .expect("should succeed in get_builder_header")
+            .expect("should have response body");
+
+        assert_eq!(response, mock_response_body);
+    }
+
+    #[tokio::test]
+    async fn test_get_builder_header_json_response() {
+        // Set up mock server
+        let mut server = Server::new_async().await;
+        let mock_response_body = fulu_signed_builder_bid();
+        mock_get_header_response(
+            &mut server,
+            None,
+            ContentType::Json,
+            mock_response_body.clone(),
+        );
+
+        let builder_client = BuilderHttpClient::new(
+            SensitiveUrl::from_str(&server.url()).unwrap(),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let response = builder_client
+            .get_builder_header(
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                &PublicKeyBytes::empty(),
+            )
+            .await
+            .expect("should succeed in get_builder_header")
+            .expect("should have response body");
+
+        assert_eq!(response, mock_response_body);
+    }
+
+    #[tokio::test]
+    async fn test_get_builder_header_no_version_header_fallback_json() {
+        // Set up mock server
+        let mut server = Server::new_async().await;
+        let mock_response_body = fulu_signed_builder_bid();
+        mock_get_header_response(
+            &mut server,
+            Some("fulu"),
+            ContentType::Json,
+            mock_response_body.clone(),
+        );
+
+        let builder_client = BuilderHttpClient::new(
+            SensitiveUrl::from_str(&server.url()).unwrap(),
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        let response = builder_client
+            .get_builder_header(
+                Slot::new(1),
+                ExecutionBlockHash::repeat_byte(1),
+                &PublicKeyBytes::empty(),
+            )
+            .await
+            .expect("should succeed in get_builder_header")
+            .expect("should have response body");
+
+        assert_eq!(response, mock_response_body);
+    }
+
+    fn mock_get_header_response(
+        server: &mut ServerGuard,
+        header_version_opt: Option<&str>,
+        content_type: ContentType,
+        response_body: ForkVersionedResponse<SignedBuilderBid<E>>,
+    ) {
+        let path_pattern = Regex::new(r"^/eth/v1/builder/header/\d+/.+/.+$").unwrap();
+        let mut mock = server.mock("GET", Matcher::Regex(path_pattern.to_string()));
+
+        if let Some(version) = header_version_opt {
+            mock = mock.with_header(CONSENSUS_VERSION_HEADER, version);
+        }
+
+        match content_type {
+            ContentType::Json => {
+                mock = mock
+                    .with_header(CONTENT_TYPE_HEADER, JSON_CONTENT_TYPE_HEADER)
+                    .with_body(serde_json::to_string(&response_body).unwrap());
+            }
+            ContentType::Ssz => {
+                mock = mock
+                    .with_header(CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER)
+                    .with_body(response_body.data.as_ssz_bytes());
+            }
+        }
+
+        mock.with_status(200).create();
+    }
+
+    fn fulu_signed_builder_bid() -> ForkVersionedResponse<SignedBuilderBid<E>> {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        ForkVersionedResponse {
+            version: ForkName::Fulu,
+            metadata: EmptyMetadata {},
+            data: SignedBuilderBid {
+                message: BuilderBid::Fulu(BuilderBidFulu::random_for_test(rng)),
+                signature: Signature::empty(),
+            },
+        }
     }
 }
