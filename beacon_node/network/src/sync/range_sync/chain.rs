@@ -889,6 +889,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         // Retry the failed columns if the column requests haven't exceeded the
                         // max retries. Otherwise, remove treat it as a failed batch below.
                         if !*exceeded_retries {
+                            // Set the batch back to `AwaitingDownload` before retrying.
+                            // This is to ensure that the batch doesn't get stuck in `Downloading` state.
+                            batch.download_failed(None)?;
                             return self.retry_partial_batch(
                                 network,
                                 batch_id,
@@ -936,7 +939,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     failing_batch: batch_id,
                 });
             }
-            self.send_batch(network, batch_id)
+            // The errored batch is set to AwaitingDownload above.
+            // We now just attempt to download all batches stuck in `AwaitingDownload`
+            // state in the right order.
+            self.attempt_send_awaiting_download_batches(network, "injecting error")
         } else {
             debug!(
                 batch_epoch = %batch_id,
@@ -969,7 +975,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .collect();
         debug!(
             ?awaiting_downloads,
-            src, "Attempting to send batches awaiting downlaod"
+            src, "Attempting to send batches awaiting download"
         );
 
         for batch_id in awaiting_downloads {
@@ -1093,6 +1099,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 &failed_columns,
             ) {
                 Ok(_) => {
+                    // inform the batch about the new request
+                    batch.start_downloading(id)?;
                     debug!(
                         ?batch_id,
                         id, "Retried column requests from different peers"
@@ -1100,6 +1108,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     return Ok(KeepChain);
                 }
                 Err(e) => {
+                    // No need to explicitly fail the batch since its in `AwaitingDownload` state
+                    // before we attempted to retry.
                     debug!(?batch_id, id, e, "Failed to retry partial batch");
                 }
             }
@@ -1123,6 +1133,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> Result<KeepChain, RemoveChain> {
         let _guard = self.span.clone().entered();
         debug!("Resuming chain");
+        // attempt to download any batches stuck in the `AwaitingDownload` state because of
+        // a lack of peers before.
+        self.attempt_send_awaiting_download_batches(network, "resume")?;
         // Request more batches if needed.
         self.request_batches(network)?;
         // If there is any batch ready for processing, send it.
