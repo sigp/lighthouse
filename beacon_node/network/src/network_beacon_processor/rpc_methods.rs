@@ -302,9 +302,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
 
         let mut blob_list_results = HashMap::new();
-        let mut slots_by_block_root = HashMap::new();
-        // For logging purpose, to display one log per block root
-        let mut logging_index_by_block_root = HashMap::new();
+
+        let slots_by_block_root: HashMap<Hash256, Slot> = request
+            .blob_ids
+            .iter()
+            .flat_map(|blob_id| {
+                let block_root = blob_id.block_root;
+                self.chain
+                    .data_availability_checker
+                    .get_execution_valid_block(&block_root)
+                    .or_else(|| self.chain.early_attester_cache.get_block(block_root))
+                    .map(|block| (block_root, block.slot()))
+            })
+            .collect();
+
         for id in request.blob_ids.as_slice() {
             let BlobIdentifier {
                 block_root: root,
@@ -312,28 +323,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             } = id;
 
             // Get the slot for where the blob belongs to from the HashMap or cache without touching the database
-            let slot = if let Some(slot) = slots_by_block_root.get(root) {
-                Some(*slot)
-            } else {
-                // Try to get block from caches to extract slot
-                if let Some(block) = self
-                    .chain
-                    .data_availability_checker
-                    .get_execution_valid_block(root)
-                    .or_else(|| self.chain.early_attester_cache.get_block(*root))
-                {
-                    let slot = block.slot();
-                    slots_by_block_root.insert(*root, slot);
-                    Some(slot)
-                } else {
-                    // Block not found in cache, returning None to query blobs from the database later
-                    None
-                }
-            };
+            let slot = slots_by_block_root.get(root);
 
             // Skip if slot is >= fulu_start_slot
             if let (Some(slot), Some(fulu_slot)) = (slot, fulu_start_slot)
-                && slot >= fulu_slot
+                && *slot >= fulu_slot
             {
                 continue;
             }
@@ -346,10 +340,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     Response::BlobsByRoot(Some(blob)),
                 );
                 send_blob_count += 1;
-                logging_index_by_block_root
-                    .entry(*root)
-                    .or_insert(Vec::new())
-                    .push(*index);
             } else {
                 let blob_list_result = match blob_list_results.entry(root) {
                     Entry::Vacant(entry) => {
@@ -368,10 +358,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                                     Response::BlobsByRoot(Some(blob_sidecar.clone())),
                                 );
                                 send_blob_count += 1;
-                                logging_index_by_block_root
-                                    .entry(*root)
-                                    .or_insert(Vec::new())
-                                    .push(*index);
                                 break 'inner;
                             }
                         }
@@ -390,7 +376,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         debug!(
             %peer_id,
-            block_root = ?logging_index_by_block_root.keys(),
+            block_root = ?slots_by_block_root.keys(),
             returned = send_blob_count,
             "BlobsByRoot outgoing response processed"
         );
