@@ -193,7 +193,7 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
         // Create and publish an `Attestation` for all validators only once
         // as the committee_index is not included in AttestationData post-Electra
         let attestation_duties: Vec<_> = self.duties_service.attesters(slot).into_iter().collect();
-        let attestation_service: AttestationService<S, T> = self.clone();
+        let attestation_service = self.clone();
 
         let attestation_data_handle = self.inner.executor.spawn_handle(
             async move {
