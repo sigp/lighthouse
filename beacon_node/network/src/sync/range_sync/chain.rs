@@ -1000,11 +1000,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let (request, batch_type) = batch.to_blocks_by_range_request();
             let failed_peers = batch.failed_peers();
 
-            let synced_peers = network
+            let synced_column_peers = network
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, Some(&self.peers))
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -1015,7 +1015,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     chain_id: self.id,
                     batch_id,
                 },
-                &synced_peers,
+                &self.peers,
+                &synced_column_peers,
                 &failed_peers,
             ) {
                 Ok(request_id) => {
@@ -1083,7 +1084,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, Some(&self.peers))
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 

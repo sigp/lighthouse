@@ -210,7 +210,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     .network_globals
                     .peers
                     .read()
-                    .synced_peers_for_epoch(self.to_be_downloaded, None)
+                    .synced_peers_for_epoch(self.to_be_downloaded)
                     .next()
                     .is_some()
                     // backfill can't progress if we do not have peers in the required subnets post peerdas.
@@ -884,7 +884,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .network_globals
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, None)
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -895,6 +895,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 request,
                 RangeRequestId::BackfillSync { batch_id },
                 &synced_peers,
+                &synced_peers, // column peers and block peers are same for backfill
                 &failed_peers,
             ) {
                 Ok(request_id) => {
@@ -960,7 +961,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, None)
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 
