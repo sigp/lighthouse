@@ -421,6 +421,7 @@ pub fn get_config<E: EthSpec>(
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
+    #[cfg(any(test, feature = "testing"))]
     if let Some(malicious_withhold_count) =
         clap_utils::parse_optional(cli_args, "malicious-withhold-count")?
     {
@@ -835,10 +836,12 @@ pub fn get_config<E: EthSpec>(
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
 
+    #[cfg(any(test, feature = "testing"))]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {
         client_config.chain.block_publishing_delay = Some(Duration::from_secs_f64(delay));
     }
 
+    #[cfg(any(test, feature = "testing"))]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-data-column-publishing")? {
         client_config.chain.data_column_publishing_delay = Some(Duration::from_secs_f64(delay));
     }
@@ -1145,6 +1148,7 @@ pub fn set_network_config(
         config.import_all_attestations = true;
     }
 
+    #[cfg(any(test, feature = "testing"))]
     if let Some(advertise_false_custody_group_count) =
         parse_optional(cli_args, "advertise-false-custody-group-count")?
     {
