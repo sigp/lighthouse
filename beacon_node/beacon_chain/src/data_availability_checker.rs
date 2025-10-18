@@ -52,9 +52,8 @@ use types::non_zero_usize::new_non_zero_usize;
 ///
 /// `PendingComponents` are now never removed from the cache manually are only removed via LRU
 /// eviction to prevent race conditions (#7961), so we expect this cache to be full all the time.
-pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
-pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
-pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
+const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
+const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
 /// blocks have a sidecar of data that is received separately from the network. We call the concept
