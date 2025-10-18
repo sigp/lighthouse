@@ -322,7 +322,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 index,
             } = id;
 
-            // Get the slot for where the blob belongs to from the HashMap or cache without touching the database
             let slot = slots_by_block_root.get(root);
 
             // Skip if slot is >= fulu_start_slot
@@ -1029,7 +1028,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         {
             return Err((
                 RpcErrorResponse::InvalidRequest,
-                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS_ELECTRA`",
+                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
             ));
         }
 
