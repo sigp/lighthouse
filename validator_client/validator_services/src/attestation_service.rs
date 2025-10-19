@@ -270,17 +270,13 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
                         let attestation_service = attestation_service_clone.clone();
                         let attestation_data = attestation_data.clone();
                         executor.spawn_ignoring_error(
-                            async move {
-                                attestation_service
-                                    .handle_aggregates(
-                                        slot,
-                                        committee_index,
-                                        validator_duties,
-                                        aggregate_production_instant,
-                                        attestation_data,
-                                    )
-                                    .await
-                            },
+                            attestation_service.handle_aggregates(
+                                slot,
+                                committee_index,
+                                validator_duties,
+                                aggregate_production_instant,
+                                attestation_data,
+                            ),
                             "aggregate publish",
                         );
                     },
