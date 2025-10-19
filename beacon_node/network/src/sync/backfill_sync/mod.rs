@@ -895,7 +895,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 request,
                 RangeRequestId::BackfillSync { batch_id },
                 &synced_peers,
-                &synced_peers, // column peers and block peers are same for backfill
+                &synced_peers, // All synced peers have imported up to the finalized slot so they must have their custody columns available
                 &failed_peers,
             ) {
                 Ok(request_id) => {

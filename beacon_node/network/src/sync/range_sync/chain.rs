@@ -1015,7 +1015,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     chain_id: self.id,
                     batch_id,
                 },
+                // Request blocks only from peers of this specific chain
                 &self.peers,
+                // Request column from all synced peers, even if they are not part of this chain.
+                // This is to avoid splitting of good column peers across many head chains in a heavy forking
+                // environment. If the column peers and block peer are on different chains, then we return
+                // a coupling error and retry only the columns that failed to couple. See `Self::retry_partial_batch`.
                 &synced_column_peers,
                 &failed_peers,
             ) {
