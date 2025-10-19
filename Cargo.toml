@@ -23,6 +23,7 @@ members = [
     "common/compare_fields_derive",
     "common/deposit_contract",
     "common/directory",
+    "common/eip_3076",
     "common/eth2",
     "common/eth2_config",
     "common/eth2_interop_keypairs",
@@ -56,7 +57,6 @@ members = [
     "consensus/int_to_bytes",
     "consensus/merkle_proof",
     "consensus/proto_array",
-    "consensus/safe_arith",
     "consensus/state_processing",
     "consensus/swap_or_not_shuffle",
     "consensus/types",
@@ -136,6 +136,7 @@ directory = { path = "common/directory" }
 dirs = "3"
 discv5 = { version = "0.10", features = ["libp2p"] }
 doppelganger_service = { path = "validator_client/doppelganger_service" }
+eip_3076 = { path = "common/eip_3076" }
 either = "1.9"
 environment = { path = "lighthouse/environment" }
 eth2 = { path = "common/eth2" }
@@ -225,7 +226,7 @@ ring = "0.17"
 rpds = "0.11"
 rusqlite = { version = "0.28", features = ["bundled"] }
 rust_eth_kzg = "0.9"
-safe_arith = { path = "consensus/safe_arith" }
+safe_arith = "0.1"
 sensitive_url = { path = "common/sensitive_url" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
