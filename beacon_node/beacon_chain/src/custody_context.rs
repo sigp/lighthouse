@@ -118,6 +118,78 @@ fn get_validators_custody_requirement(validator_custody_units: u64, spec: &Chain
     )
 }
 
+/// Indicates the different "modes" that a node can run based on the cli
+/// parameters that are relevant for computing the custody count.
+///
+/// The custody count is derived from 2 values:
+/// 1. The number of validators attached to the node and the spec parameters
+///    that attach custody weight to attached validators.
+/// 2. The cli parameters that the current node is running with.
+///
+/// We always persist the validator custody units to the db across restarts
+/// such that we know the validator custody units at any given epoch in the past.
+/// However, knowing the cli parameter at any given epoch is a pain to maintain
+/// and unnecessary.
+///
+/// Therefore, the custody count at any point in time is calculated as the max of
+/// the validator custody at that time and the current cli params.
+///
+/// Choosing the max ensures that we always have the minimum required columns and
+/// we can adjust the `status.earliest_available_slot` value to indicate to our peers
+/// the columns that we can guarantee to serve.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum NodeCustodyType {
+    /// The node is running with cli parameters to indicate that it
+    /// wants to subscribe to all columns.
+    Supernode,
+    /// The node is running with cli parameters to indicate that it
+    /// wants to subscribe to the minimum number of columns to enable
+    /// reconstruction of the full blob data on demand.
+    MinimalReconstructionNode,
+    /// The node isn't running with with any explicit cli parameters
+    /// or is running with cli parameters to indicate that it wants
+    /// to only subscribe to the minimal custody requirements.
+    FullNode,
+}
+
+/// Returns the number of columns we need to custody based on the `validator_custody_count`
+/// at any given point and the current node type.
+pub fn custody_count(
+    node_type: NodeCustodyType,
+    validator_custody_count: u64,
+    spec: &ChainSpec,
+) -> usize {
+    match node_type {
+        NodeCustodyType::Supernode => spec.number_of_custody_groups as usize,
+        NodeCustodyType::MinimalReconstructionNode => {
+            std::cmp::max(validator_custody_count, spec.number_of_custody_groups / 2) as usize
+        }
+        NodeCustodyType::FullNode => {
+            std::cmp::max(validator_custody_count, spec.custody_requirement) as usize
+        }
+    }
+}
+
+/// Returns the number of columns we need to sample based on the `validator_custody_count`
+/// at any given point and the current node type.
+///
+/// Note: this is different from the number of columns we need to custody.
+pub fn sampling_count(
+    node_type: NodeCustodyType,
+    validator_custody_count: u64,
+    spec: &ChainSpec,
+) -> usize {
+    match node_type {
+        NodeCustodyType::Supernode => spec.number_of_custody_groups as usize,
+        NodeCustodyType::MinimalReconstructionNode => {
+            std::cmp::max(validator_custody_count, spec.number_of_custody_groups / 2) as usize
+        }
+        NodeCustodyType::FullNode => {
+            std::cmp::max(validator_custody_count, spec.samples_per_slot) as usize
+        }
+    }
+}
+
 /// Contains all the information the node requires to calculate the
 /// number of columns to be custodied when checking for DA.
 #[derive(Debug)]
@@ -129,17 +201,10 @@ pub struct CustodyContext<E: EthSpec> {
     /// we require for data availability check, and we use to advertise to our peers in the metadata
     /// and enr values.
     validator_custody_count: AtomicU64,
-    /// Is the node run as a supernode based on current cli parameters.
-    current_is_supernode: bool,
-    /// The persisted value for `is_supernode` based on the previous run of this node.
-    ///
-    /// Note: We require this value because if a user restarts the node with a higher cli custody
-    /// count value than in the previous run, then we should continue advertising the custody
-    /// count based on the old value than the new one since we haven't backfilled the required
-    /// columns.
-    persisted_is_supernode: bool,
     /// Maintains all the validators that this node is connected to currently
     validator_registrations: RwLock<ValidatorRegistrations>,
+    /// The node's current "type" based on cli params.
+    node_custody_type: NodeCustodyType,
     /// Stores an immutable, ordered list of all custody columns as determined by the node's NodeID
     /// on startup.
     all_custody_columns_ordered: OnceLock<Box<[ColumnIndex]>>,
@@ -149,13 +214,10 @@ pub struct CustodyContext<E: EthSpec> {
 impl<E: EthSpec> CustodyContext<E> {
     /// Create a new custody default custody context object when no persisted object
     /// exists.
-    ///
-    /// The `is_supernode` value is based on current cli parameters.
-    pub fn new(is_supernode: bool) -> Self {
+    pub fn new(node_custody_type: NodeCustodyType) -> Self {
         Self {
             validator_custody_count: AtomicU64::new(0),
-            current_is_supernode: is_supernode,
-            persisted_is_supernode: is_supernode,
+            node_custody_type,
             validator_registrations: Default::default(),
             all_custody_columns_ordered: OnceLock::new(),
             _phantom_data: PhantomData,
@@ -164,12 +226,11 @@ impl<E: EthSpec> CustodyContext<E> {
 
     pub fn new_from_persisted_custody_context(
         ssz_context: CustodyContextSsz,
-        is_supernode: bool,
+        node_custody_type: NodeCustodyType,
     ) -> Self {
         CustodyContext {
             validator_custody_count: AtomicU64::new(ssz_context.validator_custody_at_head),
-            current_is_supernode: is_supernode,
-            persisted_is_supernode: ssz_context.persisted_is_supernode,
+            node_custody_type,
             validator_registrations: RwLock::new(ValidatorRegistrations {
                 validators: Default::default(),
                 epoch_validator_custody_requirements: ssz_context
@@ -228,7 +289,7 @@ impl<E: EthSpec> CustodyContext<E> {
             return None;
         };
 
-        let current_cgc = self.custody_group_count_at_head(spec);
+        let current_cgc = self.custody_group_count_at_epoch(None, spec);
         let validator_custody_count_at_head = self.validator_custody_count.load(Ordering::Relaxed);
 
         if new_validator_custody != validator_custody_count_at_head {
@@ -240,7 +301,7 @@ impl<E: EthSpec> CustodyContext<E> {
             self.validator_custody_count
                 .store(new_validator_custody, Ordering::Relaxed);
 
-            let updated_cgc = self.custody_group_count_at_head(spec);
+            let updated_cgc = self.custody_group_count_at_epoch(None, spec);
             // Send the message to network only if there are more columns subnets to subscribe to
             if updated_cgc > current_cgc {
                 tracing::debug!(
@@ -249,8 +310,8 @@ impl<E: EthSpec> CustodyContext<E> {
                     "Custody group count updated"
                 );
                 return Some(CustodyCountChanged {
-                    new_custody_group_count: updated_cgc,
-                    sampling_count: self.num_of_custody_groups_to_sample(effective_epoch, spec),
+                    new_custody_group_count: updated_cgc as u64,
+                    sampling_count: self.sampling_count_at_epoch(None, spec) as u64,
                     effective_epoch,
                 });
             }
@@ -259,20 +320,16 @@ impl<E: EthSpec> CustodyContext<E> {
         None
     }
 
-    /// This function is used to determine the custody group count at head ONLY.
-    /// Do NOT use this directly for data availability check, use `self.sampling_size` instead as
-    /// CGC can change over epochs.
-    pub fn custody_group_count_at_head(&self, spec: &ChainSpec) -> u64 {
-        if self.current_is_supernode {
-            return spec.number_of_custody_groups;
-        }
-        let validator_custody_count_at_head = self.validator_custody_count.load(Ordering::Relaxed);
-
-        // If there are no validators, return the minimum custody_requirement
-        if validator_custody_count_at_head > 0 {
-            validator_custody_count_at_head
+    /// Returns the custody count from the validator registration info at any given epoch
+    /// If `epoch_opt` is None, then returns the current validator_custody.
+    fn validator_custody_at_epoch(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> u64 {
+        if let Some(epoch) = epoch_opt {
+            self.validator_registrations
+                .read()
+                .custody_requirement_at_epoch(epoch)
+                .unwrap_or(spec.custody_requirement)
         } else {
-            spec.custody_requirement
+            self.validator_custody_count.load(Ordering::Relaxed)
         }
     }
 
@@ -282,49 +339,35 @@ impl<E: EthSpec> CustodyContext<E> {
     /// minimum sampling size which may exceed the custody group count (CGC).
     ///
     /// See also: [`Self::num_of_custody_groups_to_sample`].
-    fn custody_group_count_at_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
-        if self.current_is_supernode {
-            spec.number_of_custody_groups
-        } else {
-            self.validator_registrations
-                .read()
-                .custody_requirement_at_epoch(epoch)
-                .unwrap_or(spec.custody_requirement)
-        }
-    }
-
-    /// Returns the count of custody groups this node must _sample_ for a block at `epoch` to import.
-    pub fn num_of_custody_groups_to_sample(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
-        let custody_group_count = self.custody_group_count_at_epoch(epoch, spec);
-        spec.sampling_size_custody_groups(custody_group_count)
-            .expect("should compute node sampling size from valid chain spec")
+    pub fn custody_group_count_at_epoch(
+        &self,
+        epoch_opt: Option<Epoch>,
+        spec: &ChainSpec,
+    ) -> usize {
+        let validator_custody = self.validator_custody_at_epoch(epoch_opt, spec);
+        custody_count(self.node_custody_type, validator_custody, spec)
     }
 
     /// Returns the count of columns this node must _sample_ for a block at `epoch` to import.
-    pub fn num_of_data_columns_to_sample(&self, epoch: Epoch, spec: &ChainSpec) -> usize {
-        let custody_group_count = self.custody_group_count_at_epoch(epoch, spec);
-        spec.sampling_size_columns::<E>(custody_group_count)
-            .expect("should compute node sampling size from valid chain spec")
-    }
-
-    /// Returns whether the node should attempt reconstruction at a given epoch.
-    pub fn should_attempt_reconstruction(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
-        let min_columns_for_reconstruction = E::number_of_columns() / 2;
-        // performing reconstruction is not necessary if sampling column count is exactly 50%,
-        // because the node doesn't need the remaining columns.
-        self.num_of_data_columns_to_sample(epoch, spec) > min_columns_for_reconstruction
+    pub fn sampling_count_at_epoch(&self, epoch_opt: Option<Epoch>, spec: &ChainSpec) -> usize {
+        let validator_custody = self.validator_custody_at_epoch(epoch_opt, spec);
+        sampling_count(self.node_custody_type, validator_custody, spec)
     }
 
     /// Returns the ordered list of column indices that should be sampled for data availability checking at the given epoch.
     ///
     /// # Parameters
-    /// * `epoch` - Epoch to determine sampling columns for
+    /// * `epoch_opt` - Optional Epoch to determine sampling columns for
     /// * `spec` - Chain specification containing sampling parameters
     ///
     /// # Returns
     /// A slice of ordered column indices that should be sampled for this epoch based on the node's custody configuration
-    pub fn sampling_columns_for_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> &[ColumnIndex] {
-        let num_of_columns_to_sample = self.num_of_data_columns_to_sample(epoch, spec);
+    pub fn sampling_columns_for_epoch(
+        &self,
+        epoch_opt: Option<Epoch>,
+        spec: &ChainSpec,
+    ) -> &[ColumnIndex] {
+        let num_of_columns_to_sample = self.sampling_count_at_epoch(epoch_opt, spec);
         let all_columns_ordered = self
             .all_custody_columns_ordered
             .get()
@@ -350,17 +393,21 @@ impl<E: EthSpec> CustodyContext<E> {
         epoch_opt: Option<Epoch>,
         spec: &ChainSpec,
     ) -> &[ColumnIndex] {
-        let custody_group_count = if let Some(epoch) = epoch_opt {
-            self.custody_group_count_at_epoch(epoch, spec) as usize
-        } else {
-            self.custody_group_count_at_head(spec) as usize
-        };
+        let custody_group_count = self.custody_group_count_at_epoch(epoch_opt, spec);
 
         let all_columns_ordered = self
             .all_custody_columns_ordered
             .get()
             .expect("all_custody_columns_ordered should be initialized");
         &all_columns_ordered[..custody_group_count]
+    }
+
+    /// Returns whether the node should attempt reconstruction at a given epoch.
+    pub fn should_attempt_reconstruction(&self, epoch: Epoch, spec: &ChainSpec) -> bool {
+        let min_columns_for_reconstruction = E::number_of_columns() / 2;
+        // performing reconstruction is not necessary if sampling column count is exactly 50%,
+        // because the node doesn't need the remaining columns.
+        self.sampling_count_at_epoch(Some(epoch), spec) > min_columns_for_reconstruction
     }
 }
 
@@ -384,7 +431,7 @@ impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
     fn from(context: &CustodyContext<E>) -> Self {
         CustodyContextSsz {
             validator_custody_at_head: context.validator_custody_count.load(Ordering::Relaxed),
-            persisted_is_supernode: context.persisted_is_supernode,
+            persisted_is_supernode: context.node_custody_type == NodeCustodyType::Supernode,
             epoch_validator_custody_requirements: context
                 .validator_registrations
                 .read()
@@ -661,7 +708,7 @@ mod tests {
     fn should_init_ordered_data_columns_and_return_sampling_columns() {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(false);
-        let sampling_size = custody_context.num_of_data_columns_to_sample(Epoch::new(0), &spec);
+        let sampling_size = custody_context.sampling_count_at_epoch(Epoch::new(0), &spec);
 
         // initialise ordered columns
         let mut all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();

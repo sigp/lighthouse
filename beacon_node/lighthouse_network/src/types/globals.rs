@@ -63,9 +63,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
 
         // The below `expect` calls will panic on start up if the chain spec config values used
         // are invalid
-        let sampling_size = spec
-            .sampling_size_custody_groups(custody_group_count)
-            .expect("should compute node sampling size from valid chain spec");
+        let sampling_size = spec.sampling_size_custody_groups(custody_group_count);
         let custody_groups = get_custody_groups(node_id, sampling_size, &spec)
             .expect("should compute node custody groups");
 

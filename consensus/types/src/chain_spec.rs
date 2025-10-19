@@ -811,7 +811,7 @@ impl ChainSpec {
         &self,
         custody_group_count: u64,
     ) -> Result<usize, String> {
-        let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count)?;
+        let sampling_size_groups = self.sampling_size_custody_groups(custody_group_count);
         let columns_per_custody_group = self.data_columns_per_group::<E>();
 
         let sampling_size_columns = columns_per_custody_group
@@ -822,8 +822,8 @@ impl ChainSpec {
     }
 
     /// Returns the number of custody groups to sample per slot.
-    pub fn sampling_size_custody_groups(&self, custody_group_count: u64) -> Result<u64, String> {
-        Ok(std::cmp::max(custody_group_count, self.samples_per_slot))
+    pub fn sampling_size_custody_groups(&self, custody_group_count: u64) -> u64 {
+        std::cmp::max(custody_group_count, self.samples_per_slot)
     }
 
     /// Returns the min epoch for blob / data column sidecar requests based on the current epoch.
