@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "7.1.0"
+version = "8.0.0-rc.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -936,6 +936,7 @@ dependencies = [
  "hyper 1.6.0",
  "lighthouse_network",
  "monitoring_api",
+ "network_utils",
  "node_test_rig",
  "sensitive_url",
  "serde_json",
@@ -945,7 +946,6 @@ dependencies = [
  "task_executor",
  "tracing",
  "types",
- "unused_port",
 ]
 
 [[package]]
@@ -1165,9 +1165,9 @@ dependencies = [
 
 [[package]]
 name = "blst"
-version = "0.3.15"
+version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fd49896f12ac9b6dcd7a5998466b9b58263a695a3dd1ecc1aaca2e12a90b080"
+checksum = "dcdb4c7013139a150f9fc55d123186dbfaba0d912817466282c73ac49e71fb45"
 dependencies = [
  "cc",
  "glob",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "7.1.0"
+version = "8.0.0-rc.1"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -1205,6 +1205,7 @@ dependencies = [
  "lighthouse_network",
  "log",
  "logging",
+ "network_utils",
  "serde",
  "tokio",
  "tracing",
@@ -1295,11 +1296,10 @@ dependencies = [
 
 [[package]]
 name = "c-kzg"
-version = "2.1.0"
+version = "2.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e7e3c397401eb76228c89561cf22f85f41c95aa799ee9d860de3ea1cbc728fc"
+checksum = "e00bf4b112b07b505472dbefd19e37e53307e2bfed5a79e0cc161d58ccd0e687"
 dependencies = [
- "arbitrary",
  "blst",
  "cc",
  "glob",
@@ -1810,6 +1810,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "core-foundation"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2152,7 +2162,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18e4fdb82bd54a12e42fb58a800dcae6b9e13982238ce2296dc3570b92148e1f"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -2384,9 +2394,9 @@ dependencies = [
 
 [[package]]
 name = "discv5"
-version = "0.9.1"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4b4e7798d2ff74e29cee344dc490af947ae657d6ab5273dde35d58ce06a4d71"
+checksum = "a20b702c8491b3325866a4935d0b5101e49144d74540384243b6293794aad6fa"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm",
@@ -2554,9 +2564,9 @@ dependencies = [
 
 [[package]]
 name = "eip4844"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa86cda6af15a9a5e4cf680850addaee8cd427be95be3ec9d022b9d7b98a66c0"
+checksum = "82ab45fc63db6bbe5c3eb7c79303b2aff7ee529c991b2111c46879d1ea38407e"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-maybe-rayon",
@@ -2572,6 +2582,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "eip_3076"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "ethereum_serde_utils",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "types",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2579,9 +2601,9 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
 name = "ekzg-bls12-381"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08f0e00a7689af7f4f17e85ae07f5a92b568a47297a165f685b828edfd82e02b"
+checksum = "05c599a59deba6188afd9f783507e4d89efc997f0fa340a758f0d0992b322416"
 dependencies = [
  "blst",
  "blstrs",
@@ -2593,9 +2615,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-erasure-codes"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bfc7ab684a7bb0c5ee37fd6a73da7425858cdd28f4a285c70361f001d6d0efc"
+checksum = "8474a41a30ddd2b651798b1aa9ce92011207c3667186fe9044184683250109e7"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-polynomial",
@@ -2603,15 +2625,15 @@ dependencies = [
 
 [[package]]
 name = "ekzg-maybe-rayon"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e0a4876a612b9317be470768e134b671b8e645e412a82eb12fdd9b1958fa6f9"
+checksum = "9cf94d1385185c1f7caef4973be49702c7d9ffdeaf832d126dbb9ed6efe09d40"
 
 [[package]]
 name = "ekzg-multi-open"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f7964754aa0921aaa89b1589100e4cae9b31f87f137eeb0af5403fdfca68bfc"
+checksum = "e6d37456a32cf79bdbddd6685a2adec73210e2d60332370bc0e9a502b6d93beb"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-maybe-rayon",
@@ -2621,9 +2643,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-polynomial"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fed36d2ddf86661c9d18e9d5dfc47dce6c9b6e44db385e2da71952b10ba32df1"
+checksum = "704751bac85af4754bb8a14457ef24d820738062d0b6f3763534d0980b1a1e81"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-maybe-rayon",
@@ -2631,9 +2653,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-serialization"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c83402d591ac3534d1ae654feb8f56ee64cc2bacfe80bece7977c24ca5e72e2"
+checksum = "3cb983d9f75b2804c00246def8d52c01cf05f70c22593b8d314fbcf0cf89042b"
 dependencies = [
  "ekzg-bls12-381",
  "hex",
@@ -2641,9 +2663,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-single-open"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05e1dbb13023ccebbb24593e4753c87f77b7fb78254a20aef1a028e979145092"
+checksum = "799d5806d51e1453fa0f528d6acf4127e2a89e98312c826151ebc24ee3448ec3"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-polynomial",
@@ -2652,9 +2674,9 @@ dependencies = [
 
 [[package]]
 name = "ekzg-trusted-setup"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff1cb3e907b27fa51f35def95eeabe47e97765e2b6bac7e55967500937f94282"
+checksum = "85314d56718dc2c6dd77c3b3630f1839defcb6f47d9c20195608a0f7976095ab"
 dependencies = [
  "ekzg-bls12-381",
  "ekzg-serialization",
@@ -2838,6 +2860,7 @@ name = "eth2"
 version = "0.1.0"
 dependencies = [
  "derivative",
+ "eip_3076",
  "either",
  "enr",
  "eth2_keystore",
@@ -2857,7 +2880,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "slashing_protection",
  "ssz_types",
  "test_random_derive",
  "tokio",
@@ -3304,6 +3326,7 @@ dependencies = [
  "futures",
  "hex",
  "logging",
+ "network_utils",
  "reqwest 0.11.27",
  "sensitive_url",
  "serde_json",
@@ -3311,7 +3334,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "types",
- "unused_port",
 ]
 
 [[package]]
@@ -4290,6 +4312,7 @@ dependencies = [
  "lru",
  "metrics",
  "network",
+ "network_utils",
  "operation_pool",
  "parking_lot 0.12.3",
  "proto_array",
@@ -4324,6 +4347,7 @@ dependencies = [
  "logging",
  "malloc_utils",
  "metrics",
+ "network_utils",
  "reqwest 0.11.27",
  "serde",
  "slot_clock",
@@ -4642,7 +4666,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdf9d64cfcf380606e64f9a0bcf493616b65331199f984151a6fa11a7b3cde38"
 dependencies = [
  "async-io",
- "core-foundation",
+ "core-foundation 0.9.4",
  "fnv",
  "futures",
  "if-addrs",
@@ -5038,7 +5062,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "7.1.0"
+version = "8.0.0-rc.1"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5058,6 +5082,7 @@ dependencies = [
  "lighthouse_version",
  "log",
  "malloc_utils",
+ "network_utils",
  "rayon",
  "serde",
  "serde_json",
@@ -5097,9 +5122,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.171"
+version = "0.2.175"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c19937216e9d3aa9956d9bb8dfc0b0c8beb6058fc4f7a4dc4d850edf86a237d6"
+checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
 
 [[package]]
 name = "libloading"
@@ -5547,7 +5572,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "7.1.0"
+version = "8.0.0-rc.1"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5573,6 +5598,7 @@ dependencies = [
  "logging",
  "malloc_utils",
  "metrics",
+ "network_utils",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -5589,7 +5615,6 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "types",
- "unused_port",
  "validator_client",
  "validator_dir",
  "validator_manager",
@@ -5625,6 +5650,7 @@ dependencies = [
  "lru",
  "lru_cache",
  "metrics",
+ "network_utils",
  "parking_lot 0.12.3",
  "prometheus-client",
  "quickcheck",
@@ -5640,14 +5666,12 @@ dependencies = [
  "superstruct",
  "task_executor",
  "tempfile",
- "tiny-keccak",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
  "types",
  "unsigned-varint 0.8.0",
- "unused_port",
 ]
 
 [[package]]
@@ -6199,7 +6223,7 @@ dependencies = [
  "openssl-probe",
  "openssl-sys",
  "schannel",
- "security-framework",
+ "security-framework 2.11.1",
  "security-framework-sys",
  "tempfile",
 ]
@@ -6343,6 +6367,21 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "types",
+]
+
+[[package]]
+name = "network_utils"
+version = "0.1.0"
+dependencies = [
+ "discv5",
+ "hex",
+ "libp2p-identity",
+ "lru_cache",
+ "metrics",
+ "multiaddr",
+ "parking_lot 0.12.3",
+ "serde",
+ "tiny-keccak",
 ]
 
 [[package]]
@@ -7985,9 +8024,9 @@ dependencies = [
 
 [[package]]
 name = "rust_eth_kzg"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0dc46814bb8e72bff20fe117db43b7455112e6fafdae7466f8f24d451ad773c0"
+checksum = "1522b7a740cd7f5bc52ea49863618511c8de138dcdf3f8a80b15b3f764942a5b"
 dependencies = [
  "eip4844",
  "ekzg-bls12-381",
@@ -8123,12 +8162,25 @@ version = "0.23.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47796c98c480fce5406ef69d1c76378375492c3b0a0de587be0c1d9feb12f395"
 dependencies = [
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
  "rustls-webpki 0.102.8",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "rustls-native-certs"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fcff2dd52b58a8d98a70243663a0d234c4e2b79235637849d15913394a247d3"
+dependencies = [
+ "openssl-probe",
+ "rustls-pki-types",
+ "schannel",
+ "security-framework 3.3.0",
 ]
 
 [[package]]
@@ -8229,6 +8281,8 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 [[package]]
 name = "safe_arith"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b147bb6111014916d3ef9d4c85173124a8e12193a67f6176d67244afd558d6c1"
 
 [[package]]
 name = "salsa20"
@@ -8380,7 +8434,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "897b2245f0b511c87893af39b033e5ca9cce68824c4d7e7630b5a1d339658d02"
 dependencies = [
  "bitflags 2.9.0",
- "core-foundation",
+ "core-foundation 0.9.4",
+ "core-foundation-sys",
+ "libc",
+ "security-framework-sys",
+]
+
+[[package]]
+name = "security-framework"
+version = "3.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80fb1d92c5028aa318b4b8bd7302a5bfcf48be96a37fc6fc790f806b0004ee0c"
+dependencies = [
+ "bitflags 2.9.0",
+ "core-foundation 0.10.1",
  "core-foundation-sys",
  "libc",
  "security-framework-sys",
@@ -8777,6 +8844,7 @@ name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "eip_3076",
  "ethereum_serde_utils",
  "filesystem",
  "r2d2",
@@ -9011,16 +9079,16 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "superstruct"
-version = "0.8.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf0f31f730ad9e579364950e10d6172b4a9bd04b447edf5988b066a860cc340e"
+checksum = "3b986e4a629907f20a2c2a639a75bc22a8b5d99b444e0d83c395f4cb309022bf"
 dependencies = [
- "darling 0.13.4",
- "itertools 0.10.5",
+ "darling 0.20.10",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "smallvec",
- "syn 1.0.109",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -9103,7 +9171,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba3a3adc5c275d719af8cb4272ea1c4a6d668a777f37e115f6d11ddbc1c8e0e7"
 dependencies = [
  "bitflags 1.3.2",
- "core-foundation",
+ "core-foundation 0.9.4",
  "system-configuration-sys 0.5.0",
 ]
 
@@ -9114,7 +9182,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c879d448e9d986b661742763247d3693ed13609438cf3d006f51f5368a5ba6b"
 dependencies = [
  "bitflags 2.9.0",
- "core-foundation",
+ "core-foundation 0.9.4",
  "system-configuration-sys 0.6.0",
 ]
 
@@ -9143,6 +9211,8 @@ name = "system_health"
 version = "0.1.0"
 dependencies = [
  "lighthouse_network",
+ "metrics",
+ "network_utils",
  "parking_lot 0.12.3",
  "serde",
  "sysinfo",
@@ -9175,6 +9245,8 @@ dependencies = [
  "async-channel 1.9.0",
  "futures",
  "metrics",
+ "num_cpus",
+ "rayon",
  "tokio",
  "tracing",
 ]
@@ -9474,6 +9546,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tokio-rustls"
+version = "0.26.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e727b36a1a0e8b74c376ac2211e40c2c8af09fb4013c60d910495810f008e9b"
+dependencies = [
+ "rustls 0.23.23",
+ "tokio",
+]
+
+[[package]]
 name = "tokio-stream"
 version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9576,7 +9658,9 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "prost",
+ "rustls-native-certs",
  "tokio",
+ "tokio-rustls 0.26.2",
  "tokio-stream",
  "tower 0.5.2",
  "tower-layer",
@@ -9973,14 +10057,6 @@ name = "untrusted"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
-
-[[package]]
-name = "unused_port"
-version = "0.1.0"
-dependencies = [
- "lru_cache",
- "parking_lot 0.12.3",
-]
 
 [[package]]
 name = "url"
@@ -11104,7 +11180,7 @@ dependencies = [
 [[package]]
 name = "xdelta3"
 version = "0.1.5"
-source = "git+http://github.com/sigp/xdelta3-rs?rev=4db64086bb02e9febb584ba93b9d16bb2ae3825a#4db64086bb02e9febb584ba93b9d16bb2ae3825a"
+source = "git+https://github.com/sigp/xdelta3-rs?rev=4db64086bb02e9febb584ba93b9d16bb2ae3825a#4db64086bb02e9febb584ba93b9d16bb2ae3825a"
 dependencies = [
  "bindgen",
  "cc",

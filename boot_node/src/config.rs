@@ -4,10 +4,11 @@ use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{self, Enr, enr::CombinedKey};
 use lighthouse_network::{
-    CombinedKeyExt, NetworkConfig,
+    NetworkConfig,
     discovery::{load_enr_from_disk, use_or_load_enr},
     load_private_key,
 };
+use network_utils::enr_ext::CombinedKeyExt;
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::{SocketAddrV4, SocketAddrV6};

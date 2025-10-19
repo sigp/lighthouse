@@ -54,10 +54,11 @@ use eth2::types::{
 use eth2::{CONSENSUS_VERSION_HEADER, CONTENT_TYPE_HEADER, SSZ_CONTENT_TYPE_HEADER};
 use health_metrics::observe::Observe;
 use lighthouse_network::rpc::methods::MetaData;
-use lighthouse_network::{Enr, EnrExt, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
+use lighthouse_network::{Enr, NetworkGlobals, PeerId, PubsubMessage, types::SyncState};
 use lighthouse_version::version_with_platform;
 use logging::{SSELoggingComponents, crit};
 use network::{NetworkMessage, NetworkSenders, ValidatorSubscriptionMessage};
+use network_utils::enr_ext::EnrExt;
 use operation_pool::ReceivedPreCapella;
 use parking_lot::RwLock;
 pub use publish_blocks::{
@@ -213,6 +214,7 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
             equals("v1/beacon/blocks")
                 .or_else(|| starts_with("v2/beacon/blocks"))
                 .or_else(|| starts_with("v1/beacon/blob_sidecars"))
+                .or_else(|| starts_with("v1/beacon/blobs"))
                 .or_else(|| starts_with("v1/beacon/blocks/head/root"))
                 .or_else(|| starts_with("v1/beacon/blinded_blocks"))
                 .or_else(|| starts_with("v2/beacon/blinded_blocks"))
@@ -293,10 +295,7 @@ pub fn tracing_logging() -> warp::filters::log::Log<impl Fn(warp::filters::log::
         let path = info.path();
         let method = info.method().to_string();
 
-        if status == StatusCode::OK
-            || status == StatusCode::NOT_FOUND
-            || status == StatusCode::PARTIAL_CONTENT
-        {
+        if status.is_success() {
             debug!(
                 elapsed_ms = %elapsed,
                 status = %status,
@@ -1640,16 +1639,27 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::BroadcastValidationQuery>())
         .and(warp::path::end())
         .and(warp_utils::json::json())
+        .and(consensus_version_header_filter)
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
         .and(network_tx_filter.clone())
         .then(
             move |validation_level: api_types::BroadcastValidationQuery,
-                  blinded_block: Arc<SignedBlindedBeaconBlock<T::EthSpec>>,
+                  blinded_block_json: serde_json::Value,
+                  consensus_version: ForkName,
                   task_spawner: TaskSpawner<T::EthSpec>,
                   chain: Arc<BeaconChain<T>>,
                   network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>| {
                 task_spawner.spawn_async_with_rejection(Priority::P0, async move {
+                    let blinded_block =
+                        SignedBlindedBeaconBlock::<T::EthSpec>::context_deserialize(
+                            &blinded_block_json,
+                            consensus_version,
+                        )
+                        .map(Arc::new)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!("invalid JSON: {e:?}"))
+                        })?;
                     publish_blocks::publish_blinded_block(
                         blinded_block,
                         chain,
@@ -1888,7 +1898,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // GET beacon/blob_sidecars/{block_id}
-    let get_blobs = eth_v1
+    let get_blob_sidecars = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blob_sidecars"))
         .and(block_id_or_err)
@@ -1934,6 +1944,52 @@ pub fn serve<T: BeaconChainTypes>(
                         }
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
+                })
+            },
+        );
+
+    // GET beacon/blobs/{block_id}
+    let get_blobs = eth_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("blobs"))
+        .and(block_id_or_err)
+        .and(warp::path::end())
+        .and(multi_key_query::<api_types::BlobsVersionedHashesQuery>())
+        .and(task_spawner_filter.clone())
+        .and(chain_filter.clone())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
+        .then(
+            |block_id: BlockId,
+             version_hashes_res: Result<api_types::BlobsVersionedHashesQuery, warp::Rejection>,
+             task_spawner: TaskSpawner<T::EthSpec>,
+             chain: Arc<BeaconChain<T>>,
+             accept_header: Option<api_types::Accept>| {
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let versioned_hashes = version_hashes_res?;
+                    let response =
+                        block_id.get_blobs_by_versioned_hashes(versioned_hashes, &chain)?;
+
+                    match accept_header {
+                        Some(api_types::Accept::Ssz) => Response::builder()
+                            .status(200)
+                            .body(response.data.as_ssz_bytes().into())
+                            .map(|res: Response<Body>| add_ssz_content_type_header(res))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "failed to create response: {}",
+                                    e
+                                ))
+                            }),
+                        _ => {
+                            let res = execution_optimistic_finalized_beacon_response(
+                                ResponseIncludesVersion::No,
+                                response.metadata.execution_optimistic.unwrap_or(false),
+                                response.metadata.finalized.unwrap_or(false),
+                                response.data,
+                            )?;
+                            Ok(warp::reply::json(&res).into_response())
+                        }
+                    }
                 })
             },
         );
@@ -4785,6 +4841,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_beacon_block_attestations)
                 .uor(get_beacon_blinded_block)
                 .uor(get_beacon_block_root)
+                .uor(get_blob_sidecars)
                 .uor(get_blobs)
                 .uor(get_beacon_pool_attestations)
                 .uor(get_beacon_pool_attester_slashings)

@@ -1,10 +1,10 @@
 use ethers_providers::{Http, Provider};
 use execution_layer::DEFAULT_JWT_FILE;
+use network_utils::unused_port::unused_tcp4_port;
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
 use std::process::Child;
 use tempfile::TempDir;
-use unused_port::unused_tcp4_port;
 
 pub const KEYSTORE_PASSWORD: &str = "testpwd";
 pub const ACCOUNT1: &str = "7b8C3a386C0eea54693fFB0DA17373ffC9228139";

@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "7.1.0"
+version = "8.0.0-rc.1"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 
@@ -30,6 +30,7 @@ hex = { workspace = true }
 lighthouse_network = { workspace = true }
 lighthouse_version = { workspace = true }
 log = { workspace = true }
+network_utils = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

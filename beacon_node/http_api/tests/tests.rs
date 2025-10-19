@@ -1,14 +1,16 @@
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
-    test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
+    test_utils::{
+        AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
+    },
 };
 use eth2::{
     BeaconNodeHttpClient, Error,
     Error::ServerMessage,
     StatusCode, Timeouts,
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
-    reqwest::RequestBuilder,
+    reqwest::{RequestBuilder, Response},
     types::{
         BlockId as CoreBlockId, ForkChoiceNode, ProduceBlockV3Response, StateId as CoreStateId, *,
     },
@@ -24,8 +26,9 @@ use http_api::{
     BlockId, StateId,
     test_utils::{ApiServer, create_api_server},
 };
-use lighthouse_network::{Enr, EnrExt, PeerId, types::SyncState};
+use lighthouse_network::{Enr, PeerId, types::SyncState};
 use network::NetworkReceivers;
+use network_utils::enr_ext::EnrExt;
 use operation_pool::attestation_storage::CheckpointKey;
 use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
@@ -87,6 +90,7 @@ struct ApiTester {
 struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
+    import_all_data_columns: bool,
 }
 
 impl Default for ApiTesterConfig {
@@ -96,6 +100,7 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
+            import_all_data_columns: false,
         }
     }
 }
@@ -113,15 +118,11 @@ impl ApiTester {
         Self::new_from_config(ApiTesterConfig::default()).await
     }
 
-    pub async fn new_with_hard_forks(altair: bool, bellatrix: bool) -> Self {
-        let mut config = ApiTesterConfig::default();
-        // Set whether the chain has undergone each hard fork.
-        if altair {
-            config.spec.altair_fork_epoch = Some(Epoch::new(0));
-        }
-        if bellatrix {
-            config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        }
+    pub async fn new_with_hard_forks() -> Self {
+        let config = ApiTesterConfig {
+            spec: test_spec::<E>(),
+            ..Default::default()
+        };
         Self::new_from_config(config).await
     }
 
@@ -138,6 +139,7 @@ impl ApiTester {
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
+            .import_all_data_columns(config.import_all_data_columns)
             .build();
 
         harness
@@ -291,7 +293,19 @@ impl ApiTester {
         let beacon_api_port = listening_socket.port();
         let beacon_url =
             SensitiveUrl::parse(format!("http://127.0.0.1:{beacon_api_port}").as_str()).unwrap();
-        let mock_builder_server = harness.set_mock_builder(beacon_url.clone());
+
+        // Be strict with validator registrations, but don't bother applying operations, that flag
+        // is only used by mock-builder tests.
+        let strict_registrations = true;
+        let apply_operations = true;
+        let broadcast_to_bn = true;
+
+        let mock_builder_server = harness.set_mock_builder(
+            beacon_url.clone(),
+            strict_registrations,
+            apply_operations,
+            broadcast_to_bn,
+        );
 
         // Start the mock builder service prior to building the chain out.
         harness
@@ -334,6 +348,7 @@ impl ApiTester {
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
+                .mock_execution_layer()
                 .build(),
         );
 
@@ -419,7 +434,7 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester() -> Self {
-        let tester = Self::new_with_hard_forks(true, true)
+        let tester = Self::new_with_hard_forks()
             .await
             .test_post_validator_register_validator()
             .await;
@@ -429,10 +444,7 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester_default_payload_value() -> Self {
-        let mut config = ApiTesterConfig {
-            retain_historic_states: false,
-            spec: E::default_spec(),
-        };
+        let mut config = ApiTesterConfig::default();
         config.spec.altair_fork_epoch = Some(Epoch::new(0));
         config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
         let tester = Self::new_from_config(config)
@@ -1539,7 +1551,10 @@ impl ApiTester {
     pub async fn test_post_beacon_blocks_valid(mut self) -> Self {
         let next_block = self.next_block.clone();
 
-        self.client.post_beacon_blocks(&next_block).await.unwrap();
+        self.client
+            .post_beacon_blocks_v2(&next_block, None)
+            .await
+            .unwrap();
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1553,7 +1568,7 @@ impl ApiTester {
         let next_block = &self.next_block;
 
         self.client
-            .post_beacon_blocks_ssz(next_block)
+            .post_beacon_blocks_v2_ssz(next_block, None)
             .await
             .unwrap();
 
@@ -1578,12 +1593,14 @@ impl ApiTester {
             .await
             .0;
 
-        assert!(
-            self.client
-                .post_beacon_blocks(&PublishBlockRequest::from(block))
-                .await
-                .is_err()
-        );
+        let response: Result<Response, Error> = self
+            .client
+            .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
+            .await;
+
+        assert!(response.is_ok());
+
+        assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
 
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
@@ -1606,13 +1623,13 @@ impl ApiTester {
             .await
             .0;
 
-        assert!(
-            self.client
-                .post_beacon_blocks_ssz(&PublishBlockRequest::from(block))
-                .await
-                .is_err()
-        );
+        let response: Result<Response, Error> = self
+            .client
+            .post_beacon_blocks_v2(&PublishBlockRequest::from(block), None)
+            .await;
 
+        assert!(response.is_ok());
+        assert_eq!(response.unwrap().status(), StatusCode::ACCEPTED);
         assert!(
             self.network_rx.network_recv.recv().await.is_some(),
             "gossip valid blocks should be sent to network"
@@ -1634,7 +1651,7 @@ impl ApiTester {
 
         assert!(
             self.client
-                .post_beacon_blocks(&block_contents)
+                .post_beacon_blocks_v2(&block_contents, None)
                 .await
                 .is_ok()
         );
@@ -1645,44 +1662,24 @@ impl ApiTester {
         // Test all the POST methods in sequence, they should all behave the same.
         let responses = vec![
             self.client
-                .post_beacon_blocks(&block_contents)
-                .await
-                .unwrap_err(),
-            self.client
                 .post_beacon_blocks_v2(&block_contents, None)
                 .await
-                .unwrap_err(),
-            self.client
-                .post_beacon_blocks_ssz(&block_contents)
-                .await
-                .unwrap_err(),
+                .unwrap(),
             self.client
                 .post_beacon_blocks_v2_ssz(&block_contents, None)
                 .await
-                .unwrap_err(),
-            self.client
-                .post_beacon_blinded_blocks(&blinded_block_contents)
-                .await
-                .unwrap_err(),
+                .unwrap(),
             self.client
                 .post_beacon_blinded_blocks_v2(&blinded_block_contents, None)
                 .await
-                .unwrap_err(),
-            self.client
-                .post_beacon_blinded_blocks_ssz(&blinded_block_contents)
-                .await
-                .unwrap_err(),
+                .unwrap(),
             self.client
                 .post_beacon_blinded_blocks_v2_ssz(&blinded_block_contents, None)
                 .await
-                .unwrap_err(),
+                .unwrap(),
         ];
         for (i, response) in responses.into_iter().enumerate() {
-            assert_eq!(
-                response.status().unwrap(),
-                StatusCode::ACCEPTED,
-                "response {i}"
-            );
+            assert_eq!(response.status(), StatusCode::ACCEPTED, "response {i}");
         }
 
         self
@@ -1861,7 +1858,7 @@ impl ApiTester {
         };
         let result = match self
             .client
-            .get_blobs::<E>(
+            .get_blob_sidecars::<E>(
                 CoreBlockId::Root(block_root),
                 blob_indices.as_deref(),
                 &self.chain.spec,
@@ -1878,6 +1875,77 @@ impl ApiTester {
         );
         let expected = block.slot();
         assert_eq!(result.first().unwrap().slot(), expected);
+
+        self
+    }
+
+    pub async fn test_get_blobs(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+        let num_blobs = block.num_expected_blobs();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        let result = match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(response) => response.unwrap().into_data(),
+            Err(e) => panic!("query failed incorrectly: {e:?}"),
+        };
+
+        assert_eq!(
+            result.len(),
+            versioned_hashes.map_or(num_blobs, |versioned_hashes| versioned_hashes.len())
+        );
+
+        self
+    }
+
+    pub async fn test_get_blobs_post_fulu_full_node(self, versioned_hashes: bool) -> Self {
+        let block_id = BlockId(CoreBlockId::Finalized);
+        let (block_root, _, _) = block_id.root(&self.chain).unwrap();
+        let (block, _, _) = block_id.full_block(&self.chain).await.unwrap();
+
+        let versioned_hashes: Option<Vec<Hash256>> = if versioned_hashes {
+            Some(
+                block
+                    .message()
+                    .body()
+                    .blob_kzg_commitments()
+                    .unwrap()
+                    .iter()
+                    .map(|commitment| commitment.calculate_versioned_hash())
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
+        match self
+            .client
+            .get_blobs::<E>(CoreBlockId::Root(block_root), versioned_hashes.as_deref())
+            .await
+        {
+            Ok(result) => panic!("Full node are unable to return blobs post-Fulu: {result:?}"),
+            // Post-Fulu, full nodes don't store blobs and return error 500
+            Err(e) => assert_eq!(e.status().unwrap(), 500),
+        };
 
         self
     }
@@ -1921,7 +1989,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
+            .get_blob_sidecars::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => {
@@ -1959,7 +2027,7 @@ impl ApiTester {
 
         match self
             .client
-            .get_blobs::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
+            .get_blob_sidecars::<E>(CoreBlockId::Slot(test_slot), None, &self.chain.spec)
             .await
         {
             Ok(result) => panic!("queries for pre-Deneb slots should fail. got: {result:?}"),
@@ -3405,7 +3473,7 @@ impl ApiTester {
                 PublishBlockRequest::try_from(Arc::new(signed_block.clone())).unwrap();
 
             self.client
-                .post_beacon_blocks(&signed_block_contents)
+                .post_beacon_blocks_v2(&signed_block_contents, None)
                 .await
                 .unwrap();
 
@@ -3470,7 +3538,7 @@ impl ApiTester {
                 block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
             self.client
-                .post_beacon_blocks_ssz(&signed_block_contents)
+                .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
                 .await
                 .unwrap();
 
@@ -3588,7 +3656,7 @@ impl ApiTester {
                         block_contents.sign(&sk, &fork, genesis_validators_root, &self.chain.spec);
 
                     self.client
-                        .post_beacon_blocks_ssz(&signed_block_contents)
+                        .post_beacon_blocks_v2_ssz(&signed_block_contents, None)
                         .await
                         .unwrap();
 
@@ -6394,7 +6462,7 @@ impl ApiTester {
         });
 
         self.client
-            .post_beacon_blocks(&self.next_block)
+            .post_beacon_blocks_v2(&self.next_block, None)
             .await
             .unwrap();
 
@@ -6439,7 +6507,7 @@ impl ApiTester {
         self.harness.advance_slot();
 
         self.client
-            .post_beacon_blocks(&self.reorg_block)
+            .post_beacon_blocks_v2(&self.reorg_block, None)
             .await
             .unwrap();
 
@@ -6661,7 +6729,7 @@ impl ApiTester {
         });
 
         self.client
-            .post_beacon_blocks(&self.next_block)
+            .post_beacon_blocks_v2(&self.next_block, None)
             .await
             .unwrap();
 
@@ -7707,10 +7775,7 @@ async fn builder_payload_chosen_by_profit_v3() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_capella() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7727,10 +7792,7 @@ async fn builder_works_post_capella() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn builder_works_post_deneb() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7748,10 +7810,7 @@ async fn builder_works_post_deneb() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn get_blob_sidecars() {
-    let mut config = ApiTesterConfig {
-        retain_historic_states: false,
-        spec: E::default_spec(),
-    };
+    let mut config = ApiTesterConfig::default();
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
     config.spec.capella_fork_epoch = Some(Epoch::new(0));
@@ -7764,6 +7823,53 @@ async fn get_blob_sidecars() {
         .test_get_blob_sidecars(false)
         .await
         .test_get_blob_sidecars(true)
+        .await
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blobs_post_fulu_supernode() {
+    let mut config = ApiTesterConfig {
+        retain_historic_states: false,
+        spec: E::default_spec(),
+        // For supernode, we import all data columns
+        import_all_data_columns: true,
+    };
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        // We can call the same get_blobs function in this test
+        // because the function will call get_blobs_by_versioned_hashes which handles peerDAS post-Fulu
+        .test_get_blobs(false)
+        .await
+        .test_get_blobs(true)
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn get_blobs_post_fulu_full_node() {
+    let mut config = ApiTesterConfig::default();
+    config.spec.altair_fork_epoch = Some(Epoch::new(0));
+    config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    config.spec.capella_fork_epoch = Some(Epoch::new(0));
+    config.spec.deneb_fork_epoch = Some(Epoch::new(0));
+    config.spec.electra_fork_epoch = Some(Epoch::new(0));
+    config.spec.fulu_fork_epoch = Some(Epoch::new(0));
+
+    ApiTester::new_from_config(config)
+        .await
+        .test_get_blobs_post_fulu_full_node(false)
+        .await
+        .test_get_blobs_post_fulu_full_node(true)
         .await;
 }
 
@@ -7829,7 +7935,7 @@ async fn lighthouse_endpoints() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn optimistic_responses() {
-    ApiTester::new_with_hard_forks(true, true)
+    ApiTester::new_with_hard_forks()
         .await
         .test_check_optimistic_responses()
         .await;

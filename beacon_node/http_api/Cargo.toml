@@ -26,6 +26,7 @@ logging = { workspace = true }
 lru = { workspace = true }
 metrics = { workspace = true }
 network = { workspace = true }
+network_utils = { workspace = true }
 operation_pool = { workspace = true }
 parking_lot = { workspace = true }
 proto_array = { workspace = true }

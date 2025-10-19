@@ -34,7 +34,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
-use tokio::sync::mpsc::error::TrySendError;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
@@ -610,7 +609,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         parent = None,
         level = "debug",
         skip_all,
-        fields(slot = ?column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
+        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index),
     )]
     pub async fn process_gossip_data_column_sidecar(
         self: &Arc<Self>,
@@ -709,6 +708,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     | GossipDataColumnError::InvalidKzgProof { .. }
                     | GossipDataColumnError::UnexpectedDataColumn
                     | GossipDataColumnError::InvalidColumnIndex(_)
+                    | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
                     | GossipDataColumnError::InconsistentCommitmentsLength { .. }
                     | GossipDataColumnError::InconsistentProofsLength { .. }
                     | GossipDataColumnError::NotFinalizedDescendant { .. } => {
@@ -840,7 +840,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             }
             Err(err) => {
                 match err {
-                    GossipBlobError::BlobParentUnknown { parent_root } => {
+                    GossipBlobError::ParentUnknown { parent_root } => {
                         debug!(
                             action = "requesting parent",
                             block_root = %root,
@@ -1054,35 +1054,43 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         "Processed data column, waiting for other components"
                     );
 
-                    // Instead of triggering reconstruction immediately, schedule it to be run. If
-                    // another column arrives it either completes availability or pushes
-                    // reconstruction back a bit.
-                    let cloned_self = Arc::clone(self);
-                    let block_root = *block_root;
-                    let send_result = self.beacon_processor_send.try_send(WorkEvent {
-                        drop_during_sync: false,
-                        work: Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
-                            QueuedColumnReconstruction {
-                                block_root,
-                                process_fn: Box::pin(async move {
-                                    cloned_self
-                                        .attempt_data_column_reconstruction(block_root, true)
-                                        .await;
-                                }),
-                            },
-                        )),
-                    });
-                    if let Err(TrySendError::Full(WorkEvent {
-                        work:
-                            Work::Reprocess(ReprocessQueueMessage::DelayColumnReconstruction(
-                                reconstruction,
-                            )),
-                        ..
-                    })) = send_result
+                    if self
+                        .chain
+                        .data_availability_checker
+                        .custody_context()
+                        .should_attempt_reconstruction(
+                            slot.epoch(T::EthSpec::slots_per_epoch()),
+                            &self.chain.spec,
+                        )
                     {
-                        warn!("Unable to send reconstruction to reprocessing");
-                        // Execute it immediately instead.
-                        reconstruction.process_fn.await;
+                        // Instead of triggering reconstruction immediately, schedule it to be run. If
+                        // another column arrives, it either completes availability or pushes
+                        // reconstruction back a bit.
+                        let cloned_self = Arc::clone(self);
+                        let block_root = *block_root;
+
+                        if self
+                            .beacon_processor_send
+                            .try_send(WorkEvent {
+                                drop_during_sync: false,
+                                work: Work::Reprocess(
+                                    ReprocessQueueMessage::DelayColumnReconstruction(
+                                        QueuedColumnReconstruction {
+                                            block_root,
+                                            slot: *slot,
+                                            process_fn: Box::pin(async move {
+                                                cloned_self
+                                                    .attempt_data_column_reconstruction(block_root)
+                                                    .await;
+                                            }),
+                                        },
+                                    ),
+                                ),
+                            })
+                            .is_err()
+                        {
+                            warn!("Unable to send reconstruction to reprocessing");
+                        }
                     }
                 }
             },
@@ -1493,11 +1501,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let result = self
             .chain
-            .process_block_with_early_caching(
+            .process_block(
                 block_root,
                 verified_block,
-                BlockImportSource::Gossip,
                 NotifyExecutionLayer::Yes,
+                BlockImportSource::Gossip,
+                || Ok(()),
             )
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "block");

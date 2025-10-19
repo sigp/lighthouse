@@ -299,7 +299,7 @@ impl<E: EthSpec> StateCache<E> {
         None
     }
 
-    #[instrument(skip(self), level = "debug")]
+    #[instrument(skip_all, fields(?block_root, %slot), level = "debug")]
     pub fn get_by_block_root(
         &mut self,
         block_root: Hash256,

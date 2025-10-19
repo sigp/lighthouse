@@ -23,7 +23,7 @@ pub use rust_eth_kzg::{
     constants::{BYTES_PER_CELL, CELLS_PER_EXT_BLOB},
     Cell, CellIndex as CellID, CellRef, TrustedSetup as PeerDASTrustedSetup,
 };
-use tracing::instrument;
+use tracing::{instrument, Span};
 
 /// Disables the fixed-base multi-scalar multiplication optimization for computing
 /// cell KZG proofs, because `rust-eth-kzg` already handles the precomputation.
@@ -269,6 +269,7 @@ impl Kzg {
                 .push((cell, *proof, *commitment));
         }
 
+        let span = Span::current();
         column_groups
             .into_par_iter()
             .map(|(column_index, column_data)| {
@@ -286,6 +287,7 @@ impl Kzg {
                 // This is safe from span explosion as we have at most 128 chunks,
                 // i.e. the number of column indices.
                 let _span = tracing::debug_span!(
+                    parent: span.clone(),
                     "verify_cell_proof_chunk",
                     cells = cells.len(),
                     column_index,

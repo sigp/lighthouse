@@ -1,9 +1,9 @@
 #![cfg(test)]
 use lighthouse_network::Enr;
-use lighthouse_network::EnrExt;
 use lighthouse_network::Multiaddr;
 use lighthouse_network::service::Network as LibP2PService;
 use lighthouse_network::{NetworkConfig, NetworkEvent};
+use network_utils::enr_ext::EnrExt;
 use std::sync::Arc;
 use std::sync::Weak;
 use tokio::runtime::Runtime;

@@ -498,7 +498,7 @@ impl BeaconNodeHttpClient {
             .post(url)
             .timeout(timeout.unwrap_or(self.timeouts.default));
         let response = builder.json(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -518,7 +518,7 @@ impl BeaconNodeHttpClient {
             .json(body)
             .send()
             .await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function that includes octet-stream content type header.
@@ -535,7 +535,7 @@ impl BeaconNodeHttpClient {
             HeaderValue::from_static("application/octet-stream"),
         );
         let response = builder.headers(headers).json(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -560,7 +560,7 @@ impl BeaconNodeHttpClient {
             HeaderValue::from_static("application/octet-stream"),
         );
         let response = builder.headers(headers).body(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// `GET beacon/genesis`
@@ -1257,16 +1257,17 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version(
-            self.post_beacon_blocks_v2_path(validation_level)?,
-            block_contents,
-            Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version(
+                self.post_beacon_blocks_v2_path(validation_level)?,
+                block_contents,
+                Some(self.timeouts.proposal),
+                block_contents.signed_block().message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blocks`
@@ -1274,16 +1275,17 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version_and_ssz_body(
-            self.post_beacon_blocks_v2_path(validation_level)?,
-            block_contents.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version_and_ssz_body(
+                self.post_beacon_blocks_v2_path(validation_level)?,
+                block_contents.as_ssz_bytes(),
+                Some(self.timeouts.proposal),
+                block_contents.signed_block().message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blinded_blocks`
@@ -1291,16 +1293,17 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version(
-            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            signed_block,
-            Some(self.timeouts.proposal),
-            signed_block.message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version(
+                self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+                signed_block,
+                Some(self.timeouts.proposal),
+                signed_block.message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blinded_blocks`
@@ -1308,16 +1311,17 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version_and_ssz_body(
-            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            signed_block.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            signed_block.message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version_and_ssz_body(
+                self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+                signed_block.as_ssz_bytes(),
+                Some(self.timeouts.proposal),
+                signed_block.message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// Path for `v2/beacon/blocks`
@@ -1332,12 +1336,23 @@ impl BeaconNodeHttpClient {
     }
 
     /// Path for `v1/beacon/blob_sidecars/{block_id}`
-    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+    pub fn get_blob_sidecars_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("blob_sidecars")
+            .push(&block_id.to_string());
+        Ok(path)
+    }
+
+    /// Path for `v1/beacon/blobs/{blob_id}`
+    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blobs")
             .push(&block_id.to_string());
         Ok(path)
     }
@@ -1370,13 +1385,13 @@ impl BeaconNodeHttpClient {
     /// `GET v1/beacon/blob_sidecars/{block_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_blobs<E: EthSpec>(
+    pub async fn get_blob_sidecars<E: EthSpec>(
         &self,
         block_id: BlockId,
         indices: Option<&[u64]>,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BlobSidecarList<E>>>, Error> {
-        let mut path = self.get_blobs_path(block_id)?;
+        let mut path = self.get_blob_sidecars_path(block_id)?;
         if let Some(indices) = indices {
             let indices_string = indices
                 .iter()
@@ -1394,6 +1409,31 @@ impl BeaconNodeHttpClient {
         })
         .await
         .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET v1/beacon/blobs/{block_id}`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_blobs<E: EthSpec>(
+        &self,
+        block_id: BlockId,
+        versioned_hashes: Option<&[Hash256]>,
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<BlobWrapper<E>>>>, Error>
+    {
+        let mut path = self.get_blobs_path(block_id)?;
+        if let Some(hashes) = versioned_hashes {
+            let hashes_string = hashes
+                .iter()
+                .map(|hash| hash.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut()
+                .append_pair("versioned_hashes", &hashes_string);
+        }
+
+        self.get_opt(path)
+            .await
+            .map(|opt| opt.map(BeaconResponse::Unversioned))
     }
 
     /// `GET v1/beacon/blinded_blocks/{block_id}`
@@ -2893,6 +2933,23 @@ pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
     if status == StatusCode::OK {
+        Ok(response)
+    } else if let Ok(message) = response.json().await {
+        match message {
+            ResponseError::Message(message) => Err(Error::ServerMessage(message)),
+            ResponseError::Indexed(indexed) => Err(Error::ServerIndexedMessage(indexed)),
+        }
+    } else {
+        Err(Error::StatusCode(status))
+    }
+}
+
+/// Returns `Ok(response)` if the response is a success (2xx) response. Otherwise, creates an
+/// appropriate error message.
+pub async fn success_or_error(response: Response) -> Result<Response, Error> {
+    let status = response.status();
+
+    if status.is_success() {
         Ok(response)
     } else if let Ok(message) = response.json().await {
         match message {

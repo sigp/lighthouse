@@ -39,6 +39,7 @@ EthStaker
 Exercism
 Extractable
 FFG
+Fulu
 Geth
 GiB
 Gitcoin
@@ -187,6 +188,7 @@ namespace
 natively
 nd
 ness
+nextest
 nginx
 nitty
 oom
