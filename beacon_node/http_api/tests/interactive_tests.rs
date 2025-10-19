@@ -946,10 +946,10 @@ async fn queue_attestations_from_http() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposer_duties_with_gossip_tolerance() {
     let validator_count = 24;
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
 
-    let tester = InteractiveTester::<E>::new(Some(spec.clone()), validator_count).await;
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
     let harness = &tester.harness;
+    let spec = &harness.spec;
     let client = &tester.client;
 
     let num_initial = 4 * E::slots_per_epoch() - 1;
@@ -991,7 +991,7 @@ async fn proposer_duties_with_gossip_tolerance() {
     // To trigger it, we need to prime the proposer shuffling cache with an incorrect entry which
     // the previous code would be liable to lookup due to the bugs in its decision root calculation.
     let wrong_decision_root = head_state
-        .proposer_shuffling_decision_root(head_block_root, &spec)
+        .proposer_shuffling_decision_root(head_block_root, spec)
         .unwrap();
     let wrong_proposer_indices = vec![0; E::slots_per_epoch() as usize];
     harness
@@ -1015,7 +1015,11 @@ async fn proposer_duties_with_gossip_tolerance() {
     assert_eq!(
         proposer_duties_tolerant_current_epoch.dependent_root,
         head_state
-            .proposer_shuffling_decision_root_at_epoch(tolerant_current_epoch, Hash256::ZERO, &spec)
+            .proposer_shuffling_decision_root_at_epoch(
+                tolerant_current_epoch,
+                head_block_root,
+                spec
+            )
             .unwrap()
     );
     assert_ne!(

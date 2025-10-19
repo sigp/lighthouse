@@ -1571,7 +1571,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
     let store = get_store_generic(&db_path, Default::default(), spec.clone());
     let validators_keypairs =
         types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
-    let harness = TestHarness::builder(MinimalEthSpec)
+    let harness = TestHarness::builder(E::default())
         .spec(spec.into())
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
