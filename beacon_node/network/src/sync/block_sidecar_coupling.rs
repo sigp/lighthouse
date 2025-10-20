@@ -2,7 +2,7 @@ use beacon_chain::{
     block_verification_types::RpcBlock, data_column_verification::CustodyDataColumn, get_block_root,
 };
 use lighthouse_network::{
-    PeerAction, PeerId,
+    PeerId,
     service::api_types::{
         BlobsByRangeRequestId, BlocksByRangeRequestId, DataColumnsByRangeRequestId,
     },
@@ -63,7 +63,6 @@ pub(crate) enum CouplingError {
     DataColumnPeerFailure {
         error: String,
         faulty_peers: Vec<(ColumnIndex, PeerId)>,
-        action: PeerAction,
         exceeded_retries: bool,
     },
     BlobPeerFailure(String),
@@ -253,7 +252,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                 if let Err(CouplingError::DataColumnPeerFailure {
                     error: _,
                     faulty_peers,
-                    action: _,
                     exceeded_retries: _,
                 }) = &resp
                 {
@@ -377,7 +375,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     return Err(CouplingError::DataColumnPeerFailure {
                         error: format!("No columns for block {block_root:?} with data"),
                         faulty_peers: responsible_peers,
-                        action: PeerAction::LowToleranceError,
                         exceeded_retries,
 
                     });
@@ -402,7 +399,6 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
                     return Err(CouplingError::DataColumnPeerFailure {
                         error: format!("Peers did not return column for block_root {block_root:?} {naughty_peers:?}"),
                         faulty_peers: naughty_peers,
-                        action: PeerAction::LowToleranceError,
                         exceeded_retries
                     });
                 }
@@ -468,7 +464,7 @@ mod tests {
         NumBlobs, generate_rand_block_and_blobs, generate_rand_block_and_data_columns, test_spec,
     };
     use lighthouse_network::{
-        PeerAction, PeerId,
+        PeerId,
         service::api_types::{
             BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
             DataColumnsByRangeRequestId, Id, RangeRequestId,
@@ -785,7 +781,6 @@ mod tests {
         if let Err(super::CouplingError::DataColumnPeerFailure {
             error,
             faulty_peers,
-            action,
             exceeded_retries,
         }) = result
         {
@@ -793,7 +788,6 @@ mod tests {
             assert_eq!(faulty_peers.len(), 2); // columns 3 and 4 missing
             assert_eq!(faulty_peers[0].0, 3); // column index 3
             assert_eq!(faulty_peers[1].0, 4); // column index 4
-            assert!(matches!(action, PeerAction::LowToleranceError));
             assert!(!exceeded_retries); // First attempt, should be false
         } else {
             panic!("Expected PeerFailure error");
@@ -957,13 +951,11 @@ mod tests {
         if let Err(super::CouplingError::DataColumnPeerFailure {
             error: _,
             faulty_peers,
-            action,
             exceeded_retries,
         }) = result
         {
             assert_eq!(faulty_peers.len(), 1); // column 2 missing
             assert_eq!(faulty_peers[0].0, 2); // column index 2
-            assert!(matches!(action, PeerAction::LowToleranceError));
             assert!(exceeded_retries); // Should be true after max retries
         } else {
             panic!("Expected PeerFailure error with exceeded_retries=true");
