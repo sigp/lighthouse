@@ -1721,7 +1721,7 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     spec.fulu_fork_epoch = Some(Epoch::new(1));
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
-    let mut rig = TestRig::new_parametric(64, BeaconProcessorConfig::default(), spec).await;
+    let mut rig = TestRig::new_parametric(64, BeaconProcessorConfig::default(), false, spec).await;
 
     let start_slot = 16;
     // This will span from epoch 0 (Electra) to epoch 1 (Fulu)

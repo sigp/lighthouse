@@ -3,7 +3,7 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
+use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
@@ -310,7 +310,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 let block_root = blob_id.block_root;
                 self.chain
                     .data_availability_checker
-                    .get_execution_valid_block(&block_root)
+                    .get_cached_block(&block_root)
+                    .and_then(|status| match status {
+                        BlockProcessStatus::NotValidated(block, _source) => Some(block),
+                        BlockProcessStatus::ExecutionValidated(block) => Some(block),
+                        BlockProcessStatus::Unknown => None,
+                    })
                     .or_else(|| self.chain.early_attester_cache.get_block(block_root))
                     .map(|block| (block_root, block.slot()))
             })
