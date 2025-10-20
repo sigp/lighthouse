@@ -3,7 +3,7 @@ use crate::network_beacon_processor::{FUTURE_SLOT_TOLERANCE, NetworkBeaconProces
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
+use beacon_chain::{BeaconChainError, BeaconChainTypes, BlockProcessStatus, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
@@ -293,21 +293,49 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
-        let Some(requested_root) = request.blob_ids.as_slice().first().map(|id| id.block_root)
-        else {
-            // No blob ids requested.
-            return Ok(());
-        };
-        let requested_indices = request
-            .blob_ids
-            .as_slice()
-            .iter()
-            .map(|id| id.index)
-            .collect::<Vec<_>>();
         let mut send_blob_count = 0;
 
+        let fulu_start_slot = self
+            .chain
+            .spec
+            .fulu_fork_epoch
+            .map(|epoch| epoch.start_slot(T::EthSpec::slots_per_epoch()));
+
         let mut blob_list_results = HashMap::new();
+
+        let slots_by_block_root: HashMap<Hash256, Slot> = request
+            .blob_ids
+            .iter()
+            .flat_map(|blob_id| {
+                let block_root = blob_id.block_root;
+                self.chain
+                    .data_availability_checker
+                    .get_cached_block(&block_root)
+                    .and_then(|status| match status {
+                        BlockProcessStatus::NotValidated(block, _source) => Some(block),
+                        BlockProcessStatus::ExecutionValidated(block) => Some(block),
+                        BlockProcessStatus::Unknown => None,
+                    })
+                    .or_else(|| self.chain.early_attester_cache.get_block(block_root))
+                    .map(|block| (block_root, block.slot()))
+            })
+            .collect();
+
         for id in request.blob_ids.as_slice() {
+            let BlobIdentifier {
+                block_root: root,
+                index,
+            } = id;
+
+            let slot = slots_by_block_root.get(root);
+
+            // Skip if slot is >= fulu_start_slot
+            if let (Some(slot), Some(fulu_slot)) = (slot, fulu_start_slot)
+                && *slot >= fulu_slot
+            {
+                continue;
+            }
+
             // First attempt to get the blobs from the RPC cache.
             if let Ok(Some(blob)) = self.chain.data_availability_checker.get_blob(id) {
                 self.send_response(
@@ -317,11 +345,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 );
                 send_blob_count += 1;
             } else {
-                let BlobIdentifier {
-                    block_root: root,
-                    index,
-                } = id;
-
                 let blob_list_result = match blob_list_results.entry(root) {
                     Entry::Vacant(entry) => {
                         entry.insert(self.chain.get_blobs_checking_early_attester_cache(root))
@@ -331,16 +354,15 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 match blob_list_result.as_ref() {
                     Ok(blobs_sidecar_list) => {
-                        'inner: for blob_sidecar in blobs_sidecar_list.iter() {
-                            if blob_sidecar.index == *index {
-                                self.send_response(
-                                    peer_id,
-                                    inbound_request_id,
-                                    Response::BlobsByRoot(Some(blob_sidecar.clone())),
-                                );
-                                send_blob_count += 1;
-                                break 'inner;
-                            }
+                        if let Some(blob_sidecar) =
+                            blobs_sidecar_list.iter().find(|b| b.index == *index)
+                        {
+                            self.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                Response::BlobsByRoot(Some(blob_sidecar.clone())),
+                            );
+                            send_blob_count += 1;
                         }
                     }
                     Err(e) => {
@@ -354,10 +376,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 }
             }
         }
+
         debug!(
             %peer_id,
-            %requested_root,
-            ?requested_indices,
+            block_root = ?slots_by_block_root.keys(),
             returned = send_blob_count,
             "BlobsByRoot outgoing response processed"
         );
@@ -1003,6 +1025,34 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         );
 
         let request_start_slot = Slot::from(req.start_slot);
+        let request_start_epoch = request_start_slot.epoch(T::EthSpec::slots_per_epoch());
+        let fork_name = self.chain.spec.fork_name_at_epoch(request_start_epoch);
+        // Should not send more than max request blob sidecars
+        if req.max_blobs_requested(request_start_epoch, &self.chain.spec)
+            > self.chain.spec.max_request_blob_sidecars(fork_name) as u64
+        {
+            return Err((
+                RpcErrorResponse::InvalidRequest,
+                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
+            ));
+        }
+
+        let effective_count = if let Some(fulu_epoch) = self.chain.spec.fulu_fork_epoch {
+            let fulu_start_slot = fulu_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let request_end_slot = request_start_slot.saturating_add(req.count) - 1;
+
+            // If the request_start_slot is at or after a Fulu slot, return an empty response
+            if request_start_slot >= fulu_start_slot {
+                return Ok(());
+            // For the case that the request slots spans across the Fulu fork slot
+            } else if request_end_slot >= fulu_start_slot {
+                (fulu_start_slot - request_start_slot).as_u64()
+            } else {
+                req.count
+            }
+        } else {
+            req.count
+        };
 
         let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
             Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
@@ -1040,7 +1090,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
 
         let block_roots =
-            self.get_block_roots_for_slot_range(req.start_slot, req.count, "BlobsByRange")?;
+            self.get_block_roots_for_slot_range(req.start_slot, effective_count, "BlobsByRange")?;
 
         let current_slot = self
             .chain
@@ -1067,7 +1117,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         // Due to skip slots, blobs could be out of the range, we ensure they
                         // are in the range before sending
                         if blob_sidecar.slot() >= request_start_slot
-                            && blob_sidecar.slot() < request_start_slot + req.count
+                            && blob_sidecar.slot() < request_start_slot + effective_count
                         {
                             blobs_sent += 1;
                             self.send_network_message(NetworkMessage::SendResponse {
@@ -1148,7 +1198,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         if req.max_requested::<T::EthSpec>() > self.chain.spec.max_request_data_column_sidecars {
             return Err((
                 RpcErrorResponse::InvalidRequest,
-                "Request exceeded `MAX_REQUEST_BLOBS_SIDECARS`",
+                "Request exceeded `MAX_REQUEST_DATA_COLUMN_SIDECARS`",
             ));
         }
 
