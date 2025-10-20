@@ -339,6 +339,20 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .put_kzg_verified_data_columns(block_root, custody_columns)
     }
 
+    /// Put execution proofs into the availability cache as pending components.
+    ///
+    /// Returns `Availability` which has information about whether all components have been
+    /// received or more are required.
+    #[instrument(skip_all, level = "trace")]
+    pub fn put_verified_execution_proofs<I: IntoIterator<Item = types::ExecutionProof>>(
+        &self,
+        block_root: Hash256,
+        execution_proofs: I,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        self.availability_cache
+            .put_verified_execution_proofs(block_root, execution_proofs)
+    }
+
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
     /// about whether all components have been received or more are required.
     pub fn put_executed_block(

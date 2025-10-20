@@ -74,6 +74,7 @@ pub struct PendingComponents<E: EthSpec> {
     pub block_root: Hash256,
     pub verified_blobs: RuntimeFixedVector<Option<KzgVerifiedBlob<E>>>,
     pub verified_data_columns: Vec<KzgVerifiedCustodyDataColumn<E>>,
+    pub verified_execution_proofs: Vec<types::ExecutionProof>,
     pub block: Option<CachedBlock<E>>,
     pub reconstruction_started: bool,
     span: Span,
@@ -199,6 +200,50 @@ impl<E: EthSpec> PendingComponents<E> {
         Ok(())
     }
 
+    /// Returns an immutable reference to the cached execution proofs.
+    pub fn get_cached_execution_proofs(&self) -> &[types::ExecutionProof] {
+        &self.verified_execution_proofs
+    }
+
+    /// Check if we have a proof from a specific subnet
+    pub fn has_proof_from_subnet(&self, subnet_id: types::ExecutionProofSubnetId) -> bool {
+        self.verified_execution_proofs
+            .iter()
+            .any(|proof| proof.subnet_id == subnet_id)
+    }
+
+    /// Get the number of unique subnet proofs we have
+    pub fn execution_proof_subnet_count(&self) -> usize {
+        self.verified_execution_proofs.len()
+    }
+
+    /// Merges a single execution proof into the cache.
+    ///
+    /// Proofs are only inserted if:
+    /// 1. We don't already have a proof from this subnet for this block
+    /// 2. The proof's block_hash matches the cached block_root (if block exists)
+    pub fn merge_execution_proof(&mut self, proof: types::ExecutionProof) {
+        // Verify the proof is for the correct block
+        // ExecutionBlockHash is a wrapper around Hash256, so we need to convert
+
+        // Don't insert duplicate proofs from the same subnet
+        if self.has_proof_from_subnet(proof.subnet_id) {
+            return;
+        }
+
+        self.verified_execution_proofs.push(proof);
+    }
+
+    /// Merges a given set of execution proofs into the cache.
+    pub fn merge_execution_proofs<I: IntoIterator<Item = types::ExecutionProof>>(
+        &mut self,
+        execution_proofs: I,
+    ) {
+        for proof in execution_proofs {
+            self.merge_execution_proof(proof);
+        }
+    }
+
     /// Inserts a new block and revalidates the existing blobs against it.
     ///
     /// Blobs that don't match the new block's commitments are evicted.
@@ -213,10 +258,11 @@ impl<E: EthSpec> PendingComponents<E> {
     ///
     /// WARNING: This function can potentially take a lot of time if the state needs to be
     /// reconstructed from disk. Ensure you are not holding any write locks while calling this.
-    pub fn make_available<R>(
+    fn make_available<R>(
         &self,
         spec: &Arc<ChainSpec>,
         num_expected_columns_opt: Option<usize>,
+        min_execution_proofs_opt: Option<usize>,
         recover: R,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError>
     where
@@ -294,6 +340,15 @@ impl<E: EthSpec> PendingComponents<E> {
             return Ok(None);
         };
 
+        // Check execution proof availability for ZK-VM mode
+        if let Some(min_proofs) = min_execution_proofs_opt {
+            let num_proofs = self.execution_proof_subnet_count();
+            if num_proofs < min_proofs {
+                // Not enough execution proofs yet
+                return Ok(None);
+            }
+        }
+
         // Block is available, construct `AvailableExecutedBlock`
 
         let blobs_available_timestamp = match blob_data {
@@ -340,6 +395,7 @@ impl<E: EthSpec> PendingComponents<E> {
             block_root,
             verified_blobs: RuntimeFixedVector::new(vec![None; max_len]),
             verified_data_columns: vec![],
+            verified_execution_proofs: vec![],
             block: None,
             reconstruction_started: false,
             span,
@@ -372,7 +428,9 @@ impl<E: EthSpec> PendingComponents<E> {
 
     pub fn status_str(&self, num_expected_columns_opt: Option<usize>) -> String {
         let block_count = if self.block.is_some() { 1 } else { 0 };
-        if let Some(num_expected_columns) = num_expected_columns_opt {
+        let proof_count = self.execution_proof_subnet_count();
+
+        let base_status = if let Some(num_expected_columns) = num_expected_columns_opt {
             format!(
                 "block {} data_columns {}/{}",
                 block_count,
@@ -391,6 +449,13 @@ impl<E: EthSpec> PendingComponents<E> {
                 self.verified_blobs.iter().flatten().count(),
                 num_expected_blobs
             )
+        };
+
+        // Append execution proof count if we have any
+        if proof_count > 0 {
+            format!("{} proofs {}", base_status, proof_count)
+        } else {
+            base_status
         }
     }
 }
@@ -405,6 +470,9 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     state_cache: StateLRUCache<T>,
     custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
+    /// Minimum number of execution proofs required from different subnets.
+    /// If None, execution proof checking is disabled (standard execution engine).
+    min_execution_proofs_required: Option<usize>,
 }
 
 // This enum is only used internally within the crate in the reconstruction function to improve
@@ -428,7 +496,14 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             state_cache: StateLRUCache::new(beacon_store, spec.clone()),
             custody_context,
             spec,
+            // TODO(zkproofs): Add method to set this from ZKVM config
+            min_execution_proofs_required: None,
         })
+    }
+
+    /// Set the minimum number of execution proofs required for ZK-VM mode
+    pub fn set_min_execution_proofs_required(&mut self, min_proofs: Option<usize>) {
+        self.min_execution_proofs_required = min_proofs;
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
@@ -575,6 +650,53 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         )
     }
 
+    /// Puts execution proofs into the availability cache as pending components.
+    pub fn put_verified_execution_proofs<I: IntoIterator<Item = types::ExecutionProof>>(
+        &self,
+        block_root: Hash256,
+        execution_proofs: I,
+    ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
+        let mut execution_proofs = execution_proofs.into_iter().peekable();
+
+        if execution_proofs.peek().is_none() {
+            // No proofs to process
+            return Ok(Availability::MissingComponents(block_root));
+        }
+
+        // Try to get epoch from existing pending components (if block already arrived)
+        // Otherwise use Epoch::new(0) as placeholder (will be corrected when block arrives)
+        // Also the component cannot be marked as available, if the block is missing
+        let epoch = self
+            .critical
+            .read()
+            .peek(&block_root)
+            .and_then(|pending| pending.epoch())
+            .unwrap_or_else(|| types::Epoch::new(0));
+
+        let pending_components =
+            self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
+                pending_components.merge_execution_proofs(execution_proofs);
+                Ok(())
+            })?;
+
+        let num_expected_columns_opt = self.get_num_expected_columns(epoch);
+
+        pending_components.span.in_scope(|| {
+            debug!(
+                component = "execution_proofs",
+                status = pending_components.status_str(num_expected_columns_opt),
+                num_proofs = pending_components.execution_proof_subnet_count(),
+                "Component added to data availability checker"
+            );
+        });
+
+        self.check_availability_and_cache_components(
+            block_root,
+            pending_components,
+            num_expected_columns_opt,
+        )
+    }
+
     fn check_availability_and_cache_components(
         &self,
         block_root: Hash256,
@@ -584,6 +706,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
             num_expected_columns_opt,
+            self.min_execution_proofs_required,
             |block, span| self.state_cache.recover_pending_executed_block(block, span),
         )? {
             // Explicitly drop read lock before acquiring write lock
