@@ -7,7 +7,7 @@ use beacon_chain::chain_config::{
 use beacon_chain::graffiti_calculator::GraffitiOrigin;
 use clap::{ArgMatches, Id, parser::ValueSource};
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
-use clap_utils::{parse_flag, parse_optional, parse_required};
+use clap_utils::{parse_flag, parse_required};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -421,6 +421,7 @@ pub fn get_config<E: EthSpec>(
         client_config.store.blob_prune_margin_epochs = blob_prune_margin_epochs;
     }
 
+    #[cfg(feature = "testing")]
     if let Some(malicious_withhold_count) =
         clap_utils::parse_optional(cli_args, "malicious-withhold-count")?
     {
@@ -835,10 +836,12 @@ pub fn get_config<E: EthSpec>(
         .max_gossip_aggregate_batch_size =
         clap_utils::parse_required(cli_args, "beacon-processor-aggregate-batch-size")?;
 
+    #[cfg(feature = "testing")]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-block-publishing")? {
         client_config.chain.block_publishing_delay = Some(Duration::from_secs_f64(delay));
     }
 
+    #[cfg(feature = "testing")]
     if let Some(delay) = clap_utils::parse_optional(cli_args, "delay-data-column-publishing")? {
         client_config.chain.data_column_publishing_delay = Some(Duration::from_secs_f64(delay));
     }
@@ -1145,8 +1148,9 @@ pub fn set_network_config(
         config.import_all_attestations = true;
     }
 
+    #[cfg(feature = "testing")]
     if let Some(advertise_false_custody_group_count) =
-        parse_optional(cli_args, "advertise-false-custody-group-count")?
+        clap_utils::parse_optional(cli_args, "advertise-false-custody-group-count")?
     {
         config.advertise_false_custody_group_count = Some(advertise_false_custody_group_count);
     }
