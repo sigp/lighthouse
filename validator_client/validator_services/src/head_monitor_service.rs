@@ -1,20 +1,16 @@
-use beacon_node_fallback::BeaconNodeFallback;
+use beacon_node_fallback::{BeaconHeadCache, BeaconNodeFallback};
 use eth2::types::EventTopic;
-use eth2::types::SseHead;
 use tokio::sync::mpsc;
+use tokio::time::{Duration, sleep};
 use tracing::{info, warn};
 
 use eth2::types::EventKind;
 use futures::StreamExt;
-use parking_lot::RwLock;
 use slot_clock::SlotClock;
-use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use validator_store::ValidatorStore;
-
-type CacheHashMap = HashMap<usize, SseHead>;
 
 // Builder for `HeadMonitorService`
 #[derive(Default)]
@@ -24,33 +20,6 @@ pub struct HeadMonitorServiceBuilder<S: ValidatorStore, T: SlotClock + 'static> 
     executor: Option<TaskExecutor>,
     beacon_head_cache: Option<Arc<BeaconHeadCache>>,
     head_monitor_tx: Option<Arc<mpsc::Sender<HeadEvent>>>,
-}
-
-// Cache to maintain the latest head received from each of the beacon nodes
-// in the `BeaconNodeFallback`
-pub struct BeaconHeadCache {
-    cache: RwLock<CacheHashMap>,
-}
-
-impl BeaconHeadCache {
-    pub fn get(&self, beacon_node_index: usize) -> Option<SseHead> {
-        self.cache.read().get(&beacon_node_index).cloned()
-    }
-
-    pub fn insert(&self, beacon_node_index: usize, head: SseHead) {
-        self.cache.write().insert(beacon_node_index, head);
-    }
-
-    pub fn is_latest(&self, head: &SseHead) -> bool {
-        let cache = self.cache.read();
-        cache
-            .values()
-            .all(|cache_head| head.slot >= cache_head.slot)
-    }
-
-    pub fn purge_cache(&self) {
-        self.cache.write().clear();
-    }
 }
 
 // This is used send the index derived from `CandidateBeaconNode` to the
@@ -96,9 +65,6 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorServiceBuil
         self
     }
     pub fn build(self) -> Result<HeadMonitorService<S, T>, String> {
-        let beacon_head_cache = Arc::new(BeaconHeadCache {
-            cache: RwLock::new(HashMap::new()),
-        });
         Ok(HeadMonitorService {
             inner: Arc::new(Inner {
                 _validator_store: self
@@ -110,7 +76,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorServiceBuil
                 executor: self
                     .executor
                     .ok_or("Cannot build HeadMonitorService without executor")?,
-                beacon_head_cache,
+                beacon_head_cache: self
+                    .beacon_head_cache
+                    .ok_or("Cannot build HeadMonitorService without beacon_head_cache")?,
                 head_monitor_tx: self
                     .head_monitor_tx
                     .ok_or("Cannot build HeadMonitorService without head_monitor_rx")?,
@@ -163,57 +131,68 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorService<S, 
 
         info!("Starting head monitoring service");
         let interval_fut = async move {
-            let candidates = {
-                let candidates_guard = self.beacon_nodes.candidates.read().await;
-                candidates_guard.clone()
-            };
-            let mut tasks = vec![];
-
-            for candidate in candidates.iter() {
-                let head_event_stream = candidate
-                    .beacon_node
-                    .get_events::<S::E>(&[EventTopic::Head])
-                    .await;
-
-                let mut head_event_stream = match head_event_stream {
-                    Ok(stream) => stream,
-                    Err(e) => {
-                        warn!("failed to get head event stream: {:?}", e);
-                        continue;
-                    }
+            loop {
+                let candidates = {
+                    let candidates_guard = self.beacon_nodes.candidates.read().await;
+                    candidates_guard.clone()
                 };
+                let mut tasks = vec![];
 
-                let head_cache_clone = head_cache.clone();
-                let sender_tx = self.head_monitor_tx.clone();
+                for candidate in candidates.iter() {
+                    let head_event_stream = candidate
+                        .beacon_node
+                        .get_events::<S::E>(&[EventTopic::Head])
+                        .await;
 
-                let stream_fut = async move {
-                    while let Some(event_result) = head_event_stream.next().await {
-                        if let Ok(EventKind::Head(head)) = event_result {
-                            head_cache_clone.insert(candidate.index, head.clone());
+                    let mut head_event_stream = match head_event_stream {
+                        Ok(stream) => stream,
+                        Err(e) => {
+                            warn!("failed to get head event stream: {:?}", e);
+                            continue;
+                        }
+                    };
 
-                            if head_cache_clone.is_latest(&head) {
-                                if let Ok(()) = sender_tx
-                                    .send(HeadEvent {
-                                        beacon_node_index: candidate.index,
-                                    })
-                                    .await
-                                {
-                                } else {
-                                    warn!("Head monitoring service channel closed");
-                                    break;
+                    let head_cache_clone = head_cache.clone();
+                    let sender_tx = self.head_monitor_tx.clone();
+
+                    let stream_fut = async move {
+                        while let Some(event_result) = head_event_stream.next().await {
+                            if let Ok(EventKind::Head(head)) = event_result {
+                                head_cache_clone.insert(candidate.index, head.clone()).await;
+
+                                if head_cache_clone.is_latest(&head).await {
+                                    if let Ok(()) = sender_tx
+                                        .send(HeadEvent {
+                                            beacon_node_index: candidate.index,
+                                        })
+                                        .await
+                                    {
+                                    } else {
+                                        warn!("Head monitoring service channel closed");
+                                        break;
+                                    }
                                 }
                             }
                         }
-                    }
-                };
+                    };
 
-                tasks.push(stream_fut);
+                    tasks.push(stream_fut);
+                }
+
+                if tasks.is_empty() {
+                    warn!("No beacon nodes available for head event streaming, retrying in 5 seconds");
+                    sleep(Duration::from_secs(5)).await;
+                    continue;
+                }
+
+                futures::future::join_all(tasks).await;
+
+                drop(candidates);
+                self.beacon_head_cache.purge_cache().await;
+
+                // Add a small delay before reconnecting to avoid hammering beacon nodes
+                sleep(Duration::from_secs(1)).await;
             }
-
-            futures::future::join_all(tasks).await;
-
-            drop(candidates);
-            self.beacon_head_cache.purge_cache();
         };
 
         executor.spawn(interval_fut, "head_monitor_service");

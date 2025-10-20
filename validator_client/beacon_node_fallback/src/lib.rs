@@ -8,12 +8,14 @@ use beacon_node_health::{
     SyncDistanceTier, check_node_health,
 };
 use clap::ValueEnum;
+use eth2::types::SseHead;
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use futures::future;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize, Serializer, ser::SerializeStruct};
 use slot_clock::SlotClock;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::future::Future;
@@ -47,6 +49,48 @@ const FUTURE_SLOT_TOLERANCE: Slot = Slot::new(1);
 #[derive(Copy, Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Config {
     pub sync_tolerances: BeaconNodeSyncDistanceTiers,
+}
+
+type CacheHashMap = HashMap<usize, SseHead>;
+
+/// Cache to maintain the latest head received from each of the beacon nodes
+/// in the `BeaconNodeFallback`.
+#[derive(Debug)]
+pub struct BeaconHeadCache {
+    cache: RwLock<CacheHashMap>,
+}
+
+impl BeaconHeadCache {
+    pub fn new() -> Self {
+        Self {
+            cache: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub async fn get(&self, beacon_node_index: usize) -> Option<SseHead> {
+        self.cache.read().await.get(&beacon_node_index).cloned()
+    }
+
+    pub async fn insert(&self, beacon_node_index: usize, head: SseHead) {
+        self.cache.write().await.insert(beacon_node_index, head);
+    }
+
+    pub async fn is_latest(&self, head: &SseHead) -> bool {
+        let cache = self.cache.read().await;
+        cache
+            .values()
+            .all(|cache_head| head.slot >= cache_head.slot)
+    }
+
+    pub async fn purge_cache(&self) {
+        self.cache.write().await.clear();
+    }
+}
+
+impl Default for BeaconHeadCache {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Indicates a measurement of latency between the VC and a BN.
@@ -378,6 +422,7 @@ impl CandidateBeaconNode {
 #[derive(Clone, Debug)]
 pub struct BeaconNodeFallback<T> {
     pub candidates: Arc<RwLock<Vec<CandidateBeaconNode>>>,
+    beacon_head_cache: Option<Arc<BeaconHeadCache>>,
     distance_tiers: BeaconNodeSyncDistanceTiers,
     slot_clock: Option<T>,
     broadcast_topics: Vec<ApiTopic>,
@@ -387,6 +432,7 @@ pub struct BeaconNodeFallback<T> {
 impl<T: SlotClock> BeaconNodeFallback<T> {
     pub fn new(
         candidates: Vec<CandidateBeaconNode>,
+        beacon_head_cache: Arc<BeaconHeadCache>,
         config: Config,
         broadcast_topics: Vec<ApiTopic>,
         spec: Arc<ChainSpec>,
@@ -394,6 +440,7 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         let distance_tiers = config.sync_tolerances;
         Self {
             candidates: Arc::new(RwLock::new(candidates)),
+            beacon_head_cache: Some(beacon_head_cache),
             distance_tiers,
             slot_clock: None,
             broadcast_topics,
@@ -408,6 +455,14 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
     /// from a beacon node.
     pub fn set_slot_clock(&mut self, slot_clock: T) {
         self.slot_clock = Some(slot_clock);
+    }
+
+    /// Set the beacon head cache reference.
+    ///
+    /// This is used to refresh beacon_head_cache in the `HeadMonitorService` to avoid dangling
+    /// reference to BNs when the candidate is change in the `update_candidates_list`
+    pub fn set_beacon_head_cache(&mut self, cache: Arc<BeaconHeadCache>) {
+        self.beacon_head_cache = Some(cache);
     }
 
     /// The count of candidates, regardless of their state.
@@ -492,6 +547,10 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
 
         let mut candidates = self.candidates.write().await;
         *candidates = new_candidates;
+
+        if let Some(cache) = &self.beacon_head_cache {
+            cache.purge_cache().await;
+        }
 
         Ok(new_list)
     }
@@ -962,8 +1021,17 @@ mod tests {
         topics: Vec<ApiTopic>,
         spec: Arc<ChainSpec>,
     ) -> BeaconNodeFallback<TestingSlotClock> {
-        let mut beacon_node_fallback =
-            BeaconNodeFallback::new(candidates, Config::default(), topics, spec);
+        let beacon_head_cache = Arc::new(BeaconHeadCache {
+            cache: RwLock::new(HashMap::new()),
+        });
+
+        let mut beacon_node_fallback = BeaconNodeFallback::new(
+            candidates,
+            beacon_head_cache,
+            Config::default(),
+            topics,
+            spec,
+        );
 
         beacon_node_fallback.set_slot_clock(TestingSlotClock::new(
             Slot::new(1),

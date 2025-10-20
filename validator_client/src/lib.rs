@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
-    BeaconNodeFallback, CandidateBeaconNode, start_fallback_updater_service,
+    BeaconHeadCache, BeaconNodeFallback, CandidateBeaconNode, start_fallback_updater_service,
 };
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
@@ -355,8 +355,11 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // Initialize the number of connected, avaliable beacon nodes to 0.
         set_gauge(&validator_metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
+        let beacon_head_cache = Arc::new(BeaconHeadCache::new());
+
         let mut beacon_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             candidates,
+            beacon_head_cache.clone(),
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
@@ -364,6 +367,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let mut proposer_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             proposer_candidates,
+            beacon_head_cache.clone(),
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
@@ -504,6 +508,7 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .executor(context.executor.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
+            .beacon_head_cache(beacon_head_cache.clone())
             .head_monitor_tx(Arc::new(head_sender))
             .build()?;
 
@@ -618,10 +623,12 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start preparation service: {}", e))?;
 
-        self.head_monitor_service
-            .clone()
-            .start_update_service()
-            .map_err(|e| format!("Unable to start head monitor service: {}", e))?;
+        if let Err(e) = self.head_monitor_service.clone().start_update_service() {
+            warn!(
+                error = %e,
+                "Unable to start head monitor service, validator client running compromised performance"
+            );
+        }
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(
