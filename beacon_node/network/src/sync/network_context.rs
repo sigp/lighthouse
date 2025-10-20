@@ -533,19 +533,21 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         batch_type: ByRangeRequestType,
         request: BlocksByRangeRequest,
         requester: RangeRequestId,
-        peers: &HashSet<PeerId>,
+        block_peers: &HashSet<PeerId>,
+        column_peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<Id, RpcRequestSendError> {
         let range_request_span = debug_span!(
             parent: None,
             SPAN_OUTGOING_RANGE_REQUEST,
             range_req_id = %requester,
-            peers = peers.len()
+            block_peers = block_peers.len(),
+            column_peers = column_peers.len()
         );
         let _guard = range_request_span.clone().entered();
         let active_request_count_by_peer = self.active_request_count_by_peer();
 
-        let Some(block_peer) = peers
+        let Some(block_peer) = block_peers
             .iter()
             .map(|peer| {
                 (
@@ -579,7 +581,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                     .collect();
                 Some(self.select_columns_by_range_peers_to_request(
                     &column_indexes,
-                    peers,
+                    column_peers,
                     active_request_count_by_peer,
                     peers_to_deprioritize,
                 )?)
@@ -770,7 +772,6 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let range_req = entry.get_mut();
         if let Some(blocks_result) = range_req.responses(&self.chain.spec) {
             if let Err(CouplingError::DataColumnPeerFailure {
-                action: _,
                 error,
                 faulty_peers: _,
                 exceeded_retries,

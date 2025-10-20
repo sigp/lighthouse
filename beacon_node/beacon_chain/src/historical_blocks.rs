@@ -140,7 +140,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Store the blobs or data columns too
             if let Some(op) = self
-                .get_blobs_or_columns_store_op(block_root, block_data)
+                .get_blobs_or_columns_store_op(block_root, block.slot(), block_data)
                 .map_err(|e| {
                     HistoricalBlockError::StoreError(StoreError::DBError {
                         message: format!("get_blobs_or_columns_store_op error {e:?}"),

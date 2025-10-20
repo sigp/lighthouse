@@ -84,8 +84,9 @@ pub const BACKFILL_SCHEDULE_IN_SLOT: [(u32, u32); 3] = [
     (4, 5),
 ];
 
-/// Trigger reconstruction if we are this many seconds into the current slot
-pub const RECONSTRUCTION_DEADLINE: Duration = Duration::from_millis(3000);
+/// Fraction of slot duration after which column reconstruction is triggered, makes it easier for
+/// different slot timings to have a generalised deadline
+pub const RECONSTRUCTION_DEADLINE: (u64, u64) = (1, 4);
 
 /// Messages that the scheduler can receive.
 #[derive(AsRefStr)]
@@ -756,13 +757,17 @@ impl<S: SlotClock> ReprocessQueue<S> {
             }
             InboundEvent::Msg(DelayColumnReconstruction(request)) => {
                 let mut reconstruction_delay = QUEUED_RECONSTRUCTION_DELAY;
+                let slot_duration = self.slot_clock.slot_duration().as_millis() as u64;
+                let reconstruction_deadline_millis =
+                    (slot_duration * RECONSTRUCTION_DEADLINE.0) / RECONSTRUCTION_DEADLINE.1;
+                let reconstruction_deadline = Duration::from_millis(reconstruction_deadline_millis);
                 if let Some(seconds_from_current_slot) =
                     self.slot_clock.seconds_from_current_slot_start()
                     && let Some(current_slot) = self.slot_clock.now()
-                    && seconds_from_current_slot >= RECONSTRUCTION_DEADLINE
+                    && seconds_from_current_slot >= reconstruction_deadline
                     && current_slot == request.slot
                 {
-                    // If we are at least `RECONSTRUCTION_DEADLINE` seconds into the current slot,
+                    // If we are at least `reconstruction_deadline` seconds into the current slot,
                     // and the reconstruction request is for the current slot, process reconstruction immediately.
                     reconstruction_delay = Duration::from_secs(0);
                 }

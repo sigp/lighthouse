@@ -1,8 +1,8 @@
 use crate::{
     SigningRoot, SlashingDatabase,
-    interchange::{Interchange, SignedAttestation, SignedBlock},
     test_utils::{DEFAULT_GENESIS_VALIDATORS_ROOT, pubkey},
 };
+use eip_3076::{Interchange, SignedAttestation, SignedBlock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use tempfile::tempdir;
