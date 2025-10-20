@@ -101,8 +101,10 @@ pub struct Inner<S, T> {
 // potential start attestion duties earlier as soon as latest head is receive from any of the
 // beacon node in contrast to attest at the 1/3rd mark in the slot.
 //
-// The cache and the candidate BNs list are periodically refresh/purged to avoid race condition that may
-// be arise due to change in ranking of beacon_nodes thus affecting the indices of beacon_nodes
+//
+// The cache and the candidate BNs list are refresh/purged to avoid dangling reference conditions
+// that arise due to `update_candidates_list`. The cache is refresh use the shared reference between
+// `HeadMonitorService` and `BeaconNodeFallback`.
 pub struct HeadMonitorService<S, T> {
     inner: Arc<Inner<S, T>>,
 }
