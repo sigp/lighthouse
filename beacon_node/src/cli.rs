@@ -60,8 +60,8 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("half-node")
-                .long("half-node")
+            Arg::new("semi-supernode")
+                .long("semi-supernode")
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .conflicts_with("supernode")
