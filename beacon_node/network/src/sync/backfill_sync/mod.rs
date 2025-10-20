@@ -219,7 +219,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     .network_globals
                     .peers
                     .read()
-                    .synced_peers_for_epoch(self.to_be_downloaded, None)
+                    .synced_peers_for_epoch(self.to_be_downloaded)
                     .next()
                     .is_some()
                     // backfill can't progress if we do not have peers in the required subnets post peerdas.
@@ -322,7 +322,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     CouplingError::DataColumnPeerFailure {
                         error,
                         faulty_peers,
-                        action,
                         exceeded_retries,
                     } => {
                         debug!(?batch_id, error, "Block components coupling error");
@@ -334,11 +333,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                             failed_columns.insert(*column);
                             failed_peers.insert(*peer);
                         }
-                        for peer in failed_peers.iter() {
-                            network.report_peer(*peer, *action, "failed to return columns");
-                        }
 
-                        // Only retry if peer failure **and** retries have been exceeded
+                        // Only retry if peer failure **and** retries haven't been exceeded
                         if !*exceeded_retries {
                             return self.retry_partial_batch(
                                 network,
@@ -897,7 +893,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .network_globals
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, None)
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -908,6 +904,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 request,
                 RangeRequestId::BackfillSync { batch_id },
                 &synced_peers,
+                &synced_peers, // All synced peers have imported up to the finalized slot so they must have their custody columns available
                 &failed_peers,
             ) {
                 Ok(request_id) => {
@@ -973,7 +970,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, None)
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 
