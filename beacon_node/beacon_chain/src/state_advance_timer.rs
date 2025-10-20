@@ -333,25 +333,54 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         .build_committee_cache(RelativeEpoch::Next, &beacon_chain.spec)
         .map_err(BeaconChainError::from)?;
 
-    // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer shuffling
-    // for the state's current epoch and the committee cache for the state's next epoch.
+    // The state root is required to prime the proposer cache AND for writing it to disk.
+    let advanced_state_root = state.update_tree_hash_cache()?;
+
+    // If the `pre_state` is in a later epoch than `state`, pre-emptively update the proposer
+    // shuffling and attester shuffling caches.
     if initial_epoch < state.current_epoch() {
-        // Update the proposer cache.
-        //
-        // We supply the `head_block_root` as the decision block since the prior `if` statement guarantees
-        // the head root is the latest block from the prior epoch.
-        beacon_chain
-            .beacon_proposer_cache
-            .lock()
-            .insert(
-                state.current_epoch(),
-                head_block_root,
-                state
-                    .get_beacon_proposer_indices(state.current_epoch(), &beacon_chain.spec)
-                    .map_err(BeaconChainError::from)?,
-                state.fork(),
-            )
-            .map_err(BeaconChainError::from)?;
+        // Include the proposer shuffling from the current epoch, which is likely to be useful
+        // pre-Fulu, and probably redundant post-Fulu (it should already have been in the cache).
+        let current_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
+            state.current_epoch(),
+            head_block_root,
+            &beacon_chain.spec,
+        )?;
+        beacon_chain.with_proposer_cache(
+            current_epoch_decision_root,
+            state.current_epoch(),
+            |_| Ok(()),
+            || {
+                debug!(
+                    shuffling_decision_root = ?current_epoch_decision_root,
+                    epoch = %state.current_epoch(),
+                    "Computing current epoch proposer shuffling in state advance"
+                );
+                Ok::<_, Error>((advanced_state_root, state.clone()))
+            },
+        )?;
+
+        // For epochs *greater than* the Fulu fork epoch, we have also determined the proposer
+        // shuffling for the next epoch.
+        let next_epoch = state.next_epoch()?;
+        let next_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
+            next_epoch,
+            head_block_root,
+            &beacon_chain.spec,
+        )?;
+        beacon_chain.with_proposer_cache(
+            next_epoch_decision_root,
+            next_epoch,
+            |_| Ok(()),
+            || {
+                debug!(
+                    shuffling_decision_root = ?next_epoch_decision_root,
+                    epoch = %next_epoch,
+                    "Computing next epoch proposer shuffling in state advance"
+                );
+                Ok::<_, Error>((advanced_state_root, state.clone()))
+            },
+        )?;
 
         // Update the attester cache.
         let shuffling_id =
@@ -406,7 +435,6 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     // even if we race with the deletion of this state by the finalization pruning code, the worst
     // case is we end up with a finalized state stored, that will get pruned the next time pruning
     // runs.
-    let advanced_state_root = state.update_tree_hash_cache()?;
     beacon_chain.store.put_state(&advanced_state_root, &state)?;
 
     debug!(
