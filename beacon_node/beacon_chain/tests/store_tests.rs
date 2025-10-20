@@ -13,7 +13,11 @@ use beacon_chain::test_utils::{
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
-    data_availability_checker::MaybeAvailableBlock, historical_blocks::HistoricalBlockError,
+    beacon_proposer_cache::{
+        compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
+    },
+    data_availability_checker::MaybeAvailableBlock,
+    historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
 };
 use logging::create_test_tracing_subscriber;
@@ -1273,19 +1277,34 @@ async fn proposer_shuffling_root_consistency_test(
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_same_epoch() {
     let spec = test_spec::<E>();
-    proposer_shuffling_root_consistency_test(spec, 32, 39).await;
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        5 * E::slots_per_epoch() - 1,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_next_epoch() {
     let spec = test_spec::<E>();
-    proposer_shuffling_root_consistency_test(spec, 32, 47).await;
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        6 * E::slots_per_epoch() - 1,
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn proposer_shuffling_root_consistency_two_epochs() {
     let spec = test_spec::<E>();
-    proposer_shuffling_root_consistency_test(spec, 32, 55).await;
+    proposer_shuffling_root_consistency_test(
+        spec,
+        4 * E::slots_per_epoch(),
+        7 * E::slots_per_epoch() - 1,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -1499,6 +1518,120 @@ async fn proposer_shuffling_changing_with_lookahead() {
         unsafe_get_proposer_indices(&current_epoch_state, current_epoch),
         proposer_shuffling,
     );
+}
+
+#[tokio::test]
+async fn proposer_duties_from_head_fulu() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(MinimalEthSpec)
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    let initial_blocks = E::slots_per_epoch() * 3;
+
+    // Build chain out to parent block.
+    let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, head_block_root, head_state) = harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
+
+    // Compute the proposer duties at the next epoch from the head
+    let next_epoch = head_state.next_epoch().unwrap();
+    let (_indices, dependent_root, _, fork) =
+        compute_proposer_duties_from_head(next_epoch, &harness.chain).unwrap();
+
+    assert_eq!(
+        dependent_root,
+        head_state
+            .proposer_shuffling_decision_root_at_epoch(next_epoch, head_block_root.into(), spec)
+            .unwrap()
+    );
+    assert_eq!(fork, head_state.fork());
+}
+
+/// Test that we can compute the proposer shuffling for the Gloas fork epoch itself using lookahead!
+#[tokio::test]
+async fn proposer_lookahead_gloas_fork_epoch() {
+    let gloas_fork_epoch = Epoch::new(4);
+    let mut spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    spec.gloas_fork_epoch = Some(gloas_fork_epoch);
+
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, Default::default(), spec.clone());
+    let validators_keypairs =
+        types::test_utils::generate_deterministic_keypairs(LOW_VALIDATOR_COUNT);
+    let harness = TestHarness::builder(E::default())
+        .spec(spec.into())
+        .keypairs(validators_keypairs)
+        .fresh_disk_store(store)
+        .mock_execution_layer()
+        .build();
+    let spec = &harness.chain.spec;
+
+    let initial_blocks = (gloas_fork_epoch - 1)
+        .start_slot(E::slots_per_epoch())
+        .as_u64();
+
+    // Build chain out to parent block.
+    let initial_slots: Vec<Slot> = (1..=initial_blocks).map(Into::into).collect();
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, head_block_root, mut head_state) = harness
+        .add_attested_blocks_at_slots(state, state_root, &initial_slots, &all_validators)
+        .await;
+    let head_state_root = head_state.canonical_root().unwrap();
+
+    // Check that we have access to the next epoch shuffling according to
+    // `ensure_state_can_determine_proposers_for_epoch`.
+    ensure_state_can_determine_proposers_for_epoch(
+        &mut head_state,
+        head_state_root,
+        gloas_fork_epoch,
+        spec,
+    )
+    .unwrap();
+    assert_eq!(head_state.current_epoch(), gloas_fork_epoch - 1);
+
+    // Compute the proposer duties at the fork epoch from the head.
+    let (indices, dependent_root, _, fork) =
+        compute_proposer_duties_from_head(gloas_fork_epoch, &harness.chain).unwrap();
+
+    assert_eq!(
+        dependent_root,
+        head_state
+            .proposer_shuffling_decision_root_at_epoch(
+                gloas_fork_epoch,
+                head_block_root.into(),
+                spec
+            )
+            .unwrap()
+    );
+    assert_ne!(fork, head_state.fork());
+    assert_eq!(fork, spec.fork_at_epoch(gloas_fork_epoch));
+
+    // Build a block in the Gloas fork epoch and assert that the shuffling does not change.
+    let gloas_slots = vec![gloas_fork_epoch.start_slot(E::slots_per_epoch())];
+    let (_, _, _, _) = harness
+        .add_attested_blocks_at_slots(head_state, head_state_root, &gloas_slots, &all_validators)
+        .await;
+
+    let (no_lookahead_indices, no_lookahead_dependent_root, _, no_lookahead_fork) =
+        compute_proposer_duties_from_head(gloas_fork_epoch, &harness.chain).unwrap();
+
+    assert_eq!(no_lookahead_indices, indices);
+    assert_eq!(no_lookahead_dependent_root, dependent_root);
+    assert_eq!(no_lookahead_fork, fork);
 }
 
 // Ensure blocks from abandoned forks are pruned from the Hot DB
