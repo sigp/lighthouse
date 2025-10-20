@@ -1,16 +1,16 @@
+use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, Key, KeyValueStoreOp};
 use heck::ToSnakeCase;
 use once_cell::sync::Lazy;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 use std::future::Future;
+use std::iter::once;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::time::Duration;
 use strum::IntoEnumIterator;
 use tokio::runtime::{Handle, Runtime};
 use types::EthSpec;
-
-use crate::{DBColumn, Error, KeyValueStoreOp};
 
 static GLOBAL_RT: Lazy<Runtime> =
     Lazy::new(|| Runtime::new().expect("Failed to create global tokio runtime for PostgresDB"));
@@ -166,6 +166,82 @@ impl<E: EthSpec> PostgresDB<E> {
 
             Ok::<(), Error>(())
         })?
+    }
+
+    pub fn iter_column_from<K: Key>(
+        &self, 
+        column: DBColumn, 
+        from: &[u8]
+    ) -> ColumnIter<'_, K> {
+        let table = table_name_for_column(column);
+        let query = format!("SELECT Key, value FROM {} WHERE >= $1 ORDER BY key ASC", table);
+
+        let row_results: Result<Vec<(Vec<u8>, Vec<u8>)>, Error> = block_on_in_runtime(async {
+            let rows = sqlx::query(&query)
+                .bind(from)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| Error::DBError {
+                    message: format!("{:?}", e),
+                })?;
+
+            Ok(rows
+                .into_iter()
+                .map(|row| {
+                    let k: Vec<u8> = row.get("key");
+                    let v: Vec<u8> = row.get("value");
+                    Ok((k, v))
+                })
+                .collect::<Result<Vec<_>, Error>>()?)
+        }).and_then(|r| r);
+
+        match row_results {
+            Ok(rows) => {
+                let iter = rows.into_iter().map(|(k_bytes, v)| {
+                    let k = K::from_bytes(&k_bytes)?;
+                    Ok((k, v))
+                });
+                Box::new(iter)
+            }
+            Err(e) => Box::new(once(Err(e)))
+        }
+    }
+
+    pub fn iter_column_keys_from<K: Key>(
+        &self,
+        column: DBColumn,
+        from: &[u8],
+    ) -> ColumnKeyIter<'_, K> {
+        let table = table_name_for_column(column);
+        let query = format!("SELECT key FROM {} WHERE key >= $1 ORDER BY key ASC", table);
+
+        let rows_result: Result<Vec<Vec<u8>>, Error> = block_on_in_runtime(async {
+            let rows = sqlx::query(&query)
+                .bind(from)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+
+            Ok(rows
+                .into_iter()
+                .map(|row| {
+                    let k: Vec<u8> = row.get("key");
+                    Ok(k)
+                })
+                .collect::<Result<Vec<_>, Error>>()?)
+        }).and_then(|r| r);
+
+        match rows_result {
+            Ok(keys) => {
+                let iter = keys.into_iter().map(|k_bytes| {
+                    let k = K::from_bytes(&k_bytes)?;
+                    Ok(k)
+                    
+                });
+                Box::new(iter)
+            }
+            Err(e) => Box::new(once(Err(e)))
+        }
     }
 }
 

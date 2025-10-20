@@ -231,7 +231,6 @@ impl<E: EthSpec> BeaconNodeBackend<E> {
             #[cfg(feature = "redb")]
             DatabaseBackend::Redb => redb_impl::Redb::open(path).map(BeaconNodeBackend::Redb),
             #[cfg(feature = "postgres")]
-            // DatabaseBackend::Postgres => todo!(),
             DatabaseBackend::Postgres => {
                 postgres_impl::PostgresDB::open(path).map(BeaconNodeBackend::Postgres)
             }
