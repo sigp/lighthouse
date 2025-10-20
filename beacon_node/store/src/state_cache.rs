@@ -141,6 +141,83 @@ impl<E: EthSpec> StateCache<E> {
             None
         }
     }
+
+    pub fn update_finalized_state(
+        &self,
+        state_root: Hash256,
+        block_root: Hash256,
+        state: BeaconState<E>,
+        pre_finalized_slots_to_retain: &[Slot],
+    ) -> Result<(), Error> {
+        if state.slot() % E::slots_per_epoch() != 0 {
+            return Err(Error::FinalizedStateUnaligned);
+        }
+
+        let mut inner = self.inner.lock();
+
+        if inner
+            .finalized_state
+            .as_ref()
+            .is_some_and(|finalized_state| state.slot() < finalized_state.state.slot())
+        {
+            return Err(Error::FinalizedStateDecreasingSlot);
+        }
+
+        // Add to block map.
+        inner.block_map.insert(block_root, state.slot(), state_root);
+
+        // Prune block map.
+        let state_roots_to_prune = inner.block_map.prune(state.slot());
+
+        // Prune HDiffBuffers that are no longer required by the hdiff grid of the finalized state.
+        // We need to do this prior to copying in any new hdiff buffers, because the cache
+        // preferences older slots.
+        // NOTE: This isn't perfect as it prunes by slot: there could be multiple buffers
+        // at some slots in the case of long forks without finality.
+        let new_hdiff_cache = HotHDiffBufferCache::new(inner.hdiff_buffers.cap());
+        let old_hdiff_cache = std::mem::replace(&mut inner.hdiff_buffers, new_hdiff_cache);
+        for (state_root, (slot, cell)) in old_hdiff_cache.hdiff_buffers {
+            if pre_finalized_slots_to_retain.contains(&slot) {
+                // We don't need to use `HotHDiffBufferCache::put` here because the new cache is by
+                // definition non-full by virtue of being created from the old cache.
+                inner
+                    .hdiff_buffers
+                    .hdiff_buffers
+                    .put(state_root, (slot, cell));
+            }
+        }
+
+        // Delete states.
+        //
+        // Put some states in the hdiff buffer cache if we have room. Write these states to the
+        // cache through OnceCells after dropping the mutex on `inner`.
+        let mut hdiff_cache_updates = vec![];
+        for state_root in state_roots_to_prune {
+            if let Some((_, state)) = inner.states.pop(&state_root) {
+                // Add the hdiff buffer for this state to the hdiff cache if it is now part of
+                // the pre-finalized grid. The `put` method will take care of keeping the most
+                // useful buffers.
+                let slot = state.slot();
+                if pre_finalized_slots_to_retain.contains(&slot) {
+                    let (_, cell) = inner
+                        .hdiff_buffers
+                        .hdiff_buffers
+                        .get_or_insert(state_root, || (slot, Arc::new(OnceCell::new())));
+                    hdiff_cache_updates.push((cell.clone(), state));
+                }
+            }
+        }
+
+        // Update finalized state.
+        inner.finalized_state = Some(FinalizedState { state_root, state });
+        drop(inner);
+
+        for (cell, state) in hdiff_cache_updates {
+            cell.get_or_init(|| HDiffBuffer::from_state(state));
+        }
+
+        Ok(())
+    }
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -175,67 +252,6 @@ impl<E: EthSpec> StateCacheInner<E> {
 
     pub fn hdiff_buffer_mem_usage(&self) -> usize {
         self.hdiff_buffers.mem_usage()
-    }
-
-    pub fn update_finalized_state(
-        &mut self,
-        state_root: Hash256,
-        block_root: Hash256,
-        state: BeaconState<E>,
-        pre_finalized_slots_to_retain: &[Slot],
-    ) -> Result<(), Error> {
-        if state.slot() % E::slots_per_epoch() != 0 {
-            return Err(Error::FinalizedStateUnaligned);
-        }
-
-        if self
-            .finalized_state
-            .as_ref()
-            .is_some_and(|finalized_state| state.slot() < finalized_state.state.slot())
-        {
-            return Err(Error::FinalizedStateDecreasingSlot);
-        }
-
-        // Add to block map.
-        self.block_map.insert(block_root, state.slot(), state_root);
-
-        // Prune block map.
-        let state_roots_to_prune = self.block_map.prune(state.slot());
-
-        // Prune HDiffBuffers that are no longer required by the hdiff grid of the finalized state.
-        // We need to do this prior to copying in any new hdiff buffers, because the cache
-        // preferences older slots.
-        // NOTE: This isn't perfect as it prunes by slot: there could be multiple buffers
-        // at some slots in the case of long forks without finality.
-        let new_hdiff_cache = HotHDiffBufferCache::new(self.hdiff_buffers.cap());
-        let old_hdiff_cache = std::mem::replace(&mut self.hdiff_buffers, new_hdiff_cache);
-        for (state_root, (slot, cell)) in old_hdiff_cache.hdiff_buffers {
-            if pre_finalized_slots_to_retain.contains(&slot) {
-                // We don't need to use `HotHDiffBufferCache::put` here because the new cache is by
-                // definition non-full by virtue of being created from the old cache.
-                self.hdiff_buffers
-                    .hdiff_buffers
-                    .put(state_root, (slot, cell));
-            }
-        }
-
-        // Delete states.
-        for state_root in state_roots_to_prune {
-            if let Some((_, state)) = self.states.pop(&state_root) {
-                // Add the hdiff buffer for this state to the hdiff cache if it is now part of
-                // the pre-finalized grid. The `put` method will take care of keeping the most
-                // useful buffers.
-                let slot = state.slot();
-                if pre_finalized_slots_to_retain.contains(&slot) {
-                    let hdiff_buffer = HDiffBuffer::from_state(state);
-                    self.hdiff_buffers.put(state_root, slot, hdiff_buffer);
-                }
-            }
-        }
-
-        // Update finalized state.
-        self.finalized_state = Some(FinalizedState { state_root, state });
-        Ok(())
     }
 
     /// Update the state cache's view of the enshrined head block.

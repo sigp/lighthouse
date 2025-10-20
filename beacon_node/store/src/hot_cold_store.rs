@@ -477,7 +477,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let pre_finalized_slots_to_retain = self
             .hierarchy
             .closest_layer_points(state.slot(), start_slot);
-        self.state_cache.inner.lock().update_finalized_state(
+        self.state_cache.update_finalized_state(
             state_root,
             block_root,
             state,
