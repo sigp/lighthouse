@@ -1236,9 +1236,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 "Range request start slot is older than data availability boundary."
             );
 
-            return if earliest_custodied_data_column_slot
-                > column_data_availability_boundary_slot
-            {
+            return if earliest_custodied_data_column_slot > column_data_availability_boundary_slot {
                 Err((
                     RpcErrorResponse::ResourceUnavailable,
                     "columns pruned within boundary",
