@@ -1235,10 +1235,12 @@ dependencies = [
  "eth2",
  "ethereum_ssz",
  "lighthouse_version",
+ "mockito",
  "reqwest 0.11.27",
  "sensitive_url",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -2582,6 +2584,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "eip_3076"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "ethereum_serde_utils",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "types",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2848,6 +2862,7 @@ name = "eth2"
 version = "0.1.0"
 dependencies = [
  "derivative",
+ "eip_3076",
  "either",
  "enr",
  "eth2_keystore",
@@ -2867,7 +2882,6 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
- "slashing_protection",
  "ssz_types",
  "test_random_derive",
  "tokio",
@@ -8832,6 +8846,7 @@ name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "eip_3076",
  "ethereum_serde_utils",
  "filesystem",
  "r2d2",

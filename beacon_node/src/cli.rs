@@ -60,22 +60,22 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            // TODO(das): remove this before PeerDAS release
             Arg::new("malicious-withhold-count")
                 .long("malicious-withhold-count")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY do not use this")
+                .help("TESTING ONLY: Withholds a subset of data columns during publishing. \
+                          Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
         .arg(
-            // TODO(das): remove this before PeerDAS release
             Arg::new("advertise-false-custody-group-count")
                 .long("advertise-false-custody-group-count")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("Advertises a false CGC for testing PeerDAS. Do NOT use in production.")
+                .help("TESTING ONLY: Advertises a false custody group count for testing PeerDAS. \
+                          Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
@@ -1594,9 +1594,9 @@ pub fn cli_app() -> Command {
                 .value_name("SECONDS")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY: Artificially delay block publishing by the specified number of seconds. \
-                        This only works for if `BroadcastValidation::Gossip` is used (default). \
-                        DO NOT USE IN PRODUCTION.")
+                .help("TESTING ONLY: Artificially delays block publishing by the specified number of seconds. \
+                       This only works if BroadcastValidation::Gossip is used (default). \
+                       Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
@@ -1606,10 +1606,10 @@ pub fn cli_app() -> Command {
                 .value_name("SECONDS")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY: Artificially delay data column publishing by the specified number of seconds. \
-                       Limitation: If `delay-block-publishing` is also used, data columns will be delayed for a \
-                       minimum of `delay-block-publishing` seconds.
-                       DO NOT USE IN PRODUCTION.")
+                .help("TESTING ONLY: Artificially delays data column publishing by the specified number of seconds. \
+                       Limitation: If delay-block-publishing is also used, data columns will be delayed for a \
+                       minimum of delay-block-publishing seconds. \
+                       Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
