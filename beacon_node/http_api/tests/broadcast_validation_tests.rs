@@ -845,21 +845,20 @@ pub async fn blinded_gossip_invalid() {
     assert!(response.is_err());
 
     let error_response: eth2::Error = response.err().unwrap();
+    assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
+
     let pre_finalized_block_root = Hash256::zero();
-    /* mandated by Beacon API spec */
-    if tester.harness.spec.is_fulu_scheduled() {
-        // XXX: this should be a 400 but is a 500 due to the mock-builder being janky
-        assert_eq!(
-            error_response.status(),
-            Some(StatusCode::INTERNAL_SERVER_ERROR)
-        );
+    let expected_error_msg = if tester.harness.spec.is_fulu_scheduled() {
+        format!(
+            "BAD_REQUEST: NotFinalizedDescendant {{ block_parent_root: {pre_finalized_block_root:?} }}"
+        )
     } else {
-        assert_eq!(error_response.status(), Some(StatusCode::BAD_REQUEST));
-        assert_server_message_error(
-            error_response,
-            format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}"),
-        );
-    }
+        // Since Deneb, the invalidity of the blobs will be detected prior to the invalidity of the
+        // block.
+        format!("BAD_REQUEST: ParentUnknown {{ parent_root: {pre_finalized_block_root:?} }}")
+    };
+
+    assert_server_message_error(error_response, expected_error_msg);
 }
 
 /// Process a blinded block that is invalid, but valid on gossip.
