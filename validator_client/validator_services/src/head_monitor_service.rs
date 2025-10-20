@@ -180,7 +180,9 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> HeadMonitorService<S, 
                 }
 
                 if tasks.is_empty() {
-                    warn!("No beacon nodes available for head event streaming, retrying in 5 seconds");
+                    warn!(
+                        "No beacon nodes available for head event streaming, retrying in 5 seconds"
+                    );
                     sleep(Duration::from_secs(5)).await;
                     continue;
                 }
