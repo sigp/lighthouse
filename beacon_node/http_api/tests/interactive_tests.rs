@@ -940,3 +940,110 @@ async fn queue_attestations_from_http() {
 
     attestation_future.await.unwrap();
 }
+
+// Test that a request for next epoch proposer duties suceeds when the current slot clock is within
+// gossip clock disparity (500ms) of the new epoch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proposer_duties_with_gossip_tolerance() {
+    let validator_count = 24;
+
+    let tester = InteractiveTester::<E>::new(None, validator_count).await;
+    let harness = &tester.harness;
+    let spec = &harness.spec;
+    let client = &tester.client;
+
+    let num_initial = 4 * E::slots_per_epoch() - 1;
+    let next_epoch_start_slot = Slot::new(num_initial + 1);
+
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    assert_eq!(harness.chain.slot().unwrap(), num_initial);
+
+    // Set the clock to just before the next epoch.
+    harness.chain.slot_clock.advance_time(
+        Duration::from_secs(spec.seconds_per_slot) - spec.maximum_gossip_clock_disparity(),
+    );
+    assert_eq!(
+        harness
+            .chain
+            .slot_clock
+            .now_with_future_tolerance(spec.maximum_gossip_clock_disparity())
+            .unwrap(),
+        next_epoch_start_slot
+    );
+
+    let head_state = harness.get_current_state();
+    let head_block_root = harness.head_block_root();
+    let tolerant_current_epoch = next_epoch_start_slot.epoch(E::slots_per_epoch());
+
+    // This is a regression test for the bug described here:
+    // https://github.com/sigp/lighthouse/pull/8130/files#r2386594566
+    //
+    // To trigger it, we need to prime the proposer shuffling cache with an incorrect entry which
+    // the previous code would be liable to lookup due to the bugs in its decision root calculation.
+    let wrong_decision_root = head_state
+        .proposer_shuffling_decision_root(head_block_root, spec)
+        .unwrap();
+    let wrong_proposer_indices = vec![0; E::slots_per_epoch() as usize];
+    harness
+        .chain
+        .beacon_proposer_cache
+        .lock()
+        .insert(
+            tolerant_current_epoch,
+            wrong_decision_root,
+            wrong_proposer_indices.clone(),
+            head_state.fork(),
+        )
+        .unwrap();
+
+    // Request the proposer duties.
+    let proposer_duties_tolerant_current_epoch = client
+        .get_validator_duties_proposer(tolerant_current_epoch)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        proposer_duties_tolerant_current_epoch.dependent_root,
+        head_state
+            .proposer_shuffling_decision_root_at_epoch(
+                tolerant_current_epoch,
+                head_block_root,
+                spec
+            )
+            .unwrap()
+    );
+    assert_ne!(
+        proposer_duties_tolerant_current_epoch
+            .data
+            .iter()
+            .map(|data| data.validator_index as usize)
+            .collect::<Vec<_>>(),
+        wrong_proposer_indices,
+    );
+
+    // We should get the exact same result after properly advancing into the epoch.
+    harness
+        .chain
+        .slot_clock
+        .advance_time(spec.maximum_gossip_clock_disparity());
+    assert_eq!(harness.chain.slot().unwrap(), next_epoch_start_slot);
+    let proposer_duties_current_epoch = client
+        .get_validator_duties_proposer(tolerant_current_epoch)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        proposer_duties_tolerant_current_epoch,
+        proposer_duties_current_epoch
+    );
+}
