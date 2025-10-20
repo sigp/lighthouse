@@ -842,4 +842,162 @@ mod tests {
             expected_cgc
         );
     }
+
+    #[test]
+    fn no_validators_minimal_reconstruction_node_default() {
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::MinimalReconstructionNode);
+        let spec = E::default_spec();
+        let expected_count = spec.number_of_custody_groups as usize / 2;
+
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(None, &spec),
+            expected_count,
+            "half-node should custody 50% of columns by default"
+        );
+        assert_eq!(
+            custody_context.sampling_count_at_epoch(None, &spec),
+            expected_count,
+            "half-node sampling should match custody count"
+        );
+    }
+
+    #[test]
+    fn register_validators_below_half_threshold_minimal_reconstruction() {
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::MinimalReconstructionNode);
+        let spec = E::default_spec();
+        let bal_per_additional_group = spec.balance_per_additional_custody_group;
+        let min_val_custody_requirement = spec.validator_custody_requirement;
+
+        // Register validators requiring only 8 groups (< 64)
+        let validators_and_expected_cgc = vec![
+            (vec![(0, bal_per_additional_group)], None), // No change, stays at 64
+            (
+                vec![(0, min_val_custody_requirement * bal_per_additional_group)],
+                None,
+            ), // Still 64
+            (vec![(0, 32 * bal_per_additional_group)], None), // 32 < 64, still no change
+        ];
+
+        register_validators_and_assert_cgc::<E>(
+            &custody_context,
+            validators_and_expected_cgc,
+            &spec,
+        );
+
+        // Should remain at 50%
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(None, &spec),
+            spec.number_of_custody_groups as usize / 2
+        );
+    }
+
+    #[test]
+    fn register_validators_above_half_threshold_minimal_reconstruction() {
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::MinimalReconstructionNode);
+        let spec = E::default_spec();
+        let bal_per_additional_group = spec.balance_per_additional_custody_group;
+
+        let validators_and_expected_cgc = vec![
+            (vec![(0, 32 * bal_per_additional_group)], None), // Below threshold
+            (vec![(0, 70 * bal_per_additional_group)], Some(70)), // Exceeds 64, should update
+            (vec![(0, 100 * bal_per_additional_group)], Some(100)), // Further increase
+        ];
+
+        register_validators_and_assert_cgc::<E>(
+            &custody_context,
+            validators_and_expected_cgc,
+            &spec,
+        );
+    }
+
+    #[test]
+    fn custody_columns_minimal_reconstruction_returns_half_columns() {
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::MinimalReconstructionNode);
+        let spec = E::default_spec();
+        let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(all_custody_groups_ordered, &spec)
+            .expect("should initialise ordered data columns");
+
+        let custody_columns = custody_context.custody_columns_for_epoch(None, &spec);
+        let expected_column_count = (spec.number_of_custody_groups as usize / 2)
+            * (E::number_of_columns() / spec.number_of_custody_groups as usize);
+
+        assert_eq!(
+            custody_columns.len(),
+            expected_column_count,
+            "should return exactly 50% of all columns"
+        );
+    }
+
+    #[test]
+    fn compare_custody_counts_across_node_types() {
+        let spec = E::default_spec();
+        let fullnode = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
+        let half_node = CustodyContext::<E>::new(NodeCustodyType::MinimalReconstructionNode);
+        let supernode = CustodyContext::<E>::new(NodeCustodyType::Supernode);
+
+        let fullnode_count = fullnode.custody_group_count_at_epoch(None, &spec);
+        let half_node_count = half_node.custody_group_count_at_epoch(None, &spec);
+        let supernode_count = supernode.custody_group_count_at_epoch(None, &spec);
+
+        assert!(
+            fullnode_count <= half_node_count,
+            "fullnode ({}) should custody <= half-node ({})",
+            fullnode_count,
+            half_node_count
+        );
+        assert!(
+            half_node_count <= supernode_count,
+            "half-node ({}) should custody <= supernode ({})",
+            half_node_count,
+            supernode_count
+        );
+
+        // Specific values
+        assert_eq!(fullnode_count, spec.custody_requirement as usize); // 8
+        assert_eq!(half_node_count, spec.number_of_custody_groups as usize / 2); // 64
+        assert_eq!(supernode_count, spec.number_of_custody_groups as usize); // 128
+    }
+
+    #[test]
+    fn minimal_reconstruction_epoch_specific_custody() {
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::MinimalReconstructionNode);
+        let spec = E::default_spec();
+        let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(all_custody_groups_ordered, &spec)
+            .expect("should initialise ordered data columns");
+
+        let current_slot = Slot::new(10);
+        let current_epoch = current_slot.epoch(E::slots_per_epoch());
+        let half_threshold = spec.number_of_custody_groups / 2;
+
+        // Register validators to exceed 50%
+        let val_custody_units = 70;
+        let cgc_changed = custody_context.register_validators(
+            vec![(
+                0,
+                val_custody_units * spec.balance_per_additional_custody_group,
+            )],
+            current_slot,
+            &spec,
+        );
+
+        assert!(cgc_changed.is_some());
+
+        // Current epoch should still be at 50%
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(Some(current_epoch), &spec),
+            half_threshold as usize
+        );
+
+        // Next epoch should reflect the increase
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(Some(current_epoch + 1), &spec),
+            val_custody_units as usize
+        );
+    }
 }
