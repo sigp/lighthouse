@@ -626,20 +626,21 @@ fn verify_parent_block_and_finalized_descendant<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<ProtoBlock, GossipDataColumnError> {
     let fork_choice = chain.canonical_head.fork_choice_read_lock();
-    let block_parent_root = data_column.block_parent_root();
-
-    // Do not process a column that does not descend from the finalized root.
-    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
-        return Err(GossipDataColumnError::NotFinalizedDescendant { block_parent_root });
-    }
 
     // We have already verified that the column is past finalization, so we can
     // just check fork choice for the block's parent.
+    let block_parent_root = data_column.block_parent_root();
     let Some(parent_block) = fork_choice.get_block(&block_parent_root) else {
         return Err(GossipDataColumnError::ParentUnknown {
             parent_root: block_parent_root,
         });
     };
+
+    // Do not process a column that does not descend from the finalized root.
+    // We just loaded the parent_block, so we can be sure that it exists in fork choice.
+    if !fork_choice.is_finalized_checkpoint_or_descendant(block_parent_root) {
+        return Err(GossipDataColumnError::NotFinalizedDescendant { block_parent_root });
+    }
 
     Ok(parent_block)
 }

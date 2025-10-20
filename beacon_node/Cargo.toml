@@ -15,6 +15,7 @@ path = "src/lib.rs"
 write_ssz_files = [
     "beacon_chain/write_ssz_files",
 ] # Writes debugging .ssz files to /tmp during block processing.
+testing = [] # Enables testing-only CLI flags
 
 [dependencies]
 account_utils = { workspace = true }
