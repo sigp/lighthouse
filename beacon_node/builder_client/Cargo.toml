@@ -12,3 +12,7 @@ reqwest = { workspace = true }
 sensitive_url = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+mockito = { workspace = true }
+tokio = { workspace = true }
