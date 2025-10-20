@@ -108,6 +108,25 @@ pub fn get_config<E: EthSpec>(
 
     set_network_config(&mut client_config.network, cli_args, &data_dir_ref)?;
 
+    // Parse custody mode from CLI flags
+    let is_supernode = parse_flag(cli_args, "supernode");
+    let is_half_node = parse_flag(cli_args, "half-node");
+
+    if is_supernode && is_half_node {
+        return Err("Cannot specify both --supernode and --half-node flags".to_string());
+    }
+
+    // Set the node custody type based on CLI flags
+    use beacon_chain::custody_context::NodeCustodyType;
+    client_config.chain.node_custody_type = if is_supernode {
+        client_config.network.subscribe_all_data_column_subnets = true;
+        NodeCustodyType::Supernode
+    } else if is_half_node {
+        NodeCustodyType::MinimalReconstructionNode
+    } else {
+        NodeCustodyType::FullNode
+    };
+
     /*
      * Staking flag
      * Note: the config values set here can be overwritten by other more specific cli params
@@ -1135,10 +1154,6 @@ pub fn set_network_config(
     } else {
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
-
-    if parse_flag(cli_args, "supernode") {
-        config.subscribe_all_data_column_subnets = true;
-    }
 
     if parse_flag(cli_args, "subscribe-all-subnets") {
         config.subscribe_all_subnets = true;

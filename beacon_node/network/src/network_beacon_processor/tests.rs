@@ -9,6 +9,7 @@ use crate::{
     sync::{SyncMessage, manager::BlockProcessType},
 };
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
@@ -107,7 +108,7 @@ impl TestRig {
     pub async fn new_parametric(
         chain_length: u64,
         beacon_processor_config: BeaconProcessorConfig,
-        import_data_columns: bool,
+        node_custody_type: NodeCustodyType,
         spec: ChainSpec,
     ) -> Self {
         let spec = Arc::new(spec);
@@ -116,7 +117,7 @@ impl TestRig {
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
-            .import_all_data_columns(import_data_columns)
+            .node_custody_type(node_custody_type)
             .chain_config(<_>::default())
             .build();
 

@@ -137,7 +137,7 @@ fn get_validators_custody_requirement(validator_custody_units: u64, spec: &Chain
 /// Choosing the max ensures that we always have the minimum required columns and
 /// we can adjust the `status.earliest_available_slot` value to indicate to our peers
 /// the columns that we can guarantee to serve.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum NodeCustodyType {
     /// The node is running with cli parameters to indicate that it
     /// wants to subscribe to all columns.
@@ -149,6 +149,7 @@ pub enum NodeCustodyType {
     /// The node isn't running with with any explicit cli parameters
     /// or is running with cli parameters to indicate that it wants
     /// to only subscribe to the minimal custody requirements.
+    #[default]
     FullNode,
 }
 

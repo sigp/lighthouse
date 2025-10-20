@@ -106,7 +106,7 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
 
 fn get_harness(
     validator_count: usize,
-    supernode: bool,
+    node_custody_type: NodeCustodyType,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
@@ -115,7 +115,7 @@ fn get_harness(
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .import_all_data_columns(supernode)
+        .node_custody_type(node_custody_type)
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .build();

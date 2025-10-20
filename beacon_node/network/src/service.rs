@@ -283,7 +283,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             beacon_chain
                 .data_availability_checker
                 .custody_context()
-                .custody_columns_for_epoch(None, &beacon_chain.spec),
+                .custody_group_count_at_epoch(None, &beacon_chain.spec) as u64,
         )
         .await?;
 

@@ -1,4 +1,5 @@
 pub use proto_array::{DisallowedReOrgOffsets, ReOrgThreshold};
+use crate::custody_context::NodeCustodyType;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::{collections::HashSet, sync::LazyLock, time::Duration};
@@ -118,6 +119,10 @@ pub struct ChainConfig {
     pub invalid_block_roots: HashSet<Hash256>,
     /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
     pub disable_get_blobs: bool,
+    /// The node's custody type, determining how many data columns to custody and sample.
+    /// This is derived from CLI flags and not persisted.
+    #[serde(skip)]
+    pub node_custody_type: NodeCustodyType,
 }
 
 impl Default for ChainConfig {
@@ -158,6 +163,7 @@ impl Default for ChainConfig {
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
             disable_get_blobs: false,
+            node_custody_type: NodeCustodyType::FullNode,
         }
     }
 }
