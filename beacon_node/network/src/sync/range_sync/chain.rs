@@ -887,7 +887,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         if !*exceeded_retries {
                             // Set the batch back to `AwaitingDownload` before retrying.
                             // This is to ensure that the batch doesn't get stuck in `Downloading` state.
-                            batch.download_failed(None)?;
+                            //
+                            // DataColumn retries has a retry limit so calling `downloading_to_awaiting_download`
+                            // is safe.
+                            if let BatchOperationOutcome::Failed { blacklist } =
+                                batch.downloading_to_awaiting_download()?
+                            {
+                                return Err(RemoveChain::ChainFailed {
+                                    blacklist,
+                                    failing_batch: batch_id,
+                                });
+                            }
                             return self.retry_partial_batch(
                                 network,
                                 batch_id,
