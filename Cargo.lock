@@ -1236,7 +1236,6 @@ dependencies = [
  "ethereum_ssz",
  "lighthouse_version",
  "mockito",
- "regex",
  "reqwest 0.11.27",
  "sensitive_url",
  "serde",

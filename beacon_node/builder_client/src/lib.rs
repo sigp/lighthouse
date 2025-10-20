@@ -542,7 +542,6 @@ mod tests {
     use eth2::types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
     use eth2::types::{MainnetEthSpec, Signature};
     use mockito::{Matcher, Server, ServerGuard};
-    use regex::Regex;
 
     type E = MainnetEthSpec;
 
@@ -661,8 +660,10 @@ mod tests {
         content_type: ContentType,
         response_body: ForkVersionedResponse<SignedBuilderBid<E>>,
     ) {
-        let path_pattern = Regex::new(r"^/eth/v1/builder/header/\d+/.+/.+$").unwrap();
-        let mut mock = server.mock("GET", Matcher::Regex(path_pattern.to_string()));
+        let mut mock = server.mock(
+            "GET",
+            Matcher::Regex(r"^/eth/v1/builder/header/\d+/.+/.+$".to_string()),
+        );
 
         if let Some(version) = header_version_opt {
             mock = mock.with_header(CONSENSUS_VERSION_HEADER, version);
