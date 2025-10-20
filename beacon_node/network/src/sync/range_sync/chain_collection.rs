@@ -7,14 +7,14 @@ use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
+use crate::sync::peer_sync_info::LocalSyncInfo;
+use crate::sync::range_sync::range::AwaitingHeadPeers;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
-use lighthouse_network::SyncInfo;
 use lighthouse_network::service::api_types::Id;
 use logging::crit;
 use smallvec::SmallVec;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use tracing::{debug, error};
@@ -193,24 +193,18 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     pub fn update(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        local: &SyncInfo,
-        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
+        local: &LocalSyncInfo,
+        awaiting_head_peers: &mut AwaitingHeadPeers,
     ) {
         // Remove any outdated finalized/head chains
         self.purge_outdated_chains(local, awaiting_head_peers);
 
-        let local_head_epoch = local.head_slot.epoch(T::EthSpec::slots_per_epoch());
         // Choose the best finalized chain if one needs to be selected.
-        self.update_finalized_chains(network, local.finalized_epoch, local_head_epoch);
+        self.update_finalized_chains(network, local);
 
         if !matches!(self.state, RangeSyncState::Finalized(_)) {
             // Handle head syncing chains if there are no finalized chains left.
-            self.update_head_chains(
-                network,
-                local.finalized_epoch,
-                local_head_epoch,
-                awaiting_head_peers,
-            );
+            self.update_head_chains(network, local, awaiting_head_peers);
         }
     }
 
@@ -253,8 +247,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     fn update_finalized_chains(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        local_epoch: Epoch,
-        local_head_epoch: Epoch,
+        local: &LocalSyncInfo,
     ) {
         // Find the chain with most peers and check if it is already syncing
         if let Some((mut new_id, max_peers)) = self
@@ -303,8 +296,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             // update the state to a new finalized state
             self.state = RangeSyncState::Finalized(new_id);
 
-            if let Err(remove_reason) = chain.start_syncing(network, local_epoch, local_head_epoch)
-            {
+            if let Err(remove_reason) = chain.start_syncing(
+                network,
+                local.local_irreversible_epoch,
+                local.head_slot.epoch(T::EthSpec::slots_per_epoch()),
+            ) {
                 if remove_reason.is_critical() {
                     crit!(chain = new_id, reason = ?remove_reason, "Chain removed while switching chains");
                 } else {
@@ -321,17 +317,16 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     fn update_head_chains(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        local_epoch: Epoch,
-        local_head_epoch: Epoch,
-        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
+        local: &LocalSyncInfo,
+        awaiting_head_peers: &mut AwaitingHeadPeers,
     ) {
         // Include the awaiting head peers
-        for (peer_id, peer_sync_info) in awaiting_head_peers.drain() {
+        for (peer_id, (target_root, target_slot)) in awaiting_head_peers.drain() {
             debug!("including head peer");
             self.add_peer_or_create_chain(
-                local_epoch,
-                peer_sync_info.head_root,
-                peer_sync_info.head_slot,
+                local.local_irreversible_epoch,
+                target_root,
+                target_slot,
                 peer_id,
                 RangeSyncType::Head,
                 network,
@@ -361,9 +356,11 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 if !chain.is_syncing() {
                     debug!(id = chain.id(), "New head chain started syncing");
                 }
-                if let Err(remove_reason) =
-                    chain.start_syncing(network, local_epoch, local_head_epoch)
-                {
+                if let Err(remove_reason) = chain.start_syncing(
+                    network,
+                    local.local_irreversible_epoch,
+                    local.head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                ) {
                     self.head_chains.remove(&id);
                     if remove_reason.is_critical() {
                         crit!(chain = id, reason = ?remove_reason, "Chain removed while switching head chains");
@@ -396,8 +393,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
     /// finalized block slot. Peers that would create outdated chains are removed too.
     pub fn purge_outdated_chains(
         &mut self,
-        local_info: &SyncInfo,
-        awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
+        local_info: &LocalSyncInfo,
+        awaiting_head_peers: &mut AwaitingHeadPeers,
     ) {
         let local_finalized_slot = local_info
             .finalized_epoch
@@ -411,9 +408,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         };
 
         // Retain only head peers that remain relevant
-        awaiting_head_peers.retain(|_peer_id, peer_sync_info| {
-            !is_outdated(&peer_sync_info.head_slot, &peer_sync_info.head_root)
-        });
+        awaiting_head_peers
+            .retain(|_peer_id, (target_root, target_slot)| !is_outdated(target_slot, target_root));
 
         // Remove chains that are out-dated
         let mut removed_chains = Vec::new();

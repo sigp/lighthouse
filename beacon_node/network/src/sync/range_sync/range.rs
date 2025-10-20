@@ -43,23 +43,25 @@ use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::{ChainCollection, SyncChainStatus};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
-use crate::status::ToStatusMessage;
 use crate::sync::BatchProcessResult;
 use crate::sync::network_context::{RpcResponseError, SyncNetworkContext};
+use crate::sync::peer_sync_info::{LocalSyncInfo, PeerSyncTypeAdvanced};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use lighthouse_network::PeerId;
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::service::api_types::Id;
-use lighthouse_network::{PeerId, SyncInfo};
 use logging::crit;
 use lru_cache::LRUTimeCache;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
-use types::{Epoch, EthSpec, Hash256};
+use types::{Epoch, EthSpec, Hash256, Slot};
 
 /// For how long we store failed finalized chains to prevent retries.
 const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
+
+pub(crate) type AwaitingHeadPeers = HashMap<PeerId, (Hash256, Slot)>;
 
 /// The primary object dealing with long range/batch syncing. This contains all the active and
 /// non-active chains that need to be processed before the syncing is considered complete. This
@@ -69,7 +71,7 @@ pub struct RangeSync<T: BeaconChainTypes> {
     beacon_chain: Arc<BeaconChain<T>>,
     /// Last known sync info of our useful connected peers. We use this information to create Head
     /// chains after all finalized chains have ended.
-    awaiting_head_peers: HashMap<PeerId, SyncInfo>,
+    awaiting_head_peers: AwaitingHeadPeers,
     /// A collection of chains that need to be downloaded. This stores any head or finalized chains
     /// that need to be downloaded.
     chains: ChainCollection<T>,
@@ -109,29 +111,28 @@ where
     pub fn add_peer(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        local_info: SyncInfo,
+        local_info: LocalSyncInfo,
         peer_id: PeerId,
-        remote_info: SyncInfo,
+        advanced_type: PeerSyncTypeAdvanced,
     ) {
         // evaluate which chain to sync from
 
         // determine if we need to run a sync to the nearest finalized state or simply sync to
         // its current head
 
-        // convenience variable
-        let remote_finalized_slot = remote_info
-            .finalized_epoch
-            .start_slot(T::EthSpec::slots_per_epoch());
-
         // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains. This
         // is OK since we since only one finalized chain at a time.
 
         // determine which kind of sync to perform and set up the chains
-        match RangeSyncType::new(self.beacon_chain.as_ref(), &local_info, &remote_info) {
-            RangeSyncType::Finalized => {
+        match advanced_type {
+            PeerSyncTypeAdvanced::Finalized {
+                target_root,
+                target_slot,
+                start_epoch,
+            } => {
                 // Make sure we have not recently tried this chain
-                if self.failed_chains.contains(&remote_info.finalized_root) {
-                    debug!(failed_root = ?remote_info.finalized_root, %peer_id,"Disconnecting peer that belongs to previously failed chain");
+                if self.failed_chains.contains(&target_root) {
+                    debug!(failed_root = ?target_root, %peer_id,"Disconnecting peer that belongs to previously failed chain");
                     network.goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
                     return;
                 }
@@ -144,15 +145,14 @@ where
                 // to using exact epoch boundaries for batches (rather than one slot past the epoch
                 // boundary), we need to sync finalized sync to 2 epochs + 1 slot past our peer's
                 // finalized slot in order to finalize the chain locally.
-                let target_head_slot =
-                    remote_finalized_slot + (2 * T::EthSpec::slots_per_epoch()) + 1;
+                let target_head_slot = target_slot + (2 * T::EthSpec::slots_per_epoch()) + 1;
 
                 // Note: We keep current head chains. These can continue syncing whilst we complete
                 // this new finalized chain.
 
                 self.chains.add_peer_or_create_chain(
-                    local_info.finalized_epoch,
-                    remote_info.finalized_root,
+                    start_epoch,
+                    target_root,
                     target_head_slot,
                     peer_id,
                     RangeSyncType::Finalized,
@@ -162,14 +162,19 @@ where
                 self.chains
                     .update(network, &local_info, &mut self.awaiting_head_peers);
             }
-            RangeSyncType::Head => {
+            PeerSyncTypeAdvanced::Head {
+                target_root,
+                target_slot,
+                start_epoch,
+            } => {
                 // This peer requires a head chain sync
 
                 if self.chains.is_finalizing_sync() {
                     // If there are finalized chains to sync, finish these first, before syncing head
                     // chains.
                     trace!(%peer_id, awaiting_head_peers = &self.awaiting_head_peers.len(),"Waiting for finalized sync to complete");
-                    self.awaiting_head_peers.insert(peer_id, remote_info);
+                    self.awaiting_head_peers
+                        .insert(peer_id, (target_root, target_slot));
                     return;
                 }
 
@@ -180,12 +185,10 @@ where
                 // The new peer has the same finalized (earlier filters should prevent a peer with an
                 // earlier finalized chain from reaching here).
 
-                let start_epoch = std::cmp::min(local_info.head_slot, remote_finalized_slot)
-                    .epoch(T::EthSpec::slots_per_epoch());
                 self.chains.add_peer_or_create_chain(
                     start_epoch,
-                    remote_info.head_root,
-                    remote_info.head_slot,
+                    target_root,
+                    target_slot,
                     peer_id,
                     RangeSyncType::Head,
                     network,
@@ -356,16 +359,8 @@ where
 
         network.status_peers(self.beacon_chain.as_ref(), chain.peers());
 
-        let status = self.beacon_chain.status_message();
-        let local = SyncInfo {
-            head_slot: *status.head_slot(),
-            head_root: *status.head_root(),
-            finalized_epoch: *status.finalized_epoch(),
-            finalized_root: *status.finalized_root(),
-            earliest_available_slot: status.earliest_available_slot().ok().cloned(),
-        };
-
         // update the state of the collection
+        let local = LocalSyncInfo::new(&self.beacon_chain);
         self.chains
             .update(network, &local, &mut self.awaiting_head_peers);
     }

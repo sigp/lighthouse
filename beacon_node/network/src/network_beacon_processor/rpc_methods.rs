@@ -108,11 +108,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         } else {
             // Remote finalized epoch is less than ours.
             let remote_finalized_slot = start_slot(*remote.finalized_epoch());
-            if remote_finalized_slot < self.chain.store.get_oldest_block_slot() {
-                // Peer's finalized checkpoint is older than anything in our DB. We are unlikely
-                // to be able to help them sync.
-                Some("Old finality out of range".to_string())
-            } else if remote_finalized_slot < self.chain.store.get_split_slot() {
+            if remote_finalized_slot < self.chain.store.get_split_slot() {
                 // Peer's finalized slot is in range for a quick block root check in our freezer DB.
                 // If that block root check fails, reject them as they're on a different finalized
                 // chain.
