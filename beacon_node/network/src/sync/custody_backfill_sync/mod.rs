@@ -959,7 +959,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 .network_globals
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, None)
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 

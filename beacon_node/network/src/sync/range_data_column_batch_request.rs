@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::sync::block_sidecar_coupling::{ByRangeRequest, CouplingError};
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::DataColumnsByRangeRequestId;
-use lighthouse_network::{PeerAction, PeerId};
 use std::sync::Arc;
 use types::{ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch, EthSpec, Slot};
 
@@ -103,7 +103,6 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
         if let Err(CouplingError::DataColumnPeerFailure {
             error: _,
             faulty_peers,
-            action: _,
             exceeded_retries: _,
         }) = &resp
         {
@@ -205,7 +204,6 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
             return Err(CouplingError::DataColumnPeerFailure {
                 error: "Missing columns for some slots".to_string(),
                 faulty_peers: naughty_peers,
-                action: PeerAction::LowToleranceError,
                 exceeded_retries: attempt >= MAX_COLUMN_RETRIES,
             });
         }
