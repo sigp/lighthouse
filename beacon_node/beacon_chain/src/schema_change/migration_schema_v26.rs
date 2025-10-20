@@ -40,7 +40,12 @@ pub fn upgrade_to_v26<T: BeaconChainTypes>(
                 info!("Migrating `CustodyContext` to v26 schema");
                 let custody_context_v2 = CustodyContextSsz {
                     validator_custody_at_head: ssz_v24.validator_custody_at_head,
-                    persisted_is_supernode: ssz_v24.persisted_is_supernode,
+                    // TODO(pawan): fix
+                    persisted_node_custody_count: if ssz_v24.persisted_is_supernode {
+                        128
+                    } else {
+                        4
+                    },
                     epoch_validator_custody_requirements: vec![],
                 };
                 vec![KeyValueStoreOp::PutKeyValue(
@@ -73,7 +78,8 @@ pub fn downgrade_from_v26<T: BeaconChainTypes>(
             info!("Migrating `CustodyContext` back from v26 schema");
             let custody_context_v24 = CustodyContextSszV24 {
                 validator_custody_at_head: ssz_v26.validator_custody_at_head,
-                persisted_is_supernode: ssz_v26.persisted_is_supernode,
+                // TODO(pawan): fix
+                persisted_is_supernode: ssz_v26.persisted_node_custody_count == 128,
             };
             vec![KeyValueStoreOp::PutKeyValue(
                 DBColumn::CustodyContext,

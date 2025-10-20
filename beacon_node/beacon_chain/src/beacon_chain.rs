@@ -657,7 +657,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .data_availability_checker
             .custody_context()
             .as_ref()
-            .into();
+            .into_custody_context_ssz(&self.spec);
         debug!(?custody_context, "Persisting custody context to store");
 
         persist_custody_context::<T::EthSpec, T::HotStore, T::ColdStore>(

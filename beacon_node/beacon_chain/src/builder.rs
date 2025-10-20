@@ -931,15 +931,17 @@ where
 
         // Load the persisted custody context from the db and initialize
         // the context for this run
-        let custody_context = if let Some(custody) =
+        let (custody_context, update_earliest_available_slot) = if let Some(custody) =
             load_custody_context::<E, THotStore, TColdStore>(store.clone())
         {
-            Arc::new(CustodyContext::new_from_persisted_custody_context(
+            let (custody, update) = CustodyContext::new_from_persisted_custody_context(
                 custody,
                 self.node_custody_type,
-            )?)
+                &self.spec,
+            )?;
+            (Arc::new(custody), update)
         } else {
-            Arc::new(CustodyContext::new(self.node_custody_type))
+            (Arc::new(CustodyContext::new(self.node_custody_type)), false)
         };
         debug!(?custody_context, "Loading persisted custody context");
 
@@ -1093,6 +1095,12 @@ where
             beacon_chain
                 .store_migrator
                 .process_prune_blobs(data_availability_boundary);
+        }
+
+        // The `earliest_available_slot` needs to be changed to the current slot because of
+        // a change in cgc across restart.
+        if update_earliest_available_slot {
+            beacon_chain.update_data_column_custody_info(Some(beacon_chain.head().head_slot()));
         }
 
         Ok(beacon_chain)

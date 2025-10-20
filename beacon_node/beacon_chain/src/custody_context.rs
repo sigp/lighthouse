@@ -153,6 +153,28 @@ pub enum NodeCustodyType {
     Fullnode,
 }
 
+impl NodeCustodyType {
+    pub fn custody_count(&self, spec: &ChainSpec) -> u64 {
+        match self {
+            Self::Fullnode => spec.custody_requirement,
+            Self::MinimalReconstructionNode => spec.number_of_custody_groups / 2,
+            Self::Supernode => spec.number_of_custody_groups,
+        }
+    }
+
+    pub fn custody_count_to_type(custody_count_cli: u64, spec: &ChainSpec) -> Option<Self> {
+        if custody_count_cli == spec.custody_requirement {
+            Some(Self::Fullnode)
+        } else if custody_count_cli == spec.number_of_custody_groups {
+            Some(Self::Supernode)
+        } else if custody_count_cli == spec.number_of_custody_groups / 2 {
+            Some(Self::MinimalReconstructionNode)
+        } else {
+            None
+        }
+    }
+}
+
 /// Returns the number of columns we need to custody based on the `validator_custody_count`
 /// at any given point and the current node type.
 pub fn custody_count(
@@ -225,20 +247,16 @@ impl<E: EthSpec> CustodyContext<E> {
         }
     }
 
+    /// Returns the `CustodyContext` along with a bool to indicate that we should update
+    /// the `earliest_available_slot`.
     pub fn new_from_persisted_custody_context(
         ssz_context: CustodyContextSsz,
-        node_custody_type: NodeCustodyType,
-    ) -> Result<Self, String> {
-        if ssz_context.persisted_is_supernode && node_custody_type != NodeCustodyType::Supernode {
-            return Err(format!(
-                "Node was previously run as a supernode, cannot run as {:?} \
-                Please restart with a fresh db",
-                node_custody_type
-            ));
-        }
-        Ok(CustodyContext {
+        current_node_custody_type: NodeCustodyType,
+        spec: &ChainSpec,
+    ) -> Result<(Self, bool), String> {
+        let custody_context = CustodyContext {
             validator_custody_count: AtomicU64::new(ssz_context.validator_custody_at_head),
-            node_custody_type,
+            node_custody_type: current_node_custody_type,
             validator_registrations: RwLock::new(ValidatorRegistrations {
                 validators: Default::default(),
                 epoch_validator_custody_requirements: ssz_context
@@ -248,7 +266,38 @@ impl<E: EthSpec> CustodyContext<E> {
             }),
             all_custody_columns_ordered: OnceLock::new(),
             _phantom_data: PhantomData,
-        })
+        };
+
+        // The cgc value when we last shut down the node
+        let cgc_persisted = custody_count(
+            NodeCustodyType::custody_count_to_type(ssz_context.persisted_node_custody_count, spec)
+                .ok_or(format!(
+                    "Invalid persisted node custody count {}",
+                    ssz_context.persisted_node_custody_count
+                ))?,
+            ssz_context.validator_custody_at_head,
+            spec,
+        );
+
+        // A potentially new cgc value based on any changed cli flags
+        let cgc_current = custody_count(
+            current_node_custody_type,
+            ssz_context.validator_custody_at_head,
+            spec,
+        );
+
+        // If the cgc has increased across restarts because of a change in `NodeCustodyType`,
+        // we need to update the `earliest_available_slot` to the current slot to be able
+        // to serve all columns we are advertising.
+        //
+        // If the cgc has decreased, then we have a bunch of old extra columns that we can serve,
+        // so there is no need to update the `earliest_available_slot`.
+        let update_earliest_available_slot = if cgc_current > cgc_persisted {
+            true
+        } else {
+            false
+        };
+        Ok((custody_context, update_earliest_available_slot))
     }
 
     /// Initializes an ordered list of data columns based on provided custody groups.
@@ -417,6 +466,20 @@ impl<E: EthSpec> CustodyContext<E> {
         // because the node doesn't need the remaining columns.
         self.sampling_count_at_epoch(Some(epoch), spec) > min_columns_for_reconstruction
     }
+
+    pub fn into_custody_context_ssz(&self, spec: &ChainSpec) -> CustodyContextSsz {
+        CustodyContextSsz {
+            validator_custody_at_head: self.validator_custody_count.load(Ordering::Relaxed),
+            persisted_node_custody_count: self.node_custody_type.custody_count(spec),
+            epoch_validator_custody_requirements: self
+                .validator_registrations
+                .read()
+                .epoch_validator_custody_requirements
+                .iter()
+                .map(|(epoch, count)| (*epoch, *count))
+                .collect(),
+        }
+    }
 }
 
 /// The custody count changed because of a change in the
@@ -431,24 +494,9 @@ pub struct CustodyCountChanged {
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct CustodyContextSsz {
     pub validator_custody_at_head: u64,
-    pub persisted_is_supernode: bool,
+    /// The custody count that corresponds to the node's `NodeCustodyType`.
+    pub persisted_node_custody_count: u64,
     pub epoch_validator_custody_requirements: Vec<(Epoch, u64)>,
-}
-
-impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
-    fn from(context: &CustodyContext<E>) -> Self {
-        CustodyContextSsz {
-            validator_custody_at_head: context.validator_custody_count.load(Ordering::Relaxed),
-            persisted_is_supernode: context.node_custody_type == NodeCustodyType::Supernode,
-            epoch_validator_custody_requirements: context
-                .validator_registrations
-                .read()
-                .epoch_validator_custody_requirements
-                .iter()
-                .map(|(epoch, count)| (*epoch, *count))
-                .collect(),
-        }
-    }
 }
 
 #[cfg(test)]
