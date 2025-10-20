@@ -1675,40 +1675,11 @@ async fn test_blobs_by_range() {
             panic!("unexpected message {:?}", next);
         }
     }
-    assert_eq!(blob_count, actual_count);
-}
-
-#[tokio::test]
-async fn test_blobs_by_range_post_fulu_should_return_empty() {
-    // Only test for Fulu fork
-    if test_spec::<E>().fulu_fork_epoch.is_none() {
-        return;
-    };
-    let mut rig = TestRig::new(64).await;
-    let start_slot = 0;
-    let slot_count = 32;
-    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
-
-    let mut actual_count = 0;
-
-    while let Some(next) = rig.network_rx.recv().await {
-        if let NetworkMessage::SendResponse {
-            peer_id: _,
-            response: Response::BlobsByRange(blob),
-            inbound_request_id: _,
-        } = next
-        {
-            if blob.is_some() {
-                actual_count += 1;
-            } else {
-                break;
-            }
-        } else {
-            panic!("unexpected message {:?}", next);
-        }
+    if test_spec::<E>().fulu_fork_epoch.is_some() {
+        assert_eq!(0, actual_count, "Post-Fulu should return 0 blobs");
+    } else {
+        assert_eq!(blob_count, actual_count);
     }
-    // Post-Fulu should return 0 blobs
-    assert_eq!(0, actual_count);
 }
 
 #[tokio::test]
