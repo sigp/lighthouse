@@ -1,4 +1,4 @@
-//! This module provides all functionality for finding the canonical head, updating all necessary
+//! This module prvides all functionality for finding the canonical head, updating all necessary
 //! components (e.g. caches) and maintaining a cached head block and state.
 //!
 //! For practically all applications, the "canonical head" can be read using
@@ -55,7 +55,8 @@ use state_processing::AllCaches;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{
-    Error as StoreError, KeyValueStore, KeyValueStoreOp, StoreConfig, iter::StateRootsIterator,
+    Error as StoreError, HotStateSummary, KeyValueStore, KeyValueStoreOp, StoreConfig,
+    iter::StateRootsIterator,
 };
 use task_executor::{JoinHandle, ShutdownReason};
 use tracing::info_span;
@@ -1051,6 +1052,74 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Take a write-lock on the canonical head and signal for it to prune.
         self.canonical_head.fork_choice_write_lock().prune()?;
 
+        Ok(())
+    }
+
+    pub fn manual_finalization(
+        self: &Arc<Self>,
+        checkpoint: Checkpoint,
+        // TODO: Should we derive the state_root from the checkpoint?
+        state_root: Hash256,
+    ) -> Result<(), Error> {
+        let HotStateSummary {
+            slot,
+            latest_block_root,
+            ..
+        } = self
+            .store
+            .load_hot_state_summary(&state_root)
+            .map_err(Error::DBError)?
+            .ok_or(Error::MissingHotStateSummary(state_root))?;
+
+        if slot != checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch()) {
+            return Err(Error::InvalidCheckpoint(format!(
+                "state {state_root:?} slot {slot} not first slot of checkpoint {checkpoint:?}"
+            )));
+        }
+        if latest_block_root != *checkpoint.root {
+            return Err(Error::InvalidCheckpoint(format!(
+                "state {state_root:?} not a post state of checkpoint {checkpoint:?}"
+            )));
+        }
+
+        // Take a clone of the current ("old") head.
+        let old_cached_head = self.canonical_head.cached_head();
+
+        let new_view = {
+            let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
+            fork_choice_write_lock.set_local_irreversible_checkpoint(checkpoint, state_root)?;
+            let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
+            ForkChoiceView {
+                head_block_root: old_cached_head.head_block_root(),
+                justified_checkpoint: fork_choice_read_lock.justified_checkpoint(),
+                finalized_checkpoint: fork_choice_read_lock.finalized_checkpoint(),
+            }
+        };
+
+        let new_cached_head = {
+            let fork_choice = self.canonical_head.fork_choice_read_lock();
+            let new_cached_head = CachedHead {
+                // The head hasn't changed, take a relatively cheap `Arc`-clone of the existing
+                // head.
+                snapshot: old_cached_head.snapshot.clone(),
+                justified_checkpoint: new_view.justified_checkpoint,
+                finalized_checkpoint: new_view.finalized_checkpoint,
+                head_hash: fork_choice.execution_hash(old_cached_head.head_block_root()),
+                justified_hash: fork_choice
+                    .execution_hash(new_view.justified_checkpoint.on_chain().root),
+                finalized_hash: fork_choice
+                    .execution_hash(new_view.finalized_checkpoint.on_chain().root),
+            };
+            drop(fork_choice);
+
+            let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();
+            *cached_head_write_lock = new_cached_head;
+            // Take a clone of the cached head for later use. It is cloned whilst
+            // holding the write-lock to ensure we get exactly the head we just enshrined.
+            cached_head_write_lock.clone()
+        };
+
+        self.after_finalization(&new_cached_head, new_view)?;
         Ok(())
     }
 

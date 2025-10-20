@@ -41,7 +41,7 @@ use crate::light_client_optimistic_update_verification::{
     Error as LightClientOptimisticUpdateError, VerifiedLightClientOptimisticUpdate,
 };
 use crate::light_client_server_cache::LightClientServerCache;
-use crate::migrate::{BackgroundMigrator, ManualFinalizationNotification};
+use crate::migrate::BackgroundMigrator;
 use crate::naive_aggregation_pool::{
     AggregatedAttestationMap, Error as NaiveAggregationError, NaiveAggregationPool,
     SyncContributionAggregateMap,
@@ -122,8 +122,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{
-    BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, HotStateSummary,
-    KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+    BlobSidecarListFromRoot, DBColumn, DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore,
+    KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio_stream::Stream;
@@ -1679,39 +1679,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn manually_compact_database(&self) {
         self.store_migrator.process_manual_compaction();
-    }
-
-    pub fn manually_finalize_state(
-        &self,
-        state_root: Hash256,
-        checkpoint: Checkpoint,
-    ) -> Result<(), Error> {
-        let HotStateSummary {
-            slot,
-            latest_block_root,
-            ..
-        } = self
-            .store
-            .load_hot_state_summary(&state_root)
-            .map_err(BeaconChainError::DBError)?
-            .ok_or(BeaconChainError::MissingHotStateSummary(state_root))?;
-
-        if slot != checkpoint.epoch.start_slot(T::EthSpec::slots_per_epoch())
-            || latest_block_root != *checkpoint.root
-        {
-            return Err(BeaconChainError::InvalidCheckpoint {
-                state_root,
-                checkpoint,
-            });
-        }
-
-        let notif = ManualFinalizationNotification {
-            state_root: state_root.into(),
-            checkpoint,
-        };
-
-        self.store_migrator.process_manual_finalization(notif);
-        Ok(())
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching `attestation.data`.

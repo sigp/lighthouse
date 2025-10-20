@@ -76,6 +76,12 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
         state_root: Hash256,
     ) -> Result<(), Self::Error>;
 
+    fn set_local_irreversible_checkpoint(
+        &mut self,
+        checkpoint: Checkpoint,
+        state_root: Hash256,
+    ) -> Result<(), Self::Error>;
+
     /// Sets the `unrealized_justified_checkpoint`.
     fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint, state_root: Hash256);
 

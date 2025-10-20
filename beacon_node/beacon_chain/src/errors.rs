@@ -181,10 +181,7 @@ pub enum BeaconChainError {
         execution_block_hash: Option<ExecutionBlockHash>,
     },
     ForkchoiceUpdate(execution_layer::Error),
-    InvalidCheckpoint {
-        state_root: Hash256,
-        checkpoint: Checkpoint,
-    },
+    InvalidCheckpoint(String),
     InvalidSlot(Slot),
     HeadBlockNotFullyVerified {
         beacon_block_root: Hash256,

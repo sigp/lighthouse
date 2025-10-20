@@ -1322,6 +1322,18 @@ where
         *self.fc_store.unrealized_finalized_checkpoint()
     }
 
+    /// TODO: Document
+    pub fn set_local_irreversible_checkpoint(
+        &mut self,
+        checkpoint: Checkpoint,
+        state_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.fc_store
+            .set_local_irreversible_checkpoint(checkpoint, state_root)
+            .map_err(Error::UnableToSetJustifiedCheckpoint)?;
+        Ok(())
+    }
+
     /// Returns the latest message for a given validator, if any.
     ///
     /// Returns `(block_root, block_slot)`.

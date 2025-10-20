@@ -294,6 +294,34 @@ where
             _phantom: PhantomData,
         })
     }
+
+    fn update_justified_balances(
+        &mut self,
+        checkpoint: Checkpoint,
+        justified_state_root: Hash256,
+    ) -> Result<(), Error> {
+        self.justified_state_root = justified_state_root;
+
+        if let Some(balances) = self.balances_cache.get(checkpoint.root, checkpoint.epoch) {
+            // NOTE: could avoid this re-calculation by introducing a `PersistedCacheItem`.
+            metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
+            self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
+        } else {
+            metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
+
+            // Justified state is reasonably useful to cache, it might be finalized soon.
+            let update_cache = true;
+            let state = self
+                .store
+                .get_hot_state(&self.justified_state_root, update_cache)
+                .map_err(Error::FailedToReadState)?
+                .ok_or(Error::MissingState(self.justified_state_root))?;
+
+            self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl<E, Hot, Cold> ForkChoiceStore<E> for BeaconForkChoiceStore<E, Hot, Cold>
@@ -377,27 +405,7 @@ where
         justified_state_root: Hash256,
     ) -> Result<(), Error> {
         self.justified_checkpoint = checkpoint;
-        self.justified_state_root = justified_state_root;
-
-        if let Some(balances) = self.balances_cache.get(checkpoint.root, checkpoint.epoch) {
-            // NOTE: could avoid this re-calculation by introducing a `PersistedCacheItem`.
-            metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
-            self.justified_balances = JustifiedBalances::from_effective_balances(balances)?;
-        } else {
-            metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
-
-            // Justified state is reasonably useful to cache, it might be finalized soon.
-            let update_cache = true;
-            let state = self
-                .store
-                .get_hot_state(&self.justified_state_root, update_cache)
-                .map_err(Error::FailedToReadState)?
-                .ok_or(Error::MissingState(self.justified_state_root))?;
-
-            self.justified_balances = JustifiedBalances::from_justified_state(&state)?;
-        }
-
-        Ok(())
+        self.update_justified_balances(checkpoint, justified_state_root)
     }
 
     fn set_unrealized_justified_checkpoint(&mut self, checkpoint: Checkpoint, state_root: Hash256) {
@@ -407,6 +415,18 @@ where
 
     fn set_unrealized_finalized_checkpoint(&mut self, checkpoint: Checkpoint) {
         self.unrealized_finalized_checkpoint = checkpoint;
+    }
+
+    fn set_local_irreversible_checkpoint(
+        &mut self,
+        checkpoint: Checkpoint,
+        state_root: Hash256,
+    ) -> Result<(), Error> {
+        self.local_irreversible_checkpoint = checkpoint;
+        if self.local_irreversible_checkpoint.epoch > self.justified_checkpoint.epoch {
+            self.update_justified_balances(checkpoint, state_root)?;
+        }
+        Ok(())
     }
 
     fn set_proposer_boost_root(&mut self, proposer_boost_root: Hash256) {

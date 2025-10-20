@@ -4170,7 +4170,7 @@ pub fn serve<T: BeaconChainTypes>(
                     };
 
                     chain
-                        .manually_finalize_state(request_data.state_root, checkpoint)
+                        .manual_finalization(checkpoint, request_data.state_root)
                         .map(|_| api_types::GenericResponse::from(request_data))
                         .map_err(|e| {
                             warp_utils::reject::custom_bad_request(format!(
