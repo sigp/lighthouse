@@ -357,7 +357,7 @@ where
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
-            node_custody_type: NodeCustodyType::FullNode,
+            node_custody_type: NodeCustodyType::Fullnode,
             runtime,
         }
     }

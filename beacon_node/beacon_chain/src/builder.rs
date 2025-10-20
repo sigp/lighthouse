@@ -1,10 +1,10 @@
 use crate::ChainConfig;
 use crate::CustodyContext;
-use crate::custody_context::NodeCustodyType;
 use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
@@ -140,7 +140,7 @@ where
             kzg,
             task_executor: None,
             validator_monitor_config: None,
-            node_custody_type: NodeCustodyType::FullNode,
+            node_custody_type: NodeCustodyType::Fullnode,
             rng: None,
         }
     }
@@ -937,7 +937,7 @@ where
             Arc::new(CustodyContext::new_from_persisted_custody_context(
                 custody,
                 self.node_custody_type,
-            ))
+            )?)
         } else {
             Arc::new(CustodyContext::new(self.node_custody_type))
         };

@@ -97,7 +97,12 @@ fn get_harness(
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };
-    get_harness_generic(store, validator_count, chain_config, false)
+    get_harness_generic(
+        store,
+        validator_count,
+        chain_config,
+        NodeCustodyType::Fullnode,
+    )
 }
 
 fn get_harness_import_all_data_columns(
@@ -3185,7 +3190,12 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let harness = get_harness_generic(store.clone(), LOW_VALIDATOR_COUNT, chain_config, false);
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        chain_config,
+        NodeCustodyType::Fullnode,
+    );
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
@@ -3610,7 +3620,7 @@ async fn schema_downgrade_to_min_version(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config.clone(),
-        NodeCustodyType::FullNode,
+        NodeCustodyType::Fullnode,
     );
 
     harness
@@ -4573,7 +4583,7 @@ async fn ancestor_state_root_prior_to_split() {
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config,
-        NodeCustodyType::FullNode,
+        NodeCustodyType::Fullnode,
     );
 
     // Produce blocks until we have passed through two full snapshot periods. This period length is
@@ -4666,7 +4676,7 @@ async fn replay_from_split_state() {
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config,
-        NodeCustodyType::FullNode,
+        NodeCustodyType::Fullnode,
     );
 
     // Produce blocks until we finalize epoch 3 which will not be stored as a snapshot.

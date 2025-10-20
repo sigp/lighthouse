@@ -1023,7 +1023,7 @@ mod test {
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
-        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::FullNode));
+        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::Fullnode));
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(
                 capacity_non_zero,

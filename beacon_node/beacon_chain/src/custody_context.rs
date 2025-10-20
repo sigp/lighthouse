@@ -150,7 +150,7 @@ pub enum NodeCustodyType {
     /// or is running with cli parameters to indicate that it wants
     /// to only subscribe to the minimal custody requirements.
     #[default]
-    FullNode,
+    Fullnode,
 }
 
 /// Returns the number of columns we need to custody based on the `validator_custody_count`
@@ -165,7 +165,7 @@ pub fn custody_count(
         NodeCustodyType::MinimalReconstructionNode => {
             std::cmp::max(validator_custody_count, spec.number_of_custody_groups / 2) as usize
         }
-        NodeCustodyType::FullNode => {
+        NodeCustodyType::Fullnode => {
             std::cmp::max(validator_custody_count, spec.custody_requirement) as usize
         }
     }
@@ -185,7 +185,7 @@ pub fn sampling_count(
         NodeCustodyType::MinimalReconstructionNode => {
             std::cmp::max(validator_custody_count, spec.number_of_custody_groups / 2) as usize
         }
-        NodeCustodyType::FullNode => {
+        NodeCustodyType::Fullnode => {
             std::cmp::max(validator_custody_count, spec.samples_per_slot) as usize
         }
     }
@@ -228,8 +228,15 @@ impl<E: EthSpec> CustodyContext<E> {
     pub fn new_from_persisted_custody_context(
         ssz_context: CustodyContextSsz,
         node_custody_type: NodeCustodyType,
-    ) -> Self {
-        CustodyContext {
+    ) -> Result<Self, String> {
+        if ssz_context.persisted_is_supernode && node_custody_type != NodeCustodyType::Supernode {
+            return Err(format!(
+                "Node was previously run as a supernode, cannot run as {:?} \
+                Please restart with a fresh db",
+                node_custody_type
+            ));
+        }
+        Ok(CustodyContext {
             validator_custody_count: AtomicU64::new(ssz_context.validator_custody_at_head),
             node_custody_type,
             validator_registrations: RwLock::new(ValidatorRegistrations {
@@ -241,7 +248,7 @@ impl<E: EthSpec> CustodyContext<E> {
             }),
             all_custody_columns_ordered: OnceLock::new(),
             _phantom_data: PhantomData,
-        }
+        })
     }
 
     /// Initializes an ordered list of data columns based on provided custody groups.
@@ -456,36 +463,36 @@ mod tests {
 
     #[test]
     fn no_validators_supernode_default() {
-        let custody_context = CustodyContext::<E>::new(true);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Supernode);
         let spec = E::default_spec();
         assert_eq!(
-            custody_context.custody_group_count_at_head(&spec),
-            spec.number_of_custody_groups
+            custody_context.custody_group_count_at_epoch(None, &spec),
+            spec.number_of_custody_groups as usize
         );
         assert_eq!(
-            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), &spec),
-            spec.number_of_custody_groups
+            custody_context.sampling_count_at_epoch(None, &spec),
+            spec.number_of_custody_groups as usize
         );
     }
 
     #[test]
     fn no_validators_fullnode_default() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         assert_eq!(
-            custody_context.custody_group_count_at_head(&spec),
-            spec.custody_requirement,
+            custody_context.custody_group_count_at_epoch(None, &spec),
+            spec.custody_requirement as usize,
             "head custody count should be minimum spec custody requirement"
         );
         assert_eq!(
-            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), &spec),
-            spec.samples_per_slot
+            custody_context.sampling_count_at_epoch(None, &spec),
+            spec.samples_per_slot as usize
         );
     }
 
     #[test]
     fn register_single_validator_should_update_cgc() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
@@ -509,7 +516,7 @@ mod tests {
 
     #[test]
     fn register_multiple_validators_should_update_cgc() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
         let min_val_custody_requirement = spec.validator_custody_requirement;
@@ -546,7 +553,7 @@ mod tests {
 
     #[test]
     fn register_validators_should_not_update_cgc_for_supernode() {
-        let custody_context = CustodyContext::<E>::new(true);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Supernode);
         let spec = E::default_spec();
         let bal_per_additional_group = spec.balance_per_additional_custody_group;
 
@@ -577,19 +584,19 @@ mod tests {
         );
         let current_epoch = Epoch::new(2);
         assert_eq!(
-            custody_context.num_of_custody_groups_to_sample(current_epoch, &spec),
-            spec.number_of_custody_groups
+            custody_context.custody_group_count_at_epoch(Some(current_epoch), &spec),
+            spec.number_of_custody_groups as usize
         );
     }
 
     #[test]
     fn cgc_change_should_be_effective_to_sampling_after_delay() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         let current_slot = Slot::new(10);
         let current_epoch = current_slot.epoch(E::slots_per_epoch());
         let default_sampling_size =
-            custody_context.num_of_custody_groups_to_sample(current_epoch, &spec);
+            custody_context.sampling_count_at_epoch(Some(current_epoch), &spec);
         let validator_custody_units = 10;
 
         let _cgc_changed = custody_context.register_validators(
@@ -603,19 +610,19 @@ mod tests {
 
         // CGC update is not applied for `current_epoch`.
         assert_eq!(
-            custody_context.num_of_custody_groups_to_sample(current_epoch, &spec),
+            custody_context.sampling_count_at_epoch(Some(current_epoch), &spec),
             default_sampling_size
         );
         // CGC update is applied for the next epoch.
         assert_eq!(
-            custody_context.num_of_custody_groups_to_sample(current_epoch + 1, &spec),
-            validator_custody_units
+            custody_context.sampling_count_at_epoch(Some(current_epoch + 1), &spec),
+            validator_custody_units as usize
         );
     }
 
     #[test]
     fn validator_dropped_after_no_registrations_within_expiry_should_not_reduce_cgc() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         let current_slot = Slot::new(10);
         let val_custody_units_1 = 10;
@@ -650,14 +657,14 @@ mod tests {
         // THEN the reduction from dropping val_2 balance should NOT result in a CGC reduction
         assert!(cgc_changed_opt.is_none(), "CGC should remain unchanged");
         assert_eq!(
-            custody_context.custody_group_count_at_head(&spec),
-            val_custody_units_1 + val_custody_units_2
+            custody_context.custody_group_count_at_epoch(None, &spec),
+            (val_custody_units_1 + val_custody_units_2) as usize
         )
     }
 
     #[test]
     fn validator_dropped_after_no_registrations_within_expiry() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         let current_slot = Slot::new(10);
         let val_custody_units_1 = 10;
@@ -708,8 +715,8 @@ mod tests {
     #[test]
     fn should_init_ordered_data_columns_and_return_sampling_columns() {
         let spec = E::default_spec();
-        let custody_context = CustodyContext::<E>::new(false);
-        let sampling_size = custody_context.sampling_count_at_epoch(Epoch::new(0), &spec);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
+        let sampling_size = custody_context.sampling_count_at_epoch(Some(Epoch::new(0)), &spec);
 
         // initialise ordered columns
         let mut all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
@@ -723,7 +730,7 @@ mod tests {
             .expect("should initialise ordered data columns");
 
         let actual_sampling_columns =
-            custody_context.sampling_columns_for_epoch(Epoch::new(0), &spec);
+            custody_context.sampling_columns_for_epoch(Some(Epoch::new(0)), &spec);
 
         let expected_sampling_columns = &all_custody_groups_ordered
             .iter()
@@ -760,7 +767,7 @@ mod tests {
 
     #[test]
     fn custody_columns_for_epoch_no_validators_fullnode() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
 
@@ -776,7 +783,7 @@ mod tests {
 
     #[test]
     fn custody_columns_for_epoch_no_validators_supernode() {
-        let custody_context = CustodyContext::<E>::new(true);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Supernode);
         let spec = E::default_spec();
         let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
 
@@ -792,7 +799,7 @@ mod tests {
 
     #[test]
     fn custody_columns_for_epoch_with_validators_should_match_cgc() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
         let val_custody_units = 10;
@@ -818,7 +825,7 @@ mod tests {
 
     #[test]
     fn custody_columns_for_epoch_specific_epoch_uses_epoch_cgc() {
-        let custody_context = CustodyContext::<E>::new(false);
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode);
         let spec = E::default_spec();
         let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
         let test_epoch = Epoch::new(5);
@@ -827,12 +834,12 @@ mod tests {
             .init_ordered_data_columns_from_custody_groups(all_custody_groups_ordered, &spec)
             .expect("should initialise ordered data columns");
 
-        let expected_cgc = custody_context.custody_group_count_at_epoch(test_epoch, &spec);
+        let expected_cgc = custody_context.custody_group_count_at_epoch(Some(test_epoch), &spec);
         assert_eq!(
             custody_context
                 .custody_columns_for_epoch(Some(test_epoch), &spec)
                 .len(),
-            expected_cgc as usize
+            expected_cgc
         );
     }
 }

@@ -124,7 +124,7 @@ pub fn get_config<E: EthSpec>(
     } else if is_half_node {
         NodeCustodyType::MinimalReconstructionNode
     } else {
-        NodeCustodyType::FullNode
+        NodeCustodyType::Fullnode
     };
 
     /*

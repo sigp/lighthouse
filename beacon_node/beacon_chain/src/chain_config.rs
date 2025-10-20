@@ -163,7 +163,7 @@ impl Default for ChainConfig {
             data_column_publishing_delay: None,
             invalid_block_roots: HashSet::new(),
             disable_get_blobs: false,
-            node_custody_type: NodeCustodyType::FullNode,
+            node_custody_type: NodeCustodyType::Fullnode,
         }
     }
 }

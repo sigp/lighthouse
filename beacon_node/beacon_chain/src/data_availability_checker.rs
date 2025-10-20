@@ -1203,7 +1203,7 @@ mod test {
         );
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
-        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::FullNode));
+        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::Fullnode));
         let complete_blob_backfill = false;
         DataAvailabilityChecker::new(
             complete_blob_backfill,
