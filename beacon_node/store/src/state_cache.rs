@@ -58,14 +58,11 @@ pub struct StateCacheInner<E: EthSpec> {
 
 /// Cache of hdiff buffers for hot states.
 ///
-/// This cache only keeps buffers prior to the finalized state, which are required by the
-/// hierarchical state diff scheme to construct newer unfinalized states.
-///
 /// The cache always retains the hdiff buffer for the most recent snapshot so that even if the
 /// cache capacity is 1, this snapshot never needs to be loaded from disk.
 #[derive(Debug)]
 pub struct HotHDiffBufferCache {
-    /// Cache of HDiffBuffers for states *prior* to the `finalized_state`.
+    /// Cache of HDiffBuffers.
     ///
     /// Maps state_root -> (slot, buffer).
     hdiff_buffers: LruCache<Hash256, (Slot, Arc<OnceCell<HDiffBuffer>>)>,
