@@ -243,6 +243,45 @@ impl<E: EthSpec> PostgresDB<E> {
             Err(e) => Box::new(once(Err(e)))
         }
     }
+
+    pub fn iter_column_keys<K: Key>(&self, column: DBColumn) -> ColumnKeyIter<'_, K> {
+        let table = table_name_for_column(column);
+        let query = format!("SELECT key FROM {} ORDER BY key ASC", table);
+
+        let rows_result: Result<Vec<Vec<u8>>, Error> = block_on_in_runtime(async {
+            let rows = sqlx::query(&query)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+
+            Ok(rows
+                .into_iter()
+                .map(|row| {
+                    let k: Vec<u8> = row.get("key");
+                    Ok(k)
+                })
+                .collect::<Result<Vec<_>, Error>>()?)
+        }).and_then(|r| r);
+
+        match rows_result {
+            Ok(keys) => {
+                let iter = keys.into_iter().map(|k_bytes| {
+                    let k = K::from_bytes(&k_bytes)?;
+                    Ok(k)
+                });
+                Box::new(iter)
+            }
+            Err(e) => Box::new(once(Err(e)))
+        }
+    }
+
+    pub fn compact(&self) -> Result<(), Error> {
+        Ok(())
+    }
+
+    pub fn compact_column(&self, _column: DBColumn) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 fn table_name_for_column(column: DBColumn) -> String {
