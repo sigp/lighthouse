@@ -3,6 +3,7 @@ use heck::ToSnakeCase;
 use once_cell::sync::Lazy;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
+use std::collections::HashSet;
 use std::future::Future;
 use std::iter::once;
 use std::marker::PhantomData;
@@ -282,6 +283,55 @@ impl<E: EthSpec> PostgresDB<E> {
     pub fn compact_column(&self, _column: DBColumn) -> Result<(), Error> {
         Ok(())
     }
+
+    pub fn delete_batch(&self, column: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {
+        block_on_in_runtime(async {
+            let mut tx = self.pool.begin().await.map_err(|e| Error::DBError {
+                message: format!("{:?}", e),
+            })?;
+
+            let table = table_name_for_column(column);
+            let q = format!("DELETE FROM {} WHERE key = $1", table);
+
+            for key in ops {
+                sqlx::query(&q)
+                    .bind(key)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| Error::DBError { message: format!("{:?}", e) })?;
+            }
+
+            tx.commit().await.map_err(|e| Error::DBError { message: format!("{:?}", e) })
+        })?
+    }
+
+    pub fn delete_if(&self, column: DBColumn, mut f: impl FnMut(&[u8]) -> Result<bool, Error>) -> Result<(), Error> {
+        let keys: Vec<Vec<u8>> = {
+            let table = table_name_for_column(column);
+            let query = format!("SELECT key FROM {} ORDER BY key ASC", table);
+            
+            block_on_in_runtime(async {
+                let rows = sqlx::query(&query)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(|e| Error::DBError { message: format!("Failed to fetch key: {:?}", e) })?;
+                
+                Ok::<Vec<Vec<u8>>, Error>(
+                    rows.into_iter()
+                        .map(|r| r.get("key"))
+                        .collect::<Vec<Vec<u8>>>()
+                )
+            })??
+        };
+
+        for key in keys {
+            if f(&key)? {
+                self.key_delete(column, &key)?;
+            }
+        }
+        Ok(())
+    }
+
 }
 
 fn table_name_for_column(column: DBColumn) -> String {
