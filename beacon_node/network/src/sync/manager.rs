@@ -65,6 +65,7 @@ use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
+use slot_clock::SlotClock;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
@@ -770,6 +771,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
 
+        // Trigger a sync state update every epoch. This helps check if we need to trigger a custody backfill sync.
+        let epoch_duration = self.chain.slot_clock.slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
+        let mut epoch_interval = tokio::time::interval(Duration::from_secs(epoch_duration));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -787,6 +792,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = register_metrics_interval.tick() => {
                     self.network.register_metrics();
+                }
+                _ = epoch_interval.tick() => {
+                    self.update_sync_state();
                 }
             }
         }
