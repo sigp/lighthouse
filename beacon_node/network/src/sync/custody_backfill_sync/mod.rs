@@ -6,7 +6,8 @@ use std::{
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
-    NetworkGlobals, PeerId, service::api_types::CustodyBackFillBatchRequestId,
+    NetworkGlobals, PeerId,
+    service::api_types::{CustodyBackFillBatchRequestId, CustodyBackfillBatchId},
     types::CustodyBackFillState,
 };
 use lighthouse_tracing::SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST;
@@ -489,10 +490,13 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
         self.current_processing_batch = Some(batch_id);
 
-        if let Err(e) = network
-            .beacon_processor()
-            .send_historic_data_columns(batch_id, data_columns)
-        {
+        if let Err(e) = network.beacon_processor().send_historic_data_columns(
+            CustodyBackfillBatchId {
+                epoch: batch_id,
+                run_id: self.run_id,
+            },
+            data_columns,
+        ) {
             crit!(
                 msg = "process_batch",
                 error = %e,
@@ -505,7 +509,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             // re-downloaded.
             self.on_batch_process_result(
                 network,
-                batch_id,
+                CustodyBackfillBatchId {
+                    epoch: batch_id,
+                    run_id: self.run_id,
+                },
                 &CustodyBatchProcessResult::Error { peer_action: None },
             )
         } else {
@@ -522,11 +529,16 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     pub fn on_data_column_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        request_id: CustodyBackFillBatchRequestId,
+        req_id: CustodyBackFillBatchRequestId,
         peer_id: &PeerId,
         data_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<ProcessResult, CustodyBackfillError> {
-        let batch_id = request_id.epoch;
+        if req_id.batch_id.run_id != self.run_id {
+            debug!(%req_id, "Ignoring custody backfill download response from different run_id");
+            return Ok(ProcessResult::Successful);
+        }
+
+        let batch_id = req_id.batch_id.epoch;
         // check if we have this batch
         let Some(batch) = self.batches.get_mut(&batch_id) else {
             if !matches!(self.state(), CustodyBackFillState::Pending(_)) {
@@ -540,7 +552,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         // sending an error /timeout) if the peer is removed for other
         // reasons. Check that this column belongs to the expected peer, and that the
         // request_id matches
-        if !batch.is_expecting_request_id(&request_id.id) {
+        if !batch.is_expecting_request_id(&req_id.id) {
             return Ok(ProcessResult::Successful);
         }
         let received = data_columns.len();
@@ -574,16 +586,22 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     pub fn on_batch_process_result(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        batch_id: BatchId,
+        custody_batch_id: CustodyBackfillBatchId,
         result: &CustodyBatchProcessResult,
     ) -> Result<ProcessResult, CustodyBackfillError> {
+        let batch_id = custody_batch_id.epoch;
+        if custody_batch_id.run_id != self.run_id {
+            debug!(batch = %custody_batch_id, "Ignoring custody backfill error from different run_id");
+            return Ok(ProcessResult::Successful);
+        }
+
         // The first two cases are possible in regular sync, should not occur in custody backfill, but we
         // keep this logic for handling potential processing race conditions.
         // result
         let batch = match &self.current_processing_batch {
             Some(processing_id) if *processing_id != batch_id => {
                 debug!(
-                    batch_epoch = %batch_id.as_u64(),
+                    batch_epoch = %batch_id,
                     expected_batch_epoch = processing_id.as_u64(),
                     "Unexpected batch result"
                 );
@@ -955,7 +973,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
             match network.custody_backfill_data_columns_batch_request(
                 request,
-                batch_id,
+                CustodyBackfillBatchId {
+                    epoch: batch_id,
+                    run_id: self.run_id,
+                },
                 &synced_peers,
                 &failed_peers,
             ) {
@@ -1062,7 +1083,12 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         peer_id: &PeerId,
         err: RpcResponseError,
     ) -> Result<(), CustodyBackfillError> {
-        let batch_id = req_id.epoch;
+        if req_id.batch_id.run_id != self.run_id {
+            debug!(%req_id, "Ignoring custody backfill error from different run_id");
+            return Ok(());
+        }
+
+        let batch_id = req_id.batch_id.epoch;
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other

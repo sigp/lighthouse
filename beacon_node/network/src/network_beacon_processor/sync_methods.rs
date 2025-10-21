@@ -20,6 +20,7 @@ use beacon_processor::{
 };
 use beacon_processor::{Work, WorkEvent};
 use lighthouse_network::PeerAction;
+use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_tracing::{
     SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS, SPAN_PROCESS_CHAIN_SEGMENT,
     SPAN_PROCESS_CHAIN_SEGMENT_BACKFILL, SPAN_PROCESS_RPC_BLOBS, SPAN_PROCESS_RPC_BLOCK,
@@ -423,12 +424,12 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub fn process_historic_data_columns(
         &self,
-        process_id: Epoch,
+        batch_id: CustodyBackfillBatchId,
         downloaded_columns: DataColumnSidecarList<T::EthSpec>,
     ) {
         let _guard = debug_span!(
             SPAN_CUSTODY_BACKFILL_SYNC_IMPORT_COLUMNS,
-            epoch = ?process_id,
+            epoch = %batch_id.epoch,
             columns_received_count = downloaded_columns.len()
         )
         .entered();
@@ -436,7 +437,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let sent_columns = downloaded_columns.len();
         let result = match self
             .chain
-            .import_historical_data_column_batch(process_id, downloaded_columns)
+            .import_historical_data_column_batch(batch_id.epoch, downloaded_columns)
         {
             Ok(imported_columns) => {
                 metrics::inc_counter_by(
@@ -515,10 +516,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 CustodyBatchProcessResult::Error { peer_action }
             }
         };
-        self.send_sync_message(SyncMessage::CustodyBatchProcessed {
-            result,
-            batch_id: process_id,
-        });
+        self.send_sync_message(SyncMessage::CustodyBatchProcessed { result, batch_id });
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync

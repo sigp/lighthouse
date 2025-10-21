@@ -16,6 +16,7 @@ use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
     LightClientUpdatesByRangeRequest,
 };
+use lighthouse_network::service::api_types::CustodyBackfillBatchId;
 use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
@@ -494,11 +495,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
     pub fn send_historic_data_columns(
         self: &Arc<Self>,
-        process_id: Epoch,
+        batch_id: CustodyBackfillBatchId,
         data_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<(), Error<T::EthSpec>> {
         let processor = self.clone();
-        let process_fn = move || processor.process_historic_data_columns(process_id, data_columns);
+        let process_fn = move || processor.process_historic_data_columns(batch_id, data_columns);
 
         let work = Work::ChainSegmentBackfill(Box::new(process_fn));
 

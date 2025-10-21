@@ -26,9 +26,9 @@ use lighthouse_network::rpc::{BlocksByRangeRequest, GoodbyeReason, RPCError, Req
 pub use lighthouse_network::service::api_types::RangeRequestId;
 use lighthouse_network::service::api_types::{
     AppRequestId, BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
-    CustodyBackFillBatchRequestId, CustodyId, CustodyRequester, DataColumnsByRangeRequestId,
-    DataColumnsByRangeRequester, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
-    SingleLookupReqId, SyncRequestId,
+    CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyId, CustodyRequester,
+    DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
+    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource};
 use lighthouse_tracing::{SPAN_OUTGOING_BLOCK_BY_ROOT_REQUEST, SPAN_OUTGOING_RANGE_REQUEST};
@@ -51,8 +51,8 @@ use tokio::sync::mpsc;
 use tracing::{Span, debug, debug_span, error, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
-    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, Epoch,
-    EthSpec, ForkContext, Hash256, SignedBeaconBlock, Slot,
+    BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
+    ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -1690,7 +1690,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
     pub fn custody_backfill_data_columns_batch_request(
         &mut self,
         request: DataColumnsByRangeRequest,
-        epoch: Epoch,
+        batch_id: CustodyBackfillBatchId,
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
     ) -> Result<CustodyBackFillBatchRequestId, RpcRequestSendError> {
@@ -1699,7 +1699,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         let columns_by_range_peers_to_request = {
             let column_indexes = self
                 .chain
-                .sampling_columns_for_epoch(epoch)
+                .sampling_columns_for_epoch(batch_id.epoch)
                 .iter()
                 .cloned()
                 .collect();
@@ -1715,7 +1715,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         // Create the overall `custody_by_range` request id
         let id = CustodyBackFillBatchRequestId {
             id: self.next_id(),
-            epoch,
+            batch_id,
         };
 
         let result = columns_by_range_peers_to_request
@@ -1732,7 +1732,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .collect::<Vec<_>>();
 
         let range_data_column_batch_request =
-            RangeDataColumnBatchRequest::new(result, self.chain.clone(), epoch);
+            RangeDataColumnBatchRequest::new(result, self.chain.clone(), batch_id.epoch);
 
         self.custody_backfill_data_column_batch_requests
             .insert(id, range_data_column_batch_request);

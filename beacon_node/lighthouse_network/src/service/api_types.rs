@@ -75,23 +75,6 @@ pub enum DataColumnsByRangeRequester {
     CustodyBackfillSync(CustodyBackFillBatchRequestId),
 }
 
-impl Display for DataColumnsByRangeRequester {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DataColumnsByRangeRequester::ComponentsByRange(parent_request_id) => {
-                let id = parent_request_id.id;
-                let requester = parent_request_id.requester;
-                write!(f, "{id}/{requester}")
-            }
-            DataColumnsByRangeRequester::CustodyBackfillSync(parent_request_id) => {
-                let id = parent_request_id.id;
-                let epoch = parent_request_id.epoch;
-                write!(f, "{id}/{epoch}")
-            }
-        }
-    }
-}
-
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
 /// handle retries and tie all their sub requests together.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -103,22 +86,22 @@ pub struct ComponentsByRangeRequestId {
     pub requester: RangeRequestId,
 }
 
-// A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
-// handle retries and tie all the range requests for the given epoch together.
+/// A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
+/// handle retries and tie all the range requests for the given epoch together.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub struct CustodyBackFillBatchRequestId {
     /// For each `epoch` we may request the same data in a later retry. This Id identifies the
     /// current attempt.
     pub id: Id,
-    pub epoch: Epoch,
+    pub batch_id: CustodyBackfillBatchId,
 }
 
-impl Display for CustodyBackFillBatchRequestId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let id = self.id;
-        let epoch = self.epoch;
-        write!(f, "CustodySync/{id}/{epoch}")
-    }
+/// Custody backfill may be restarted and sync each epoch multiple times in different runs. Identify
+/// each batch by epoch and run_id for uniqueness.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyBackfillBatchId {
+    pub epoch: Epoch,
+    pub run_id: u64,
 }
 
 /// Range sync chain or backfill batch
@@ -258,6 +241,8 @@ impl_display!(ComponentsByRangeRequestId, "{}/{}", id, requester);
 impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
 impl_display!(CustodyId, "{}", requester);
+impl_display!(CustodyBackFillBatchRequestId, "{}/{}", id, batch_id);
+impl_display!(CustodyBackfillBatchId, "{}/{}", epoch, run_id);
 
 impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -278,6 +263,15 @@ impl Display for RangeRequestId {
         match self {
             Self::RangeSync { chain_id, batch_id } => write!(f, "RangeSync/{batch_id}/{chain_id}"),
             Self::BackfillSync { batch_id } => write!(f, "BackfillSync/{batch_id}"),
+        }
+    }
+}
+
+impl Display for DataColumnsByRangeRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ComponentsByRange(id) => write!(f, "ByRange/{id}"),
+            Self::CustodyBackfillSync(id) => write!(f, "CustodyBackfill/{id}"),
         }
     }
 }
