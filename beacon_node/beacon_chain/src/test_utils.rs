@@ -2437,7 +2437,7 @@ where
     }
 
     /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
-    fn build_rpc_block_from_blobs(
+    pub fn build_rpc_block_from_blobs(
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
