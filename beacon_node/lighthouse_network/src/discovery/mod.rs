@@ -1243,11 +1243,12 @@ mod tests {
         let config = Arc::new(config);
         let enr_key: CombinedKey = CombinedKey::from_secp256k1(&keypair);
         let next_fork_digest = [0; 4];
+        let custody_group_count = spec.custody_requirement;
         let enr: Enr = build_enr::<E>(
             &enr_key,
             &config,
             &EnrForkId::default(),
-            None,
+            custody_group_count,
             next_fork_digest,
             &spec,
         )
@@ -1258,7 +1259,7 @@ mod tests {
                 seq_number: 0,
                 attnets: Default::default(),
                 syncnets: Default::default(),
-                custody_group_count: spec.custody_requirement,
+                custody_group_count,
             }),
             vec![],
             false,
