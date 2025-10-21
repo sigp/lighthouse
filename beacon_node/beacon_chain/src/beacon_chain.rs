@@ -3564,7 +3564,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
-    fn check_blobs_for_slashability<'a>(
+    fn check_blob_header_signature_and_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
         blobs: impl IntoIterator<Item = &'a BlobSidecar<T::EthSpec>>,
@@ -3575,17 +3575,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|b| b.signed_block_header.clone())
             .unique()
         {
-            if verify_header_signature::<T, BlockError>(self, &header).is_ok() {
-                slashable_cache
-                    .observe_slashable(
-                        header.message.slot,
-                        header.message.proposer_index,
-                        block_root,
-                    )
-                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
-                if let Some(slasher) = self.slasher.as_ref() {
-                    slasher.accept_block_header(header);
-                }
+            // Return an error if *any* header signature is invalid, we do not want to import this
+            // list of blobs into the DA checker. However, we will process any valid headers prior
+            // to the first invalid header in the slashable cache & slasher.
+            verify_header_signature::<T, BlockError>(self, &header)?;
+
+            slashable_cache
+                .observe_slashable(
+                    header.message.slot,
+                    header.message.proposer_index,
+                    block_root,
+                )
+                .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+            if let Some(slasher) = self.slasher.as_ref() {
+                slasher.accept_block_header(header);
             }
         }
         Ok(())
@@ -3599,7 +3602,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         blobs: FixedBlobSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.check_blobs_for_slashability(block_root, blobs.iter().flatten().map(Arc::as_ref))?;
+        self.check_blob_header_signature_and_slashability(
+            block_root,
+            blobs.iter().flatten().map(Arc::as_ref),
+        )?;
         let availability = self
             .data_availability_checker
             .put_rpc_blobs(block_root, blobs)?;
@@ -3616,12 +3622,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let availability = match engine_get_blobs_output {
             EngineGetBlobsOutput::Blobs(blobs) => {
-                self.check_blobs_for_slashability(block_root, blobs.iter().map(|b| b.as_blob()))?;
+                self.check_blob_header_signature_and_slashability(
+                    block_root,
+                    blobs.iter().map(|b| b.as_blob()),
+                )?;
                 self.data_availability_checker
                     .put_kzg_verified_blobs(block_root, blobs)?
             }
             EngineGetBlobsOutput::CustodyColumns(data_columns) => {
-                self.check_columns_for_slashability(
+                self.check_data_column_sidecar_header_signature_and_slashability(
                     block_root,
                     data_columns.iter().map(|c| c.as_data_column()),
                 )?;
@@ -3642,7 +3651,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         custody_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
-        self.check_columns_for_slashability(
+        self.check_data_column_sidecar_header_signature_and_slashability(
             block_root,
             custody_columns.iter().map(|c| c.as_ref()),
         )?;
@@ -3659,7 +3668,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
-    fn check_columns_for_slashability<'a>(
+    fn check_data_column_sidecar_header_signature_and_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
         custody_columns: impl IntoIterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
@@ -3673,17 +3682,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|c| c.signed_block_header.clone())
             .unique()
         {
-            if verify_header_signature::<T, BlockError>(self, &header).is_ok() {
-                slashable_cache
-                    .observe_slashable(
-                        header.message.slot,
-                        header.message.proposer_index,
-                        block_root,
-                    )
-                    .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
-                if let Some(slasher) = self.slasher.as_ref() {
-                    slasher.accept_block_header(header);
-                }
+            // Return an error if *any* header signature is invalid, we do not want to import this
+            // list of blobs into the DA checker. However, we will process any valid headers prior
+            // to the first invalid header in the slashable cache & slasher.
+            verify_header_signature::<T, BlockError>(self, &header)?;
+
+            slashable_cache
+                .observe_slashable(
+                    header.message.slot,
+                    header.message.proposer_index,
+                    block_root,
+                )
+                .map_err(|e| BlockError::BeaconChainError(Box::new(e.into())))?;
+            if let Some(slasher) = self.slasher.as_ref() {
+                slasher.accept_block_header(header);
             }
         }
         Ok(())
