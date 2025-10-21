@@ -6935,7 +6935,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.store
             .put_data_column_custody_info(slot)
             .unwrap_or_else(
-                |e| tracing::error!(error = ?e, "Failed to update data column custody info"),
+                |e| error!(error = ?e, "Failed to update data column custody info"),
             );
     }
 
