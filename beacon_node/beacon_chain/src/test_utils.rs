@@ -1,5 +1,6 @@
 use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::custody_context::NodeCustodyType;
 use crate::data_column_verification::CustodyDataColumn;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
@@ -210,7 +211,7 @@ pub struct Builder<T: BeaconChainTypes> {
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
     runtime: TestRuntime,
 }
 
@@ -356,7 +357,7 @@ where
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
-            import_all_data_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
             runtime,
         }
     }
@@ -442,8 +443,8 @@ where
         self
     }
 
-    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
-        self.import_all_data_columns = import_all_data_columns;
+    pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
+        self.node_custody_type = node_custody_type;
         self
     }
 
@@ -565,7 +566,7 @@ where
             .execution_layer(self.execution_layer)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
-            .import_all_data_columns(self.import_all_data_columns)
+            .node_custody_type(self.node_custody_type)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config)
             .rng(Box::new(StdRng::seed_from_u64(42)));

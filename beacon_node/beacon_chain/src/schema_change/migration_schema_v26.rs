@@ -1,6 +1,6 @@
 use crate::BeaconChainTypes;
+use crate::custody_context::CustodyContextSsz;
 use crate::persisted_custody::{CUSTODY_DB_KEY, PersistedCustody};
-use crate::validator_custody::CustodyContextSsz;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
@@ -39,7 +39,7 @@ pub fn upgrade_to_v26<T: BeaconChainTypes>(
             Ok(Some(PersistedCustodyV24(ssz_v24))) => {
                 info!("Migrating `CustodyContext` to v26 schema");
                 let custody_context_v2 = CustodyContextSsz {
-                    validator_custody_at_head: ssz_v24.validator_custody_at_head,
+                    custody_group_count_at_head: ssz_v24.validator_custody_at_head,
                     persisted_is_supernode: ssz_v24.persisted_is_supernode,
                     epoch_validator_custody_requirements: vec![],
                 };
@@ -72,7 +72,7 @@ pub fn downgrade_from_v26<T: BeaconChainTypes>(
         Ok(Some(PersistedCustody(ssz_v26))) => {
             info!("Migrating `CustodyContext` back from v26 schema");
             let custody_context_v24 = CustodyContextSszV24 {
-                validator_custody_at_head: ssz_v26.validator_custody_at_head,
+                validator_custody_at_head: ssz_v26.custody_group_count_at_head,
                 persisted_is_supernode: ssz_v26.persisted_is_supernode,
             };
             vec![KeyValueStoreOp::PutKeyValue(

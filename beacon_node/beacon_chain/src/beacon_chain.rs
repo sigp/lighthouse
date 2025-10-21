@@ -21,6 +21,7 @@ use crate::block_verification_types::{
 };
 pub use crate::canonical_head::CanonicalHead;
 use crate::chain_config::ChainConfig;
+use crate::custody_context::CustodyContextSsz;
 use crate::data_availability_checker::{
     Availability, AvailabilityCheckError, AvailableBlock, AvailableBlockData,
     DataAvailabilityChecker, DataColumnReconstructionResult,
@@ -64,7 +65,6 @@ use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
-use crate::validator_custody::CustodyContextSsz;
 use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS, ValidatorMonitor, get_slot_delay_ms,
     timestamp_now,
