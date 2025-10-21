@@ -490,20 +490,15 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         beacon_store: BeaconStore<T>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
+        min_execution_proofs_required: Option<usize>,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
             state_cache: StateLRUCache::new(beacon_store, spec.clone()),
             custody_context,
             spec,
-            // TODO(zkproofs): Add method to set this from ZKVM config
-            min_execution_proofs_required: None,
+            min_execution_proofs_required,
         })
-    }
-
-    /// Set the minimum number of execution proofs required for ZK-VM mode
-    pub fn set_min_execution_proofs_required(&mut self, min_proofs: Option<usize>) {
-        self.min_execution_proofs_required = min_proofs;
     }
 
     /// Returns the minimum number of execution proofs required (if ZK-VM mode enabled)
@@ -1156,6 +1151,7 @@ mod test {
                 test_store,
                 custody_context,
                 spec.clone(),
+                None,
             )
             .expect("should create cache"),
         );

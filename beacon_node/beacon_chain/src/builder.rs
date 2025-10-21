@@ -102,6 +102,12 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
     rng: Option<Box<dyn RngCore + Send>>,
+    /// Minimum number of execution proofs required for ZK-VM mode.
+    /// 
+    /// TODO(zkproofs): When min_proofs is Some(_), the traditional ExecutionLayer should
+    /// be replaced with ZkVmEngineApi from zkvm_execution_layer. This would allow the
+    /// --execution-endpoint CLI flag to be optional when running in ZK-VM mode.
+    min_execution_proofs_required: Option<usize>,
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>
@@ -141,6 +147,7 @@ where
             validator_monitor_config: None,
             import_all_data_columns: false,
             rng: None,
+            min_execution_proofs_required: None,
         }
     }
 
@@ -646,6 +653,14 @@ where
         self
     }
 
+    /// Sets the minimum number of execution proofs required for ZK-VM mode.
+    /// If set to Some(n), the beacon chain will require `n` proofs from different subnets
+    /// before marking an execution payload as valid.
+    pub fn min_execution_proofs_required(mut self, min_proofs: Option<usize>) -> Self {
+        self.min_execution_proofs_required = min_proofs;
+        self
+    }
+
     /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `ServerSentEventHandler` as a `handler`.
@@ -1019,6 +1034,7 @@ where
                     store,
                     custody_context,
                     self.spec,
+                    self.min_execution_proofs_required,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),
