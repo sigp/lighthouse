@@ -506,6 +506,11 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         self.min_execution_proofs_required = min_proofs;
     }
 
+    /// Returns the minimum number of execution proofs required (if ZK-VM mode enabled)
+    pub fn min_execution_proofs_required(&self) -> Option<usize> {
+        self.min_execution_proofs_required
+    }
+
     /// Returns true if the block root is known, without altering the LRU ordering
     pub fn get_cached_block(&self, block_root: &Hash256) -> Option<BlockProcessStatus<T::EthSpec>> {
         self.critical

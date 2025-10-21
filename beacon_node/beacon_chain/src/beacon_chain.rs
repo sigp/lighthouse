@@ -7139,6 +7139,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             && self.spec.is_peer_das_enabled_for_epoch(block_epoch)
     }
 
+    /// Returns true if epoch is within the execution proof retention boundary
+    pub fn execution_proof_check_required_for_epoch(&self, epoch: Epoch) -> bool {
+        self.data_availability_checker
+            .execution_proof_check_required_for_epoch(epoch)
+    }
+
+    /// Returns true if we should fetch execution proofs for this block
+    pub fn should_fetch_execution_proofs(&self, block_epoch: Epoch) -> bool {
+        // Check if ZK-VM mode is enabled
+        if self.min_execution_proofs_required().is_none() {
+            return false;
+        }
+
+        // Only fetch proofs within retention window
+        self.execution_proof_check_required_for_epoch(block_epoch)
+    }
+
+    /// Returns the minimum number of execution proofs required
+    pub fn min_execution_proofs_required(&self) -> Option<usize> {
+        self.data_availability_checker
+            .min_execution_proofs_required()
+    }
+
+    /// Returns the execution proof retention boundary epoch
+    pub fn execution_proof_boundary(&self) -> Option<Epoch> {
+        self.data_availability_checker.execution_proof_boundary()
+    }
+
     /// Gets the `LightClientBootstrap` object for a requested block root.
     ///
     /// Returns `None` when the state or block is not found in the database.

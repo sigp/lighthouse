@@ -56,6 +56,10 @@ pub const OVERFLOW_LRU_CAPACITY: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY_NON_ZERO: NonZeroUsize = new_non_zero_usize(32);
 pub const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
+/// Minimum number of epochs to retain execution proofs for ZK-VM mode.
+/// TODO(zkproofs): Consider making this a spec parameter like MIN_EPOCHS_FOR_BLOB_SIDECARS_REQUESTS
+pub const MIN_EPOCHS_FOR_PROOF_RETENTION: u64 = 2;
+
 /// Cache to hold fully valid data that can't be imported to fork-choice yet. After Dencun hard-fork
 /// blocks have a sidecar of data that is received separately from the network. We call the concept
 /// of a block "becoming available" when all of its import dependencies are inserted into this
@@ -579,6 +583,37 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 now_epoch >= deneb_epoch
             })
         })
+    }
+
+    /// The epoch at which we expect execution proofs in block processing.
+    /// 
+    /// Note: For optional proofs, we specify that proofs only need to be available for 2 epochs
+    /// ie not past finalization
+    /// 
+    /// Returns `None` if ZK-VM mode is disabled.
+    pub fn execution_proof_boundary(&self) -> Option<Epoch> {
+        // Only enable if min_execution_proofs_required is set
+        if self.availability_cache.min_execution_proofs_required().is_none() {
+            return None;
+        }
+
+        // TODO(zkproofs): Add zkvm_fork_epoch to ChainSpec once ZK-VM fork is defined
+        // This would be when proofs are mandatory.
+        // For now, calculate boundary based on current epoch
+        let current_epoch = self.slot_clock.now()?.epoch(T::EthSpec::slots_per_epoch());
+        let retention_boundary = current_epoch.saturating_sub(MIN_EPOCHS_FOR_PROOF_RETENTION);
+        Some(retention_boundary)
+    }
+
+    /// Returns true if the given epoch lies within the proof retention boundary.
+    pub fn execution_proof_check_required_for_epoch(&self, block_epoch: Epoch) -> bool {
+        self.execution_proof_boundary()
+            .is_some_and(|boundary_epoch| block_epoch >= boundary_epoch)
+    }
+
+    /// Returns the minimum number of execution proofs required for ZK-VM mode.
+    pub fn min_execution_proofs_required(&self) -> Option<usize> {
+        self.availability_cache.min_execution_proofs_required()
     }
 
     /// Collects metrics from the data availability checker.
