@@ -457,32 +457,35 @@ impl<E: EthSpec> OperationPool<E> {
         .collect()
     }
 
-    /// Prune proposer slashings for validators which are exited in the finalized epoch.
-    pub fn prune_proposer_slashings(&self, head_state: &BeaconState<E>) {
+    /// Prune proposer slashings for validators which are already slashed or exited in the finalized
+    /// epoch.
+    pub fn prune_proposer_slashings(&self, finalized_state: &BeaconState<E>) {
         prune_validator_hash_map(
             &mut self.proposer_slashings.write(),
-            |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
-            head_state,
+            |_, validator| {
+                validator.slashed || validator.exit_epoch <= finalized_state.current_epoch()
+            },
+            finalized_state,
         );
     }
 
     /// Prune attester slashings for all slashed or withdrawn validators, or attestations on another
     /// fork.
-    pub fn prune_attester_slashings(&self, head_state: &BeaconState<E>) {
+    pub fn prune_attester_slashings(&self, finalized_state: &BeaconState<E>) {
         self.attester_slashings.write().retain(|slashing| {
             // Check that the attestation's signature is still valid wrt the fork version.
-            let signature_ok = slashing.signature_is_still_valid(&head_state.fork());
+            // We might be a bit slower to detect signature staleness by using the finalized state
+            // here, but we filter when proposing anyway, so in the worst case we just keep some
+            // stuff around until we finalize.
+            let signature_ok = slashing.signature_is_still_valid(&finalized_state.fork());
             // Slashings that don't slash any validators can also be dropped.
             let slashing_ok = get_slashable_indices_modular(
-                head_state,
+                finalized_state,
                 slashing.as_inner().to_ref(),
                 |_, validator| {
-                    // Declare that a validator is still slashable if they have not exited prior
-                    // to the finalized epoch.
-                    //
-                    // We cannot check the `slashed` field since the `head` is not finalized and
-                    // a fork could un-slash someone.
-                    validator.exit_epoch > head_state.finalized_checkpoint().epoch
+                    // Declare that a validator is still slashable if they have not been slashed in
+                    // the finalized state, and have not exited at the finalized epoch.
+                    !validator.slashed && validator.exit_epoch > finalized_state.current_epoch()
                 },
             )
             .is_ok_and(|indices| !indices.is_empty());
@@ -531,17 +534,12 @@ impl<E: EthSpec> OperationPool<E> {
         )
     }
 
-    /// Prune if validator has already exited at or before the finalized checkpoint of the head.
-    pub fn prune_voluntary_exits(&self, head_state: &BeaconState<E>) {
+    /// Prune if validator has already exited in the finalized state.
+    pub fn prune_voluntary_exits(&self, finalized_state: &BeaconState<E>, spec: &ChainSpec) {
         prune_validator_hash_map(
             &mut self.voluntary_exits.write(),
-            // This condition is slightly too loose, since there will be some finalized exits that
-            // are missed here.
-            //
-            // We choose simplicity over the gain of pruning more exits since they are small and
-            // should not be seen frequently.
-            |_, validator| validator.exit_epoch <= head_state.finalized_checkpoint().epoch,
-            head_state,
+            |_, validator| validator.exit_epoch != spec.far_future_epoch,
+            finalized_state,
         );
     }
 
@@ -642,14 +640,15 @@ impl<E: EthSpec> OperationPool<E> {
         &self,
         head_block: &SignedBeaconBlock<E, Payload>,
         head_state: &BeaconState<E>,
+        finalized_state: &BeaconState<E>,
         current_epoch: Epoch,
         spec: &ChainSpec,
     ) {
         self.prune_attestations(current_epoch);
         self.prune_sync_contributions(head_state.slot());
-        self.prune_proposer_slashings(head_state);
-        self.prune_attester_slashings(head_state);
-        self.prune_voluntary_exits(head_state);
+        self.prune_proposer_slashings(finalized_state);
+        self.prune_attester_slashings(finalized_state);
+        self.prune_voluntary_exits(finalized_state, spec);
         self.prune_bls_to_execution_changes(head_block, head_state, spec);
     }
 
@@ -758,14 +757,14 @@ where
 fn prune_validator_hash_map<T, F, E: EthSpec>(
     map: &mut HashMap<u64, SigVerifiedOp<T, E>>,
     prune_if: F,
-    head_state: &BeaconState<E>,
+    state: &BeaconState<E>,
 ) where
     F: Fn(u64, &Validator) -> bool,
     T: VerifyOperation<E>,
 {
     map.retain(|&validator_index, op| {
-        op.signature_is_still_valid(&head_state.fork())
-            && head_state
+        op.signature_is_still_valid(&state.fork())
+            && state
                 .validators()
                 .get(validator_index as usize)
                 .is_none_or(|validator| !prune_if(validator_index, validator))

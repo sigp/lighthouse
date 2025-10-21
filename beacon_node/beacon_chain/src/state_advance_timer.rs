@@ -33,7 +33,7 @@ use types::{AttestationShufflingId, BeaconStateError, EthSpec, Hash256, Relative
 ///
 /// This avoids doing unnecessary work whilst the node is syncing or has perhaps been put to sleep
 /// for some period of time.
-const MAX_ADVANCE_DISTANCE: u64 = 4;
+const MAX_ADVANCE_DISTANCE: u64 = 256;
 
 /// Similarly for fork choice: avoid the fork choice lookahead during sync.
 ///
@@ -49,17 +49,7 @@ enum Error {
     HeadMissingFromSnapshotCache(#[allow(dead_code)] Hash256),
     BeaconState(#[allow(dead_code)] BeaconStateError),
     Store(#[allow(dead_code)] store::Error),
-    MaxDistanceExceeded {
-        current_slot: Slot,
-        head_slot: Slot,
-    },
-    StateAlreadyAdvanced {
-        block_root: Hash256,
-    },
-    BadStateSlot {
-        _state_slot: Slot,
-        _block_slot: Slot,
-    },
+    MaxDistanceExceeded { current_slot: Slot, head_slot: Slot },
 }
 
 impl From<BeaconChainError> for Error {
@@ -180,9 +170,6 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                             error = ?e,
                             "Failed to advance head state"
                         ),
-                        Err(Error::StateAlreadyAdvanced { block_root }) => {
-                            debug!(?block_root, "State already advanced on slot")
-                        }
                         Err(Error::MaxDistanceExceeded {
                             current_slot,
                             head_slot,
@@ -295,25 +282,6 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         .get_advanced_hot_state(head_block_root, current_slot, head_block_state_root)?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
 
-    // Protect against advancing a state more than a single slot.
-    //
-    // Advancing more than one slot without storing the intermediate state would corrupt the
-    // database. Future works might store intermediate states inside this function.
-    match state.slot().cmp(&state.latest_block_header().slot) {
-        std::cmp::Ordering::Equal => (),
-        std::cmp::Ordering::Greater => {
-            return Err(Error::StateAlreadyAdvanced {
-                block_root: head_block_root,
-            });
-        }
-        std::cmp::Ordering::Less => {
-            return Err(Error::BadStateSlot {
-                _block_slot: state.latest_block_header().slot,
-                _state_slot: state.slot(),
-            });
-        }
-    }
-
     let initial_slot = state.slot();
     let initial_epoch = state.current_epoch();
 
@@ -365,25 +333,54 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
         .build_committee_cache(RelativeEpoch::Next, &beacon_chain.spec)
         .map_err(BeaconChainError::from)?;
 
-    // If the `pre_state` is in a later epoch than `state`, pre-emptively add the proposer shuffling
-    // for the state's current epoch and the committee cache for the state's next epoch.
+    // The state root is required to prime the proposer cache AND for writing it to disk.
+    let advanced_state_root = state.update_tree_hash_cache()?;
+
+    // If the `pre_state` is in a later epoch than `state`, pre-emptively update the proposer
+    // shuffling and attester shuffling caches.
     if initial_epoch < state.current_epoch() {
-        // Update the proposer cache.
-        //
-        // We supply the `head_block_root` as the decision block since the prior `if` statement guarantees
-        // the head root is the latest block from the prior epoch.
-        beacon_chain
-            .beacon_proposer_cache
-            .lock()
-            .insert(
-                state.current_epoch(),
-                head_block_root,
-                state
-                    .get_beacon_proposer_indices(state.current_epoch(), &beacon_chain.spec)
-                    .map_err(BeaconChainError::from)?,
-                state.fork(),
-            )
-            .map_err(BeaconChainError::from)?;
+        // Include the proposer shuffling from the current epoch, which is likely to be useful
+        // pre-Fulu, and probably redundant post-Fulu (it should already have been in the cache).
+        let current_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
+            state.current_epoch(),
+            head_block_root,
+            &beacon_chain.spec,
+        )?;
+        beacon_chain.with_proposer_cache(
+            current_epoch_decision_root,
+            state.current_epoch(),
+            |_| Ok(()),
+            || {
+                debug!(
+                    shuffling_decision_root = ?current_epoch_decision_root,
+                    epoch = %state.current_epoch(),
+                    "Computing current epoch proposer shuffling in state advance"
+                );
+                Ok::<_, Error>((advanced_state_root, state.clone()))
+            },
+        )?;
+
+        // For epochs *greater than* the Fulu fork epoch, we have also determined the proposer
+        // shuffling for the next epoch.
+        let next_epoch = state.next_epoch()?;
+        let next_epoch_decision_root = state.proposer_shuffling_decision_root_at_epoch(
+            next_epoch,
+            head_block_root,
+            &beacon_chain.spec,
+        )?;
+        beacon_chain.with_proposer_cache(
+            next_epoch_decision_root,
+            next_epoch,
+            |_| Ok(()),
+            || {
+                debug!(
+                    shuffling_decision_root = ?next_epoch_decision_root,
+                    epoch = %next_epoch,
+                    "Computing next epoch proposer shuffling in state advance"
+                );
+                Ok::<_, Error>((advanced_state_root, state.clone()))
+            },
+        )?;
 
         // Update the attester cache.
         let shuffling_id =
@@ -438,7 +435,6 @@ fn advance_head<T: BeaconChainTypes>(beacon_chain: &Arc<BeaconChain<T>>) -> Resu
     // even if we race with the deletion of this state by the finalization pruning code, the worst
     // case is we end up with a finalized state stored, that will get pruned the next time pruning
     // runs.
-    let advanced_state_root = state.update_tree_hash_cache()?;
     beacon_chain.store.put_state(&advanced_state_root, &state)?;
 
     debug!(

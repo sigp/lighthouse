@@ -513,8 +513,6 @@ Flags:
           subscriptions. This will only import attestations from
           already-subscribed subnets, use with --subscribe-all-subnets to ensure
           all attestations are received for import.
-      --light-client-server
-          DEPRECATED
       --log-color [<log-color>]
           Enables/Disables colors for logs in terminal. Set it to false to
           disable colors. [default: true] [possible values: true, false]

@@ -334,6 +334,31 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B> {
         }
     }
 
+    /// Change the batch state from `Self::Downloading` to `Self::AwaitingDownload` without
+    /// registering a failed attempt.
+    ///
+    /// Note: must use this cautiously with some level of retry protection
+    /// as not registering a failed attempt could lead to requesting in a loop.
+    #[must_use = "Batch may have failed"]
+    pub fn downloading_to_awaiting_download(
+        &mut self,
+    ) -> Result<BatchOperationOutcome, WrongState> {
+        match self.state.poison() {
+            BatchState::Downloading(_) => {
+                self.state = BatchState::AwaitingDownload;
+                Ok(self.outcome())
+            }
+            BatchState::Poisoned => unreachable!("Poisoned batch"),
+            other => {
+                self.state = other;
+                Err(WrongState(format!(
+                    "Download failed for batch in wrong state {:?}",
+                    self.state
+                )))
+            }
+        }
+    }
+
     pub fn start_downloading(&mut self, request_id: Id) -> Result<(), WrongState> {
         match self.state.poison() {
             BatchState::AwaitingDownload => {
