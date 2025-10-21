@@ -11410,6 +11410,7 @@ name = "zkvm_execution_layer"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "execution_layer",
  "hashbrown 0.15.2",
  "lru",
  "serde",

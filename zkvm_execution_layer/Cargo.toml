@@ -11,6 +11,7 @@ serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
 thiserror = "2"
 types = { path = "../consensus/types" }
+execution_layer = { path = "../beacon_node/execution_layer" }
 
 
 [dev-dependencies]

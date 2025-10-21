@@ -10,6 +10,12 @@ pub mod registry_proof_verification;
 pub mod dummy_proof_gen;
 pub mod dummy_proof_verifier;
 
+/// Engine API implementation for ZK-VM execution
+pub mod engine_api;
+
+/// Re-export the main ZK-VM engine API
+pub use engine_api::ZkVmEngineApi;
+
 #[test]
 fn add() {
     assert!(1 + 1 == 2)
