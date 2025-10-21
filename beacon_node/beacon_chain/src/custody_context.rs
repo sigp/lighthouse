@@ -39,14 +39,19 @@ struct ValidatorRegistrations {
 
 impl ValidatorRegistrations {
     /// Initialise the validator registration with some default custody requirements.
-    fn new(initial_custody_requirements: u64) -> Self {
+    ///
+    /// If a `cgc_override` value is specified, the cgc value is inserted into the registration map
+    /// and is equivalent to registering validator(s) with the same custody requirement.
+    fn new(cgc_override: Option<u64>) -> Self {
         let mut registrations = ValidatorRegistrations {
             validators: Default::default(),
             epoch_validator_custody_requirements: Default::default(),
         };
-        registrations
-            .epoch_validator_custody_requirements
-            .insert(Epoch::new(0), initial_custody_requirements);
+        if let Some(custody_count) = cgc_override {
+            registrations
+                .epoch_validator_custody_requirements
+                .insert(Epoch::new(0), custody_count);
+        }
         registrations
     }
 
@@ -168,11 +173,11 @@ pub enum NodeCustodyType {
 }
 
 impl NodeCustodyType {
-    pub fn custody_count(&self, spec: &ChainSpec) -> u64 {
+    pub fn get_custody_count_override(&self, spec: &ChainSpec) -> Option<u64> {
         match self {
-            Self::Fullnode => spec.custody_requirement,
-            Self::SemiSupernode => spec.number_of_custody_groups / 2,
-            Self::Supernode => spec.number_of_custody_groups,
+            Self::Fullnode => None,
+            Self::SemiSupernode => Some(spec.number_of_custody_groups / 2),
+            Self::Supernode => Some(spec.number_of_custody_groups),
         }
     }
 }
@@ -187,7 +192,7 @@ pub struct CustodyContext<E: EthSpec> {
     /// This is the number that we use to compute the custody group count that
     /// we require for data availability check, and we use to advertise to our peers in the metadata
     /// and enr values.
-    custody_group_count_at_head: AtomicU64,
+    validator_custody_count: AtomicU64,
     /// Maintains all the validators that this node is connected to currently
     validator_registrations: RwLock<ValidatorRegistrations>,
     /// Stores an immutable, ordered list of all custody columns as determined by the node's NodeID
@@ -202,35 +207,43 @@ impl<E: EthSpec> CustodyContext<E> {
     ///
     /// The `node_custody_type` value is based on current cli parameters.
     pub fn new(node_custody_type: NodeCustodyType, spec: &ChainSpec) -> Self {
-        let custody_count = node_custody_type.custody_count(spec);
+        let cgc_override = node_custody_type.get_custody_count_override(spec);
+        // If there's no override, we initialise `validator_custody_count` to 0. This has been the
+        // existing behaviour and we maintain this for now to avoid a semantic schema change until
+        // a later release.
         Self {
-            custody_group_count_at_head: AtomicU64::new(custody_count),
-            validator_registrations: RwLock::new(ValidatorRegistrations::new(custody_count)),
+            validator_custody_count: AtomicU64::new(cgc_override.unwrap_or(0)),
+            validator_registrations: RwLock::new(ValidatorRegistrations::new(cgc_override)),
             all_custody_columns_ordered: OnceLock::new(),
             _phantom_data: PhantomData,
         }
     }
 
+    /// Restore the custody context from disk.
+    ///
+    /// * If NodeCustodyType::custody_count < validator_custody_at_head, it means the attached
+    ///   validate stake has increased the node's CGC. We ignore the CLI input.
+    /// * If NodeCustodyType::custody_count > validator_custody_at_head, it means the user has
+    ///   changed the node's custody type via either the --supernode or --semi-supernode flags,
+    ///   and will require a resync until we implement column backfill for this scenario.
     pub fn new_from_persisted_custody_context(
         ssz_context: CustodyContextSsz,
         node_custody_type: NodeCustodyType,
         spec: &ChainSpec,
     ) -> Self {
-        // * If initial_cgc < validator_custody_at_head, it means the attached validate stake has
-        //   increased the nodes CGC. We ignore the CLI input.
-        // * If initial_cgc > validator_custody_at_head, it means the user has changed the node's
-        //   custody type via either the --supernode or --semi-supernode flags, and will require a
-        //   resync until we implement column backfill for this scenario.
-        if node_custody_type.custody_count(spec) > ssz_context.custody_group_count_at_head {
+        let cgc_override = node_custody_type.get_custody_count_override(spec);
+        if let Some(cgc_from_cli) = cgc_override
+            && cgc_from_cli > ssz_context.validator_custody_at_head
+        {
             warn!(
                 info = "node will continue to run with the current custody count",
-                current_custody_count = ssz_context.custody_group_count_at_head,
+                current_custody_count = ssz_context.validator_custody_at_head,
                 node_custody_type = ?node_custody_type,
-                "Changing node type is currently not supported and will have no effect",
+                "Changing node type is currently not supported without a resync and will have no effect",
             );
         }
         CustodyContext {
-            custody_group_count_at_head: AtomicU64::new(ssz_context.custody_group_count_at_head),
+            validator_custody_count: AtomicU64::new(ssz_context.validator_custody_at_head),
             validator_registrations: RwLock::new(ValidatorRegistrations {
                 validators: Default::default(),
                 epoch_validator_custody_requirements: ssz_context
@@ -289,7 +302,7 @@ impl<E: EthSpec> CustodyContext<E> {
             return None;
         };
 
-        let current_cgc = self.custody_group_count_at_head.load(Ordering::Relaxed);
+        let current_cgc = self.validator_custody_count.load(Ordering::Relaxed);
 
         if new_validator_custody != current_cgc {
             tracing::debug!(
@@ -297,10 +310,10 @@ impl<E: EthSpec> CustodyContext<E> {
                 new_count = new_validator_custody,
                 "Validator count at head updated"
             );
-            self.custody_group_count_at_head
+            self.validator_custody_count
                 .store(new_validator_custody, Ordering::Relaxed);
 
-            let updated_cgc = self.custody_group_count_at_head();
+            let updated_cgc = self.custody_group_count_at_head(spec);
             // Send the message to network only if there are more columns subnets to subscribe to
             if updated_cgc > current_cgc {
                 tracing::debug!(
@@ -322,8 +335,15 @@ impl<E: EthSpec> CustodyContext<E> {
     /// This function is used to determine the custody group count at head ONLY.
     /// Do NOT use this directly for data availability check, use `self.sampling_size` instead as
     /// CGC can change over epochs.
-    pub fn custody_group_count_at_head(&self) -> u64 {
-        self.custody_group_count_at_head.load(Ordering::Relaxed)
+    pub fn custody_group_count_at_head(&self, spec: &ChainSpec) -> u64 {
+        let validator_custody_count_at_head = self.validator_custody_count.load(Ordering::Relaxed);
+
+        // If there are no validators, return the minimum custody_requirement
+        if validator_custody_count_at_head > 0 {
+            validator_custody_count_at_head
+        } else {
+            spec.custody_requirement
+        }
     }
 
     /// This function is used to determine the custody group count at a given epoch.
@@ -399,7 +419,7 @@ impl<E: EthSpec> CustodyContext<E> {
         let custody_group_count = if let Some(epoch) = epoch_opt {
             self.custody_group_count_at_epoch(epoch, spec) as usize
         } else {
-            self.custody_group_count_at_head() as usize
+            self.custody_group_count_at_head(spec) as usize
         };
 
         let all_columns_ordered = self
@@ -421,7 +441,7 @@ pub struct CustodyCountChanged {
 /// The custody information that gets persisted across runs.
 #[derive(Debug, Encode, Decode, Clone)]
 pub struct CustodyContextSsz {
-    pub custody_group_count_at_head: u64,
+    pub validator_custody_at_head: u64,
     /// DEPRECATED. This field is no longer in used and will be removed in a future release.
     pub persisted_is_supernode: bool,
     pub epoch_validator_custody_requirements: Vec<(Epoch, u64)>,
@@ -430,9 +450,7 @@ pub struct CustodyContextSsz {
 impl<E: EthSpec> From<&CustodyContext<E>> for CustodyContextSsz {
     fn from(context: &CustodyContext<E>) -> Self {
         CustodyContextSsz {
-            custody_group_count_at_head: context
-                .custody_group_count_at_head
-                .load(Ordering::Relaxed),
+            validator_custody_at_head: context.validator_custody_count.load(Ordering::Relaxed),
             // This field is deprecated and has no effect
             persisted_is_supernode: false,
             epoch_validator_custody_requirements: context
@@ -461,7 +479,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(NodeCustodyType::Supernode, &spec);
         assert_eq!(
-            custody_context.custody_group_count_at_head(),
+            custody_context.custody_group_count_at_head(&spec),
             spec.number_of_custody_groups
         );
         assert_eq!(
@@ -475,7 +493,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(NodeCustodyType::SemiSupernode, &spec);
         assert_eq!(
-            custody_context.custody_group_count_at_head(),
+            custody_context.custody_group_count_at_head(&spec),
             spec.number_of_custody_groups / 2
         );
         assert_eq!(
@@ -489,7 +507,7 @@ mod tests {
         let spec = E::default_spec();
         let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode, &spec);
         assert_eq!(
-            custody_context.custody_group_count_at_head(),
+            custody_context.custody_group_count_at_head(&spec),
             spec.custody_requirement,
             "head custody count should be minimum spec custody requirement"
         );
@@ -666,7 +684,7 @@ mod tests {
         // THEN the reduction from dropping val_2 balance should NOT result in a CGC reduction
         assert!(cgc_changed_opt.is_none(), "CGC should remain unchanged");
         assert_eq!(
-            custody_context.custody_group_count_at_head(),
+            custody_context.custody_group_count_at_head(&spec),
             val_custody_units_1 + val_custody_units_2
         )
     }
@@ -853,14 +871,12 @@ mod tests {
     }
 
     #[test]
-    fn restore_from_persisted_with_matching_cli() {
+    fn restore_from_persisted_fullnode_no_validators() {
         let spec = E::default_spec();
-        let persisted_cgc = spec.custody_requirement;
-
         let ssz_context = CustodyContextSsz {
-            custody_group_count_at_head: persisted_cgc,
+            validator_custody_at_head: 0, // no validators
             persisted_is_supernode: false,
-            epoch_validator_custody_requirements: vec![(Epoch::new(0), persisted_cgc)],
+            epoch_validator_custody_requirements: vec![],
         };
 
         let custody_context = CustodyContext::<E>::new_from_persisted_custody_context(
@@ -870,24 +886,22 @@ mod tests {
         );
 
         assert_eq!(
-            custody_context.custody_group_count_at_head(),
-            persisted_cgc,
-            "restored custody group count should match persisted value"
+            custody_context.custody_group_count_at_head(&spec),
+            spec.custody_requirement,
+            "restored custody group count should match fullnode default"
         );
     }
 
     #[test]
-    fn restore_fullnode_then_switch_to_supernode_uses_persisted() {
+    fn restore_fullnode_then_switch_to_supernode_has_no_effect() {
         let spec = E::default_spec();
-        let persisted_cgc = spec.custody_requirement; // 8 for mainnet
-
         let ssz_context = CustodyContextSsz {
-            custody_group_count_at_head: persisted_cgc,
+            validator_custody_at_head: 0, // no validators
             persisted_is_supernode: false,
-            epoch_validator_custody_requirements: vec![(Epoch::new(0), persisted_cgc)],
+            epoch_validator_custody_requirements: vec![],
         };
 
-        // Attempt to restore as supernode (wants 128), but should use persisted value (8)
+        // Attempt to restore as supernode (wants 128), but should use original persisted value
         let custody_context = CustodyContext::<E>::new_from_persisted_custody_context(
             ssz_context,
             NodeCustodyType::Supernode,
@@ -895,26 +909,21 @@ mod tests {
         );
 
         assert_eq!(
-            custody_context.custody_group_count_at_head(),
-            persisted_cgc,
-            "should use persisted cgc, not supernode cgc"
-        );
-        assert_ne!(
-            custody_context.custody_group_count_at_head(),
-            spec.number_of_custody_groups,
-            "should NOT have supernode's full custody"
+            custody_context.custody_group_count_at_head(&spec),
+            spec.custody_requirement,
+            "should use original fullnode cgc, not supernode cgc"
         );
     }
 
     #[test]
     fn restore_supernode_then_switch_to_fullnode_uses_persisted() {
         let spec = E::default_spec();
-        let persisted_cgc = spec.number_of_custody_groups; // 128 for mainnet
+        let supernode_cgc = spec.number_of_custody_groups; // supernode cgc
 
         let ssz_context = CustodyContextSsz {
-            custody_group_count_at_head: persisted_cgc,
+            validator_custody_at_head: supernode_cgc,
             persisted_is_supernode: false,
-            epoch_validator_custody_requirements: vec![(Epoch::new(0), persisted_cgc)],
+            epoch_validator_custody_requirements: vec![(Epoch::new(0), supernode_cgc)],
         };
 
         // Attempt to restore as fullnode (wants 8), but should keep persisted value (128)
@@ -925,9 +934,9 @@ mod tests {
         );
 
         assert_eq!(
-            custody_context.custody_group_count_at_head(),
-            persisted_cgc,
-            "should use persisted cgc, not fullnode cgc"
+            custody_context.custody_group_count_at_head(&spec),
+            supernode_cgc,
+            "should use persisted supernode cgc, not fullnode cgc"
         );
     }
 
@@ -939,7 +948,7 @@ mod tests {
         let final_cgc = 32u64;
 
         let ssz_context = CustodyContextSsz {
-            custody_group_count_at_head: final_cgc,
+            validator_custody_at_head: final_cgc,
             persisted_is_supernode: false,
             epoch_validator_custody_requirements: vec![
                 (Epoch::new(0), initial_cgc),
@@ -955,7 +964,10 @@ mod tests {
         );
 
         // Verify head uses latest value
-        assert_eq!(custody_context.custody_group_count_at_head(), final_cgc);
+        assert_eq!(
+            custody_context.custody_group_count_at_head(&spec),
+            final_cgc
+        );
 
         // Verify historical epoch lookups work correctly
         assert_eq!(
