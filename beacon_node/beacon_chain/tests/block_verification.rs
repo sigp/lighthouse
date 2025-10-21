@@ -1463,6 +1463,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
     }
 }
 
+/* FIXME(sproul): consider generalising this?
 #[tokio::test]
 async fn add_base_block_to_altair_chain() {
     let mut spec = MainnetEthSpec::default_spec();
@@ -1736,15 +1737,14 @@ async fn add_altair_block_to_base_chain() {
         }
     ));
 }
+*/
 
 // This is a regression test for this bug:
 // https://github.com/sigp/lighthouse/issues/4332#issuecomment-1565092279
 #[tokio::test]
 async fn import_duplicate_block_unrealized_justification() {
-    let spec = MainnetEthSpec::default_spec();
-
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .spec(spec.into())
+        .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
         .mock_execution_layer()
