@@ -64,13 +64,13 @@ impl<E: EthSpec> BatchConfig for CustodyBackFillBatchConfig<E> {
 pub enum CustodyBackfillError {
     /// A batch failed to be downloaded.
     BatchDownloadFailed(#[allow(dead_code)] BatchId),
-    // /// A batch could not be processed.
+    /// A batch could not be processed.
     BatchProcessingFailed(#[allow(dead_code)] BatchId),
     /// A batch entered an invalid state.
     BatchInvalidState(#[allow(dead_code)] BatchId, #[allow(dead_code)] String),
     /// The sync algorithm entered an invalid state.
     InvalidSyncState(#[allow(dead_code)] String),
-    // /// The chain became paused.
+    /// The chain became paused.
     Paused,
 }
 
@@ -369,29 +369,24 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         let mut missing_columns = HashSet::new();
 
         // Skip all batches (Epochs) that don't have missing columns.
-        for i in Epoch::range_inclusive_rev(self.to_be_downloaded, column_da_boundary) {
-            let current_batch = i;
-            missing_columns = self
-                .beacon_chain
-                .get_missing_columns_for_epoch(current_batch);
+        for epoch in Epoch::range_inclusive_rev(self.to_be_downloaded, column_da_boundary) {
+            missing_columns = self.beacon_chain.get_missing_columns_for_epoch(epoch);
 
             if !missing_columns.is_empty() {
-                self.to_be_downloaded = current_batch;
+                self.to_be_downloaded = epoch;
                 break;
             }
 
             // This batch is being skipped, insert it into the skipped batches mapping.
-            self.skipped_batches.insert(current_batch);
+            self.skipped_batches.insert(epoch);
 
-            if i == column_da_boundary {
+            if epoch == column_da_boundary {
                 return None;
             }
         }
 
         // Don't request batches before the column da boundary
-        if let Some(column_da_boundary) = self.beacon_chain.get_column_da_boundary()
-            && self.to_be_downloaded < column_da_boundary
-        {
+        if self.to_be_downloaded < column_da_boundary {
             return None;
         }
 
@@ -421,7 +416,6 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
         let batch_id = self.to_be_downloaded;
 
-        // this batch could have been included already being an optimistic batch
         match self.batches.entry(batch_id) {
             Entry::Occupied(_) => {
                 // this batch doesn't need downloading, let this same function decide the next batch
