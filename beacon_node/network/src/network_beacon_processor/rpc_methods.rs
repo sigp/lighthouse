@@ -1233,7 +1233,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 %request_start_slot,
                 %earliest_custodied_data_column_slot,
                 %column_data_availability_boundary_slot,
-                "Range request start slot is older than data availability boundary."
+                "Range request start slot is older than the earliest custodied data column slot."
             );
 
             return if earliest_custodied_data_column_slot > column_data_availability_boundary_slot {
