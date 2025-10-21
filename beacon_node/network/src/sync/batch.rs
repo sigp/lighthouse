@@ -16,43 +16,6 @@ use types::{DataColumnSidecarList, Epoch, EthSpec};
 
 pub type BatchId = Epoch;
 
-#[derive(Debug)]
-pub struct WrongState(pub(crate) String);
-
-/// After batch operations, we use this to communicate whether a batch can continue or not
-pub enum BatchOperationOutcome {
-    Continue,
-    Failed { blacklist: bool },
-}
-
-#[derive(Debug)]
-pub enum BatchProcessingResult {
-    Success,
-    FaultyFailure,
-    NonFaultyFailure,
-}
-
-#[derive(Debug)]
-pub struct Attempt<D: Hash> {
-    /// The peer that made the attempt.
-    pub peer_id: PeerId,
-    /// The hash of the blocks of the attempt.
-    pub hash: u64,
-    /// Pin the generic.
-    marker: PhantomData<D>,
-}
-
-impl<D: Hash> Attempt<D> {
-    fn new<B: BatchConfig>(peer_id: PeerId, data: &D) -> Self {
-        let hash = B::batch_attempt_hash(data);
-        Attempt {
-            peer_id,
-            hash,
-            marker: PhantomData,
-        }
-    }
-}
-
 /// Type of expected batch.
 #[derive(Debug, Clone, Display)]
 #[strum(serialize_all = "snake_case")]
@@ -99,35 +62,20 @@ pub trait BatchConfig {
     fn batch_attempt_hash<D: Hash>(data: &D) -> u64;
 }
 
-#[derive(Debug, Display)]
-/// Current state of a batch
-pub enum BatchState<D: Hash> {
-    /// The batch has failed either downloading or processing, but can be requested again.
-    AwaitingDownload,
-    /// The batch is being downloaded.
-    Downloading(Id),
-    /// The batch has been completely downloaded and is ready for processing.
-    AwaitingProcessing(PeerId, D, Instant),
-    /// The batch is being processed.
-    Processing(Attempt<D>),
-    /// The batch was successfully processed and is waiting to be validated.
-    ///
-    /// It is not sufficient to process a batch successfully to consider it correct. This is
-    /// because batches could be erroneously empty, or incomplete. Therefore, a batch is considered
-    /// valid, only if the next sequential batch imports at least a block.
-    AwaitingValidation(Attempt<D>),
-    /// Intermediate state for inner state handling.
-    Poisoned,
-    /// The batch has maxed out the allowed attempts for either downloading or processing. It
-    /// cannot be recovered.
-    Failed,
+#[derive(Debug)]
+pub struct WrongState(pub(crate) String);
+
+/// After batch operations, we use this to communicate whether a batch can continue or not
+pub enum BatchOperationOutcome {
+    Continue,
+    Failed { blacklist: bool },
 }
 
-impl<D: Hash> BatchState<D> {
-    /// Helper function for poisoning a state.
-    pub fn poison(&mut self) -> BatchState<D> {
-        std::mem::replace(self, BatchState::Poisoned)
-    }
+#[derive(Debug)]
+pub enum BatchProcessingResult {
+    Success,
+    FaultyFailure,
+    NonFaultyFailure,
 }
 
 #[derive(Derivative)]
@@ -165,7 +113,38 @@ impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> std::fmt::Display
     }
 }
 
-impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> BatchInfo<E, B, D> {
+#[derive(Display)]
+/// Current state of a batch
+pub enum BatchState<D: Hash> {
+    /// The batch has failed either downloading or processing, but can be requested again.
+    AwaitingDownload,
+    /// The batch is being downloaded.
+    Downloading(Id),
+    /// The batch has been completely downloaded and is ready for processing.
+    AwaitingProcessing(PeerId, D, Instant),
+    /// The batch is being processed.
+    Processing(Attempt<D>),
+    /// The batch was successfully processed and is waiting to be validated.
+    ///
+    /// It is not sufficient to process a batch successfully to consider it correct. This is
+    /// because batches could be erroneously empty, or incomplete. Therefore, a batch is considered
+    /// valid, only if the next sequential batch imports at least a block.
+    AwaitingValidation(Attempt<D>),
+    /// Intermediate state for inner state handling.
+    Poisoned,
+    /// The batch has maxed out the allowed attempts for either downloading or processing. It
+    /// cannot be recovered.
+    Failed,
+}
+
+impl<D: Hash> BatchState<D> {
+    /// Helper function for poisoning a state.
+    pub fn poison(&mut self) -> BatchState<D> {
+        std::mem::replace(self, BatchState::Poisoned)
+    }
+}
+
+impl<E: EthSpec, B: BatchConfig, D: Hash> BatchInfo<E, B, D> {
     /// Batches are downloaded excluding the first block of the epoch assuming it has already been
     /// downloaded.
     ///
@@ -483,6 +462,49 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, DataColumnSidecarList<E>> {
             _ => Err(WrongState(
                 "Custody backfill sync can only make data columns by range requests.".to_string(),
             )),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Attempt<D: Hash> {
+    /// The peer that made the attempt.
+    pub peer_id: PeerId,
+    /// The hash of the blocks of the attempt.
+    pub hash: u64,
+    /// Pin the generic.
+    marker: PhantomData<D>,
+}
+
+impl<D: Hash> Attempt<D> {
+    fn new<B: BatchConfig>(peer_id: PeerId, data: &D) -> Self {
+        let hash = B::batch_attempt_hash(data);
+        Attempt {
+            peer_id,
+            hash,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<D: Hash> std::fmt::Debug for BatchState<D> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BatchState::Processing(Attempt { peer_id, .. }) => {
+                write!(f, "Processing({})", peer_id)
+            }
+            BatchState::AwaitingValidation(Attempt { peer_id, .. }) => {
+                write!(f, "AwaitingValidation({})", peer_id)
+            }
+            BatchState::AwaitingDownload => f.write_str("AwaitingDownload"),
+            BatchState::Failed => f.write_str("Failed"),
+            BatchState::AwaitingProcessing(peer, ..) => {
+                write!(f, "AwaitingProcessing({})", peer)
+            }
+            BatchState::Downloading(request_id) => {
+                write!(f, "Downloading({})", request_id)
+            }
+            BatchState::Poisoned => f.write_str("Poisoned"),
         }
     }
 }
