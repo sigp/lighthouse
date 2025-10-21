@@ -4369,6 +4369,65 @@ async fn fulu_prune_data_columns_fork_boundary() {
     check_data_column_existence(&harness, pruned_slot, harness.head_slot(), true);
 }
 
+#[tokio::test]
+async fn test_column_da_boundary() {
+    let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let fulu_fork_epoch = Epoch::new(4);
+    spec.fulu_fork_epoch = Some(fulu_fork_epoch);
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        panic!("PeerDAS not scheduled");
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // The column da boundary should be the fulu fork epoch
+    assert_eq!(
+        harness.chain.column_data_availability_boundary(),
+        Some(fulu_fork_epoch)
+    );
+}
+
+#[tokio::test]
+async fn test_earliest_custodied_data_column_epoch() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let custody_info_epoch = Epoch::new(4);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        panic!("PeerDAS not scheduled");
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // earliest custody info is set to the last slot in `custody_info_epoch`
+    harness
+        .chain
+        .update_data_column_custody_info(Some(custody_info_epoch.end_slot(E::slots_per_epoch())));
+
+    // earliest custodied data column epoch should be `custody_info_epoch` + 1
+    assert_eq!(
+        harness.chain.earliest_custodied_data_column_epoch(),
+        Some(custody_info_epoch + 1)
+    );
+
+    // earliest custody info is set to the first slot in `custody_info_epoch`
+    harness
+        .chain
+        .update_data_column_custody_info(Some(custody_info_epoch.start_slot(E::slots_per_epoch())));
+
+    // earliest custodied data column epoch should be `custody_info_epoch`
+    assert_eq!(
+        harness.chain.earliest_custodied_data_column_epoch(),
+        Some(custody_info_epoch)
+    );
+}
+
 /// Check that blob pruning prunes data columns older than the data availability boundary with
 /// margin applied.
 #[tokio::test]
