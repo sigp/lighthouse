@@ -95,14 +95,26 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), false, spec).await
+        Self::new_parametric(
+            chain_length,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Fullnode,
+            spec,
+        )
+        .await
     }
 
     pub async fn new_supernode(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), true, spec).await
+        Self::new_parametric(
+            chain_length,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Supernode,
+            spec,
+        )
+        .await
     }
 
     pub async fn new_parametric(
@@ -1611,7 +1623,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     let mut rig = TestRig::new_parametric(
         SMALL_CHAIN,
         beacon_processor_config,
-        false,
+        NodeCustodyType::Fullnode,
         test_spec::<E>(),
     )
     .await;
@@ -1693,7 +1705,13 @@ async fn test_blobs_by_range_spans_fulu_fork() {
     spec.fulu_fork_epoch = Some(Epoch::new(1));
     spec.gloas_fork_epoch = Some(Epoch::new(2));
 
-    let mut rig = TestRig::new_parametric(64, BeaconProcessorConfig::default(), false, spec).await;
+    let mut rig = TestRig::new_parametric(
+        64,
+        BeaconProcessorConfig::default(),
+        NodeCustodyType::Fullnode,
+        spec,
+    )
+    .await;
 
     let start_slot = 16;
     // This will span from epoch 0 (Electra) to epoch 1 (Fulu)
