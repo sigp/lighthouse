@@ -120,7 +120,6 @@ pub struct ChainConfig {
     /// Disable the getBlobs optimisation to fetch blobs from the EL mempool.
     pub disable_get_blobs: bool,
     /// The node's custody type, determining how many data columns to custody and sample.
-    /// This is derived from CLI flags and not persisted.
     pub node_custody_type: NodeCustodyType,
 }
 
