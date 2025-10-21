@@ -1236,8 +1236,8 @@ pub fn serve<T: BeaconChainTypes>(
             |state_id: StateId,
              task_spawner: TaskSpawner<T::EthSpec>,
              chain: Arc<BeaconChain<T>>| {
-                task_spawner.blocking_json_task(Priority::P1, move || {
-                    let (data, execution_optimistic, finalized) = state_id
+                task_spawner.blocking_response_task(Priority::P1, move || {
+                    let (data, execution_optimistic, finalized, fork_name) = state_id
                         .map_state_and_execution_optimistic_and_finalized(
                             &chain,
                             |state, execution_optimistic, finalized| {
@@ -1247,15 +1247,23 @@ pub fn serve<T: BeaconChainTypes>(
                                     ));
                                 };
 
-                                Ok((consolidations.clone(), execution_optimistic, finalized))
+                                Ok((
+                                    consolidations.clone(),
+                                    execution_optimistic,
+                                    finalized,
+                                    state.fork_name_unchecked(),
+                                ))
                             },
                         )?;
 
-                    Ok(api_types::ExecutionOptimisticFinalizedResponse {
+                    execution_optimistic_finalized_beacon_response(
+                        ResponseIncludesVersion::Yes(fork_name),
+                        execution_optimistic,
+                        finalized,
                         data,
-                        execution_optimistic: Some(execution_optimistic),
-                        finalized: Some(finalized),
-                    })
+                    )
+                    .map(|res| warp::reply::json(&res).into_response())
+                    .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
             },
         );
