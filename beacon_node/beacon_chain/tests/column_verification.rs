@@ -1,7 +1,8 @@
 #![cfg(not(debug_assertions))]
 
 use beacon_chain::test_utils::{
-    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
+    AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
+    generate_data_column_sidecars_from_block, test_spec,
 };
 use beacon_chain::{
     AvailabilityProcessingStatus, BlockError, ChainConfig, InvalidSignature, NotifyExecutionLayer,
@@ -9,7 +10,7 @@ use beacon_chain::{
 };
 use logging::create_test_tracing_subscriber;
 use std::sync::{Arc, LazyLock};
-use types::{blob_sidecar::FixedBlobSidecarList, *};
+use types::*;
 
 type E = MainnetEthSpec;
 
@@ -23,6 +24,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 fn get_harness(
     validator_count: usize,
     spec: Arc<ChainSpec>,
+    supernode: bool,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     create_test_tracing_subscriber();
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
@@ -32,6 +34,7 @@ fn get_harness(
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .import_all_data_columns(supernode)
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .build();
@@ -43,15 +46,16 @@ fn get_harness(
 
 // Regression test for https://github.com/sigp/lighthouse/issues/7650
 #[tokio::test]
-async fn rpc_blobs_with_invalid_header_signature() {
+async fn rpc_columns_with_invalid_header_signature() {
     let spec = Arc::new(test_spec::<E>());
 
-    // Only run this test if blobs are enabled and columns are disabled.
-    if spec.deneb_fork_epoch.is_none() || spec.is_fulu_scheduled() {
+    // Only run this test if columns are enabled.
+    if !spec.is_fulu_scheduled() {
         return;
     }
 
-    let harness = get_harness(VALIDATOR_COUNT, spec);
+    let supernode = true;
+    let harness = get_harness(VALIDATOR_COUNT, spec, supernode);
 
     let num_blocks = E::slots_per_epoch() as usize;
 
@@ -68,7 +72,7 @@ async fn rpc_blobs_with_invalid_header_signature() {
     let head_state = harness.get_current_state();
     let slot = head_state.slot() + 1;
     let ((signed_block, opt_blobs), _) = harness.make_block(head_state, slot).await;
-    let (kzg_proofs, blobs) = opt_blobs.unwrap();
+    let (_, blobs) = opt_blobs.unwrap();
     assert!(!blobs.is_empty());
     let block_root = signed_block.canonical_root();
 
@@ -97,19 +101,12 @@ async fn rpc_blobs_with_invalid_header_signature() {
     let mut corrupt_block = (*signed_block).clone();
     *corrupt_block.signature_mut() = Signature::infinity().unwrap();
 
-    let max_len = harness
-        .chain
-        .spec
-        .max_blobs_per_block(slot.epoch(E::slots_per_epoch())) as usize;
-    let mut blob_sidecars = FixedBlobSidecarList::new(vec![None; max_len]);
-    for (i, (kzg_proof, blob)) in kzg_proofs.into_iter().zip(blobs).enumerate() {
-        let blob_sidecar = BlobSidecar::new(i, blob, &corrupt_block, kzg_proof).unwrap();
-        blob_sidecars[i] = Some(Arc::new(blob_sidecar));
-    }
+    let data_column_sidecars =
+        generate_data_column_sidecars_from_block(&corrupt_block, &harness.chain.spec);
 
     let err = harness
         .chain
-        .process_rpc_blobs(slot, block_root, blob_sidecars)
+        .process_rpc_custody_columns(data_column_sidecars)
         .await
         .unwrap_err();
     assert!(matches!(
