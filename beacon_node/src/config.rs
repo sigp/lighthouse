@@ -28,7 +28,8 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{error, info, warn};
 use types::graffiti::GraffitiString;
-use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes};
+use types::{Checkpoint, Epoch, EthSpec, ExecutionProofSubnetId, Hash256, PublicKeyBytes};
+use zkvm_execution_layer::ZKVMExecutionLayerConfig;
 
 const PURGE_DB_CONFIRMATION: &str = "confirm";
 
@@ -322,6 +323,64 @@ pub fn get_config<E: EthSpec>(
 
     // Store the EL config in the client config.
     client_config.execution_layer = Some(el_config);
+
+    // Parse ZK-VM execution layer config if provided
+    if let Some(min_proofs) = clap_utils::parse_optional::<usize>(cli_args, "zkvm-min-proofs")? {
+        // Parse subscribed subnets (required when min-proofs is set)
+        let subscribed_subnets_str: String =
+            clap_utils::parse_required(cli_args, "zkvm-subscribed-subnets")?;
+
+        let subscribed_subnets = subscribed_subnets_str
+            .split(',')
+            .map(|s| s.trim().parse::<u8>())
+            .collect::<Result<Vec<u8>, _>>()
+            .map_err(|e| format!("Invalid subnet ID in --zkvm-subscribed-subnets: {}", e))?
+            .into_iter()
+            .map(|id| ExecutionProofSubnetId::new(id))
+            .collect::<Result<HashSet<_>, _>>()
+            .map_err(|e| format!("Invalid subnet ID: {}", e))?;
+
+        // Parse proof generation subnets (optional)
+        //
+        // TODO(zkproofs): Since min-proofs required means no EL is required, and we can only set
+        // proof-gen here, then it means that even a proof generating validator will not directly have a
+        // EL attached, so they need to call out to a different node for making EL proofs. This sounds safer.
+        let generation_subnets = if let Some(gen_subnets_str) =
+            clap_utils::parse_optional::<String>(cli_args, "zkvm-generation-subnets")?
+        {
+            gen_subnets_str
+                .split(',')
+                .map(|s| s.trim().parse::<u8>())
+                .collect::<Result<Vec<u8>, _>>()
+                .map_err(|e| format!("Invalid subnet ID in --zkvm-generation-subnets: {}", e))?
+                .into_iter()
+                .map(|id| ExecutionProofSubnetId::new(id))
+                .collect::<Result<HashSet<_>, _>>()
+                .map_err(|e| format!("Invalid subnet ID: {}", e))?
+        } else {
+            HashSet::new()
+        };
+
+        // Build and validate the config
+        let zkvm_config = ZKVMExecutionLayerConfig::builder()
+            .subscribed_subnets(subscribed_subnets)
+            .min_proofs_required(min_proofs)
+            .generation_subnets(generation_subnets)
+            .build()
+            .map_err(|e| format!("Invalid ZK-VM configuration: {}", e))?;
+
+        client_config.zkvm_execution_layer = Some(zkvm_config);
+
+        info!(
+            "ZK-VM mode enabled with min_proofs_required={}, subscribed_subnets={:?}",
+            min_proofs,
+            client_config
+                .zkvm_execution_layer
+                .as_ref()
+                .unwrap()
+                .subscribed_subnets
+        );
+    }
 
     // Override default trusted setup file if required
     if let Some(trusted_setup_file_path) = cli_args.get_one::<String>("trusted-setup-file-override")

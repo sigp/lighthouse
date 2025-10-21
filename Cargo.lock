@@ -913,6 +913,7 @@ dependencies = [
  "tree_hash",
  "tree_hash_derive",
  "types",
+ "zkvm_execution_layer",
  "zstd 0.13.3",
 ]
 
@@ -946,6 +947,7 @@ dependencies = [
  "task_executor",
  "tracing",
  "types",
+ "zkvm_execution_layer",
 ]
 
 [[package]]
@@ -1571,6 +1573,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "types",
+ "zkvm_execution_layer",
 ]
 
 [[package]]

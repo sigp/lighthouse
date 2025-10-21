@@ -13,8 +13,9 @@ pub mod dummy_proof_verifier;
 /// Engine API implementation for ZK-VM execution
 pub mod engine_api;
 
-/// Re-export the main ZK-VM engine API
+/// Re-export the main ZK-VM engine API and config
 pub use engine_api::ZkVmEngineApi;
+pub use config::ZKVMExecutionLayerConfig;
 
 #[test]
 fn add() {

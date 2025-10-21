@@ -102,12 +102,12 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     import_all_data_columns: bool,
     rng: Option<Box<dyn RngCore + Send>>,
-    /// Minimum number of execution proofs required for ZK-VM mode.
-    /// 
-    /// TODO(zkproofs): When min_proofs is Some(_), the traditional ExecutionLayer should
+    /// ZK-VM execution layer configuration.
+    ///
+    /// TODO(zkproofs): When this is Some(_), the traditional ExecutionLayer should
     /// be replaced with ZkVmEngineApi from zkvm_execution_layer. This would allow the
     /// --execution-endpoint CLI flag to be optional when running in ZK-VM mode.
-    min_execution_proofs_required: Option<usize>,
+    zkvm_execution_layer_config: Option<zkvm_execution_layer::ZKVMExecutionLayerConfig>,
 }
 
 impl<TSlotClock, E, THotStore, TColdStore>
@@ -147,7 +147,7 @@ where
             validator_monitor_config: None,
             import_all_data_columns: false,
             rng: None,
-            min_execution_proofs_required: None,
+            zkvm_execution_layer_config: None,
         }
     }
 
@@ -653,11 +653,13 @@ where
         self
     }
 
-    /// Sets the minimum number of execution proofs required for ZK-VM mode.
-    /// If set to Some(n), the beacon chain will require `n` proofs from different subnets
-    /// before marking an execution payload as valid.
-    pub fn min_execution_proofs_required(mut self, min_proofs: Option<usize>) -> Self {
-        self.min_execution_proofs_required = min_proofs;
+    /// Sets the ZK-VM execution layer configuration.
+    /// When set, enables ZK-VM execution proof verification mode.
+    pub fn zkvm_execution_layer_config(
+        mut self,
+        config: Option<zkvm_execution_layer::ZKVMExecutionLayerConfig>,
+    ) -> Self {
+        self.zkvm_execution_layer_config = config;
         self
     }
 
@@ -1034,7 +1036,11 @@ where
                     store,
                     custody_context,
                     self.spec,
-                    self.min_execution_proofs_required,
+                    // Note(zkproofs): We don't pass the entire config to the da_checker
+                    // because currently only the `min_proofs_required` setting is needed. 
+                    self.zkvm_execution_layer_config
+                        .as_ref()
+                        .map(|cfg| cfg.min_proofs_required),
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
             ),

@@ -26,6 +26,8 @@ ethereum_serde_utils = { workspace = true }
 ethereum_ssz = { workspace = true }
 ethereum_ssz_derive = { workspace = true }
 execution_layer = { workspace = true }
+# TODO(zkproofs): add as a workspace dependency
+zkvm_execution_layer = { path = "../../zkvm_execution_layer" }
 fork_choice = { workspace = true }
 futures = { workspace = true }
 genesis = { workspace = true }
