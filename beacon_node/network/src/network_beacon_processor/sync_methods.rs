@@ -444,7 +444,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     imported_columns as u64,
                 );
                 CustodyBatchProcessResult::Success {
-                    batch_id: process_id,
                     sent_columns,
                     imported_columns,
                 }
@@ -513,13 +512,13 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         None
                     }
                 };
-                CustodyBatchProcessResult::Error {
-                    batch_id: process_id,
-                    peer_action,
-                }
+                CustodyBatchProcessResult::Error { peer_action }
             }
         };
-        self.send_sync_message(SyncMessage::CustodyBatchProcessed { result });
+        self.send_sync_message(SyncMessage::CustodyBatchProcessed {
+            result,
+            batch_id: process_id,
+        });
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync

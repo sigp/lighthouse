@@ -61,7 +61,7 @@ pub struct DataColumnsByRangeRequestId {
     /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
     pub id: Id,
     /// The Id of the overall By Range request for either a components by range request or a custody backfill request.
-    pub parent_request_id: ByRangeParentRequestId,
+    pub parent_request_id: DataColumnsByRangeRequester,
     /// The peer id associated with the request.
     ///
     /// This is useful to penalize the peer at a later point if it returned data columns that
@@ -70,20 +70,20 @@ pub struct DataColumnsByRangeRequestId {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum ByRangeParentRequestId {
+pub enum DataColumnsByRangeRequester {
     ComponentsByRange(ComponentsByRangeRequestId),
     CustodyBackfillSync(CustodyBackFillBatchRequestId),
 }
 
-impl Display for ByRangeParentRequestId {
+impl Display for DataColumnsByRangeRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ByRangeParentRequestId::ComponentsByRange(parent_request_id) => {
+            DataColumnsByRangeRequester::ComponentsByRange(parent_request_id) => {
                 let id = parent_request_id.id;
                 let requester = parent_request_id.requester;
                 write!(f, "{id}/{requester}")
             }
-            ByRangeParentRequestId::CustodyBackfillSync(parent_request_id) => {
+            DataColumnsByRangeRequester::CustodyBackfillSync(parent_request_id) => {
                 let id = parent_request_id.id;
                 let epoch = parent_request_id.epoch;
                 write!(f, "{id}/{epoch}")
@@ -304,7 +304,7 @@ mod tests {
     fn display_id_data_columns_by_range() {
         let id = DataColumnsByRangeRequestId {
             id: 123,
-            parent_request_id: ByRangeParentRequestId::ComponentsByRange(
+            parent_request_id: DataColumnsByRangeRequester::ComponentsByRange(
                 ComponentsByRangeRequestId {
                     id: 122,
                     requester: RangeRequestId::RangeSync {

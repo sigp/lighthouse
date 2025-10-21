@@ -57,8 +57,8 @@ use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
-    BlobsByRangeRequestId, BlocksByRangeRequestId, ByRangeParentRequestId, CustodyRequester,
-    DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, CustodyRequester, DataColumnsByRangeRequestId,
+    DataColumnsByRangeRequester, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
     SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
@@ -161,7 +161,10 @@ pub enum SyncMessage<E: EthSpec> {
     },
 
     /// A custody batch has been processed by the processor thread.
-    CustodyBatchProcessed { result: CustodyBatchProcessResult },
+    CustodyBatchProcessed {
+        batch_id: Epoch,
+        result: CustodyBatchProcessResult,
+    },
 
     /// Block processed
     BlockComponentProcessed {
@@ -219,25 +222,12 @@ pub enum BatchProcessResult {
 pub enum CustodyBatchProcessResult {
     /// The custody batch was completed successfully. It carries whether the sent batch contained data columns.
     Success {
-        batch_id: Epoch,
         #[allow(dead_code)]
         sent_columns: usize,
         imported_columns: usize,
     },
     /// The custody batch processing failed.
-    Error {
-        batch_id: Epoch,
-        peer_action: Option<PeerAction>,
-    },
-}
-
-impl CustodyBatchProcessResult {
-    fn batch_id(&self) -> Epoch {
-        match self {
-            CustodyBatchProcessResult::Success { batch_id, .. } => *batch_id,
-            CustodyBatchProcessResult::Error { batch_id, .. } => *batch_id,
-        }
-    }
+    Error { peer_action: Option<PeerAction> },
 }
 
 /// The primary object for handling and driving all the current syncing logic. It maintains the
@@ -951,10 +941,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             },
-            SyncMessage::CustodyBatchProcessed { result } => {
+            SyncMessage::CustodyBatchProcessed { result, batch_id } => {
                 match self.custody_backfill_sync.on_batch_process_result(
                     &mut self.network,
-                    result.batch_id(),
+                    batch_id,
                     &result,
                 ) {
                     Ok(ProcessResult::Successful) => {}
@@ -1244,7 +1234,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_blocks_by_range_response(id, peer_id, block) {
             self.on_range_components_response(
-                ByRangeParentRequestId::ComponentsByRange(id.parent_request_id),
+                DataColumnsByRangeRequester::ComponentsByRange(id.parent_request_id),
                 peer_id,
                 RangeBlockComponent::Block(id, resp),
             );
@@ -1259,7 +1249,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         if let Some(resp) = self.network.on_blobs_by_range_response(id, peer_id, blob) {
             self.on_range_components_response(
-                ByRangeParentRequestId::ComponentsByRange(id.parent_request_id),
+                DataColumnsByRangeRequester::ComponentsByRange(id.parent_request_id),
                 peer_id,
                 RangeBlockComponent::Blob(id, resp),
             );
@@ -1277,14 +1267,14 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .on_data_columns_by_range_response(id, peer_id, data_column)
         {
             match id.parent_request_id {
-                ByRangeParentRequestId::ComponentsByRange(_) => {
+                DataColumnsByRangeRequester::ComponentsByRange(_) => {
                     self.on_range_components_response(
                         id.parent_request_id,
                         peer_id,
                         RangeBlockComponent::CustodyColumns(id, resp),
                     );
                 }
-                ByRangeParentRequestId::CustodyBackfillSync(_) => {
+                DataColumnsByRangeRequester::CustodyBackfillSync(_) => {
                     self.on_custody_backfill_columns_response(id, peer_id, resp)
                 }
             }
@@ -1308,12 +1298,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// blobs.
     fn on_range_components_response(
         &mut self,
-        range_request_id: ByRangeParentRequestId,
+        range_request_id: DataColumnsByRangeRequester,
         peer_id: PeerId,
         range_block_component: RangeBlockComponent<T::EthSpec>,
     ) {
         match range_request_id {
-            ByRangeParentRequestId::ComponentsByRange(range_request_id) => {
+            DataColumnsByRangeRequester::ComponentsByRange(range_request_id) => {
                 if let Some(resp) = self
                     .network
                     .range_block_component_response(range_request_id, range_block_component)
@@ -1381,7 +1371,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             }
-            ByRangeParentRequestId::CustodyBackfillSync(_) => {
+            DataColumnsByRangeRequester::CustodyBackfillSync(_) => {
                 // This should be impossible, log a crit just in case
                 crit!(
                     "Recevied a custody backfill sync response during a range components request."
