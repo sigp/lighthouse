@@ -120,6 +120,13 @@ impl ValidatorRegistrations {
                 .or_insert(latest_validator_custody);
         }
     }
+
+    pub fn update_cgc(&mut self, new_custody: u64, effective_epoch: Epoch) {
+        self.epoch_validator_custody_requirements
+            .entry(effective_epoch)
+            .and_modify(|old_custody| *old_custody = new_custody)
+            .or_insert(new_custody);
+    }
 }
 
 /// Given the `validator_custody_units`, return the custody requirement based on
@@ -352,6 +359,16 @@ impl<E: EthSpec> CustodyContext<E> {
             .get()
             .expect("all_custody_columns_ordered should be initialized");
         &all_columns_ordered[..num_of_columns_to_sample]
+    }
+
+    // TODO(custody-sync) delete this once it becoms unusued (after testing)
+    pub fn update_cgc(&self, new_custody: u64, effective_epoch: Epoch) {
+        self.validator_registrations
+            .write()
+            .update_cgc(new_custody, effective_epoch);
+
+        self.validator_custody_count
+            .store(new_custody, Ordering::Relaxed);
     }
 
     /// Returns the ordered list of column indices that the node is assigned to custody

@@ -7002,7 +7002,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.store.put_data_column_custody_info(Some(
                 effective_epoch.start_slot(T::EthSpec::slots_per_epoch()),
             ))?;
-            info!(?effective_epoch, ?cgc_at_effective_epoch, "Updated cgc?");
         } else {
             error!(
                 ?cgc_at_effective_epoch,
