@@ -6,7 +6,7 @@ use std::{
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
-    NetworkGlobals, PeerId, service::api_types::DataColumnsByRangeRequester,
+    NetworkGlobals, PeerId, service::api_types::CustodyBackFillBatchRequestId,
     types::CustodyBackFillState,
 };
 use lighthouse_tracing::SPAN_CUSTODY_BACKFILL_SYNC_BATCH_REQUEST;
@@ -89,6 +89,10 @@ pub struct CustodyBackFillSync<T: BeaconChainTypes> {
     /// was changed in the middle of a currently active sync.
     cgc: u64,
 
+    /// Run ID of this backfill process. Increments if sync restarts. Used to differentiate batch
+    /// results from different runs.
+    run_id: u64,
+
     /// Starting epoch of the next batch that needs to be downloaded.
     to_be_downloaded: BatchId,
 
@@ -128,6 +132,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             current_start: Epoch::new(0),
             processing_target: Epoch::new(0),
             cgc: 0,
+            run_id: 0,
             to_be_downloaded: Epoch::new(0),
             last_batch_downloaded: false,
             batches: BTreeMap::new(),
@@ -203,6 +208,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
         self.last_batch_downloaded = false;
         self.current_processing_batch = None;
         self.validated_batches = 0;
+        self.run_id += 1;
 
         self.set_start_epoch();
         self.set_cgc();
@@ -516,59 +522,48 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     pub fn on_data_column_response(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        custody_sync_request_id: DataColumnsByRangeRequester,
+        request_id: CustodyBackFillBatchRequestId,
         peer_id: &PeerId,
         data_columns: DataColumnSidecarList<T::EthSpec>,
     ) -> Result<ProcessResult, CustodyBackfillError> {
-        match custody_sync_request_id {
-            DataColumnsByRangeRequester::CustodyBackfillSync(custody_sync_request_id) => {
-                // check if we have this batch
-                let Some(batch) = self.batches.get_mut(&custody_sync_request_id.epoch) else {
-                    if !matches!(self.state(), CustodyBackFillState::Pending(_)) {
-                        // A batch might get removed when custody sync advances, so this is non fatal.
-                        debug!(epoch = %custody_sync_request_id.epoch, "Received a column for unknown batch");
-                    }
-                    return Ok(ProcessResult::Successful);
-                };
-
-                // A batch could be retried without the peer failing the request (disconnecting/
-                // sending an error /timeout) if the peer is removed for other
-                // reasons. Check that this column belongs to the expected peer, and that the
-                // request_id matches
-                if !batch.is_expecting_request_id(&custody_sync_request_id.id) {
-                    return Ok(ProcessResult::Successful);
-                }
-                let received = data_columns.len();
-
-                match batch.download_completed(data_columns, *peer_id) {
-                    Ok(_) => {
-                        let awaiting_batches = self
-                            .processing_target
-                            .saturating_sub(custody_sync_request_id.epoch)
-                            / CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
-                        debug!(
-                            epoch = %custody_sync_request_id.epoch,
-                            blocks = received,
-                            %awaiting_batches,
-                            "Completed batch received"
-                        );
-
-                        // pre-emptively request more columns from peers whilst we process current columns.
-                        self.request_batches(network)?;
-                        self.process_completed_batches(network)
-                    }
-                    Err(e) => {
-                        self.fail_sync(CustodyBackfillError::BatchInvalidState(
-                            custody_sync_request_id.epoch,
-                            e.0,
-                        ))?;
-                        Ok(ProcessResult::Successful)
-                    }
-                }
+        let batch_id = request_id.epoch;
+        // check if we have this batch
+        let Some(batch) = self.batches.get_mut(&batch_id) else {
+            if !matches!(self.state(), CustodyBackFillState::Pending(_)) {
+                // A batch might get removed when custody sync advances, so this is non fatal.
+                debug!(epoch = %batch_id, "Received a column for unknown batch");
             }
-            _ => Err(CustodyBackfillError::InvalidSyncState(
-                "Custody backfill sync received an incorrect response type".to_string(),
-            )),
+            return Ok(ProcessResult::Successful);
+        };
+
+        // A batch could be retried without the peer failing the request (disconnecting/
+        // sending an error /timeout) if the peer is removed for other
+        // reasons. Check that this column belongs to the expected peer, and that the
+        // request_id matches
+        if !batch.is_expecting_request_id(&request_id.id) {
+            return Ok(ProcessResult::Successful);
+        }
+        let received = data_columns.len();
+
+        match batch.download_completed(data_columns, *peer_id) {
+            Ok(_) => {
+                let awaiting_batches = self.processing_target.saturating_sub(batch_id)
+                    / CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
+                debug!(
+                    epoch = %batch_id,
+                    blocks = received,
+                    %awaiting_batches,
+                    "Completed batch received"
+                );
+
+                // pre-emptively request more columns from peers whilst we process current columns.
+                self.request_batches(network)?;
+                self.process_completed_batches(network)
+            }
+            Err(e) => {
+                self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
+                Ok(ProcessResult::Successful)
+            }
         }
     }
 
@@ -966,7 +961,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             ) {
                 Ok(request_id) => {
                     // inform the batch about the new request
-                    if let Err(e) = batch.start_downloading(request_id) {
+                    if let Err(e) = batch.start_downloading(request_id.id) {
                         return self
                             .fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0));
                     }
@@ -1063,40 +1058,29 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
     pub fn inject_error(
         &mut self,
         network: &mut SyncNetworkContext<T>,
-        request: DataColumnsByRangeRequester,
+        req_id: CustodyBackFillBatchRequestId,
         peer_id: &PeerId,
         err: RpcResponseError,
     ) -> Result<(), CustodyBackfillError> {
-        match request {
-            DataColumnsByRangeRequester::ComponentsByRange(_) => {
-                // This shouldn't be possible, but we log a crit if it does.
-                crit!("Trying to handle a components by range request during custody sync.");
-                Ok(())
+        let batch_id = req_id.epoch;
+        if let Some(batch) = self.batches.get_mut(&batch_id) {
+            // A batch could be retried without the peer failing the request (disconnecting/
+            // sending an error /timeout) if the peer is removed from the chain for other
+            // reasons. Check that this data column belongs to the expected peer
+            if !batch.is_expecting_request_id(&req_id.id) {
+                return Ok(());
             }
-            DataColumnsByRangeRequester::CustodyBackfillSync(request) => {
-                if let Some(batch) = self.batches.get_mut(&request.epoch) {
-                    // A batch could be retried without the peer failing the request (disconnecting/
-                    // sending an error /timeout) if the peer is removed from the chain for other
-                    // reasons. Check that this data column belongs to the expected peer
-                    if !batch.is_expecting_request_id(&request.id) {
-                        return Ok(());
-                    }
-                    debug!(batch_epoch = %request.epoch, error = ?err, "Batch download failed");
-                    match batch.download_failed(Some(*peer_id)) {
-                        Err(e) => self
-                            .fail_sync(CustodyBackfillError::BatchInvalidState(request.epoch, e.0)),
-                        Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
-                            self.fail_sync(CustodyBackfillError::BatchDownloadFailed(request.epoch))
-                        }
-                        Ok(BatchOperationOutcome::Continue) => {
-                            self.send_batch(network, request.epoch)
-                        }
-                    }
-                } else {
-                    // this could be an error for an old batch, removed when the chain advances
-                    Ok(())
+            debug!(batch_epoch = %batch_id, error = ?err, "Batch download failed");
+            match batch.download_failed(Some(*peer_id)) {
+                Err(e) => self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0)),
+                Ok(BatchOperationOutcome::Failed { blacklist: _ }) => {
+                    self.fail_sync(CustodyBackfillError::BatchDownloadFailed(batch_id))
                 }
+                Ok(BatchOperationOutcome::Continue) => self.send_batch(network, batch_id),
             }
+        } else {
+            // this could be an error for an old batch, removed when the chain advances
+            Ok(())
         }
     }
 }

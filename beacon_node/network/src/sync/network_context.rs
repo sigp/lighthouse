@@ -1693,7 +1693,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         epoch: Epoch,
         peers: &HashSet<PeerId>,
         peers_to_deprioritize: &HashSet<PeerId>,
-    ) -> Result<Id, RpcRequestSendError> {
+    ) -> Result<CustodyBackFillBatchRequestId, RpcRequestSendError> {
         let active_request_count_by_peer = self.active_request_count_by_peer();
         // Attempt to find all required custody peers before sending any request or creating an ID
         let columns_by_range_peers_to_request = {
@@ -1737,60 +1737,57 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.custody_backfill_data_column_batch_requests
             .insert(id, range_data_column_batch_request);
 
-        Ok(id.id)
+        Ok(id)
     }
 
     /// Received a data columns by range response from a custody sync request which batches them.
     pub fn custody_backfill_data_columns_response(
         &mut self,
-        custody_backfill_request_id: DataColumnsByRangeRequestId,
+        // Identifies the custody backfill request for all data columns on this epoch
+        custody_sync_request_id: CustodyBackFillBatchRequestId,
+        // Identifies a specific data_columns_by_range request for *some* columns in this epoch. We
+        // pass them separately as DataColumnsByRangeRequestId parent is an enum and would require
+        // matching again.
+        req_id: DataColumnsByRangeRequestId,
         data_columns: RpcResponseResult<DataColumnSidecarList<T::EthSpec>>,
     ) -> Option<Result<DataColumnSidecarList<T::EthSpec>, RpcResponseError>> {
-        match custody_backfill_request_id.parent_request_id {
-            DataColumnsByRangeRequester::CustodyBackfillSync(custody_backfill_batch_request_id) => {
-                let Entry::Occupied(mut entry) = self
-                    .custody_backfill_data_column_batch_requests
-                    .entry(custody_backfill_batch_request_id)
-                else {
-                    metrics::inc_counter_vec(
-                        &metrics::SYNC_UNKNOWN_NETWORK_REQUESTS,
-                        &["range_data_columns"],
-                    );
-                    return None;
-                };
+        let Entry::Occupied(mut entry) = self
+            .custody_backfill_data_column_batch_requests
+            .entry(custody_sync_request_id)
+        else {
+            metrics::inc_counter_vec(
+                &metrics::SYNC_UNKNOWN_NETWORK_REQUESTS,
+                &["range_data_columns"],
+            );
+            return None;
+        };
 
-                if let Err(e) = {
-                    let request = entry.get_mut();
-                    data_columns.and_then(|(data_columns, _)| {
-                        request
-                            .add_custody_columns(custody_backfill_request_id, data_columns.clone())
-                            .map_err(|e| {
-                                RpcResponseError::BlockComponentCouplingError(
-                                    CouplingError::InternalError(e),
-                                )
-                            })
+        if let Err(e) = {
+            let request = entry.get_mut();
+            data_columns.and_then(|(data_columns, _)| {
+                request
+                    .add_custody_columns(req_id, data_columns.clone())
+                    .map_err(|e| {
+                        RpcResponseError::BlockComponentCouplingError(CouplingError::InternalError(
+                            e,
+                        ))
                     })
-                } {
-                    entry.remove();
-                    return Some(Err(e));
-                }
+            })
+        } {
+            entry.remove();
+            return Some(Err(e));
+        }
 
-                if let Some(data_column_result) = entry.get_mut().responses() {
-                    if data_column_result.is_ok() {
-                        // remove the entry only if it coupled successfully with
-                        // no errors
-                        entry.remove();
-                    }
-                    // If the request is finished, dequeue everything
-                    Some(data_column_result.map_err(RpcResponseError::BlockComponentCouplingError))
-                } else {
-                    None
-                }
+        if let Some(data_column_result) = entry.get_mut().responses() {
+            if data_column_result.is_ok() {
+                // remove the entry only if it coupled successfully with
+                // no errors
+                entry.remove();
             }
-            _ => {
-                warn!("Custody backfill sync is using the wrong request type");
-                None
-            }
+            // If the request is finished, dequeue everything
+            Some(data_column_result.map_err(RpcResponseError::BlockComponentCouplingError))
+        } else {
+            None
         }
     }
 
