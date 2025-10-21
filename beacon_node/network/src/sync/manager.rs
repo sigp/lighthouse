@@ -1386,33 +1386,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             req_id,
             data_columns,
         ) {
-            match resp {
-                Ok(data_columns) => {
-                    match self.custody_backfill_sync.on_data_column_response(
-                        &mut self.network,
-                        custody_sync_request_id,
-                        &peer_id,
-                        data_columns,
-                    ) {
-                        Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                        Ok(ProcessResult::Successful) => {}
-                        Err(_e) => {
-                            // The custody sync has failed, errors are reported
-                            // within.
-                            self.update_sync_state();
-                        }
-                    }
-                }
-                Err(e) => {
-                    match self.custody_backfill_sync.inject_error(
-                        &mut self.network,
-                        custody_sync_request_id,
-                        &peer_id,
-                        e,
-                    ) {
-                        Ok(_) => {}
-                        Err(_) => self.update_sync_state(),
-                    }
+            match self.custody_backfill_sync.on_data_column_response(
+                &mut self.network,
+                custody_sync_request_id,
+                &peer_id,
+                resp,
+            ) {
+                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                Ok(ProcessResult::Successful) => {}
+                Err(_e) => {
+                    // The custody sync has failed, errors are reported
+                    // within.
+                    self.update_sync_state(); 
                 }
             }
         }
