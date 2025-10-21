@@ -4380,7 +4380,6 @@ async fn test_column_da_boundary() {
     if !store.get_chain_spec().is_peer_das_scheduled() {
         // No-op if PeerDAS not scheduled.
         panic!("PeerDAS not scheduled");
-        //return;
     }
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -4402,7 +4401,6 @@ async fn test_earliest_custodied_data_column_epoch() {
     if !store.get_chain_spec().is_peer_das_scheduled() {
         // No-op if PeerDAS not scheduled.
         panic!("PeerDAS not scheduled");
-        //return;
     }
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
