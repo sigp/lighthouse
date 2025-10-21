@@ -851,4 +851,139 @@ mod tests {
             expected_cgc as usize
         );
     }
+
+    #[test]
+    fn restore_from_persisted_with_matching_cli() {
+        let spec = E::default_spec();
+        let persisted_cgc = spec.custody_requirement;
+
+        let ssz_context = CustodyContextSsz {
+            custody_group_count_at_head: persisted_cgc,
+            persisted_is_supernode: false,
+            epoch_validator_custody_requirements: vec![(Epoch::new(0), persisted_cgc)],
+        };
+
+        let custody_context = CustodyContext::<E>::new_from_persisted_custody_context(
+            ssz_context,
+            NodeCustodyType::Fullnode,
+            &spec,
+        );
+
+        assert_eq!(
+            custody_context.custody_group_count_at_head(),
+            persisted_cgc,
+            "restored custody group count should match persisted value"
+        );
+    }
+
+    #[test]
+    fn restore_fullnode_then_switch_to_supernode_uses_persisted() {
+        let spec = E::default_spec();
+        let persisted_cgc = spec.custody_requirement; // 8 for mainnet
+
+        let ssz_context = CustodyContextSsz {
+            custody_group_count_at_head: persisted_cgc,
+            persisted_is_supernode: false,
+            epoch_validator_custody_requirements: vec![(Epoch::new(0), persisted_cgc)],
+        };
+
+        // Attempt to restore as supernode (wants 128), but should use persisted value (8)
+        let custody_context = CustodyContext::<E>::new_from_persisted_custody_context(
+            ssz_context,
+            NodeCustodyType::Supernode,
+            &spec,
+        );
+
+        assert_eq!(
+            custody_context.custody_group_count_at_head(),
+            persisted_cgc,
+            "should use persisted cgc, not supernode cgc"
+        );
+        assert_ne!(
+            custody_context.custody_group_count_at_head(),
+            spec.number_of_custody_groups,
+            "should NOT have supernode's full custody"
+        );
+    }
+
+    #[test]
+    fn restore_supernode_then_switch_to_fullnode_uses_persisted() {
+        let spec = E::default_spec();
+        let persisted_cgc = spec.number_of_custody_groups; // 128 for mainnet
+
+        let ssz_context = CustodyContextSsz {
+            custody_group_count_at_head: persisted_cgc,
+            persisted_is_supernode: false,
+            epoch_validator_custody_requirements: vec![(Epoch::new(0), persisted_cgc)],
+        };
+
+        // Attempt to restore as fullnode (wants 8), but should keep persisted value (128)
+        let custody_context = CustodyContext::<E>::new_from_persisted_custody_context(
+            ssz_context,
+            NodeCustodyType::Fullnode,
+            &spec,
+        );
+
+        assert_eq!(
+            custody_context.custody_group_count_at_head(),
+            persisted_cgc,
+            "should use persisted cgc, not fullnode cgc"
+        );
+    }
+
+    #[test]
+    fn restore_with_validator_custody_history_across_epochs() {
+        let spec = E::default_spec();
+        let initial_cgc = 8u64;
+        let increased_cgc = 16u64;
+        let final_cgc = 32u64;
+
+        let ssz_context = CustodyContextSsz {
+            custody_group_count_at_head: final_cgc,
+            persisted_is_supernode: false,
+            epoch_validator_custody_requirements: vec![
+                (Epoch::new(0), initial_cgc),
+                (Epoch::new(10), increased_cgc),
+                (Epoch::new(20), final_cgc),
+            ],
+        };
+
+        let custody_context = CustodyContext::<E>::new_from_persisted_custody_context(
+            ssz_context,
+            NodeCustodyType::Fullnode,
+            &spec,
+        );
+
+        // Verify head uses latest value
+        assert_eq!(custody_context.custody_group_count_at_head(), final_cgc);
+
+        // Verify historical epoch lookups work correctly
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(Epoch::new(5), &spec),
+            initial_cgc,
+            "epoch 5 should use initial cgc"
+        );
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(Epoch::new(15), &spec),
+            increased_cgc,
+            "epoch 15 should use increased cgc"
+        );
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(Epoch::new(25), &spec),
+            final_cgc,
+            "epoch 25 should use final cgc"
+        );
+
+        // Verify sampling size calculation uses correct historical values
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(5), &spec),
+            spec.samples_per_slot,
+            "sampling at epoch 5 should use spec minimum since cgc is at minimum"
+        );
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(25), &spec),
+            final_cgc,
+            "sampling at epoch 25 should match final cgc"
+        );
+    }
 }
