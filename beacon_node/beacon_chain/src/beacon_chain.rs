@@ -6934,9 +6934,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn update_data_column_custody_info(&self, slot: Option<Slot>) {
         self.store
             .put_data_column_custody_info(slot)
-            .unwrap_or_else(
-                |e| error!(error = ?e, "Failed to update data column custody info"),
-            );
+            .unwrap_or_else(|e| error!(error = ?e, "Failed to update data column custody info"));
     }
 
     /// Get the earliest epoch in which the node has met its custody requirements.
