@@ -209,13 +209,11 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 // If theres more than one unique block root penalize the peers serving the bad block roots.
                 column_block_roots => {
                     for column in columns {
-                        for column_block_root in column_block_roots {
-                            if column.block_root() == *column_block_root
-                                && block_root != *column_block_root
-                            {
-                                if let Some(naughty_peer) = column_to_peer.get(&column.index) {
-                                    naughty_peers.push((column.index, *naughty_peer));
-                                }
+                        if column_block_roots.contains(&column.block_root())
+                            && block_root != column.block_root()
+                        {
+                            if let Some(naughty_peer) = column_to_peer.get(&column.index) {
+                                naughty_peers.push((column.index, *naughty_peer));
                             }
                         }
                     }
@@ -239,13 +237,11 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 // invalid block signatures.
                 column_block_signatures => {
                     for column in columns {
-                        for column_block_signature in column_block_signatures {
-                            if &column.signed_block_header.signature == column_block_signature
-                                && block.signature() != column_block_signature
-                            {
-                                if let Some(naughty_peer) = column_to_peer.get(&column.index) {
-                                    naughty_peers.push((column.index, *naughty_peer));
-                                }
+                        if column_block_signatures.contains(&column.signed_block_header.signature)
+                            && block.signature() != &column.signed_block_header.signature
+                        {
+                            if let Some(naughty_peer) = column_to_peer.get(&column.index) {
+                                naughty_peers.push((column.index, *naughty_peer));
                             }
                         }
                     }
