@@ -6940,12 +6940,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Get the earliest epoch in which the node has met its custody requirements.
-    /// A `None` response indicates that we've met our cutody requirements up to the
+    /// A `None` response indicates that we've met our custody requirements up to the
     /// column data availability window
     pub fn earliest_custodied_data_column_epoch(&self) -> Option<Epoch> {
         self.store
             .get_data_column_custody_info()
-            .unwrap_or(None)
+            .inspect_err(
+                |e| error!(error=?e, "Failed to get data column custody info from the store"),
+            )
+            .ok()
+            .flatten()
             .and_then(|info| info.earliest_data_column_slot)
             .map(|slot| {
                 let mut epoch = slot.epoch(T::EthSpec::slots_per_epoch());
