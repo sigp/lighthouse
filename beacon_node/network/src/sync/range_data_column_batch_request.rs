@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::sync::block_sidecar_coupling::{ByRangeRequest, CouplingError};
 use crate::sync::network_context::MAX_COLUMN_RETRIES;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use itertools::Itertools;
 use lighthouse_network::PeerId;
 use lighthouse_network::service::api_types::DataColumnsByRangeRequestId;
 use std::sync::Arc;
@@ -181,6 +182,95 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 continue;
             }
 
+            let column_block_roots = columns
+                .iter()
+                .map(|column| column.block_root())
+                .unique()
+                .collect::<Vec<_>>();
+
+            let column_block_signatures = columns
+                .iter()
+                .map(|column| column.signed_block_header.signature.clone())
+                .unique()
+                .collect::<Vec<_>>();
+
+            let column_block_root = match column_block_roots.as_slice() {
+                // We expect a single unique block root
+                [column_block_root] => *column_block_root,
+                // If there are no block roots, penalize all peers
+                [] => {
+                    for column in &columns {
+                        if let Some(naughty_peer) = column_to_peer.get(&column.index) {
+                            naughty_peers.push((column.index, *naughty_peer));
+                        }
+                    }
+                    continue;
+                }
+                // If theres more than one unique block root penalize the peers serving the bad block roots.
+                column_block_roots => {
+                    for column in columns {
+                        for column_block_root in column_block_roots {
+                            if column.block_root() == *column_block_root
+                                && block_root != *column_block_root
+                            {
+                                if let Some(naughty_peer) = column_to_peer.get(&column.index) {
+                                    naughty_peers.push((column.index, *naughty_peer));
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+            };
+
+            let column_block_signature = match column_block_signatures.as_slice() {
+                // We expect a single unique block signature
+                [block_signature] => block_signature,
+                // If there are no block signatures, penalize all peers
+                [] => {
+                    for column in &columns {
+                        if let Some(naughty_peer) = column_to_peer.get(&column.index) {
+                            naughty_peers.push((column.index, *naughty_peer));
+                        }
+                    }
+                    continue;
+                }
+                // If theres more than one unique block signature, penalize the peers serving the
+                // invalid block signatures.
+                column_block_signatures => {
+                    for column in columns {
+                        for column_block_signature in column_block_signatures {
+                            if &column.signed_block_header.signature == column_block_signature
+                                && block.signature() != column_block_signature
+                            {
+                                if let Some(naughty_peer) = column_to_peer.get(&column.index) {
+                                    naughty_peers.push((column.index, *naughty_peer));
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+            };
+
+            // if the block root doesn't match the columns block root, penalize the peers
+            if block_root != column_block_root {
+                for column in &columns {
+                    if let Some(naughty_peer) = column_to_peer.get(&column.index) {
+                        naughty_peers.push((column.index, *naughty_peer));
+                    }
+                }
+            }
+
+            // If the block signature doesn't match the columns block signature, penalize the peers
+            if block.signature() != column_block_signature {
+                for column in &columns {
+                    if let Some(naughty_peer) = column_to_peer.get(&column.index) {
+                        naughty_peers.push((column.index, *naughty_peer));
+                    }
+                }
+            }
+
             let received_columns = columns.iter().map(|c| c.index).collect::<HashSet<_>>();
 
             let missing_columns = received_columns
@@ -202,7 +292,7 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
 
         if !naughty_peers.is_empty() {
             return Err(CouplingError::DataColumnPeerFailure {
-                error: "Missing columns for some slots".to_string(),
+                error: "Bad or missing columns for some slots".to_string(),
                 faulty_peers: naughty_peers,
                 exceeded_retries: attempt >= MAX_COLUMN_RETRIES,
             });

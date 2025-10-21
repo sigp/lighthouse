@@ -6,7 +6,7 @@ use std::{
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::{
-    NetworkGlobals, PeerId,
+    NetworkGlobals, PeerAction, PeerId,
     service::api_types::{CustodyBackFillBatchRequestId, CustodyBackfillBatchId},
     types::CustodyBackFillState,
 };
@@ -22,6 +22,7 @@ use crate::sync::{
         BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
         ByRangeRequestType,
     },
+    block_sidecar_coupling::CouplingError,
     manager::CustodyBatchProcessResult,
     network_context::{RpcResponseError, SyncNetworkContext},
 };
