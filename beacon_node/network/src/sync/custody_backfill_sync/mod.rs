@@ -266,6 +266,13 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                     .next()
                     .is_some()
                 {
+                    debug!(
+                        run_id = self.run_id,
+                        current_start = %self.current_start,
+                        processing_target = %self.processing_target,
+                        to_be_downloaded = %self.to_be_downloaded,
+                        "Starting custody backfill sync"
+                    );
                     // If there are peers to resume with, begin the resume.
                     self.set_state(CustodyBackFillState::Syncing);
                     // Resume any previously failed batches.
@@ -562,7 +569,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 let awaiting_batches = self.processing_target.saturating_sub(batch_id)
                     / CUSTODY_BACKFILL_EPOCHS_PER_BATCH;
                 debug!(
-                    epoch = %batch_id,
+                    %req_id,
                     blocks = received,
                     %awaiting_batches,
                     "Completed batch received"
@@ -640,8 +647,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
 
         debug!(
             ?result,
-            // %batch,
-            batch_epoch = %batch_id,
+            %batch_id = custody_batch_id,
             %peer,
             client = %network.client_type(peer),
             "Custody backfill batch processed"
@@ -678,8 +684,9 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 // check if custody sync has completed syncing up to the DA window
                 if self.check_completed() {
                     info!(
-                        validated_epochs= ?self.validated_batches,
-                        "Custody sync completed"
+                        validated_epochs = ?self.validated_batches,
+                        run_id = self.run_id,
+                        "Custody backfill sync completed"
                     );
                     self.batches.clear();
                     self.restart_failed_sync = false;
