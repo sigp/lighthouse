@@ -1397,7 +1397,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Err(_e) => {
                     // The custody sync has failed, errors are reported
                     // within.
-                    self.update_sync_state(); 
+                    self.update_sync_state();
                 }
             }
         }

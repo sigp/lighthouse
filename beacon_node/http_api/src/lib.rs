@@ -4948,7 +4948,6 @@ pub fn serve<T: BeaconChainTypes>(
                     .uor(post_lighthouse_compaction)
                     .uor(post_lighthouse_add_peer)
                     .uor(post_lighthouse_remove_peer)
-                    .uor(post_lighthouse_increase_custody_count)
                     .recover(warp_utils::reject::handle_rejection),
             ),
         )
