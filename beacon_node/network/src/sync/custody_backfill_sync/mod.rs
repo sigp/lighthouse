@@ -591,6 +591,35 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             }
             Err(err) => {
                 debug!(batch_epoch = %batch_id, error = ?err, "Batch download failed");
+
+                // If there are any coupling errors, penalize the appropriate peers
+                match err {
+                    RpcResponseError::BlockComponentCouplingError(coupling_error) => {
+                        match coupling_error {
+                            CouplingError::DataColumnPeerFailure {
+                                error,
+                                faulty_peers,
+                                exceeded_retries: _,
+                            } => {
+                                for (column_index, faulty_peer) in faulty_peers {
+                                    debug!(
+                                        ?error,
+                                        ?column_index,
+                                        ?faulty_peer,
+                                        "Custody backfill sync penalizing peer"
+                                    );
+                                    network.report_peer(
+                                        faulty_peer,
+                                        PeerAction::LowToleranceError,
+                                        "Peer failed to serve column",
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                };
                 match batch.download_failed(Some(*peer_id)) {
                     Err(e) => {
                         self.fail_sync(CustodyBackfillError::BatchInvalidState(batch_id, e.0))?;
