@@ -309,6 +309,6 @@ mod tests {
             ),
             peer: PeerId::random(),
         };
-        assert_eq!(format!("{id}"), "123/122/RangeSync/0/54");
+        assert_eq!(format!("{id}"), "123/ByRange/122/RangeSync/0/54");
     }
 }
