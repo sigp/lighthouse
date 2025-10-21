@@ -1,6 +1,7 @@
 mod attestation_production;
 mod attestation_verification;
 mod bellatrix;
+mod blob_verification;
 mod block_verification;
 mod capella;
 mod events;
