@@ -405,9 +405,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         if !batch.is_expecting_request_id(&request_id) {
             return Ok(ProcessResult::Successful);
         }
+        let received = blocks.len();
 
         match batch.download_completed(blocks, *peer_id) {
-            Ok(received) => {
+            Ok(_) => {
                 let awaiting_batches =
                     self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
                 debug!(

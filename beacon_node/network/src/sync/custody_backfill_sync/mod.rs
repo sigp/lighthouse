@@ -546,9 +546,10 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 if !batch.is_expecting_request_id(&custody_sync_request_id.id) {
                     return Ok(ProcessResult::Successful);
                 }
+                let received = data_columns.len();
 
                 match batch.download_completed(data_columns, *peer_id) {
-                    Ok(received) => {
+                    Ok(_) => {
                         let awaiting_batches = self
                             .processing_target
                             .saturating_sub(custody_sync_request_id.epoch)

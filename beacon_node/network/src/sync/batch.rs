@@ -99,6 +99,37 @@ pub trait BatchConfig {
     fn batch_attempt_hash<D: Hash>(data: &D) -> u64;
 }
 
+#[derive(Debug, Display)]
+/// Current state of a batch
+pub enum BatchState<D: Hash> {
+    /// The batch has failed either downloading or processing, but can be requested again.
+    AwaitingDownload,
+    /// The batch is being downloaded.
+    Downloading(Id),
+    /// The batch has been completely downloaded and is ready for processing.
+    AwaitingProcessing(PeerId, D, Instant),
+    /// The batch is being processed.
+    Processing(Attempt<D>),
+    /// The batch was successfully processed and is waiting to be validated.
+    ///
+    /// It is not sufficient to process a batch successfully to consider it correct. This is
+    /// because batches could be erroneously empty, or incomplete. Therefore, a batch is considered
+    /// valid, only if the next sequential batch imports at least a block.
+    AwaitingValidation(Attempt<D>),
+    /// Intermediate state for inner state handling.
+    Poisoned,
+    /// The batch has maxed out the allowed attempts for either downloading or processing. It
+    /// cannot be recovered.
+    Failed,
+}
+
+impl<D: Hash> BatchState<D> {
+    /// Helper function for poisoning a state.
+    pub fn poison(&mut self) -> BatchState<D> {
+        std::mem::replace(self, BatchState::Poisoned)
+    }
+}
+
 #[derive(Derivative)]
 #[derivative(Debug)]
 /// A segment of a chain.
@@ -163,6 +194,24 @@ impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> BatchInfo<E, B, D> {
         }
     }
 
+    /// Gives a list of peers from which this batch has had a failed download or processing
+    /// attempt.
+    pub fn failed_peers(&self) -> HashSet<PeerId> {
+        let mut peers = HashSet::with_capacity(
+            self.failed_processing_attempts.len() + self.failed_download_attempts.len(),
+        );
+
+        for attempt in &self.failed_processing_attempts {
+            peers.insert(attempt.peer_id);
+        }
+
+        for peer in self.failed_download_attempts.iter().flatten() {
+            peers.insert(*peer);
+        }
+
+        peers
+    }
+
     /// Verifies if an incoming request id to this batch.
     pub fn is_expecting_request_id(&self, request_id: &Id) -> bool {
         if let BatchState::Downloading(expected_id) = &self.state {
@@ -202,6 +251,26 @@ impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> BatchInfo<E, B, D> {
 
     pub fn attempts(&self) -> &[Attempt<D>] {
         &self.failed_processing_attempts
+    }
+
+    /// Marks the batch as ready to be processed if the data columns are in the range. The number of
+    /// received columns is returned, or the wrong batch end on failure
+    #[must_use = "Batch may have failed"]
+    pub fn download_completed(&mut self, data_columns: D, peer: PeerId) -> Result<(), WrongState> {
+        match self.state.poison() {
+            BatchState::Downloading(_) => {
+                self.state = BatchState::AwaitingProcessing(peer, data_columns, Instant::now());
+                Ok(())
+            }
+            BatchState::Poisoned => unreachable!("Poisoned batch"),
+            other => {
+                self.state = other;
+                Err(WrongState(format!(
+                    "Download completed for batch in wrong state {:?}",
+                    self.state
+                )))
+            }
+        }
     }
 
     /// Mark the batch as failed and return whether we can attempt a re-download.
@@ -282,6 +351,23 @@ impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> BatchInfo<E, B, D> {
         }
     }
 
+    pub fn start_processing(&mut self) -> Result<(D, Duration), WrongState> {
+        match self.state.poison() {
+            BatchState::AwaitingProcessing(peer, data_columns, start_instant) => {
+                self.state = BatchState::Processing(Attempt::new::<B>(peer, &data_columns));
+                Ok((data_columns, start_instant.elapsed()))
+            }
+            BatchState::Poisoned => unreachable!("Poisoned batch"),
+            other => {
+                self.state = other;
+                Err(WrongState(format!(
+                    "Starting processing batch in wrong state {:?}",
+                    self.state
+                )))
+            }
+        }
+    }
+
     pub fn processing_completed(
         &mut self,
         processing_result: BatchProcessingResult,
@@ -353,24 +439,6 @@ impl<E: EthSpec, B: BatchConfig, D: std::fmt::Debug + Hash> BatchInfo<E, B, D> {
     pub fn visualize(&self) -> char {
         self.state.visualize()
     }
-
-    /// Gives a list of peers from which this batch has had a failed download or processing
-    /// attempt.
-    pub fn failed_peers(&self) -> HashSet<PeerId> {
-        let mut peers = HashSet::with_capacity(
-            self.failed_processing_attempts.len() + self.failed_download_attempts.len(),
-        );
-
-        for attempt in &self.failed_processing_attempts {
-            peers.insert(attempt.peer_id);
-        }
-
-        for peer in self.failed_download_attempts.iter().flatten() {
-            peers.insert(*peer);
-        }
-
-        peers
-    }
 }
 
 // BatchInfo implementations for RangeSync
@@ -398,77 +466,10 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, Vec<RpcBlock<E>>> {
             | BatchState::Failed => 0,
         }
     }
-
-    pub fn start_processing(&mut self) -> Result<(Vec<RpcBlock<E>>, Duration), WrongState> {
-        match self.state.poison() {
-            BatchState::AwaitingProcessing(peer, blocks, start_instant) => {
-                self.state = BatchState::Processing(Attempt::new::<B>(peer, &blocks));
-                Ok((blocks, start_instant.elapsed()))
-            }
-            BatchState::Poisoned => unreachable!("Poisoned batch"),
-            other => {
-                self.state = other;
-                Err(WrongState(format!(
-                    "Starting procesing batch in wrong state {:?}",
-                    self.state
-                )))
-            }
-        }
-    }
-
-    /// Marks the batch as ready to be processed if the blocks are in the range. The number of
-    /// received blocks is returned, or the wrong batch end on failure
-    #[must_use = "Batch may have failed"]
-    pub fn download_completed(
-        &mut self,
-        blocks: Vec<RpcBlock<E>>,
-        peer: PeerId,
-    ) -> Result<usize /* Received blocks */, WrongState> {
-        match self.state.poison() {
-            BatchState::Downloading(_) => {
-                let received = blocks.len();
-                self.state = BatchState::AwaitingProcessing(peer, blocks, Instant::now());
-                Ok(received)
-            }
-            BatchState::Poisoned => unreachable!("Poisoned batch"),
-            other => {
-                self.state = other;
-                Err(WrongState(format!(
-                    "Download completed for batch in wrong state {:?}",
-                    self.state
-                )))
-            }
-        }
-    }
 }
 
 // BatchInfo implementation for CustodyBackFillSync
 impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, DataColumnSidecarList<E>> {
-    /// Marks the batch as ready to be processed if the data columns are in the range. The number of
-    /// received columns is returned, or the wrong batch end on failure
-    #[must_use = "Batch may have failed"]
-    pub fn download_completed(
-        &mut self,
-        data_columns: DataColumnSidecarList<E>,
-        peer: PeerId,
-    ) -> Result<usize /* Received blocks */, WrongState> {
-        match self.state.poison() {
-            BatchState::Downloading(_) => {
-                let received = data_columns.len();
-                self.state = BatchState::AwaitingProcessing(peer, data_columns, Instant::now());
-                Ok(received)
-            }
-            BatchState::Poisoned => unreachable!("Poisoned batch"),
-            other => {
-                self.state = other;
-                Err(WrongState(format!(
-                    "Download completed for batch in wrong state {:?}",
-                    self.state
-                )))
-            }
-        }
-    }
-
     /// Returns a DataColumnsByRange request associated with the batch.
     pub fn to_data_columns_by_range_request(
         &self,
@@ -483,54 +484,6 @@ impl<E: EthSpec, B: BatchConfig> BatchInfo<E, B, DataColumnSidecarList<E>> {
                 "Custody backfill sync can only make data columns by range requests.".to_string(),
             )),
         }
-    }
-
-    pub fn start_processing(&mut self) -> Result<(DataColumnSidecarList<E>, Duration), WrongState> {
-        match self.state.poison() {
-            BatchState::AwaitingProcessing(peer, data_columns, start_instant) => {
-                self.state = BatchState::Processing(Attempt::new::<B>(peer, &data_columns));
-                Ok((data_columns, start_instant.elapsed()))
-            }
-            BatchState::Poisoned => unreachable!("Poisoned batch"),
-            other => {
-                self.state = other;
-                Err(WrongState(format!(
-                    "Starting processing batch in wrong state {:?}",
-                    self.state
-                )))
-            }
-        }
-    }
-}
-
-#[derive(Debug, Display)]
-/// Current state of a batch
-pub enum BatchState<D: Hash> {
-    /// The batch has failed either downloading or processing, but can be requested again.
-    AwaitingDownload,
-    /// The batch is being downloaded.
-    Downloading(Id),
-    /// The batch has been completely downloaded and is ready for processing.
-    AwaitingProcessing(PeerId, D, Instant),
-    /// The batch is being processed.
-    Processing(Attempt<D>),
-    /// The batch was successfully processed and is waiting to be validated.
-    ///
-    /// It is not sufficient to process a batch successfully to consider it correct. This is
-    /// because batches could be erroneously empty, or incomplete. Therefore, a batch is considered
-    /// valid, only if the next sequential batch imports at least a block.
-    AwaitingValidation(Attempt<D>),
-    /// Intermediate state for inner state handling.
-    Poisoned,
-    /// The batch has maxed out the allowed attempts for either downloading or processing. It
-    /// cannot be recovered.
-    Failed,
-}
-
-impl<D: Hash> BatchState<D> {
-    /// Helper function for poisoning a state.
-    pub fn poison(&mut self) -> BatchState<D> {
-        std::mem::replace(self, BatchState::Poisoned)
     }
 }
 

@@ -293,7 +293,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // Remove the request from the peer's active batches
 
         // TODO(das): should use peer group here https://github.com/sigp/lighthouse/issues/6258
-        let received = batch.download_completed(blocks, *peer_id)?;
+        let received = blocks.len();
+        batch.download_completed(blocks, *peer_id)?;
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
             / EPOCHS_PER_BATCH;
