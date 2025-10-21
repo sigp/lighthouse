@@ -211,10 +211,9 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                     for column in columns {
                         if column_block_roots.contains(&column.block_root())
                             && block_root != column.block_root()
+                            && let Some(naughty_peer) = column_to_peer.get(&column.index)
                         {
-                            if let Some(naughty_peer) = column_to_peer.get(&column.index) {
-                                naughty_peers.push((column.index, *naughty_peer));
-                            }
+                            naughty_peers.push((column.index, *naughty_peer));
                         }
                     }
                     continue;
@@ -239,10 +238,9 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                     for column in columns {
                         if column_block_signatures.contains(&column.signed_block_header.signature)
                             && block.signature() != &column.signed_block_header.signature
+                            && let Some(naughty_peer) = column_to_peer.get(&column.index)
                         {
-                            if let Some(naughty_peer) = column_to_peer.get(&column.index) {
-                                naughty_peers.push((column.index, *naughty_peer));
-                            }
+                            naughty_peers.push((column.index, *naughty_peer));
                         }
                     }
                     continue;
