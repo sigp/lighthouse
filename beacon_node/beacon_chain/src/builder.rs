@@ -1075,7 +1075,7 @@ where
             // This will trigger column backfill.
             let cgc_change_effective_slot =
                 cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
-            beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot))
+            beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
         }
 
         info!(

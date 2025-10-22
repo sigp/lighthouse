@@ -253,11 +253,18 @@ impl<E: EthSpec> CustodyContext<E> {
 
     /// Restore the custody context from disk.
     ///
+    /// # Behavior
     /// * If [`NodeCustodyType::get_custody_count_override`] < validator_custody_at_head, it means the attached
-    ///   validate stake has increased the node's CGC. We ignore the CLI input.
+    ///   validator stake has increased the node's CGC. We ignore the CLI input.
     /// * If [`NodeCustodyType::get_custody_count_override`] > validator_custody_at_head, it means the user has
     ///   changed the node's custody type via either the --supernode or --semi-supernode flags which
     ///   has resulted in a CGC increase. **The new CGC will be made effective from the next epoch**.
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// * `Self` - The restored custody context with updated CGC at head
+    /// * `Option<CustodyCountChanged>` - `Some` if the CLI flag caused a CGC increase (triggering backfill),
+    ///   `None` if no CGC change occurred or reduction was prevented
     pub fn new_from_persisted_custody_context(
         ssz_context: CustodyContextSsz,
         node_custody_type: NodeCustodyType,
@@ -516,8 +523,13 @@ impl<E: EthSpec> CustodyContext<E> {
     }
 }
 
-/// The custody count changed because of a change in the
-/// number of validators being managed.
+/// Indicates that the custody group count (CGC) has increased.
+///
+/// CGC increases can occur due to:
+/// 1. Validator registrations increasing effective balance beyond current CGC
+/// 2. CLI flag changes (e.g., switching to --supernode or --semi-supernode)
+///
+/// This struct is used to trigger column backfill and network subnet subscription updates.
 pub struct CustodyCountChanged {
     pub new_custody_group_count: u64,
     pub old_custody_group_count: u64,
