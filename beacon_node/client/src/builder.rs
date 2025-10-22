@@ -202,7 +202,7 @@ where
             .beacon_graffiti(beacon_graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
-            .import_all_data_columns(config.network.subscribe_all_data_column_subnets)
+            .node_custody_type(config.chain.node_custody_type)
             .validator_monitor_config(config.validator_monitor.clone())
             .rng(Box::new(
                 StdRng::try_from_rng(&mut OsRng)

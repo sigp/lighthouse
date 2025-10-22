@@ -39,12 +39,13 @@
 //!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
 //!  and further batches are requested as current blocks are being processed.
 
-use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
+use super::chain::{ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::{ChainCollection, SyncChainStatus};
 use super::sync_type::RangeSyncType;
 use crate::metrics;
 use crate::status::ToStatusMessage;
 use crate::sync::BatchProcessResult;
+use crate::sync::batch::BatchId;
 use crate::sync::network_context::{RpcResponseError, SyncNetworkContext};
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
