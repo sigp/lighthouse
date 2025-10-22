@@ -82,7 +82,7 @@ Once backfill is complete, a `INFO Historical block download complete` log will 
 1. What if I have an existing database? How can I use checkpoint sync?
 
     The existing beacon database needs to be deleted before Lighthouse will attempt checkpoint sync.
-    You can do this by providing the `--purge-db` flag, or by manually deleting `<DATADIR>/beacon`.
+    You can do this by providing the `--purge-db-force` flag, or by manually deleting `<DATADIR>/beacon`.
 
 1. Why is checkpoint sync faster?
 
@@ -92,7 +92,7 @@ Once backfill is complete, a `INFO Historical block download complete` log will 
 
     No, in fact it is more secure! Checkpoint sync guards against long-range attacks that genesis sync does not. This is due to a property of Proof of Stake consensus known as [Weak Subjectivity][weak-subj].
 
-## Reconstructing States
+## How to run an archived node
 
 > This section is only relevant if you are interested in running an archival node for analysis
 > purposes.
