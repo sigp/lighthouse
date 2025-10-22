@@ -308,9 +308,10 @@ impl<E: EthSpec> CustodyContext<E> {
                 debug!(
                     info = "new CGC will be effective from the next epoch",
                     ?node_custody_type,
+                    old_cgc = old_custody_group_count,
                     new_cgc = validator_custody_at_head,
                     effective_epoch = %effective_epoch,
-                    "Node custody type change caused in a custody count increase",
+                    "Node custody type change caused a custody count increase",
                 );
             } else if cgc_from_cli < validator_custody_at_head {
                 // We don't currently support reducing CGC for simplicity.
@@ -643,7 +644,7 @@ mod tests {
     /// Helper function to test CGC increases when switching node custody types.
     /// Verifies that CustodyCountChanged is returned with correct values and
     /// that custody_group_count_at_epoch returns appropriate values for current and next epoch.
-    fn assert_cgc_increase_on_custody_type_switch(
+    fn assert_custody_type_switch_increases_cgc(
         persisted_cgc: u64,
         target_node_custody_type: NodeCustodyType,
         expected_new_cgc: u64,
@@ -719,7 +720,7 @@ mod tests {
 
     /// Helper function to test CGC reduction prevention when switching node custody types.
     /// Verifies that CGC stays at the persisted value and CustodyCountChanged is not returned.
-    fn assert_cgc_unchanged_on_custody_type_switch(
+    fn assert_custody_type_switch_unchanged_cgc(
         persisted_cgc: u64,
         target_node_custody_type: NodeCustodyType,
         current_epoch: Epoch,
@@ -1195,7 +1196,7 @@ mod tests {
         let current_epoch = Epoch::new(10);
         let supernode_cgc = spec.number_of_custody_groups;
 
-        assert_cgc_increase_on_custody_type_switch(
+        assert_custody_type_switch_increases_cgc(
             0,
             NodeCustodyType::Supernode,
             supernode_cgc,
@@ -1261,7 +1262,7 @@ mod tests {
         let spec = E::default_spec();
         let supernode_cgc = spec.number_of_custody_groups;
 
-        assert_cgc_unchanged_on_custody_type_switch(
+        assert_custody_type_switch_unchanged_cgc(
             supernode_cgc,
             NodeCustodyType::Fullnode,
             Epoch::new(0),
@@ -1277,7 +1278,7 @@ mod tests {
         let supernode_cgc = spec.number_of_custody_groups;
         let current_epoch = Epoch::new(10);
 
-        assert_cgc_unchanged_on_custody_type_switch(
+        assert_custody_type_switch_unchanged_cgc(
             supernode_cgc,
             NodeCustodyType::SemiSupernode,
             current_epoch,
@@ -1294,7 +1295,7 @@ mod tests {
         let semi_supernode_cgc = spec.number_of_custody_groups / 2;
         let current_epoch = Epoch::new(10);
 
-        assert_cgc_increase_on_custody_type_switch(
+        assert_custody_type_switch_increases_cgc(
             persisted_cgc,
             NodeCustodyType::SemiSupernode,
             semi_supernode_cgc,
@@ -1312,7 +1313,7 @@ mod tests {
         let supernode_cgc = spec.number_of_custody_groups;
         let current_epoch = Epoch::new(10);
 
-        assert_cgc_increase_on_custody_type_switch(
+        assert_custody_type_switch_increases_cgc(
             semi_supernode_cgc,
             NodeCustodyType::Supernode,
             supernode_cgc,
@@ -1330,7 +1331,7 @@ mod tests {
         let supernode_cgc = spec.number_of_custody_groups;
         let current_epoch = Epoch::new(10);
 
-        assert_cgc_increase_on_custody_type_switch(
+        assert_custody_type_switch_increases_cgc(
             persisted_cgc,
             NodeCustodyType::Supernode,
             supernode_cgc,
