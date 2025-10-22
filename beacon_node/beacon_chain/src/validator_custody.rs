@@ -104,8 +104,17 @@ impl ValidatorRegistrations {
 
     /// Updates the `epoch_validator_custody_requirements` map by pruning all values on/after `effective_epoch`
     /// and updating the map to store the latest validator custody requirements for the `effective_epoch`.
-    pub fn backfill_validator_custody_requirements(&mut self, effective_epoch: Epoch) {
+    pub fn backfill_validator_custody_requirements(
+        &mut self,
+        effective_epoch: Epoch,
+        expected_cgc: u64,
+    ) {
         if let Some(latest_validator_custody) = self.latest_validator_custody_requirement() {
+            // If the expected cgc isn't equal to the latest validator custody a very recent cgc change may have occurred.
+            // We should not update the mapping.
+            if expected_cgc != latest_validator_custody {
+                return;
+            }
             // Delete records if
             // 1. The epoch is greater than or equal than `effective_epoch`
             // 2. the cgc requirements match the latest validator custody requirements
@@ -386,10 +395,14 @@ impl<E: EthSpec> CustodyContext<E> {
         &all_columns_ordered[..custody_group_count]
     }
 
-    pub fn update_and_backfill_custody_count_at_epoch(&self, effective_epoch: Epoch) {
+    pub fn update_and_backfill_custody_count_at_epoch(
+        &self,
+        effective_epoch: Epoch,
+        expected_cgc: u64,
+    ) {
         self.validator_registrations
             .write()
-            .backfill_validator_custody_requirements(effective_epoch);
+            .backfill_validator_custody_requirements(effective_epoch, expected_cgc);
     }
 }
 

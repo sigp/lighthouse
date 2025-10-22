@@ -504,6 +504,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 run_id: self.run_id,
             },
             data_columns,
+            self.cgc,
         ) {
             crit!(
                 msg = "process_batch",
