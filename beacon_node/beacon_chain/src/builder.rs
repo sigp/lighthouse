@@ -934,14 +934,14 @@ where
         let (custody_context, cgc_changed_opt) = if let Some(custody) =
             load_custody_context::<E, THotStore, TColdStore>(store.clone())
         {
-            let current_epoch = slot_clock
-                .now()
-                .ok_or("Unable to read slot clock")?
+            let head_epoch = canonical_head
+                .cached_head()
+                .head_slot()
                 .epoch(E::slots_per_epoch());
             CustodyContext::new_from_persisted_custody_context(
                 custody,
                 self.node_custody_type,
-                current_epoch,
+                head_epoch,
                 &self.spec,
             )
         } else {
