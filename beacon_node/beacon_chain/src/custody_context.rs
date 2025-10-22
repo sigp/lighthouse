@@ -34,6 +34,11 @@ struct ValidatorRegistrations {
     /// So if epoch 10 and 11 has the same custody requirement, only 10 is stored.
     /// This map is never pruned, because currently we never decrease custody requirement, so this
     /// map size is contained at 128.
+    ///
+    /// If the node's is started with a cgc override (i.e. supernode/semi-supernode flag), the cgc
+    /// value is inserted into this map on initialisation with epoch set to 0. For a semi-supernode,
+    /// this means the custody requirement can still be increased if validator custody exceeds
+    /// 64 columns.
     epoch_validator_custody_requirements: BTreeMap<Epoch, u64>,
 }
 
