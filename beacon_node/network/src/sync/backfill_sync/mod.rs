@@ -9,13 +9,13 @@
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::batch::{
+    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+};
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::manager::BatchProcessResult;
 use crate::sync::network_context::{
     RangeRequestId, RpcRequestSendError, RpcResponseError, SyncNetworkContext,
-};
-use crate::sync::range_sync::{
-    BatchConfig, BatchId, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
 };
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -23,10 +23,13 @@ use lighthouse_network::service::api_types::Id;
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{
     HashSet,
     btree_map::{BTreeMap, Entry},
 };
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 use types::{ColumnIndex, Epoch, EthSpec};
@@ -49,21 +52,27 @@ const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 10;
 /// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
 const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 10;
 
-/// Custom configuration for the batch object.
-struct BackFillBatchConfig {}
+type RpcBlocks<E> = Vec<RpcBlock<E>>;
 
-impl BatchConfig for BackFillBatchConfig {
+type BackFillBatchInfo<E> = BatchInfo<E, BackFillBatchConfig<E>, RpcBlocks<E>>;
+
+type BackFillSyncBatches<E> = BTreeMap<BatchId, BackFillBatchInfo<E>>;
+
+/// Custom configuration for the batch object.
+struct BackFillBatchConfig<E: EthSpec> {
+    marker: PhantomData<E>,
+}
+
+impl<E: EthSpec> BatchConfig for BackFillBatchConfig<E> {
     fn max_batch_download_attempts() -> u8 {
         MAX_BATCH_DOWNLOAD_ATTEMPTS
     }
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
     }
-    fn batch_attempt_hash<E: EthSpec>(blocks: &[RpcBlock<E>]) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+    fn batch_attempt_hash<D: Hash>(data: &D) -> u64 {
         let mut hasher = DefaultHasher::new();
-        blocks.hash(&mut hasher);
+        data.hash(&mut hasher);
         hasher.finish()
     }
 }
@@ -121,7 +130,7 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     last_batch_downloaded: bool,
 
     /// Sorted map of batches undergoing some kind of processing.
-    batches: BTreeMap<BatchId, BatchInfo<T::EthSpec, BackFillBatchConfig>>,
+    batches: BackFillSyncBatches<T::EthSpec>,
 
     /// The current processing batch, if any.
     current_processing_batch: Option<BatchId>,
@@ -349,7 +358,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // reasons. Check that this block belongs to the expected peer
             // TODO(das): removed peer_id matching as the node may request a different peer for data
             // columns.
-            if !batch.is_expecting_block(&request_id) {
+            if !batch.is_expecting_request_id(&request_id) {
                 return Ok(());
             }
             debug!(batch_epoch = %batch_id, error = ?err, "Batch download failed");
@@ -393,12 +402,13 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // sending an error /timeout) if the peer is removed from the chain for other
         // reasons. Check that this block belongs to the expected peer, and that the
         // request_id matches
-        if !batch.is_expecting_block(&request_id) {
+        if !batch.is_expecting_request_id(&request_id) {
             return Ok(ProcessResult::Successful);
         }
+        let received = blocks.len();
 
         match batch.download_completed(blocks, *peer_id) {
-            Ok(received) => {
+            Ok(_) => {
                 let awaiting_batches =
                     self.processing_target.saturating_sub(batch_id) / BACKFILL_EPOCHS_PER_BATCH;
                 debug!(
@@ -1050,7 +1060,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         // only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
         // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BatchInfo<T::EthSpec, BackFillBatchConfig>| {
+        let in_buffer = |batch: &BackFillBatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
                 BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
