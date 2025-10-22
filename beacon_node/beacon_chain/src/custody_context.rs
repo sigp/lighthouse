@@ -574,10 +574,6 @@ mod tests {
 
     type E = MainnetEthSpec;
 
-    // ============================================================================
-    // Test Helpers and Utilities
-    // ============================================================================
-
     fn setup_custody_context(
         spec: &ChainSpec,
         current_epoch: Epoch,
@@ -614,31 +610,6 @@ mod tests {
         for epoch in (end_epoch.as_u64()..=start_epoch.as_u64()).rev() {
             custody_context.update_and_backfill_custody_count_at_epoch(Epoch::new(epoch));
         }
-    }
-
-    /// Helper function to test default CGC initialization for different node custody types.
-    /// Verifies custody_group_count_at_head and num_of_custody_groups_to_sample match expectations.
-    fn assert_default_cgc_for_node_custody_type(
-        node_custody_type: NodeCustodyType,
-        expected_cgc_at_head: u64,
-        expected_sampling_size: u64,
-        spec: &ChainSpec,
-    ) {
-        let custody_context = CustodyContext::<E>::new(node_custody_type, spec);
-
-        assert_eq!(
-            custody_context.custody_group_count_at_head(spec),
-            expected_cgc_at_head,
-            "custody_group_count_at_head should be {}",
-            expected_cgc_at_head
-        );
-
-        assert_eq!(
-            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), spec),
-            expected_sampling_size,
-            "num_of_custody_groups_to_sample should be {}",
-            expected_sampling_size
-        );
     }
 
     /// Helper function to test CGC increases when switching node custody types.
@@ -686,20 +657,15 @@ mod tests {
             "old_custody_group_count should be {}",
             persisted_cgc
         );
-
-        // Verify effective epoch is next epoch
-        let expected_effective_epoch = current_epoch + 1;
         assert_eq!(
-            cgc_changed.effective_epoch, expected_effective_epoch,
+            cgc_changed.effective_epoch,
+            current_epoch + 1,
             "effective epoch should be current_epoch + 1"
         );
-
-        // Verify sampling count
-        let expected_sampling_count = spec
-            .sampling_size_custody_groups(expected_new_cgc)
-            .expect("should compute sampling size");
         assert_eq!(
-            cgc_changed.sampling_count, expected_sampling_count,
+            cgc_changed.sampling_count,
+            spec.sampling_size_custody_groups(expected_new_cgc)
+                .expect("should compute sampling size"),
             "sampling_count should match expected value"
         );
 
@@ -755,46 +721,48 @@ mod tests {
         );
     }
 
-    // ============================================================================
-    // Default Initialization Tests
-    // ============================================================================
-
     #[test]
     fn no_validators_supernode_default() {
         let spec = E::default_spec();
-        assert_default_cgc_for_node_custody_type(
-            NodeCustodyType::Supernode,
-            spec.number_of_custody_groups,
-            spec.number_of_custody_groups,
-            &spec,
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Supernode, &spec);
+        assert_eq!(
+            custody_context.custody_group_count_at_head(&spec),
+            spec.number_of_custody_groups
+        );
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), &spec),
+            spec.number_of_custody_groups
         );
     }
 
     #[test]
     fn no_validators_semi_supernode_default() {
         let spec = E::default_spec();
-        assert_default_cgc_for_node_custody_type(
-            NodeCustodyType::SemiSupernode,
-            spec.number_of_custody_groups / 2,
-            spec.number_of_custody_groups / 2,
-            &spec,
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::SemiSupernode, &spec);
+        assert_eq!(
+            custody_context.custody_group_count_at_head(&spec),
+            spec.number_of_custody_groups / 2
+        );
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), &spec),
+            spec.number_of_custody_groups / 2
         );
     }
 
     #[test]
     fn no_validators_fullnode_default() {
         let spec = E::default_spec();
-        assert_default_cgc_for_node_custody_type(
-            NodeCustodyType::Fullnode,
+        let custody_context = CustodyContext::<E>::new(NodeCustodyType::Fullnode, &spec);
+        assert_eq!(
+            custody_context.custody_group_count_at_head(&spec),
             spec.custody_requirement,
-            spec.samples_per_slot,
-            &spec,
+            "head custody count should be minimum spec custody requirement"
+        );
+        assert_eq!(
+            custody_context.num_of_custody_groups_to_sample(Epoch::new(0), &spec),
+            spec.samples_per_slot
         );
     }
-
-    // ============================================================================
-    // Validator Registration and CGC Updates
-    // ============================================================================
 
     #[test]
     fn register_single_validator_should_update_cgc() {
@@ -926,10 +894,6 @@ mod tests {
         );
     }
 
-    // ============================================================================
-    // Validator Expiry Tests
-    // ============================================================================
-
     #[test]
     fn validator_dropped_after_no_registrations_within_expiry_should_not_reduce_cgc() {
         let spec = E::default_spec();
@@ -1021,10 +985,6 @@ mod tests {
             val_custody_units_1 + val_custody_units_3
         );
     }
-
-    // ============================================================================
-    // Custody Columns and Data Column Initialization
-    // ============================================================================
 
     #[test]
     fn should_init_ordered_data_columns_and_return_sampling_columns() {
@@ -1157,10 +1117,6 @@ mod tests {
         );
     }
 
-    // ============================================================================
-    // Persistence and Restoration Tests
-    // ============================================================================
-
     #[test]
     fn restore_from_persisted_fullnode_no_validators() {
         let spec = E::default_spec();
@@ -1183,10 +1139,6 @@ mod tests {
             "restored custody group count should match fullnode default"
         );
     }
-
-    // ============================================================================
-    // Node Custody Type Switching Tests
-    // ============================================================================
 
     /// Tests CLI flag change: Fullnode (CGC=0) → Supernode (CGC=128)
     /// CGC should increase and trigger backfill via CustodyCountChanged.
@@ -1339,10 +1291,6 @@ mod tests {
             &spec,
         );
     }
-
-    // ============================================================================
-    // Historical Custody and Backfill Tests
-    // ============================================================================
 
     #[test]
     fn restore_with_validator_custody_history_across_epochs() {
