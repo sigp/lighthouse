@@ -3212,9 +3212,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         }
 
+        // FIXME(sproul): reimplement support for epochs-per-blob-prune? maybe it doesn't matter?
         let pruning_enabled = self.get_config().prune_blobs;
         let margin_epochs = self.get_config().blob_prune_margin_epochs;
-        let epochs_per_blob_prune = self.get_config().epochs_per_blob_prune;
 
         if !force && !pruning_enabled {
             debug!(prune_blobs = pruning_enabled, "Blob pruning is disabled");
@@ -3223,18 +3223,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let blob_info = self.get_blob_info();
         let data_column_info = self.get_data_column_info();
-        let Some(oldest_blob_slot) = blob_info.oldest_blob_slot else {
-            error!("Slot of oldest blob is not known");
-            return Err(HotColdDBError::BlobPruneLogicError.into());
-        };
-
-        // Start pruning from the epoch of the oldest blob stored.
-        // The start epoch is inclusive (blobs in this epoch will be pruned).
-        let start_epoch = oldest_blob_slot.epoch(E::slots_per_epoch());
 
         // Prune blobs up until the `data_availability_boundary - margin` or the split
         // slot's epoch, whichever is older. We can't prune blobs newer than the split.
-        // The end epoch is also inclusive (blobs in this epoch will be pruned).
+        // The end epoch is inclusive (blobs in this epoch will be pruned).
         let split = self.get_split_info();
         let end_epoch = std::cmp::min(
             data_availability_boundary - margin_epochs - 1,
@@ -3242,35 +3234,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         );
         let end_slot = end_epoch.end_slot(E::slots_per_epoch());
 
-        let can_prune = end_epoch != 0 && start_epoch <= end_epoch;
-        let should_prune = start_epoch + epochs_per_blob_prune <= end_epoch + 1;
-
-        if !force && !should_prune || !can_prune {
+        // Iterate blocks backwards from the `end_epoch` (usually the data availability boundary).
+        let Some((end_block_root, _)) = self
+            .forwards_block_roots_iterator_until(end_slot, end_slot, || {
+                self.get_hot_state(&split.state_root, true)?
+                    .ok_or(HotColdDBError::MissingSplitState(
+                        split.state_root,
+                        split.slot,
+                    ))
+                    .map(|state| (state, split.state_root))
+                    .map_err(Into::into)
+            })?
+            .next()
+            .transpose()?
+        else {
+            // Can't prune blobs if we don't know the block at `end_slot`. This is expected if we
+            // have checkpoint synced and haven't backfilled to the DA boundary yet.
             debug!(
-                %oldest_blob_slot,
-                %data_availability_boundary,
-                %split.slot,
                 %end_epoch,
-                %start_epoch,
-                "Blobs are pruned"
+                %data_availability_boundary,
+                "No blobs to prune"
             );
             return Ok(());
-        }
-
-        // Sanity checks.
-        let anchor = self.get_anchor_info();
-        if oldest_blob_slot < anchor.oldest_block_slot {
-            error!(
-                %oldest_blob_slot,
-                oldest_block_slot = %anchor.oldest_block_slot,
-                "Oldest blob is older than oldest block"
-            );
-            return Err(HotColdDBError::BlobPruneLogicError.into());
-        }
-
-        // Iterate block roots forwards from the oldest blob slot.
+        };
         debug!(
-            %start_epoch,
             %end_epoch,
             %data_availability_boundary,
             "Pruning blobs"
@@ -3279,39 +3266,42 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // We collect block roots of deleted blobs in memory. Even for 10y of blob history this
         // vec won't go beyond 1GB. We can probably optimise this out eventually.
         let mut removed_block_roots = vec![];
+        let mut blobs_db_ops = vec![];
 
-        let remove_blob_if = |blobs_bytes: &[u8]| {
-            let blobs = Vec::from_ssz_bytes(blobs_bytes)?;
-            let Some(blob): Option<&Arc<BlobSidecar<E>>> = blobs.first() else {
-                return Ok(false);
+        // Iterate blocks backwards until we reach a block for which we've already pruned
+        // blobs/columns.
+        for tuple in ParentRootBlockIterator::new(self, end_block_root) {
+            let (block_root, blinded_block) = tuple?;
+
+            // If the block has no blobs we can't tell if they've been pruned, and there is nothing
+            // to prune, so we just skip.
+            if !blinded_block.message().body().has_blobs() {
+                continue;
+            }
+
+            // Check if we have blobs or columns stored. If not, we assume pruning has already
+            // reached this point.
+            let column = if blinded_block.fork_name_unchecked().fulu_enabled() {
+                DBColumn::BeaconDataColumn
+            } else {
+                DBColumn::BeaconBlob
             };
-
-            if blob.slot() <= end_slot {
-                // Store the block root so we can delete from the blob cache
-                removed_block_roots.push(blob.block_root());
-                // Delete from the on-disk db
-                return Ok(true);
-            };
-            Ok(false)
-        };
-
-        self.blobs_db
-            .delete_if(DBColumn::BeaconBlob, remove_blob_if)?;
-
-        if self.spec.is_peer_das_enabled_for_epoch(start_epoch) {
-            let remove_data_column_if = |blobs_bytes: &[u8]| {
-                let data_column: DataColumnSidecar<E> =
-                    DataColumnSidecar::from_ssz_bytes(blobs_bytes)?;
-
-                if data_column.slot() <= end_slot {
-                    return Ok(true);
-                };
-
-                Ok(false)
-            };
-
-            self.blobs_db
-                .delete_if(DBColumn::BeaconDataColumn, remove_data_column_if)?;
+            if self.blobs_db.key_exists(column, block_root.as_slice())? {
+                blobs_db_ops.push(KeyValueStoreOp::DeleteKey(
+                    column,
+                    block_root.as_slice().to_vec(),
+                ));
+                removed_block_roots.push(block_root);
+            } else {
+                // FIXME(sproul): consider continuing if `--force` is set (to account for gaps due
+                // to bugs).
+                debug!(
+                    slot = %blinded_block.slot(),
+                    ?block_root,
+                    "Reached slot with blobs/columns already pruned"
+                );
+                break;
+            }
         }
 
         // Remove deleted blobs from the cache.
@@ -3321,6 +3311,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
         }
 
+        // Remove from disk.
+        if !blobs_db_ops.is_empty() {
+            debug!(
+                num_deleted = blobs_db_ops.len(),
+                "Deleting blobs/data columns from disk"
+            );
+            self.blobs_db.do_atomically(blobs_db_ops)?;
+        }
+
+        // FIXME(sproul): this is a bit scuffed, we're only doing this for metadata purposes now
+        let Some(oldest_blob_slot) = blob_info.oldest_blob_slot else {
+            error!("Slot of oldest blob is not known");
+            return Err(HotColdDBError::BlobPruneLogicError.into());
+        };
+
+        // Start pruning from the epoch of the oldest blob stored.
+        // The start epoch is inclusive (blobs in this epoch will be pruned).
+        let start_epoch = oldest_blob_slot.epoch(E::slots_per_epoch());
         self.update_blob_or_data_column_info(start_epoch, end_slot, blob_info, data_column_info)?;
 
         debug!("Blob pruning complete");
