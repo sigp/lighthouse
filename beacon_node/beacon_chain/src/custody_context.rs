@@ -126,8 +126,11 @@ impl ValidatorRegistrations {
         }
     }
 
-    /// Updates the `epoch_validator_custody_requirements` map by pruning all values on/after `effective_epoch`
-    /// and updating the map to store the latest validator custody requirements for the `effective_epoch`.
+    /// Updates the `epoch -> cgc` map after backfill has been completed for
+    /// the specified epoch.
+    ///
+    /// This is done by pruning all values on/after `effective_epoch` and updating the map to store
+    /// the latest validator custody requirements for the `effective_epoch`.
     pub fn backfill_validator_custody_requirements(&mut self, effective_epoch: Epoch) {
         if let Some(latest_validator_custody) = self.latest_validator_custody_requirement() {
             // Delete records if
@@ -261,6 +264,11 @@ impl<E: EthSpec> CustodyContext<E> {
         if let Some(cgc_from_cli) = cgc_override
             && cgc_from_cli > ssz_context.validator_custody_at_head
         {
+            /*
+            TODO:
+            * when increased, add (next_epoch, 64) into the registration map AND update data column custody info with the next epoch to trigger backfill
+            * when reduced, log a warning, and preserve existing value?
+             */
             warn!(
                 info = "node will continue to run with the current custody count",
                 current_custody_count = ssz_context.validator_custody_at_head,
@@ -457,6 +465,8 @@ impl<E: EthSpec> CustodyContext<E> {
         &all_columns_ordered[..custody_group_count]
     }
 
+    /// The node has completed backfill for this epoch. Update the internal records so the function
+    /// [`Self::custody_columns_for_epoch()`] returns up-to-date results.
     pub fn update_and_backfill_custody_count_at_epoch(&self, effective_epoch: Epoch) {
         self.validator_registrations
             .write()
@@ -508,6 +518,42 @@ mod tests {
     use super::*;
 
     type E = MainnetEthSpec;
+
+    fn setup_custody_context(
+        spec: &ChainSpec,
+        epoch_and_cgc_tuples: Vec<(Epoch, u64)>,
+    ) -> CustodyContext<E> {
+        let cgc_at_head = epoch_and_cgc_tuples.last().unwrap().1;
+        let ssz_context = CustodyContextSsz {
+            validator_custody_at_head: cgc_at_head,
+            persisted_is_supernode: false,
+            epoch_validator_custody_requirements: epoch_and_cgc_tuples,
+        };
+
+        let custody_context = CustodyContext::<E>::new_from_persisted_custody_context(
+            ssz_context,
+            NodeCustodyType::Fullnode,
+            spec,
+        );
+
+        let all_custody_groups_ordered = (0..spec.number_of_custody_groups).collect::<Vec<_>>();
+        custody_context
+            .init_ordered_data_columns_from_custody_groups(all_custody_groups_ordered, spec)
+            .expect("should initialise ordered data columns");
+        custody_context
+    }
+
+    fn complete_backfill_for_epochs(
+        custody_context: &CustodyContext<E>,
+        start_epoch: Epoch,
+        end_epoch: Epoch,
+    ) {
+        assert!(start_epoch >= end_epoch);
+        // Call from end_epoch down to start_epoch (inclusive), simulating backfill
+        for epoch in (end_epoch.as_u64()..=start_epoch.as_u64()).rev() {
+            custody_context.update_and_backfill_custody_count_at_epoch(Epoch::new(epoch));
+        }
+    }
 
     #[test]
     fn no_validators_supernode_default() {
@@ -1032,5 +1078,76 @@ mod tests {
             final_cgc,
             "sampling at epoch 25 should match final cgc"
         );
+    }
+
+    #[test]
+    fn backfill_single_cgc_increase_updates_past_epochs() {
+        let spec = E::default_spec();
+        let final_cgc = 32u64;
+        let default_cgc = spec.custody_requirement;
+
+        // Setup: Node restart after validators were registered, causing CGC increase to 32 at epoch 20
+        let epoch_and_cgc_tuples = vec![(Epoch::new(20), final_cgc)];
+        let custody_context = setup_custody_context(&spec, epoch_and_cgc_tuples);
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(Epoch::new(15), &spec),
+            default_cgc,
+        );
+
+        // Backfill from epoch 20 down to 15 (simulating backfill)
+        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(15));
+
+        // After backfilling to epoch 15, it should use latest CGC (32)
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(Epoch::new(15), &spec),
+            final_cgc,
+        );
+        assert_eq!(
+            custody_context
+                .custody_columns_for_epoch(Some(Epoch::new(15)), &spec)
+                .len(),
+            final_cgc as usize,
+        );
+
+        // Prior epoch should still return the original CGC
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(Epoch::new(14), &spec),
+            default_cgc,
+        );
+    }
+
+    #[test]
+    fn backfill_with_multiple_cgc_increases_prunes_map_correctly() {
+        let spec = E::default_spec();
+        let initial_cgc = 8u64;
+        let mid_cgc = 16u64;
+        let final_cgc = 32u64;
+
+        // Setup: Node restart after multiple validator registrations causing CGC increases
+        let epoch_and_cgc_tuples = vec![
+            (Epoch::new(0), initial_cgc),
+            (Epoch::new(10), mid_cgc),
+            (Epoch::new(20), final_cgc),
+        ];
+        let custody_context = setup_custody_context(&spec, epoch_and_cgc_tuples);
+
+        // Backfill to epoch 15 (between the two CGC increases)
+        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(15));
+
+        // Verify epochs 15 - 20 return latest CGC (32)
+        for epoch in 15..=20 {
+            assert_eq!(
+                custody_context.custody_group_count_at_epoch(Epoch::new(epoch), &spec),
+                final_cgc,
+            );
+        }
+
+        // Verify epochs 10-14 still return mid_cgc (16)
+        for epoch in 10..14 {
+            assert_eq!(
+                custody_context.custody_group_count_at_epoch(Epoch::new(epoch), &spec),
+                mid_cgc,
+            );
+        }
     }
 }
