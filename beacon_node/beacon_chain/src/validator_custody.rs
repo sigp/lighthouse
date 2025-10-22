@@ -10,7 +10,7 @@ use types::data_column_custody_group::{CustodyIndex, compute_columns_for_custody
 use types::{ChainSpec, ColumnIndex, Epoch, EthSpec, Slot};
 
 /// A delay before making the CGC change effective to the data availability checker.
-const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
+pub const CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS: u64 = 30;
 
 /// Number of slots after which a validator's registration is removed if it has not re-registered.
 const VALIDATOR_REGISTRATION_EXPIRY_SLOTS: Slot = Slot::new(256);
@@ -30,8 +30,10 @@ struct ValidatorRegistrations {
     ///
     /// Note: Only stores the epoch value when there's a change in custody requirement.
     /// So if epoch 10 and 11 has the same custody requirement, only 10 is stored.
-    /// This map is never pruned, because currently we never decrease custody requirement, so this
-    /// map size is contained at 128.
+    /// This map is only pruned during custody backfill. If epoch 11 has custody requirements
+    /// that are then backfilled to epoch 10, the value at epoch 11 will be removed and epoch 10
+    /// will be added to the map instead. This should keep map size constrained to a maximum
+    /// value of 128.
     epoch_validator_custody_requirements: BTreeMap<Epoch, u64>,
 }
 
@@ -97,6 +99,25 @@ impl ValidatorRegistrations {
             Some((effective_epoch, validator_custody_requirement))
         } else {
             None
+        }
+    }
+
+    /// Updates the `epoch_validator_custody_requirements` map by pruning all values on/after `effective_epoch`
+    /// and updating the map to store the latest validator custody requirements for the `effective_epoch`.
+    pub fn backfill_validator_custody_requirements(&mut self, effective_epoch: Epoch) {
+        if let Some(latest_validator_custody) = self.latest_validator_custody_requirement() {
+            // Delete records if
+            // 1. The epoch is greater than or equal than `effective_epoch`
+            // 2. the cgc requirements match the latest validator custody requirements
+            self.epoch_validator_custody_requirements
+                .retain(|&epoch, custody_requirement| {
+                    !(epoch >= effective_epoch && *custody_requirement == latest_validator_custody)
+                });
+
+            self.epoch_validator_custody_requirements
+                .entry(effective_epoch)
+                .and_modify(|old_custody| *old_custody = latest_validator_custody)
+                .or_insert(latest_validator_custody);
         }
     }
 }
@@ -250,6 +271,7 @@ impl<E: EthSpec> CustodyContext<E> {
                 );
                 return Some(CustodyCountChanged {
                     new_custody_group_count: updated_cgc,
+                    old_custody_group_count: current_cgc,
                     sampling_count: self.num_of_custody_groups_to_sample(effective_epoch, spec),
                     effective_epoch,
                 });
@@ -282,7 +304,7 @@ impl<E: EthSpec> CustodyContext<E> {
     /// minimum sampling size which may exceed the custody group count (CGC).
     ///
     /// See also: [`Self::num_of_custody_groups_to_sample`].
-    fn custody_group_count_at_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
+    pub fn custody_group_count_at_epoch(&self, epoch: Epoch, spec: &ChainSpec) -> u64 {
         if self.current_is_supernode {
             spec.number_of_custody_groups
         } else {
@@ -360,7 +382,14 @@ impl<E: EthSpec> CustodyContext<E> {
             .all_custody_columns_ordered
             .get()
             .expect("all_custody_columns_ordered should be initialized");
+
         &all_columns_ordered[..custody_group_count]
+    }
+
+    pub fn update_and_backfill_custody_count_at_epoch(&self, effective_epoch: Epoch) {
+        self.validator_registrations
+            .write()
+            .backfill_validator_custody_requirements(effective_epoch);
     }
 }
 
@@ -368,6 +397,7 @@ impl<E: EthSpec> CustodyContext<E> {
 /// number of validators being managed.
 pub struct CustodyCountChanged {
     pub new_custody_group_count: u64,
+    pub old_custody_group_count: u64,
     pub sampling_count: u64,
     pub effective_epoch: Epoch,
 }
