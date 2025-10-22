@@ -1,5 +1,6 @@
 #![cfg(not(debug_assertions))]
 
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     generate_data_column_sidecars_from_block, test_spec,
@@ -24,7 +25,7 @@ static KEYPAIRS: LazyLock<Vec<Keypair>> =
 fn get_harness(
     validator_count: usize,
     spec: Arc<ChainSpec>,
-    supernode: bool,
+    node_custody_type: NodeCustodyType,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     create_test_tracing_subscriber();
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
@@ -34,7 +35,7 @@ fn get_harness(
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
-        .import_all_data_columns(supernode)
+        .node_custody_type(node_custody_type)
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .build();
@@ -54,8 +55,7 @@ async fn rpc_columns_with_invalid_header_signature() {
         return;
     }
 
-    let supernode = true;
-    let harness = get_harness(VALIDATOR_COUNT, spec, supernode);
+    let harness = get_harness(VALIDATOR_COUNT, spec, NodeCustodyType::Supernode);
 
     let num_blocks = E::slots_per_epoch() as usize;
 

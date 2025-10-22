@@ -3,6 +3,7 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::schema_change::migrate_schema;
@@ -11,13 +12,13 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
     mock_execution_layer_from_parts, test_spec,
 };
-use beacon_chain::validator_custody::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
     beacon_proposer_cache::{
         compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
     },
+    custody_context::NodeCustodyType,
     data_availability_checker::MaybeAvailableBlock,
     historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
@@ -98,7 +99,12 @@ fn get_harness(
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };
-    get_harness_generic(store, validator_count, chain_config, false)
+    get_harness_generic(
+        store,
+        validator_count,
+        chain_config,
+        NodeCustodyType::Fullnode,
+    )
 }
 
 fn get_harness_import_all_data_columns(
@@ -110,14 +116,19 @@ fn get_harness_import_all_data_columns(
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };
-    get_harness_generic(store, validator_count, chain_config, true)
+    get_harness_generic(
+        store,
+        validator_count,
+        chain_config,
+        NodeCustodyType::Supernode,
+    )
 }
 
 fn get_harness_generic(
     store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
     validator_count: usize,
     chain_config: ChainConfig,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
 ) -> TestHarness {
     let harness = TestHarness::builder(MinimalEthSpec)
         .spec(store.get_chain_spec().clone())
@@ -125,7 +136,7 @@ fn get_harness_generic(
         .fresh_disk_store(store)
         .mock_execution_layer()
         .chain_config(chain_config)
-        .import_all_data_columns(import_all_data_columns)
+        .node_custody_type(node_custody_type)
         .build();
     harness.advance_slot();
     harness
@@ -3420,7 +3431,12 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let harness = get_harness_generic(store.clone(), LOW_VALIDATOR_COUNT, chain_config, false);
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        chain_config,
+        NodeCustodyType::Fullnode,
+    );
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
@@ -3839,14 +3855,13 @@ async fn schema_downgrade_to_min_version(
         reconstruct_historic_states,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config.clone(), spec.clone());
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config.clone(),
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     harness
@@ -4862,14 +4877,13 @@ async fn ancestor_state_root_prior_to_split() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config, spec);
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config,
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     // Produce blocks until we have passed through two full snapshot periods. This period length is
@@ -4956,14 +4970,13 @@ async fn replay_from_split_state() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config.clone(), spec.clone());
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config,
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     // Produce blocks until we finalize epoch 3 which will not be stored as a snapshot.

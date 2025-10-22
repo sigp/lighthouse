@@ -17,6 +17,7 @@ pub mod block_verification_types;
 pub mod builder;
 pub mod canonical_head;
 pub mod chain_config;
+pub mod custody_context;
 pub mod data_availability_checker;
 pub mod data_column_verification;
 mod early_attester_cache;
@@ -55,7 +56,6 @@ pub mod summaries_dag;
 pub mod sync_committee_rewards;
 pub mod sync_committee_verification;
 pub mod test_utils;
-pub mod validator_custody;
 pub mod validator_monitor;
 pub mod validator_pubkey_cache;
 
@@ -84,6 +84,7 @@ pub use block_verification::{
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
+pub use custody_context::CustodyContext;
 pub use events::ServerSentEventHandler;
 pub use execution_layer::EngineState;
 pub use execution_payload::NotifyExecutionLayer;
@@ -99,4 +100,3 @@ pub use state_processing::per_block_processing::errors::{
 };
 pub use store;
 pub use types;
-pub use validator_custody::CustodyContext;

@@ -1,3 +1,4 @@
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
@@ -90,7 +91,7 @@ struct ApiTester {
 struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
 }
 
 impl Default for ApiTesterConfig {
@@ -100,7 +101,7 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
-            import_all_data_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
         }
     }
 }
@@ -139,7 +140,7 @@ impl ApiTester {
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
-            .import_all_data_columns(config.import_all_data_columns)
+            .node_custody_type(config.node_custody_type)
             .build();
 
         harness
@@ -7842,8 +7843,7 @@ async fn get_blobs_post_fulu_supernode() {
     let mut config = ApiTesterConfig {
         retain_historic_states: false,
         spec: E::default_spec(),
-        // For supernode, we import all data columns
-        import_all_data_columns: true,
+        node_custody_type: NodeCustodyType::Supernode,
     };
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));

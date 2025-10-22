@@ -1,6 +1,6 @@
 use crate::BeaconChainTypes;
+use crate::custody_context::CustodyContextSsz;
 use crate::persisted_custody::{CUSTODY_DB_KEY, PersistedCustody};
-use crate::validator_custody::CustodyContextSsz;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;

@@ -868,6 +868,7 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
 mod test {
     use super::*;
     use crate::CustodyContext;
+    use crate::custody_context::NodeCustodyType;
     use crate::test_utils::{
         EphemeralHarnessType, NumBlobs, generate_rand_block_and_data_columns, get_kzg,
     };
@@ -1201,7 +1202,7 @@ mod test {
         );
         let kzg = get_kzg(&spec);
         let store = Arc::new(HotColdDB::open_ephemeral(<_>::default(), spec.clone()).unwrap());
-        let custody_context = Arc::new(CustodyContext::new(false));
+        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::Fullnode, &spec));
         let complete_blob_backfill = false;
         DataAvailabilityChecker::new(
             complete_blob_backfill,

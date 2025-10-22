@@ -552,6 +552,12 @@ Flags:
           When present, Lighthouse will forget the payload statuses of any
           already-imported blocks. This can assist in the recovery from a
           consensus failure caused by the execution layer.
+      --semi-supernode
+          Run in minimal reconstruction mode. This node will subscribe to and
+          custody half of the data columns (enough for reconstruction), enabling
+          efficient data availability with lower bandwidth and storage
+          requirements compared to a supernode, while still supporting full blob
+          reconstruction.
       --shutdown-after-sync
           Shutdown beacon node as soon as sync is completed. Backfill sync will
           not be performed before shutdown.
