@@ -4,6 +4,7 @@ use crate::beacon_chain::{
     BEACON_CHAIN_DB_KEY, CanonicalHead, LightClientProducerEvent, OP_POOL_DB_KEY,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
@@ -100,7 +101,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     kzg: Arc<Kzg>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
     rng: Option<Box<dyn RngCore + Send>>,
 }
 
@@ -139,7 +140,7 @@ where
             kzg,
             task_executor: None,
             validator_monitor_config: None,
-            import_all_data_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
             rng: None,
         }
     }
@@ -640,9 +641,9 @@ where
         self
     }
 
-    /// Sets whether to require and import all data columns when importing block.
-    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
-        self.import_all_data_columns = import_all_data_columns;
+    /// Sets the node custody type for data column import.
+    pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
+        self.node_custody_type = node_custody_type;
         self
     }
 
@@ -935,10 +936,11 @@ where
         {
             Arc::new(CustodyContext::new_from_persisted_custody_context(
                 custody,
-                self.import_all_data_columns,
+                self.node_custody_type,
+                &self.spec,
             ))
         } else {
-            Arc::new(CustodyContext::new(self.import_all_data_columns))
+            Arc::new(CustodyContext::new(self.node_custody_type, &self.spec))
         };
         debug!(?custody_context, "Loading persisted custody context");
 
