@@ -6991,23 +6991,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Get the earliest epoch in which the node has met its custody requirements
-    pub fn earliest_custodied_data_column_epoch(&self) -> Option<Epoch> {
-        self.store
-            .get_data_column_custody_info()
-            .unwrap_or(None)
-            .and_then(|info| info.earliest_data_column_slot)
-            .map(|slot| {
-                let mut epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-                // If the earliest custodied slot isn't the first slot in the epoch
-                // The node has only met its custody requirements for the next epoch.
-                if slot > epoch.start_slot(T::EthSpec::slots_per_epoch()) {
-                    epoch += 1;
-                }
-                epoch
-            })
-    }
-
     /// Safely update data column custody info by ensuring that:
     /// - cgc values at the updated epoch and the earliest custodied column epoch are equal
     /// - we are only decrementing the earliest custodied data column epoch by one epoch
