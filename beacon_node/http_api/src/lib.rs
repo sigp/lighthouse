@@ -35,6 +35,7 @@ mod version;
 use crate::light_client::{get_light_client_bootstrap, get_light_client_updates};
 use crate::produce_block::{produce_blinded_block_v2, produce_block_v2, produce_block_v3};
 use crate::version::beacon_response;
+use axum_utils::tls::TlsConfig;
 use beacon_chain::{
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
     WhenSlotSkipped, attestation_verification::VerifiedAttestation,
@@ -115,13 +116,6 @@ type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
 
 /// Alias for readability.
 pub type ExecutionOptimistic = bool;
-
-/// Configuration used when serving the HTTP server over TLS.
-#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
-pub struct TlsConfig {
-    pub cert: PathBuf,
-    pub key: PathBuf,
-}
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///

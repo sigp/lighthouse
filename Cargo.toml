@@ -18,6 +18,7 @@ members = [
     "beacon_node/timer",
     "boot_node",
     "common/account_utils",
+    "common/axum_utils",
     "common/clap_utils",
     "common/compare_fields",
     "common/compare_fields_derive",
@@ -105,7 +106,8 @@ alloy-rlp = "0.3.4"
 anyhow = "1"
 arbitrary = { version = "1", features = ["derive"] }
 async-channel = "1.9.0"
-axum = "0.7.7"
+axum = "0.8"
+axum_utils = { path = "common/axum_utils" }
 beacon_chain = { path = "beacon_node/beacon_chain" }
 beacon_node = { path = "beacon_node" }
 beacon_node_fallback = { path = "validator_client/beacon_node_fallback" }
@@ -250,6 +252,7 @@ sysinfo = "0.26"
 system_health = { path = "common/system_health" }
 task_executor = { path = "common/task_executor" }
 tempfile = "3"
+thiserror = "2"
 tokio = { version = "1", features = [
     "rt-multi-thread",
     "sync",
@@ -258,6 +261,7 @@ tokio = { version = "1", features = [
 ] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "time"] }
+tower = "0.5"
 tracing = "0.1.40"
 tracing-appender = "0.2"
 tracing-core = "0.1"
@@ -278,6 +282,7 @@ validator_services = { path = "validator_client/validator_services" }
 validator_store = { path = "validator_client/validator_store" }
 validator_test_rig = { path = "testing/validator_test_rig" }
 warp = { version = "0.3.7", default-features = false, features = ["tls"] }
+warpdrive = "0.1"
 warp_utils = { path = "common/warp_utils" }
 workspace_members = { path = "common/workspace_members" }
 xdelta3 = { git = "https://github.com/sigp/xdelta3-rs", rev = "4db64086bb02e9febb584ba93b9d16bb2ae3825a" }

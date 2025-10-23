@@ -19,6 +19,7 @@ testing = [] # Enables testing-only CLI flags
 
 [dependencies]
 account_utils = { workspace = true }
+axum_utils = { workspace = true }
 beacon_chain = { workspace = true }
 clap = { workspace = true }
 clap_utils = { workspace = true }
