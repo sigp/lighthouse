@@ -146,9 +146,13 @@ impl<E: EthSpec> BlockCache<E> {
     pub fn delete_blobs(&mut self, block_root: &Hash256) {
         let _ = self.blob_cache.pop(block_root);
     }
+    pub fn delete_data_columns(&mut self, block_root: &Hash256) {
+        let _ = self.data_column_cache.pop(block_root);
+    }
     pub fn delete(&mut self, block_root: &Hash256) {
-        let _ = self.block_cache.pop(block_root);
-        let _ = self.blob_cache.pop(block_root);
+        self.delete_block(block_root);
+        self.delete_blobs(block_root);
+        self.delete_data_columns(block_root);
     }
 }
 
@@ -3358,6 +3362,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if let Some(mut block_cache) = self.block_cache.as_ref().map(|cache| cache.lock()) {
             for block_root in removed_block_roots {
                 block_cache.delete_blobs(&block_root);
+                block_cache.delete_data_columns(&block_root);
             }
         }
 
