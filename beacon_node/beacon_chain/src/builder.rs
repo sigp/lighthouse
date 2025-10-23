@@ -931,18 +931,26 @@ where
 
         // Load the persisted custody context from the db and initialize
         // the context for this run
-        let custody_context = if let Some(custody) =
+        let (custody_context, cgc_changed_opt) = if let Some(custody) =
             load_custody_context::<E, THotStore, TColdStore>(store.clone())
         {
-            Arc::new(CustodyContext::new_from_persisted_custody_context(
+            let head_epoch = canonical_head
+                .cached_head()
+                .head_slot()
+                .epoch(E::slots_per_epoch());
+            CustodyContext::new_from_persisted_custody_context(
                 custody,
                 self.node_custody_type,
+                head_epoch,
                 &self.spec,
-            ))
+            )
         } else {
-            Arc::new(CustodyContext::new(self.node_custody_type, &self.spec))
+            (
+                CustodyContext::new(self.node_custody_type, &self.spec),
+                None,
+            )
         };
-        debug!(?custody_context, "Loading persisted custody context");
+        debug!(?custody_context, "Loaded persisted custody context");
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),
@@ -1019,7 +1027,7 @@ where
                     slot_clock,
                     self.kzg.clone(),
                     store,
-                    custody_context,
+                    Arc::new(custody_context),
                     self.spec,
                 )
                 .map_err(|e| format!("Error initializing DataAvailabilityChecker: {:?}", e))?,
@@ -1060,6 +1068,14 @@ where
                 "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network."
             );
             return Err(format!("Weak subjectivity verification failed: {:?}", e));
+        }
+
+        if let Some(cgc_changed) = cgc_changed_opt {
+            // Update data column custody info if there's a CGC change from CLI flags.
+            // This will trigger column backfill.
+            let cgc_change_effective_slot =
+                cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
+            beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
         }
 
         info!(
