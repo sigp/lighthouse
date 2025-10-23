@@ -3333,23 +3333,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             for db_key in db_keys {
                 if self.blobs_db.key_exists(db_column, &db_key)? {
                     data_stored_for_block = true;
-                    debug!(
-                        ?db_column,
-                        ?block_root,
-                        %slot,
-                        "Pruning blob/column"
-                    );
                     blobs_db_ops.push(KeyValueStoreOp::DeleteKey(db_column, db_key));
                 }
             }
 
             if data_stored_for_block {
+                debug!(
+                    ?block_root,
+                    %slot,
+                    "Pruning blobs or columns for block"
+                );
                 removed_block_roots.push(block_root);
             } else {
                 debug!(
                     %slot,
                     ?block_root,
-                    "Reached slot with blobs/columns already pruned"
+                    "Reached slot with blobs or columns already pruned"
                 );
                 break;
             }
@@ -3366,7 +3365,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if !blobs_db_ops.is_empty() {
             debug!(
                 num_deleted = blobs_db_ops.len(),
-                "Deleting blobs/data columns from disk"
+                "Deleting blobs and data columns from disk"
             );
             self.blobs_db.do_atomically(blobs_db_ops)?;
         }
