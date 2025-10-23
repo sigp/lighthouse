@@ -1160,8 +1160,8 @@ mod test {
         // Remaining 64 columns should be reconstructed
         assert_eq!(
             reconstructed_columns.len(),
-            64,
-            "should reconstruct the remaining 64 columns"
+            sampling_requirement - spec.number_of_custody_groups as usize / 2,
+            "should reconstruct the remaining 1 columns"
         );
 
         // Only the columns required for custody (65) should be imported into the cache
