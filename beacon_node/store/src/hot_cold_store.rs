@@ -3326,6 +3326,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             };
 
             // For data columns, consider a block pruned if ALL column indices are absent.
+            // In future we might want to refactor this to read the data column indices that *exist*
+            // from the DB, which could be slightly more efficient than checking existence for every
+            // possible column.
             let mut data_stored_for_block = false;
             for db_key in db_keys {
                 if self.blobs_db.key_exists(db_column, &db_key)? {
