@@ -1875,7 +1875,7 @@ pub static DATA_AVAILABILITY_RECONSTRUCTED_COLUMNS: LazyLock<Result<IntCounter>>
     LazyLock::new(|| {
         try_create_int_counter(
             "beacon_data_availability_reconstructed_columns_total",
-            "Total count of reconstructed columns",
+            "Total count of useful reconstructed columns",
         )
     });
 
