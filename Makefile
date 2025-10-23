@@ -192,8 +192,7 @@ test-op-pool-%:
 		-p operation_pool
 
 # Run the tests in the `network` crate for recent forks.
-test-network: $(patsubst %,test-network-%,$(RECENT
-    _FORKS))
+test-network: $(patsubst %,test-network-%,$(RECENT_FORKS))
 
 test-network-%:
 	env FORK_NAME=$* cargo nextest run --release \
