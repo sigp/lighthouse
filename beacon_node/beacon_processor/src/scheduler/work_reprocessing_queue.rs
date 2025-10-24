@@ -12,6 +12,7 @@
 //! block will be re-queued until their block is imported, or until they expire.
 use crate::metrics;
 use crate::{AsyncFn, BlockingFn, Work, WorkEvent};
+use crate::{GossipAttestationBatch, GossipAttestationPackage, SingleAttestation};
 use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
@@ -48,6 +49,9 @@ pub const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 /// For how long to queue aggregated and unaggregated attestations for re-processing.
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
+/// Batched attestation delay.
+pub const QUEUED_BATCH_ATTESTATION_DELAY: Duration = Duration::from_millis(50);
+
 /// For how long to queue light client updates for re-processing.
 pub const QUEUED_LIGHT_CLIENT_UPDATE_DELAY: Duration = Duration::from_secs(12);
 
@@ -59,6 +63,9 @@ pub const QUEUED_SAMPLING_REQUESTS_DELAY: Duration = Duration::from_secs(12);
 
 /// For how long to queue delayed column reconstruction.
 pub const QUEUED_RECONSTRUCTION_DELAY: Duration = Duration::from_millis(150);
+
+/// Maximum attestation for batches during batch processing.
+pub const MAXIMUM_BATCHED_ATTESTATIONS: usize = 1_024;
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
@@ -115,6 +122,8 @@ pub enum ReprocessQueueMessage {
     BackfillSync(QueuedBackfillBatch),
     /// A delayed column reconstruction that needs checking
     DelayColumnReconstruction(QueuedColumnReconstruction),
+    /// A delayed attestation which will be batched for optimization.
+    BatchedAttestation(QueuedBatchedAttestation),
 }
 
 /// Events sent by the scheduler once they are ready for re-processing.
@@ -173,6 +182,13 @@ pub struct IgnoredRpcBlock {
     pub process_fn: BlockingFn,
 }
 
+pub struct QueuedBatchedAttestation {
+    pub attestation: Box<GossipAttestationPackage<SingleAttestation>>,
+    pub process_individual:
+        Box<dyn FnOnce(GossipAttestationPackage<SingleAttestation>) + Send + Sync>,
+    pub process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
+}
+
 /// A backfill batch work that has been queued for processing later.
 pub struct QueuedBackfillBatch(pub BlockingFn);
 
@@ -180,6 +196,50 @@ pub struct QueuedColumnReconstruction {
     pub block_root: Hash256,
     pub slot: Slot,
     pub process_fn: AsyncFn,
+}
+
+impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBatchedAttestation {
+    type Error = WorkEvent<E>;
+
+    fn try_from(event: WorkEvent<E>) -> Result<Self, WorkEvent<E>> {
+        match event {
+            WorkEvent {
+                work:
+                    Work::GossipAttestation {
+                        attestation,
+                        process_individual,
+                        process_batch,
+                    },
+                ..
+            } => Ok(QueuedBatchedAttestation {
+                attestation,
+                process_individual,
+                process_batch,
+            }),
+
+            _ => Err(event),
+        }
+    }
+}
+
+impl<E: EthSpec> TryFrom<Work<E>> for QueuedBatchedAttestation {
+    type Error = Work<E>;
+
+    fn try_from(work: Work<E>) -> Result<Self, Work<E>> {
+        match work {
+            Work::GossipAttestation {
+                attestation,
+                process_individual,
+                process_batch,
+            } => Ok(QueuedBatchedAttestation {
+                attestation,
+                process_individual,
+                process_batch,
+            }),
+
+            _ => Err(work),
+        }
+    }
 }
 
 impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
@@ -220,6 +280,8 @@ enum InboundEvent {
     ReadyBackfillSync(QueuedBackfillBatch),
     /// A column reconstruction that was queued is ready for processing.
     ReadyColumnReconstruction(QueuedColumnReconstruction),
+    /// An attestation batched is now ready for processing.
+    ReadyBatchedAttestation(QueuedAttestationId),
     /// A message sent to the `ReprocessQueue`
     Msg(ReprocessQueueMessage),
 }
@@ -242,6 +304,8 @@ struct ReprocessQueue<S> {
     lc_updates_delay_queue: DelayQueue<QueuedLightClientUpdateId>,
     /// Queue to manage scheduled column reconstructions.
     column_reconstructions_delay_queue: DelayQueue<QueuedColumnReconstruction>,
+    /// Queue for batched attestation with a delay
+    batched_attestation_queue: DelayQueue<QueuedAttestationId>,
 
     /* Queued items */
     /// Queued blocks.
@@ -250,6 +314,8 @@ struct ReprocessQueue<S> {
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate, DelayKey)>,
     /// Queued attestations.
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate, DelayKey)>,
+    /// Queued batch attestations.
+    queued_batch_attestations: FnvHashMap<usize, (QueuedBatchedAttestation, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
     /// Queued Light Client Updates.
@@ -279,6 +345,7 @@ pub type QueuedLightClientUpdateId = usize;
 enum QueuedAttestationId {
     Aggregate(usize),
     Unaggregate(usize),
+    Batched(usize),
 }
 
 impl QueuedAggregate {
@@ -327,6 +394,17 @@ impl<S: SlotClock> Stream for ReprocessQueue<S> {
         match self.attestations_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(attestation_id)) => {
                 return Poll::Ready(Some(InboundEvent::ReadyAttestation(
+                    attestation_id.into_inner(),
+                )));
+            }
+            // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
+            // will continue to get this result until something else is added into the queue.
+            Poll::Ready(None) | Poll::Pending => (),
+        }
+
+        match self.batched_attestation_queue.poll_expired(cx) {
+            Poll::Ready(Some(attestation_id)) => {
+                return Poll::Ready(Some(InboundEvent::ReadyBatchedAttestation(
                     attestation_id.into_inner(),
                 )));
             }
@@ -420,12 +498,14 @@ impl<S: SlotClock> ReprocessQueue<S> {
             gossip_block_delay_queue: DelayQueue::new(),
             rpc_block_delay_queue: DelayQueue::new(),
             attestations_delay_queue: DelayQueue::new(),
+            batched_attestation_queue: DelayQueue::new(),
             lc_updates_delay_queue: DelayQueue::new(),
             column_reconstructions_delay_queue: DelayQueue::new(),
             queued_gossip_block_roots: HashSet::new(),
             queued_lc_updates: FnvHashMap::default(),
             queued_aggregates: FnvHashMap::default(),
             queued_unaggregates: FnvHashMap::default(),
+            queued_batch_attestations: FnvHashMap::default(),
             awaiting_attestations_per_root: HashMap::new(),
             awaiting_lc_updates_per_parent_root: HashMap::new(),
             queued_backfill_batches: Vec::new(),
@@ -670,6 +750,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 .map(|(unaggregate, delay_key)| {
                                     (ReadyWork::Unaggregate(unaggregate), delay_key)
                                 }),
+                            QueuedAttestationId::Batched(_) => {
+                                error!("this should never occur");
+                                None
+                            }
                         } {
                             // Remove the delay.
                             self.attestations_delay_queue.remove(&delay_key);
@@ -784,6 +868,23 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                 }
             }
+            InboundEvent::Msg(BatchedAttestation(queued_batch_attestation)) => {
+                let mut batch_processing_delay = QUEUED_BATCH_ATTESTATION_DELAY;
+                if self.batched_attestation_queue.len() >= MAXIMUM_BATCHED_ATTESTATIONS {
+                    batch_processing_delay = Duration::from_secs(0);
+                }
+
+                let att_id = QueuedAttestationId::Batched(self.next_attestation);
+
+                let delay_key = self
+                    .batched_attestation_queue
+                    .insert(att_id, batch_processing_delay);
+
+                self.queued_batch_attestations
+                    .insert(self.next_attestation, (queued_batch_attestation, delay_key));
+
+                self.next_attestation += 1;
+            }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
                 let block_root = ready_block.beacon_block_root;
@@ -827,6 +928,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                                 ReadyWork::Unaggregate(unaggregate),
                             )
                         }),
+                    QueuedAttestationId::Batched(_) => {
+                        error!("batched attestation ID reached ReadyAttestation handler");
+                        None
+                    }
                 } {
                     if self.ready_work_tx.try_send(work).is_err() {
                         error!(
@@ -852,6 +957,46 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                 }
             }
+            InboundEvent::ReadyBatchedAttestation(queued_id) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
+                );
+
+                if let Some((batch_attestation, _delay_key)) =
+                    self.queued_batch_attestations.remove(&match queued_id {
+                        QueuedAttestationId::Batched(id) => id,
+                        _ => {
+                            error!("Invalid attestation ID for batched attestation");
+                            return;
+                        }
+                    })
+                {
+                    let beacon_block_root = batch_attestation
+                        .attestation
+                        .attestation
+                        .data
+                        .beacon_block_root;
+                    // Call the process_batch closure with the single attestation as a batch
+                    // since the block was never imported and we're expiring the attestation.
+                    (batch_attestation.process_batch)(vec![*batch_attestation.attestation]);
+
+                    if let Entry::Occupied(mut queued_atts) =
+                        self.awaiting_attestations_per_root.entry(beacon_block_root)
+                        && let Some(index) =
+                            queued_atts.get().iter().position(|&id| id == queued_id)
+                    {
+                        let queued_atts_mut = queued_atts.get_mut();
+                        queued_atts_mut.swap_remove(index);
+
+                        // If the vec is empty after this attestation's removal, we need to delete
+                        // the entry to prevent bloating the hashmap indefinitely.
+                        if queued_atts_mut.is_empty() {
+                            queued_atts.remove_entry();
+                        }
+                    }
+                }
+            }
+
             InboundEvent::ReadyLightClientUpdate(queued_id) => {
                 metrics::inc_counter(
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_OPTIMISTIC_UPDATES,
