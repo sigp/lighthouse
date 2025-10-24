@@ -129,7 +129,6 @@ pub async fn serve<E: EthSpec>(
 
     let router = router.layer(cors_layer);
 
-    // Build the server
     let address = SocketAddr::new(config.listen_addr, config.listen_port);
     let server = Server::builder()
         .router(router)
@@ -137,15 +136,18 @@ pub async fn serve<E: EthSpec>(
         .build()
         .await?;
 
-    let server_info = server.info();
+    let (address, server) = server
+        .serve_with_shutdown(shutdown)
+        .await
+        .map_err(|e| Error::ServerError(e.to_string()))?;
 
     info!(
-        listen_address = %server_info.address,
+        listen_address = %address,
         "Metrics HTTP server started"
     );
 
     let server_future = async move {
-        if let Err(e) = server.serve_with_shutdown(shutdown).await {
+        if let Err(e) = server.await {
             error!(error = ?e, "Metrics HTTP server error");
         }
     };

@@ -21,6 +21,9 @@ impl Server {
     }
 
     /// Get information about the server configuration.
+    ///
+    /// Note that the address is only the configured address, not the actual address
+    /// the server is listening on (such as when using port 0).
     pub fn info(&self) -> ServerInfo {
         ServerInfo {
             address: self.address,
@@ -32,44 +35,59 @@ impl Server {
         }
     }
 
-    /// Serve the application indefinitely.
-    pub async fn serve(self) -> Result<(), ServerError> {
-        self.serve_with_shutdown(std::future::pending()).await
-    }
-
     /// Serve the application until the shutdown signal is received.
-    pub async fn serve_with_shutdown<F>(self, shutdown_signal: F) -> Result<(), ServerError>
+    /// Returns the actual address the server is listening on.
+    pub async fn serve_with_shutdown<F>(
+        self,
+        shutdown_signal: F,
+    ) -> Result<(SocketAddr, impl Future<Output = Result<(), ServerError>>), ServerError>
     where
         F: std::future::Future<Output = ()> + Send + 'static,
     {
+        let tokio_listener = tokio::net::TcpListener::bind(self.address)
+            .await
+            .map_err(ServerError::ServerFailed)?;
+
+        let actual_addr = tokio_listener
+            .local_addr()
+            .map_err(ServerError::ServerFailed)?;
+
+        let std_listener = tokio_listener
+            .into_std()
+            .map_err(ServerError::ServerFailed)?;
+
         let handle = axum_server::Handle::new();
 
-        tokio::spawn({
-            let handle = handle.clone();
-            async move {
-                shutdown_signal.await;
-                handle.graceful_shutdown(None);
-            }
-        });
+        let server_future = async move {
+            tokio::spawn({
+                let handle = handle.clone();
+                async move {
+                    shutdown_signal.await;
+                    handle.graceful_shutdown(None);
+                }
+            });
 
-        match self.rustls_config {
-            Some(config) => {
-                axum_server::bind_rustls(self.address, config)
-                    .handle(handle)
-                    .serve(self.router.into_make_service())
-                    .await
-                    .map_err(ServerError::ServerFailed)?;
+            match self.rustls_config {
+                Some(config) => {
+                    axum_server::from_tcp_rustls(std_listener, config)
+                        .handle(handle)
+                        .serve(self.router.into_make_service())
+                        .await
+                        .map_err(ServerError::ServerFailed)?;
+                }
+                None => {
+                    axum_server::from_tcp(std_listener)
+                        .handle(handle)
+                        .serve(self.router.into_make_service())
+                        .await
+                        .map_err(ServerError::ServerFailed)?;
+                }
             }
-            None => {
-                axum_server::bind(self.address)
-                    .handle(handle)
-                    .serve(self.router.into_make_service())
-                    .await
-                    .map_err(ServerError::ServerFailed)?;
-            }
-        }
 
-        Ok(())
+            Ok(())
+        };
+
+        Ok((actual_addr, server_future))
     }
 }
 

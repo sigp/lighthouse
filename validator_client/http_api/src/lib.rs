@@ -1412,15 +1412,17 @@ pub async fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let server_info = server.info();
 
+    let (address, server) = server.serve_with_shutdown(shutdown).await?;
+
     info!(
-        listen_address = server_info.address.to_string(),
-        protocol = server_info.protocol.to_string(),
+        listen_address = %address,
+        protocol = %server_info.protocol,
         ?api_token_path,
         "HTTP API started"
     );
 
     let server_future = async move {
-        match server.serve_with_shutdown(shutdown).await {
+        match server.await {
             Ok(()) => {
                 info!("HTTP API server stopped");
             }

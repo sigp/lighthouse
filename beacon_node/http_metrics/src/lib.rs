@@ -108,7 +108,6 @@ pub async fn serve<T: BeaconChainTypes>(
         ));
     }
 
-    // Configure CORS.
     let cors_layer = build_cors_layer(
         config.allow_origin.as_deref(),
         config.listen_addr,
@@ -128,20 +127,23 @@ pub async fn serve<T: BeaconChainTypes>(
         .build()
         .await?;
 
-    let server_info = server.info();
+    let (address, server) = server
+        .serve_with_shutdown(shutdown)
+        .await
+        .map_err(|e| Error::ServerError(e.to_string()))?;
 
     info!(
-        listen_address = %server_info.address,
+        listen_address = %address,
         "Metrics HTTP server started"
     );
 
     let server_future = async move {
-        if let Err(e) = server.serve_with_shutdown(shutdown).await {
+        if let Err(e) = server.await {
             tracing::error!(error = ?e, "Metrics HTTP server error");
         }
     };
 
-    Ok((server_info.address, server_future))
+    Ok((address, server_future))
 }
 
 async fn metrics_handler<T: BeaconChainTypes>(
