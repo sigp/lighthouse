@@ -80,8 +80,9 @@ PRs
 Prysm
 QUIC
 QuickNode
-RasPi
 README
+RasPi
+Reown
 RESTful
 Reth
 RHEL
@@ -109,6 +110,7 @@ Validator
 VC
 VCs
 VPN
+WalletConnect
 Withdrawable
 WSL
 XFS
