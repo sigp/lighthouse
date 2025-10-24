@@ -971,29 +971,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                         }
                     })
                 {
-                    let beacon_block_root = batch_attestation
-                        .attestation
-                        .attestation
-                        .data
-                        .beacon_block_root;
                     // Call the process_batch closure with the single attestation as a batch
                     // since the block was never imported and we're expiring the attestation.
                     (batch_attestation.process_batch)(vec![*batch_attestation.attestation]);
-
-                    if let Entry::Occupied(mut queued_atts) =
-                        self.awaiting_attestations_per_root.entry(beacon_block_root)
-                        && let Some(index) =
-                            queued_atts.get().iter().position(|&id| id == queued_id)
-                    {
-                        let queued_atts_mut = queued_atts.get_mut();
-                        queued_atts_mut.swap_remove(index);
-
-                        // If the vec is empty after this attestation's removal, we need to delete
-                        // the entry to prevent bloating the hashmap indefinitely.
-                        if queued_atts_mut.is_empty() {
-                            queued_atts.remove_entry();
-                        }
-                    }
                 }
             }
 
