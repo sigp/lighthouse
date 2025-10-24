@@ -33,7 +33,7 @@ lru_cache = { workspace = true }
 metrics = { workspace = true }
 network_utils = { workspace = true }
 parking_lot = { workspace = true }
-prometheus-client = "0.23.0"
+prometheus-client = "0.24.0"
 rand = { workspace = true }
 regex = { workspace = true }
 serde = { workspace = true }
