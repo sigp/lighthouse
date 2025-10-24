@@ -155,7 +155,7 @@ The command is as following:
 ```bash
 curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v2/debug/beacon/states/$SLOT" > state.ssz
 curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v2/beacon/blocks/$SLOT" > block.ssz
-curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v1/beacon/blob_sidecars/$SLOT" > blobs.ssz
+curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v1/beacon/blobs/$SLOT" > blobs.ssz
 ```
 
 where `$SLOT` is the slot number. A slot which is an epoch boundary slot (i.e., first slot of an epoch) should always be used for manual checkpoint sync.

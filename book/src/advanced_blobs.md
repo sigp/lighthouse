@@ -1,4 +1,27 @@
-# Blobs
+# Data columns
+
+With the [Fusaka](https://ethereum.org/roadmap/fusaka) upgrade, the main feature [PeerDAS](https://ethereum.org/roadmap/fusaka#peerdas) allows storing only a portion of blob data, known as data columns, thus reducing the storage and bandwidth requirements of a full node. This however also means that a full node will not be able to serve blobs after Fusaka. To continue serving blobs, run the beacon node with `--semi-supernode` or `--supernode`. Note that this comes at a significant increase in storage and bandwidth requirements. As a quick guide, with a target blob count of 10, a full node and a supernode is estimated to use ~21GB and ~335GB respectively (refer to this [blogpost](https://blog.sigmaprime.io/peerdas-distributed-blob-building.html) for more details), assuming the data columns are pruned.
+
+> Note: the above assumes that the beacon node has no attached validators. If the beacon node has attached validators, then it is required to custody (store) a certain number of data columns which increases with the number of staked ETH. For example, if the staked ETH is $\geq$ 2048 ETH, then due to custody requirement, it will make the beacon node a semi-supernode ; if $\geq$ 4096 ETH, the beacon node will be a supernode without needing the flag.
+
+Table below summarizes the role of relevant flags in Lighthouse beacon node:
+
+
+| Flags | Post-Deneb, Pre-Fulu | | Post-Fulu | |
+|-------|----------|----------|-----------|----------|
+| | **Usage** | **Can serve blobs?** | **Usage** | **Can serve blobs?** |
+| --prune-blobs false | Does not prune blobs since using the flag | Yes, for blobs since using the flag and for the past 18-day | Does not prune data columns since using the flag | No |
+| --semi-supernode | - | - | Store half data columns | Yes, for blobs since using the flag for a max of 18 days |
+| --supernode | - | - | Store all data columns | Yes, for blobs since using the flag for a max of 18 days |
+
+
+Combining `--prune-blobs false` and `--supernode` (or `--semi-supernode`) implies that no data columns will be pruned, and the node will be able to serve blobs since using the flag.
+
+If you want the blobs data before using the flag `--supernode` or `semi-supernode`, you can backfill blobs or data columns with the experimental flag `--complete-blobs-backfill`. However, do note that this is an experimental feature and it may cause some issues, e.g., the node will block most of its peers.
+
+**⚠️ The following section on Blobs is archived and not maintained as blobs are no longer relevant after the Fulu fork. ⚠️**
+
+## Blobs
 
 In the Deneb network upgrade, one of the changes is the implementation of EIP-4844, also known as [Proto-danksharding](https://blog.ethereum.org/2024/02/27/dencun-mainnet-announcement). Alongside with this, a new term named `blob` (binary large object) is introduced. Blobs are "side-cars" carrying transaction data in a block. They are mainly used by Ethereum layer 2 operators. As far as stakers are concerned, the main difference with the introduction of blobs is the increased storage requirement.
 
