@@ -40,6 +40,7 @@ Exercism
 Extractable
 FFG
 Fulu
+Fusaka
 Geth
 GiB
 Gitcoin
@@ -70,6 +71,7 @@ NodeJS
 NullLogger
 PathBuf
 Pectra
+PeerDAS
 PowerShell
 PPA
 Pre
@@ -222,6 +224,7 @@ src
 stakers
 subnet
 subnets
+supernode
 systemd
 testnet
 testnets
