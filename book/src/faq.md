@@ -2,7 +2,6 @@
 
 ## [Beacon Node](#beacon-node-1)
 
-- [I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?](#bn-deposit-contract)
 - [I see beacon logs showing `WARN: Execution engine called failed`, what should I do?](#bn-ee)
 - [I see beacon logs showing `Error during execution engine upcheck`, what should I do?](#bn-upcheck)
 - [My beacon node is stuck at downloading historical block using checkpoint sync. What should I do?](#bn-download-historical)
@@ -50,31 +49,6 @@
 - [My hard disk is full and my validator is down. What should I do?](#misc-full)
 
 ## Beacon Node
-
-### <a name="bn-deposit-contract"></a> I see a warning about "Syncing deposit contract block cache" or an error about "updating deposit contract cache", what should I do?
-
-The error can be a warning:
-
-```text
-Nov 30 21:04:28.268 WARN Syncing deposit contract block cache   est_blocks_remaining: initializing deposits, service: slot_notifier
-```
-
-or an error:
-
-```text
-ERRO Error updating deposit contract cache   error: Failed to get remote head and new block ranges: EndpointError(FarBehind), retry_millis: 60000, service: deposit_contract_rpc
-```
-
-This log indicates that your beacon node is downloading blocks and deposits
-from your execution node. When the `est_blocks_remaining` is
-`initializing_deposits`, your node is downloading deposit logs. It may stay in
-this stage for several minutes. Once the deposits logs are finished
-downloading, the `est_blocks_remaining` value will start decreasing.
-
-It is perfectly normal to see this log when starting a node for the first time
-or after being off for more than several minutes.
-
-If this log continues appearing during operation, it means your execution client is still syncing and it cannot provide Lighthouse the information about the deposit contract yet. What you need to do is to make sure that the execution client is up and syncing. Once the execution client is synced, the error will disappear.
 
 ### <a name="bn-ee"></a> I see beacon logs showing `WARN: Execution engine called failed`, what should I do?
 
