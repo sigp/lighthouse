@@ -101,7 +101,7 @@ After completing backfill sync the node's database will differ from a genesis-sy
 lack of historic states. _You do not need these states to run a staking node_, but they are required
 for historical API calls (as used by block explorers and researchers).
 
-You can opt-in to reconstructing all of the historic states by providing the
+To run an archived node, you can opt-in to reconstructing all of the historic states by providing the
 `--reconstruct-historic-states` flag to the beacon node at any point (before, during or after sync).
 
 The database keeps track of three markers to determine the availability of historic blocks and

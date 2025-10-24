@@ -6,16 +6,16 @@ With the [Fusaka](https://ethereum.org/roadmap/fusaka) upgrade, the main feature
 
 Table below summarizes the role of relevant flags in Lighthouse beacon node:
 
-| Flags | Post-Deneb, Pre-Fulu | | Post-Fulu | |
+| Flags | Post-Deneb, Pre-Fulu || Post-Fulu ||
 |-------|----------|----------|-----------|----------|
 | | **Usage** | **Can serve blobs?** | **Usage** | **Can serve blobs?** |
-| --prune-blobs false | Does not prune blobs since using the flag | Yes, for blobs since using the flag and for the past 18-day | Does not prune data columns since using the flag | No |
+| --prune-blobs false | Does not prune blobs since using the flag | Yes, for blobs since using the flag and for the past 18 days | Does not prune data columns since using the flag | No |
 | --semi-supernode | - | - | Store half data columns | Yes, for blobs since using the flag for a max of 18 days |
 | --supernode | - | - | Store all data columns | Yes, for blobs since using the flag for a max of 18 days |
 
 Combining `--prune-blobs false` and `--supernode` (or `--semi-supernode`) implies that no data columns will be pruned, and the node will be able to serve blobs since using the flag.
 
-If you want the blobs data before using the flag `--supernode` or `semi-supernode`, you can backfill blobs or data columns with the experimental flag `--complete-blobs-backfill`. However, do note that this is an experimental feature and it may cause some issues, e.g., the node will block most of its peers.
+If you want the blobs data before using the flag, you can backfill blobs or data columns with the experimental flag `--complete-blobs-backfill`. However, do note that this is an experimental feature and it may cause some issues, e.g., the node will block most of its peers.
 
 **⚠️ The following section on Blobs is archived and not maintained as blobs are no longer relevant after the Fulu fork. ⚠️**
 
