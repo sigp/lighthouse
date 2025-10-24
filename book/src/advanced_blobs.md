@@ -1,6 +1,6 @@
 # Data columns
 
-With the [Fusaka](https://ethereum.org/roadmap/fusaka) upgrade, the main feature [PeerDAS](https://ethereum.org/roadmap/fusaka#peerdas) allows storing only a portion of blob data, known as data columns, thus reducing the storage and bandwidth requirements of a full node. This however also means that a full node will not be able to serve blobs after Fusaka. To continue serving blobs, run the beacon node with `--semi-supernode` or `--supernode`. Note that this comes at a significant increase in storage and bandwidth requirements. As a quick guide, with a target blob count of 10, a full node and a supernode is estimated to use ~21GB and ~335GB respectively (refer to this [blog post](https://blog.sigmaprime.io/peerdas-distributed-blob-building.html) for more details), assuming the data columns are pruned.
+With the [Fusaka](https://ethereum.org/roadmap/fusaka) upgrade, the main feature [PeerDAS](https://ethereum.org/roadmap/fusaka#peerdas) allows storing only a portion of blob data, known as data columns, thus reducing the storage and bandwidth requirements of a full node. This however also means that a full node will not be able to serve blobs after Fusaka. To continue serving blobs, run the beacon node with `--semi-supernode` or `--supernode`. Note that this comes at a significant increase in storage and bandwidth requirements, see [this blog post about PeerDAS](https://blog.sigmaprime.io/peerdas-distributed-blob-building.html) and [Fusaka bandwidth estimation](https://ethpandaops.io/posts/fusaka-bandwidth-estimation/) for more details.
 
 > Note: the above assumes that the beacon node has no attached validators. If the beacon node has attached validators, then it is required to custody (store) a certain number of data columns which increases with the number of staked ETH. For example, if the staked ETH is `$\geq$` 2048 ETH, then due to custody requirement, it will make the beacon node a semi-supernode ; if `$\geq$` 4096 ETH, the beacon node will be a supernode without needing the flag.
 
@@ -17,9 +17,9 @@ While both `--supernode` and `--semi-supernode` can serve blobs, a supernode wil
 
 Combining `--prune-blobs false` and `--supernode` (or `--semi-supernode`) implies that no data columns will be pruned, and the node will be able to serve blobs since using the flag.
 
-If you want the blobs data before using the flag, you can backfill blobs or data columns with the experimental flag `--complete-blobs-backfill`. However, do note that this is an experimental feature and it may cause some issues, e.g., the node will block most of its peers.
+If you want historical blob data beyond the data availability period (18 days),, you can backfill blobs or data columns with the experimental flag `--complete-blobs-backfill`. However, do note that this is an experimental feature and it may cause some issues, e.g., the node will block most of its peers.
 
-**⚠️ The following section on Blobs is archived and not maintained as blobs are no longer relevant after the Fulu fork. ⚠️**
+**⚠️ The following section on Blobs is archived and not maintained as blobs are stored in the form of data columns after the Fulu fork ⚠️**
 
 ## Blobs
 

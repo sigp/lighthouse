@@ -50,7 +50,7 @@
   * [Release Candidates](./advanced_release_candidates.md)
   * [MEV](./advanced_builders.md)
   * [Late Block Re-orgs](./advanced_re-orgs.md)
-  * [Blobs and data columns](./advanced_blobs_and_data_columns.md)
+  * [Blobs](./advanced_blobs.md)
 * [Command Line Reference (CLI)](./help_general.md)
   * [Beacon Node](./help_bn.md)
   * [Validator Client](./help_vc.md)
