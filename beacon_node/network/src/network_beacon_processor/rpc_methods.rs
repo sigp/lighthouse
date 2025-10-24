@@ -1204,33 +1204,42 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         let request_start_slot = Slot::from(req.start_slot);
 
-        let data_availability_boundary_slot = match self.chain.data_availability_boundary() {
-            Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
-            None => {
-                debug!("Deneb fork is disabled");
-                return Err((RpcErrorResponse::InvalidRequest, "Deneb fork is disabled"));
-            }
-        };
+        let column_data_availability_boundary_slot =
+            match self.chain.column_data_availability_boundary() {
+                Some(boundary) => boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                None => {
+                    debug!("Fulu fork is disabled");
+                    return Err((RpcErrorResponse::InvalidRequest, "Fulu fork is disabled"));
+                }
+            };
 
-        let oldest_data_column_slot = self
-            .chain
-            .store
-            .get_data_column_info()
-            .oldest_data_column_slot
-            .unwrap_or(data_availability_boundary_slot);
+        let earliest_custodied_data_column_slot =
+            match self.chain.earliest_custodied_data_column_epoch() {
+                Some(earliest_custodied_epoch) => {
+                    let earliest_custodied_slot =
+                        earliest_custodied_epoch.start_slot(T::EthSpec::slots_per_epoch());
+                    // Ensure the earliest columns we serve are within the data availability window
+                    if earliest_custodied_slot < column_data_availability_boundary_slot {
+                        column_data_availability_boundary_slot
+                    } else {
+                        earliest_custodied_slot
+                    }
+                }
+                None => column_data_availability_boundary_slot,
+            };
 
-        if request_start_slot < oldest_data_column_slot {
+        if request_start_slot < earliest_custodied_data_column_slot {
             debug!(
                 %request_start_slot,
-                %oldest_data_column_slot,
-                %data_availability_boundary_slot,
-                "Range request start slot is older than data availability boundary."
+                %earliest_custodied_data_column_slot,
+                %column_data_availability_boundary_slot,
+                "Range request start slot is older than the earliest custodied data column slot."
             );
 
-            return if data_availability_boundary_slot < oldest_data_column_slot {
+            return if earliest_custodied_data_column_slot > column_data_availability_boundary_slot {
                 Err((
                     RpcErrorResponse::ResourceUnavailable,
-                    "blobs pruned within boundary",
+                    "columns pruned within boundary",
                 ))
             } else {
                 Err((
