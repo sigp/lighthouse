@@ -60,6 +60,18 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
+            Arg::new("semi-supernode")
+                .long("semi-supernode")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("supernode")
+                .help("Run in minimal reconstruction mode. This node will subscribe to and custody \
+                          half of the data columns (enough for reconstruction), enabling efficient \
+                          data availability with lower bandwidth and storage requirements compared to \
+                          a supernode, while still supporting full blob reconstruction.")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("malicious-withhold-count")
                 .long("malicious-withhold-count")
                 .action(ArgAction::Set)
