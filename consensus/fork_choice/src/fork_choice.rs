@@ -389,8 +389,8 @@ where
             });
         }
 
-        let finalized_block_slot = anchor_block.slot();
-        let finalized_block_state_root = anchor_block.state_root();
+        let anchor_block_slot = anchor_block.slot();
+        let anchor_block_state_root = anchor_block.state_root();
         let current_epoch_shuffling_id =
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Current)
                 .map_err(Error::BeaconStateError)?;
@@ -419,8 +419,8 @@ where
 
         let proto_array = ProtoArrayForkChoice::new::<E>(
             current_slot,
-            finalized_block_slot,
-            finalized_block_state_root,
+            anchor_block_slot,
+            anchor_block_state_root,
             fc_store.justified_checkpoint().on_chain(),
             fc_store.finalized_checkpoint().on_chain(),
             fc_store.finalized_checkpoint().local(),

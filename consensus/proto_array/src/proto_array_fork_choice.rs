@@ -414,8 +414,8 @@ impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
     pub fn new<E: EthSpec>(
         current_slot: Slot,
-        finalized_block_slot: Slot,
-        finalized_block_state_root: Hash256,
+        anchor_block_slot: Slot,
+        anchor_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
         local_irreversible_checkpoint: Checkpoint,
@@ -434,13 +434,13 @@ impl ProtoArrayForkChoice {
         };
 
         let block = Block {
-            slot: finalized_block_slot,
-            root: finalized_checkpoint.root,
+            slot: anchor_block_slot,
+            root: local_irreversible_checkpoint.root,
             parent_root: None,
-            state_root: finalized_block_state_root,
+            state_root: anchor_block_state_root,
             // We are using the finalized_root as the target_root, since it always lies on an
             // epoch boundary.
-            target_root: finalized_checkpoint.root,
+            target_root: local_irreversible_checkpoint.root,
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             justified_checkpoint,
@@ -1105,6 +1105,7 @@ mod test_compute_deltas {
             state_root,
             genesis_checkpoint,
             genesis_checkpoint,
+            genesis_checkpoint,
             junk_shuffling_id.clone(),
             junk_shuffling_id.clone(),
             execution_status,
@@ -1229,6 +1230,7 @@ mod test_compute_deltas {
             genesis_slot,
             genesis_slot,
             junk_state_root,
+            genesis_checkpoint,
             genesis_checkpoint,
             genesis_checkpoint,
             junk_shuffling_id.clone(),
