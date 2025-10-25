@@ -418,6 +418,7 @@ impl ProtoArrayForkChoice {
         finalized_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        local_irreversible_checkpoint: Checkpoint,
         current_epoch_shuffling_id: AttestationShufflingId,
         next_epoch_shuffling_id: AttestationShufflingId,
         execution_status: ExecutionStatus,
@@ -426,6 +427,7 @@ impl ProtoArrayForkChoice {
             prune_threshold: DEFAULT_PRUNE_THRESHOLD,
             justified_checkpoint,
             finalized_checkpoint,
+            local_irreversible_checkpoint,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
             previous_proposer_boost: ProposerBoost::default(),
@@ -514,6 +516,7 @@ impl ProtoArrayForkChoice {
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        local_irreversible_checkpoint: Checkpoint,
         justified_state_balances: &JustifiedBalances,
         proposer_boost_root: Hash256,
         equivocating_indices: &BTreeSet<u64>,
@@ -537,6 +540,7 @@ impl ProtoArrayForkChoice {
                 deltas,
                 justified_checkpoint,
                 finalized_checkpoint,
+                local_irreversible_checkpoint,
                 new_balances,
                 proposer_boost_root,
                 current_slot,
@@ -547,7 +551,7 @@ impl ProtoArrayForkChoice {
         *old_balances = new_balances.clone();
 
         self.proto_array
-            .find_head::<E>(&justified_checkpoint.root, current_slot)
+            .find_head::<E>(&local_irreversible_checkpoint.root, current_slot)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 

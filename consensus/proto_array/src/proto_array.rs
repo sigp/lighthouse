@@ -132,6 +132,7 @@ pub struct ProtoArray {
     pub prune_threshold: usize,
     pub justified_checkpoint: Checkpoint,
     pub finalized_checkpoint: Checkpoint,
+    pub local_irreversible_checkpoint: Checkpoint,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
     pub previous_proposer_boost: ProposerBoost,
@@ -157,6 +158,7 @@ impl ProtoArray {
         mut deltas: Vec<i64>,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        local_irreversible_checkpoint: Checkpoint,
         new_justified_balances: &JustifiedBalances,
         proposer_boost_root: Hash256,
         current_slot: Slot,
@@ -174,6 +176,7 @@ impl ProtoArray {
         {
             self.justified_checkpoint = justified_checkpoint;
             self.finalized_checkpoint = finalized_checkpoint;
+            self.local_irreversible_checkpoint = local_irreversible_checkpoint;
         }
 
         // Default the proposer boost score to zero.
@@ -962,9 +965,9 @@ impl ProtoArray {
     /// Notably, this function is checking ancestory of the finalized
     /// *checkpoint* not the finalized *block*.
     pub fn is_finalized_checkpoint_or_descendant<E: EthSpec>(&self, root: Hash256) -> bool {
-        let finalized_root = self.finalized_checkpoint.root;
+        let finalized_root = self.local_irreversible_checkpoint.root;
         let finalized_slot = self
-            .finalized_checkpoint
+            .local_irreversible_checkpoint
             .epoch
             .start_slot(E::slots_per_epoch());
 

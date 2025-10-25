@@ -421,7 +421,8 @@ where
             current_slot,
             finalized_block_slot,
             finalized_block_state_root,
-            fc_store.justified_checkpoint().local(),
+            fc_store.justified_checkpoint().on_chain(),
+            fc_store.finalized_checkpoint().on_chain(),
             fc_store.finalized_checkpoint().local(),
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
@@ -504,7 +505,8 @@ where
         let store = &mut self.fc_store;
 
         let head_root = self.proto_array.find_head::<E>(
-            store.justified_checkpoint().local(),
+            store.justified_checkpoint().on_chain(),
+            store.finalized_checkpoint().on_chain(),
             store.finalized_checkpoint().local(),
             store.justified_balances(),
             store.proposer_boost_root(),

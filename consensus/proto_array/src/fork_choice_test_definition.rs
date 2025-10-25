@@ -85,6 +85,7 @@ impl ForkChoiceTestDefinition {
             Hash256::zero(),
             self.justified_checkpoint,
             self.finalized_checkpoint,
+            self.finalized_checkpoint,
             junk_shuffling_id.clone(),
             junk_shuffling_id,
             ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
@@ -106,6 +107,7 @@ impl ForkChoiceTestDefinition {
                     let head = fork_choice
                         .find_head::<MainnetEthSpec>(
                             justified_checkpoint,
+                            finalized_checkpoint,
                             finalized_checkpoint,
                             &justified_balances,
                             Hash256::zero(),
@@ -138,6 +140,7 @@ impl ForkChoiceTestDefinition {
                         .find_head::<MainnetEthSpec>(
                             justified_checkpoint,
                             finalized_checkpoint,
+                            finalized_checkpoint,
                             &justified_balances,
                             proposer_boost_root,
                             &equivocating_indices,
@@ -165,6 +168,7 @@ impl ForkChoiceTestDefinition {
                             .unwrap();
                     let result = fork_choice.find_head::<MainnetEthSpec>(
                         justified_checkpoint,
+                        finalized_checkpoint,
                         finalized_checkpoint,
                         &justified_balances,
                         Hash256::zero(),

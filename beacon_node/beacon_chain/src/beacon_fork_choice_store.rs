@@ -197,18 +197,21 @@ where
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
         let anchor_state_root = anchor_state.canonical_root()?;
 
+        let justified_checkpoint_on_chain = anchor_state.current_justified_checkpoint();
+        let finalized_checkpoint_on_chain = anchor_state.finalized_checkpoint();
+
         Ok(Self {
             store,
             balances_cache: <_>::default(),
             time: anchor_state.slot(),
-            justified_checkpoint: anchor_state.current_justified_checkpoint(),
+            justified_checkpoint: justified_checkpoint_on_chain,
             justified_balances,
             justified_state_root: anchor_state_root,
-            finalized_checkpoint: anchor_state.finalized_checkpoint(),
+            finalized_checkpoint: finalized_checkpoint_on_chain,
             local_irreversible_checkpoint: anchor_block_checkpoint,
-            unrealized_justified_checkpoint: anchor_block_checkpoint,
+            unrealized_justified_checkpoint: justified_checkpoint_on_chain,
             unrealized_justified_state_root: anchor_state_root,
-            unrealized_finalized_checkpoint: anchor_block_checkpoint,
+            unrealized_finalized_checkpoint: finalized_checkpoint_on_chain,
             proposer_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
