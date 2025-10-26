@@ -828,6 +828,8 @@ mod test {
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         data_availability_checker::STATE_LRU_CAPACITY_NON_ZERO,
+        custody_context::NodeCustodyType,
+        data_availability_checker::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
@@ -1022,7 +1024,7 @@ mod test {
         let spec = harness.spec.clone();
         let test_store = harness.chain.store.clone();
         let capacity_non_zero = new_non_zero_usize(capacity);
-        let custody_context = Arc::new(CustodyContext::new(false));
+        let custody_context = Arc::new(CustodyContext::new(NodeCustodyType::Fullnode, &spec));
         let cache = Arc::new(
             DataAvailabilityCheckerInner::<T>::new(
                 capacity_non_zero,
