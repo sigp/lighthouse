@@ -942,10 +942,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         }
                     }
                     CouplingError::BlobPeerFailure(msg) => {
-                        tracing::debug!(?batch_id, msg, "Blob peer failure");
+                        debug!(?batch_id, msg, "Blob peer failure");
                     }
                     CouplingError::InternalError(msg) => {
-                        tracing::error!(?batch_id, msg, "Block components coupling internal error");
+                        error!(?batch_id, msg, "Block components coupling internal error");
                     }
                 }
             }

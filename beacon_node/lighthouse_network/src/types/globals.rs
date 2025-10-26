@@ -79,7 +79,7 @@ impl<E: EthSpec> NetworkGlobals<E> {
             sampling_subnets.extend(subnets);
         }
 
-        tracing::debug!(
+        debug!(
             cgc = custody_group_count,
             ?sampling_subnets,
             "Starting node with custody params"
