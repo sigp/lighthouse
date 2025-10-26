@@ -4,6 +4,7 @@ use beacon_chain::block_verification_types::{AsBlock, ExecutedBlock, RpcBlock};
 use beacon_chain::data_column_verification::CustodyDataColumn;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, ExecutionPendingBlock,
+    custody_context::NodeCustodyType,
     test_utils::{
         AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType, test_spec,
     },
@@ -42,7 +43,10 @@ enum DataSidecars<E: EthSpec> {
 }
 
 async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars<E>>>) {
-    let harness = get_harness(VALIDATOR_COUNT);
+    // The assumption that you can re-import a block based on what you have in your DB
+    // is no longer true, as fullnodes stores less than what they sample.
+    // We use a supernode here to build a chain segment.
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Supernode);
 
     harness
         .extend_chain(
@@ -101,7 +105,10 @@ async fn get_chain_segment() -> (Vec<BeaconSnapshot<E>>, Vec<Option<DataSidecars
     (segment, segment_sidecars)
 }
 
-fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
+fn get_harness(
+    validator_count: usize,
+    node_custody_type: NodeCustodyType,
+) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .chain_config(ChainConfig {
@@ -109,6 +116,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
             ..ChainConfig::default()
         })
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .node_custody_type(node_custody_type)
         .fresh_ephemeral_store()
         .mock_execution_layer()
         .build();
@@ -252,7 +260,7 @@ fn update_data_column_signed_header<E: EthSpec>(
 
 #[tokio::test]
 async fn chain_segment_full_segment() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
         .into_iter()
@@ -290,7 +298,7 @@ async fn chain_segment_full_segment() {
 #[tokio::test]
 async fn chain_segment_varying_chunk_size() {
     for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
-        let harness = get_harness(VALIDATOR_COUNT);
+        let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
         let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
         let blocks: Vec<RpcBlock<E>> = chain_segment_blocks(&chain_segment, &chain_segment_blobs)
             .into_iter()
@@ -322,7 +330,7 @@ async fn chain_segment_varying_chunk_size() {
 
 #[tokio::test]
 async fn chain_segment_non_linear_parent_roots() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     harness
@@ -379,7 +387,7 @@ async fn chain_segment_non_linear_parent_roots() {
 
 #[tokio::test]
 async fn chain_segment_non_linear_slots() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
     harness
         .chain
@@ -521,7 +529,7 @@ async fn assert_invalid_signature(
 async fn get_invalid_sigs_harness(
     chain_segment: &[BeaconSnapshot<E>],
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     harness
         .chain
         .slot_clock
@@ -979,7 +987,7 @@ fn unwrap_err<T, U>(result: Result<T, U>) -> U {
 
 #[tokio::test]
 async fn block_gossip_verification() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
     let (chain_segment, chain_segment_blobs) = get_chain_segment().await;
 
     let block_index = CHAIN_SEGMENT_LENGTH - 2;
@@ -1382,7 +1390,7 @@ async fn verify_block_for_gossip_slashing_detection() {
 
 #[tokio::test]
 async fn verify_block_for_gossip_doppelganger_detection() {
-    let harness = get_harness(VALIDATOR_COUNT);
+    let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
 
     let state = harness.get_current_state();
     let ((block, _), _) = harness.make_block(state.clone(), Slot::new(1)).await;

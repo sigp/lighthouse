@@ -1,4 +1,4 @@
-use crate::validator_custody::CustodyContextSsz;
+use crate::custody_context::CustodyContextSsz;
 use ssz::{Decode, Encode};
 use std::sync::Arc;
 use store::{DBColumn, Error as StoreError, HotColdDB, ItemStore, StoreItem};

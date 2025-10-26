@@ -943,7 +943,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_pending_consolidations(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingConsolidation>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<PendingConsolidation>>>, Error>
     {
         let mut path = self.eth_path(V1)?;
 
@@ -954,7 +954,9 @@ impl BeaconNodeHttpClient {
             .push(&state_id.to_string())
             .push("pending_consolidations");
 
-        self.get_opt(path).await
+        self.get_fork_contextual(path, |fork| fork)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
     /// `GET beacon/light_client/updates`
@@ -1336,12 +1338,23 @@ impl BeaconNodeHttpClient {
     }
 
     /// Path for `v1/beacon/blob_sidecars/{block_id}`
-    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+    pub fn get_blob_sidecars_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("blob_sidecars")
+            .push(&block_id.to_string());
+        Ok(path)
+    }
+
+    /// Path for `v1/beacon/blobs/{blob_id}`
+    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blobs")
             .push(&block_id.to_string());
         Ok(path)
     }
@@ -1374,13 +1387,13 @@ impl BeaconNodeHttpClient {
     /// `GET v1/beacon/blob_sidecars/{block_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_blobs<E: EthSpec>(
+    pub async fn get_blob_sidecars<E: EthSpec>(
         &self,
         block_id: BlockId,
         indices: Option<&[u64]>,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BlobSidecarList<E>>>, Error> {
-        let mut path = self.get_blobs_path(block_id)?;
+        let mut path = self.get_blob_sidecars_path(block_id)?;
         if let Some(indices) = indices {
             let indices_string = indices
                 .iter()
@@ -1398,6 +1411,31 @@ impl BeaconNodeHttpClient {
         })
         .await
         .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET v1/beacon/blobs/{block_id}`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_blobs<E: EthSpec>(
+        &self,
+        block_id: BlockId,
+        versioned_hashes: Option<&[Hash256]>,
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<BlobWrapper<E>>>>, Error>
+    {
+        let mut path = self.get_blobs_path(block_id)?;
+        if let Some(hashes) = versioned_hashes {
+            let hashes_string = hashes
+                .iter()
+                .map(|hash| hash.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut()
+                .append_pair("versioned_hashes", &hashes_string);
+        }
+
+        self.get_opt(path)
+            .await
+            .map(|opt| opt.map(BeaconResponse::Unversioned))
     }
 
     /// `GET v1/beacon/blinded_blocks/{block_id}`

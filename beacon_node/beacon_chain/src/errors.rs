@@ -247,6 +247,7 @@ pub enum BeaconChainError {
         cache_epoch: Epoch,
     },
     SkipProposerPreparation,
+    FailedColumnCustodyInfoUpdate,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

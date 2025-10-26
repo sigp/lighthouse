@@ -17,6 +17,7 @@ use smallvec::SmallVec;
 use state_processing::state_advance::partial_state_advance;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use tracing::instrument;
 use types::non_zero_usize::new_non_zero_usize;
 use types::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, Hash256, Slot, Unsigned,
@@ -199,11 +200,14 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)?;
 
     let dependent_root = state
-        // The only block which decides its own shuffling is the genesis block.
-        .proposer_shuffling_decision_root(chain.genesis_block_root, &chain.spec)
+        .proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root, &chain.spec)
         .map_err(BeaconChainError::from)?;
 
-    Ok((indices, dependent_root, execution_status, state.fork()))
+    // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have advanced
+    // the state completely into the new epoch.
+    let fork = chain.spec.fork_at_epoch(request_epoch);
+
+    Ok((indices, dependent_root, execution_status, fork))
 }
 
 /// If required, advance `state` to the epoch required to determine proposer indices in `target_epoch`.
@@ -214,6 +218,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 /// - No-op if `state.current_epoch() == target_epoch`.
 /// - It must be the case that `state.canonical_root() == state_root`, but this function will not
 ///   check that.
+#[instrument(skip_all, fields(?state_root, %target_epoch, state_slot = %state.slot()), level = "debug")]
 pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Hash256,
@@ -234,14 +239,6 @@ pub fn ensure_state_can_determine_proposers_for_epoch<E: EthSpec>(
     if state.current_epoch() > maximum_epoch {
         Err(BeaconStateError::SlotOutOfBounds.into())
     } else if state.current_epoch() >= minimum_epoch {
-        if target_epoch > state.current_epoch() {
-            let target_slot = target_epoch.start_slot(E::slots_per_epoch());
-
-            // Advance the state into the same epoch as the block. Use the "partial" method since state
-            // roots are not important for proposer/attester shuffling.
-            partial_state_advance(state, Some(state_root), target_slot, spec)
-                .map_err(BeaconChainError::from)?;
-        }
         Ok(())
     } else {
         // State's current epoch is less than the minimum epoch.

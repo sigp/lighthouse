@@ -9,6 +9,7 @@ use crate::{
     sync::{SyncMessage, manager::BlockProcessType},
 };
 use beacon_chain::block_verification_types::RpcBlock;
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::data_column_verification::validate_data_column_sidecar_for_gossip;
 use beacon_chain::kzg_utils::blobs_to_data_column_sidecars;
 use beacon_chain::observed_data_sidecars::DoNotObserve;
@@ -22,7 +23,7 @@ use gossipsub::MessageAcceptance;
 use itertools::Itertools;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
-    BlobsByRangeRequest, DataColumnsByRangeRequest, MetaDataV3,
+    BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, MetaDataV3,
 };
 use lighthouse_network::{
     Client, MessageId, NetworkConfig, NetworkGlobals, PeerId, Response,
@@ -37,12 +38,12 @@ use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::blob_sidecar::FixedBlobSidecarList;
+use types::blob_sidecar::{BlobIdentifier, FixedBlobSidecarList};
 use types::{
     AttesterSlashing, BlobSidecar, BlobSidecarList, ChainSpec, DataColumnSidecarList,
     DataColumnSubnetId, Epoch, EthSpec, Hash256, MainnetEthSpec, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit, SingleAttestation, Slot,
-    SubnetId,
+    RuntimeVariableList, SignedAggregateAndProof, SignedBeaconBlock, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -94,20 +95,32 @@ impl TestRig {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), false, spec).await
+        Self::new_parametric(
+            chain_length,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Fullnode,
+            spec,
+        )
+        .await
     }
 
     pub async fn new_supernode(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = test_spec::<E>();
         spec.shard_committee_period = 2;
-        Self::new_parametric(chain_length, BeaconProcessorConfig::default(), true, spec).await
+        Self::new_parametric(
+            chain_length,
+            BeaconProcessorConfig::default(),
+            NodeCustodyType::Supernode,
+            spec,
+        )
+        .await
     }
 
     pub async fn new_parametric(
         chain_length: u64,
         beacon_processor_config: BeaconProcessorConfig,
-        import_data_columns: bool,
+        node_custody_type: NodeCustodyType,
         spec: ChainSpec,
     ) -> Self {
         let spec = Arc::new(spec);
@@ -116,7 +129,7 @@ impl TestRig {
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
-            .import_all_data_columns(import_data_columns)
+            .node_custody_type(node_custody_type)
             .chain_config(<_>::default())
             .build();
 
@@ -431,15 +444,22 @@ impl TestRig {
         }
     }
 
-    pub fn enqueue_blobs_by_range_request(&self, count: u64) {
+    pub fn enqueue_blobs_by_range_request(&self, start_slot: u64, count: u64) {
         self.network_beacon_processor
             .send_blobs_by_range_request(
                 PeerId::random(),
                 InboundRequestId::new_unchecked(42, 24),
-                BlobsByRangeRequest {
-                    start_slot: 0,
-                    count,
-                },
+                BlobsByRangeRequest { start_slot, count },
+            )
+            .unwrap();
+    }
+
+    pub fn enqueue_blobs_by_root_request(&self, blob_ids: RuntimeVariableList<BlobIdentifier>) {
+        self.network_beacon_processor
+            .send_blobs_by_roots_request(
+                PeerId::random(),
+                InboundRequestId::new_unchecked(42, 24),
+                BlobsByRootRequest { blob_ids },
             )
             .unwrap();
     }
@@ -1603,7 +1623,7 @@ async fn test_backfill_sync_processing_rate_limiting_disabled() {
     let mut rig = TestRig::new_parametric(
         SMALL_CHAIN,
         beacon_processor_config,
-        false,
+        NodeCustodyType::Fullnode,
         test_spec::<E>(),
     )
     .await;
@@ -1632,8 +1652,9 @@ async fn test_blobs_by_range() {
         return;
     };
     let mut rig = TestRig::new(64).await;
+    let start_slot = 0;
     let slot_count = 32;
-    rig.enqueue_blobs_by_range_request(slot_count);
+    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
 
     let mut blob_count = 0;
     for slot in 0..slot_count {
@@ -1667,7 +1688,182 @@ async fn test_blobs_by_range() {
             panic!("unexpected message {:?}", next);
         }
     }
+    if test_spec::<E>().fulu_fork_epoch.is_some() {
+        assert_eq!(0, actual_count, "Post-Fulu should return 0 blobs");
+    } else {
+        assert_eq!(blob_count, actual_count);
+    }
+}
+
+#[tokio::test]
+async fn test_blobs_by_range_spans_fulu_fork() {
+    // Only test for Electra & Fulu fork transition
+    if test_spec::<E>().electra_fork_epoch.is_none() {
+        return;
+    };
+    let mut spec = test_spec::<E>();
+    spec.fulu_fork_epoch = Some(Epoch::new(1));
+    spec.gloas_fork_epoch = Some(Epoch::new(2));
+
+    let mut rig = TestRig::new_parametric(
+        64,
+        BeaconProcessorConfig::default(),
+        NodeCustodyType::Fullnode,
+        spec,
+    )
+    .await;
+
+    let start_slot = 16;
+    // This will span from epoch 0 (Electra) to epoch 1 (Fulu)
+    let slot_count = 32;
+
+    rig.enqueue_blobs_by_range_request(start_slot, slot_count);
+
+    let mut blob_count = 0;
+    for slot in start_slot..slot_count {
+        let root = rig
+            .chain
+            .block_root_at_slot(Slot::new(slot), WhenSlotSkipped::None)
+            .unwrap();
+        blob_count += root
+            .map(|root| {
+                rig.chain
+                    .get_blobs(&root)
+                    .map(|list| list.len())
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+    }
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRange(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
     assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_root() {
+    if test_spec::<E>().deneb_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+
+    // Get the block root of a sample slot, e.g., slot 1
+    let block_root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+
+    let blobs = rig.chain.get_blobs(&block_root).unwrap();
+    let blob_count = blobs.len();
+
+    let blob_ids: Vec<BlobIdentifier> = (0..blob_count)
+        .map(|index| BlobIdentifier {
+            block_root,
+            index: index as u64,
+        })
+        .collect();
+
+    let blob_ids_list = RuntimeVariableList::new(blob_ids, blob_count).unwrap();
+
+    rig.enqueue_blobs_by_root_request(blob_ids_list);
+
+    let mut blob_count = 0;
+    let root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap();
+    blob_count += root
+        .map(|root| {
+            rig.chain
+                .get_blobs(&root)
+                .map(|list| list.len())
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRoot(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    assert_eq!(blob_count, actual_count);
+}
+
+#[tokio::test]
+async fn test_blobs_by_root_post_fulu_should_return_empty() {
+    // Only test for Fulu fork
+    if test_spec::<E>().fulu_fork_epoch.is_none() {
+        return;
+    };
+
+    let mut rig = TestRig::new(64).await;
+
+    let block_root = rig
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+
+    let blob_ids = vec![BlobIdentifier {
+        block_root,
+        index: 0,
+    }];
+
+    let blob_ids_list = RuntimeVariableList::new(blob_ids, 1).unwrap();
+
+    rig.enqueue_blobs_by_root_request(blob_ids_list);
+
+    let mut actual_count = 0;
+
+    while let Some(next) = rig.network_rx.recv().await {
+        if let NetworkMessage::SendResponse {
+            peer_id: _,
+            response: Response::BlobsByRoot(blob),
+            inbound_request_id: _,
+        } = next
+        {
+            if blob.is_some() {
+                actual_count += 1;
+            } else {
+                break;
+            }
+        } else {
+            panic!("unexpected message {:?}", next);
+        }
+    }
+    // Post-Fulu should return 0 blobs
+    assert_eq!(0, actual_count);
 }
 
 /// Ensure that data column processing that results in block import sends a sync notification
