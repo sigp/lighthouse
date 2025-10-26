@@ -827,7 +827,6 @@ mod test {
         blob_verification::GossipVerifiedBlob,
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
-        data_availability_checker::STATE_LRU_CAPACITY_NON_ZERO,
         custody_context::NodeCustodyType,
         data_availability_checker::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
