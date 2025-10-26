@@ -144,7 +144,7 @@ impl ForkName {
 
     /// Return the name of the fork immediately prior to the current one.
     ///
-    /// If `self` is `ForkName::Base` then `Base` is returned.
+    /// If `self` is `ForkName::Base` then `None` is returned.
     pub fn previous_fork(self) -> Option<ForkName> {
         match self {
             ForkName::Base => None,
