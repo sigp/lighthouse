@@ -3,19 +3,17 @@ use ssz::{Decode, DecodeError, Encode};
 use std::fmt::{self, Display};
 use tree_hash::TreeHash;
 
-/// Number of execution proof subnets
-/// Each subnet represents a different zkVM+EL combination
+/// Number of execution proofs
+/// Each proof represents a different zkVM+EL combination
 /// 
 /// TODO(zkproofs): The number 8 is a parameter that we will want to configure in the future
-pub const EXECUTION_PROOF_SUBNET_COUNT: u8 = 8;
+pub const EXECUTION_PROOF_TYPE_COUNT: u8 = 8;
 
-/// ExecutionProofSubnetId identifies which zkVM/proof system subnet a proof belongs to.
-/// 
-/// Note: There is a 1-1 mapping between subnet ID and a unique proof.
+/// ExecutionProofId identifies which zkVM/proof system a proof belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ExecutionProofSubnetId(u8);
+pub struct ExecutionProofId(u8);
 
-impl Encode for ExecutionProofSubnetId {
+impl Encode for ExecutionProofId {
     fn is_ssz_fixed_len() -> bool {
         <u8 as Encode>::is_ssz_fixed_len()
     }
@@ -37,7 +35,7 @@ impl Encode for ExecutionProofSubnetId {
     }
 }
 
-impl Decode for ExecutionProofSubnetId {
+impl Decode for ExecutionProofId {
     fn is_ssz_fixed_len() -> bool {
         <u8 as Decode>::is_ssz_fixed_len()
     }
@@ -52,7 +50,7 @@ impl Decode for ExecutionProofSubnetId {
     }
 }
 
-impl TreeHash for ExecutionProofSubnetId {
+impl TreeHash for ExecutionProofId {
     fn tree_hash_type() -> tree_hash::TreeHashType {
         <u8 as TreeHash>::tree_hash_type()
     }
@@ -70,18 +68,15 @@ impl TreeHash for ExecutionProofSubnetId {
     }
 }
 
-impl ExecutionProofSubnetId {
-    /// Creates a new ExecutionProofSubnetId if the value is valid
+impl ExecutionProofId {
+    /// Creates a new ExecutionProofId if the value is valid
     pub fn new(id: u8) -> Result<Self, String> {
-        // TODO(zkproofs): Do we need this check or can we
-        // get the subnet ID from the subnet we received the proof from
-        // making id always < the maximum amount of subnets.
-        if id < EXECUTION_PROOF_SUBNET_COUNT {
+        if id < EXECUTION_PROOF_TYPE_COUNT {
             Ok(Self(id))
         } else {
             Err(format!(
-                "Invalid ExecutionProofSubnetId: {}, must be < {}",
-                id, EXECUTION_PROOF_SUBNET_COUNT
+                "Invalid ExecutionProofId: {}, must be < {}",
+                id, EXECUTION_PROOF_TYPE_COUNT
             ))
         }
     }
@@ -98,23 +93,23 @@ impl ExecutionProofSubnetId {
 
     /// Returns all valid subnet IDs
     pub fn all() -> Vec<Self> {
-        (0..EXECUTION_PROOF_SUBNET_COUNT).map(Self).collect()
+        (0..EXECUTION_PROOF_TYPE_COUNT).map(Self).collect()
     }
 }
 
-impl Display for ExecutionProofSubnetId {
+impl Display for ExecutionProofId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl From<ExecutionProofSubnetId> for u8 {
-    fn from(subnet_id: ExecutionProofSubnetId) -> u8 {
+impl From<ExecutionProofId> for u8 {
+    fn from(subnet_id: ExecutionProofId) -> u8 {
         subnet_id.0
     }
 }
 
-impl TryFrom<u8> for ExecutionProofSubnetId {
+impl TryFrom<u8> for ExecutionProofId {
     type Error = String;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -127,23 +122,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_valid_subnet_ids() {
-        for id in 0..EXECUTION_PROOF_SUBNET_COUNT {
-            assert!(ExecutionProofSubnetId::new(id).is_ok());
+    fn test_valid_proof_ids() {
+        for id in 0..EXECUTION_PROOF_TYPE_COUNT {
+            assert!(ExecutionProofId::new(id).is_ok());
         }
     }
 
     #[test]
-    fn test_invalid_subnet_ids() {
-        assert!(ExecutionProofSubnetId::new(EXECUTION_PROOF_SUBNET_COUNT).is_err());
+    fn test_invalid_proof_ids() {
+        assert!(ExecutionProofId::new(EXECUTION_PROOF_TYPE_COUNT).is_err());
     }
 
     #[test]
-    fn test_all_subnet_ids() {
-        let all = ExecutionProofSubnetId::all();
-        assert_eq!(all.len(), EXECUTION_PROOF_SUBNET_COUNT as usize);
-        for (idx, subnet_id) in all.iter().enumerate() {
-            assert_eq!(subnet_id.as_usize(), idx);
+    fn test_all_proof_ids() {
+        let all = ExecutionProofId::all();
+        assert_eq!(all.len(), EXECUTION_PROOF_TYPE_COUNT as usize);
+        for (idx, proof_id) in all.iter().enumerate() {
+            assert_eq!(proof_id.as_usize(), idx);
         }
     }
 }
