@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use thiserror::Error;
-use types::{ExecutionProof, ExecutionProofSubnetId};
+use types::{ExecutionProof, ExecutionProofId};
 
 /// Result type for proof generation operations
 pub type ProofGenerationResult<T> = Result<T, ProofGenerationError>;
@@ -28,24 +28,22 @@ pub enum ProofGenerationError {
     Internal(String),
 }
 
-/// Trait for proof generation (one implementation per zkVM)
+/// Trait for proof generation (one implementation per zkVM+EL combo)
 ///
-/// Each proof system (RISC Zero, SP1, etc.) implements this trait
+/// Each proof system (RISC Zero, SP1, etc.) + zkVM combination implements this trait
 /// to generate proofs for execution payloads from their subnet.
 #[async_trait]
 pub trait ProofGenerator: Send + Sync {
     /// Generate a proof for the given execution payload
-    ///
-    /// Note: This is a computationally expensive operation and should be run
-    /// in a background task.
     async fn generate(
         &self,
+        slot: types::Slot,
         payload_hash: &types::ExecutionBlockHash,
         block_root: &types::Hash256,
     ) -> ProofGenerationResult<ExecutionProof>;
 
-    /// Get the subnet ID this generator produces proofs for
-    fn subnet_id(&self) -> ExecutionProofSubnetId;
+    /// Get the proof ID this generator produces proofs for
+    fn subnet_id(&self) -> ExecutionProofId;
 }
 
 /// Type-erased proof generator mainly for convenience

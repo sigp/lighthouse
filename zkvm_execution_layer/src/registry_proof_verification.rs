@@ -41,7 +41,7 @@ impl VerifierRegistry {
 
     /// Register a verifier for a specific subnet
     pub fn register_verifier(&mut self, verifier: DynProofVerifier) {
-        let subnet_id = verifier.subnet_id();
+        let subnet_id = verifier.proof_id();
         self.verifiers.insert(subnet_id, verifier);
     }
 
@@ -121,7 +121,7 @@ mod tests {
 
         let verifier = registry.get_verifier(proof_id);
         assert!(verifier.is_some());
-        assert_eq!(verifier.unwrap().subnet_id(), proof_id);
+        assert_eq!(verifier.unwrap().proof_id(), proof_id);
     }
 
     #[test]
