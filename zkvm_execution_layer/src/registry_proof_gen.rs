@@ -3,16 +3,15 @@ use crate::proof_generation::DynProofGenerator;
 use hashbrown::HashMap;
 use std::collections::HashSet;
 use std::sync::Arc;
-use types::ExecutionProofSubnetId;
+use types::ExecutionProofId;
 
-/// Registry mapping subnet IDs to proof generators
+/// Registry mapping proof IDs to proof generators
 ///
-/// Each subnet can have a different zkVM/proof system, and this registry
-/// maintains the mapping from subnet ID to the appropriate generator implementation.
-/// Not all subnets need generators - nodes can verify without generating.
+/// Each proof ID represents a different zkVM/proof system, and this registry
+/// maintains the mapping from proof ID to the appropriate generator implementation.
 #[derive(Clone)]
 pub struct GeneratorRegistry {
-    generators: HashMap<ExecutionProofSubnetId, DynProofGenerator>,
+    generators: HashMap<ExecutionProofId, DynProofGenerator>,
 }
 
 impl GeneratorRegistry {
@@ -23,9 +22,8 @@ impl GeneratorRegistry {
         }
     }
 
-    /// Create a registry with dummy generators for specified subnets
-    /// This is useful for Phase 1 testing
-    pub fn new_with_dummy_generators(enabled_subnets: HashSet<ExecutionProofSubnetId>) -> Self {
+    /// Create a registry with dummy generators for specified proof IDs
+    pub fn new_with_dummy_generators(enabled_subnets: HashSet<ExecutionProofId>) -> Self {
         let mut generators = HashMap::new();
 
         for subnet_id in enabled_subnets {
@@ -43,13 +41,13 @@ impl GeneratorRegistry {
         self.generators.insert(subnet_id, generator);
     }
 
-    pub fn get_generator(&self, subnet_id: ExecutionProofSubnetId) -> Option<DynProofGenerator> {
-        self.generators.get(&subnet_id).cloned()
+    pub fn get_generator(&self, proof_id: ExecutionProofId) -> Option<DynProofGenerator> {
+        self.generators.get(&proof_id).cloned()
     }
 
-    /// Check if a generator is registered for a subnet
-    pub fn has_generator(&self, subnet_id: ExecutionProofSubnetId) -> bool {
-        self.generators.contains_key(&subnet_id)
+    /// Check if a generator is registered for a proof ID
+    pub fn has_generator(&self, proof_id: ExecutionProofId) -> bool {
+        self.generators.contains_key(&proof_id)
     }
 
     /// Get the number of registered generators
@@ -62,7 +60,7 @@ impl GeneratorRegistry {
         self.generators.is_empty()
     }
 
-    pub fn subnet_ids(&self) -> Vec<ExecutionProofSubnetId> {
+    pub fn proof_ids(&self) -> Vec<ExecutionProofId> {
         self.generators.keys().copied().collect()
     }
 }
@@ -80,22 +78,22 @@ mod tests {
     #[test]
     fn test_dummy_generators_registry() {
         let mut enabled_subnets = HashSet::new();
-        enabled_subnets.insert(ExecutionProofSubnetId::new(0).unwrap());
-        enabled_subnets.insert(ExecutionProofSubnetId::new(1).unwrap());
+        enabled_subnets.insert(ExecutionProofId::new(0).unwrap());
+        enabled_subnets.insert(ExecutionProofId::new(1).unwrap());
 
         let registry = GeneratorRegistry::new_with_dummy_generators(enabled_subnets);
         assert!(!registry.is_empty());
         assert_eq!(registry.len(), 2);
 
-        assert!(registry.has_generator(ExecutionProofSubnetId::new(0).unwrap()));
-        assert!(registry.has_generator(ExecutionProofSubnetId::new(1).unwrap()));
-        assert!(!registry.has_generator(ExecutionProofSubnetId::new(2).unwrap()));
+        assert!(registry.has_generator(ExecutionProofId::new(0).unwrap()));
+        assert!(registry.has_generator(ExecutionProofId::new(1).unwrap()));
+        assert!(!registry.has_generator(ExecutionProofId::new(2).unwrap()));
     }
 
     #[test]
     fn test_register_generator() {
         let mut registry = GeneratorRegistry::new();
-        let subnet_id = ExecutionProofSubnetId::new(0).unwrap();
+        let subnet_id = ExecutionProofId::new(0).unwrap();
         let generator = Arc::new(DummyProofGenerator::new(subnet_id));
 
         registry.register_generator(generator);
@@ -107,10 +105,10 @@ mod tests {
     #[test]
     fn test_get_generator() {
         let mut enabled_subnets = HashSet::new();
-        enabled_subnets.insert(ExecutionProofSubnetId::new(3).unwrap());
+        enabled_subnets.insert(ExecutionProofId::new(3).unwrap());
 
         let registry = GeneratorRegistry::new_with_dummy_generators(enabled_subnets);
-        let subnet_id = ExecutionProofSubnetId::new(3).unwrap();
+        let subnet_id = ExecutionProofId::new(3).unwrap();
 
         let generator = registry.get_generator(subnet_id);
         assert!(generator.is_some());
@@ -120,11 +118,11 @@ mod tests {
     #[test]
     fn test_subnet_ids() {
         let mut enabled_subnets = HashSet::new();
-        enabled_subnets.insert(ExecutionProofSubnetId::new(0).unwrap());
-        enabled_subnets.insert(ExecutionProofSubnetId::new(5).unwrap());
+        enabled_subnets.insert(ExecutionProofId::new(0).unwrap());
+        enabled_subnets.insert(ExecutionProofId::new(5).unwrap());
 
         let registry = GeneratorRegistry::new_with_dummy_generators(enabled_subnets.clone());
-        let subnet_ids = registry.subnet_ids();
+        let subnet_ids = registry.proof_ids();
 
         assert_eq!(subnet_ids.len(), 2);
         for subnet_id in enabled_subnets {
