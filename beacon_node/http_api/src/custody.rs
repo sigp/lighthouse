@@ -1,21 +1,12 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use serde::{Deserialize, Serialize};
+use eth2::lighthouse::CustodyInfo;
 use std::sync::Arc;
-use types::{EthSpec, Slot};
+use types::EthSpec;
 use warp_utils::reject::{custom_bad_request, custom_server_error};
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CustodyResponse {
-    pub earliest_custodied_data_column_slot: Slot,
-    #[serde(with = "serde_utils::quoted_u64")]
-    pub custody_group_count: u64,
-    #[serde(with = "serde_utils::quoted_u64_vec")]
-    pub custody_columns: Vec<u64>,
-}
 
 pub fn info<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-) -> Result<CustodyResponse, warp::Rejection> {
+) -> Result<CustodyInfo, warp::Rejection> {
     if !chain.spec.is_fulu_scheduled() {
         return Err(custom_bad_request("Fulu is not scheduled".to_string()));
     }
@@ -54,7 +45,7 @@ pub fn info<T: BeaconChainTypes>(
     let custody_group_count = custody_context
         .custody_group_count_at_epoch(earliest_custodied_data_column_epoch, &chain.spec);
 
-    Ok(CustodyResponse {
+    Ok(CustodyInfo {
         earliest_custodied_data_column_slot,
         custody_group_count,
         custody_columns,
