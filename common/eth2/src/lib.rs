@@ -904,7 +904,8 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_pending_deposits(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingDeposit>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<PendingDeposit>>>, Error>
+    {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -914,7 +915,9 @@ impl BeaconNodeHttpClient {
             .push(&state_id.to_string())
             .push("pending_deposits");
 
-        self.get_opt(path).await
+        self.get_fork_contextual(path, |fork| fork)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
     /// `GET beacon/states/{state_id}/pending_partial_withdrawals`
@@ -923,8 +926,10 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_pending_partial_withdrawals(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingPartialWithdrawal>>>, Error>
-    {
+    ) -> Result<
+        Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<PendingPartialWithdrawal>>>,
+        Error,
+    > {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -934,7 +939,9 @@ impl BeaconNodeHttpClient {
             .push(&state_id.to_string())
             .push("pending_partial_withdrawals");
 
-        self.get_opt(path).await
+        self.get_fork_contextual(path, |fork| fork)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
     /// `GET beacon/states/{state_id}/pending_consolidations`
