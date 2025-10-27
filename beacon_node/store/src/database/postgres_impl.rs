@@ -277,11 +277,36 @@ impl<E: EthSpec> PostgresDB<E> {
     }
 
     pub fn compact(&self) -> Result<(), Error> {
-        Ok(())
+        block_on_in_runtime(async {
+            for column in DBColumn::iter() {
+                let table = table_name_for_column(column);
+                let query = format!("VACUUM ANALYZE {}", table);
+
+                sqlx::query(&query)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(|e| Error::DBError {
+                        message: format!("Failed to vacuum {}: {:?}", table, e),
+                    })?;
+            }
+
+            Ok(())
+        })?
     }
 
-    pub fn compact_column(&self, _column: DBColumn) -> Result<(), Error> {
-        Ok(())
+    pub fn compact_column(&self, column: DBColumn) -> Result<(), Error> {
+        let table = table_name_for_column(column);
+        let query = format!("VACUUM ANALYZE {}", table);
+
+        block_on_in_runtime(async {
+            sqlx::query(&query)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| Error::DBError {
+                    message: format!("Failed to vacuum {}: {:?}", table, e),
+                })?;
+            Ok(())
+        })?
     }
 
     pub fn delete_batch(&self, column: DBColumn, ops: HashSet<&[u8]>) -> Result<(), Error> {

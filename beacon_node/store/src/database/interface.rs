@@ -141,7 +141,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact(txn),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
-            _ => todo!("Postgres backend not implemented yet"),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::compact(txn),
         }
     }
 
@@ -159,7 +160,10 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::Redb(txn) => {
                 redb_impl::Redb::iter_column_keys_from(txn, _column, from)
             }
-            _ => todo!("Postgres backend not implemented yet"),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::Postgres(txn) => {
+                postgres_impl::PostgresDB::iter_column_keys_from(txn, _column, from)
+            }
         }
     }
 
@@ -169,7 +173,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::iter_column_keys(txn, column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_keys(txn, column),
-            _ => todo!("Postgres backend not implemented yet"),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::iter_column_keys(txn, column)
         }
     }
 
@@ -181,7 +186,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             }
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::iter_column_from(txn, column, from),
-            _ => todo!("Postgres backend not implemented yet"),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::iter_column_from(txn, column, from)
         }
     }
 
@@ -191,7 +197,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::compact_column(txn, _column),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::compact(txn),
-            _ => todo!("Postgres backend not implemented yet"),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::compact_column(txn, _column)
         }
     }
 
@@ -201,7 +208,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_batch(txn, col, ops),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_batch(txn, col, ops),
-            _ => todo!("Postgres backend not implemented yet"),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::delete_batch(txn, col, ops)
         }
     }
 
@@ -215,7 +223,8 @@ impl<E: EthSpec> KeyValueStore<E> for BeaconNodeBackend<E> {
             BeaconNodeBackend::LevelDb(txn) => leveldb_impl::LevelDB::delete_if(txn, column, f),
             #[cfg(feature = "redb")]
             BeaconNodeBackend::Redb(txn) => redb_impl::Redb::delete_if(txn, column, f),
-            _ => todo!("Postgres backend not implemented yet"),
+            #[cfg(feature = "postgres")]
+            BeaconNodeBackend::Postgres(txn) => postgres_impl::PostgresDB::delete_if(txn, column, f)
         }
     }
 }
