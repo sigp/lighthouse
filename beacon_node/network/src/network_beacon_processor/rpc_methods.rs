@@ -19,7 +19,7 @@ use lighthouse_tracing::{
 };
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 use tracing::{Span, debug, error, field, instrument, warn};
@@ -293,6 +293,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         inbound_request_id: InboundRequestId,
         request: BlobsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        let requested_roots: HashSet<Hash256> =
+            request.blob_ids.iter().map(|id| id.block_root).collect();
+
         let mut send_blob_count = 0;
 
         let fulu_start_slot = self
@@ -379,7 +382,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         debug!(
             %peer_id,
-            block_root = ?slots_by_block_root.keys(),
+            ?requested_roots,
             returned = send_blob_count,
             "BlobsByRoot outgoing response processed"
         );
