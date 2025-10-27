@@ -7,7 +7,10 @@ use warp_utils::reject::{custom_bad_request, custom_server_error};
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CustodyResponse {
     pub earliest_custodied_data_column_slot: Slot,
-    // TODO: more fields
+    #[serde(with = "serde_utils::quoted_u64")]
+    pub custody_group_count: u64,
+    #[serde(with = "serde_utils::quoted_u64_vec")]
+    pub custody_columns: Vec<u64>,
 }
 
 pub fn info<T: BeaconChainTypes>(
@@ -32,8 +35,22 @@ pub fn info<T: BeaconChainTypes>(
         .unwrap_or_else(|| {
             column_data_availability_boundary.start_slot(T::EthSpec::slots_per_epoch())
         });
+    let earliest_custodied_data_column_epoch =
+        earliest_custodied_data_column_slot.epoch(T::EthSpec::slots_per_epoch());
+
+    // Compute the custody columns and the CGC *at the earliest custodied slot*. The node might
+    // have some columns prior to this, but this value is the most up-to-date view of the data the
+    // node is custodying.
+    let custody_context = chain.data_availability_checker.custody_context();
+    let custody_columns = custody_context
+        .custody_columns_for_epoch(Some(earliest_custodied_data_column_epoch), &chain.spec)
+        .to_vec();
+    let custody_group_count = custody_context
+        .custody_group_count_at_epoch(earliest_custodied_data_column_epoch, &chain.spec);
 
     Ok(CustodyResponse {
         earliest_custodied_data_column_slot,
+        custody_group_count,
+        custody_columns,
     })
 }
