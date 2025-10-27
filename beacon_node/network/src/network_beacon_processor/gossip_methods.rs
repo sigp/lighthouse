@@ -962,7 +962,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                info!(
+                debug!(
                     %block_root,
                     "Gossipsub blob processed - imported fully available block"
                 );
@@ -1035,7 +1035,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
-                    info!(
+                    debug!(
                         %block_root,
                         "Gossipsub data column processed, imported fully available block"
                     );
@@ -1262,114 +1262,84 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
                 verified_block
             }
-            Err(e @ BlockError::Slashable) => {
-                warn!(
-                    error = ?e,
-                    "Received equivocating block from peer"
-                );
-                /* punish peer for submitting an equivocation, but not too harshly as honest peers may conceivably forward equivocating blocks to us from time to time */
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::MidToleranceError,
-                    "gossip_block_mid",
-                );
-                return None;
-            }
-            Err(BlockError::ParentUnknown { .. }) => {
-                debug!(?block_root, "Unknown parent for gossip block");
-                self.send_sync_message(SyncMessage::UnknownParentBlock(peer_id, block, block_root));
-                return None;
-            }
-            Err(e @ BlockError::BeaconChainError(_)) => {
-                debug!(
-                    error = ?e,
-                    "Gossip block beacon chain error"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
-            }
-            Err(
-                BlockError::DuplicateFullyImported(_)
-                | BlockError::DuplicateImportStatusUnknown(..),
-            ) => {
-                debug!(
-                    %block_root,
-                    "Gossip block is already known"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
-            }
-            Err(e @ BlockError::FutureSlot { .. }) => {
-                debug!(
-                    error = %e,
-                    "Could not verify block for gossip. Ignoring the block"
-                );
-                // Prevent recurring behaviour by penalizing the peer slightly.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "gossip_block_high",
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
-            }
-            Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
-            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
-                debug!(
-                    error = %e,
-                    "Could not verify block for gossip. Ignoring the block"
-                );
-                // The spec says we must IGNORE these blocks but there's no reason for an honest
-                // and non-buggy client to be gossiping blocks that blatantly conflict with
-                // finalization. Old versions of Erigon/Caplin are known to gossip pre-finalization
-                // blocks and we want to isolate them to encourage an update.
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "gossip_block_low",
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
-            }
-            Err(ref e @ BlockError::ExecutionPayloadError(ref epe)) if !epe.penalize_peer() => {
-                debug!(error = %e, "Could not verify block for gossip. Ignoring the block");
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
-            }
-            Err(e @ BlockError::StateRootMismatch { .. })
-            | Err(e @ BlockError::IncorrectBlockProposer { .. })
-            | Err(e @ BlockError::BlockSlotLimitReached)
-            | Err(e @ BlockError::NonLinearSlots)
-            | Err(e @ BlockError::UnknownValidator(_))
-            | Err(e @ BlockError::PerBlockProcessingError(_))
-            | Err(e @ BlockError::NonLinearParentRoots)
-            | Err(e @ BlockError::BlockIsNotLaterThanParent { .. })
-            | Err(e @ BlockError::InvalidSignature(_))
-            | Err(e @ BlockError::WeakSubjectivityConflict)
-            | Err(e @ BlockError::InconsistentFork(_))
-            | Err(e @ BlockError::ExecutionPayloadError(_))
-            | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
-            | Err(e @ BlockError::KnownInvalidExecutionPayload(_))
-            | Err(e @ BlockError::GenesisBlock)
-            | Err(e @ BlockError::InvalidBlobCount { .. }) => {
-                warn!(error = %e, "Could not verify block for gossip. Rejecting the block");
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "gossip_block_low",
-                );
-                return None;
-            }
-            // Note: This error variant cannot be reached when doing gossip validation
-            // as we do not do availability checks here.
-            Err(e @ BlockError::AvailabilityCheck(_)) => {
-                crit!(error = %e, "Internal block gossip validation error. Availability check during gossip validation");
-                return None;
-            }
-            // BlobNotRequired is unreachable. Only constructed in `process_gossip_blob`
-            Err(e @ BlockError::InternalError(_)) | Err(e @ BlockError::BlobNotRequired(_)) => {
-                error!(error = %e, "Internal block gossip validation error");
+            Err(e) => {
+                let (penalty, acceptance) = match e {
+                    BlockError::Slashable => {
+                        warn!(
+                            error = ?e,
+                            "Received equivocating block from peer"
+                        );
+                        /* punish peer for submitting an equivocation, but not too harshly as honest peers may conceivably forward equivocating blocks to us from time to time */
+                        (
+                            Some(PeerAction::MidToleranceError),
+                            MessageAcceptance::Ignore,
+                        )
+                    }
+                    BlockError::ParentUnknown { .. } => {
+                        self.send_sync_message(SyncMessage::UnknownParentBlock(
+                            peer_id, block, block_root,
+                        ));
+                        (None, MessageAcceptance::Ignore)
+                    }
+                    BlockError::BeaconChainError(_) => (None, MessageAcceptance::Ignore),
+                    BlockError::DuplicateFullyImported(_)
+                    | BlockError::DuplicateImportStatusUnknown(..) => {
+                        (None, MessageAcceptance::Ignore)
+                    }
+                    BlockError::FutureSlot { .. } => {
+                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        (
+                            Some(PeerAction::HighToleranceError),
+                            MessageAcceptance::Ignore,
+                        )
+                    }
+                    BlockError::WouldRevertFinalizedSlot { .. }
+                    | BlockError::NotFinalizedDescendant { .. } => {
+                        // The spec says we must IGNORE these blocks but there's no reason for an honest
+                        // and non-buggy client to be gossiping blocks that blatantly conflict with
+                        // finalization. Old versions of Erigon/Caplin are known to gossip pre-finalization
+                        // blocks and we want to isolate them to encourage an update.
+                        (
+                            Some(PeerAction::LowToleranceError),
+                            MessageAcceptance::Ignore,
+                        )
+                    }
+                    BlockError::ExecutionPayloadError(ref epe) if !epe.penalize_peer() => {
+                        (None, MessageAcceptance::Ignore)
+                    }
+                    BlockError::StateRootMismatch { .. }
+                    | BlockError::IncorrectBlockProposer { .. }
+                    | BlockError::BlockSlotLimitReached
+                    | BlockError::NonLinearSlots
+                    | BlockError::UnknownValidator(_)
+                    | BlockError::PerBlockProcessingError(_)
+                    | BlockError::NonLinearParentRoots
+                    | BlockError::BlockIsNotLaterThanParent { .. }
+                    | BlockError::InvalidSignature(_)
+                    | BlockError::WeakSubjectivityConflict
+                    | BlockError::InconsistentFork(_)
+                    | BlockError::ExecutionPayloadError(_)
+                    | BlockError::ParentExecutionPayloadInvalid { .. }
+                    | BlockError::KnownInvalidExecutionPayload(_)
+                    | BlockError::GenesisBlock
+                    | BlockError::InvalidBlobCount { .. } => (
+                        Some(PeerAction::LowToleranceError),
+                        MessageAcceptance::Reject,
+                    ),
+                    // Note: The AvailabilityCheck variant is unreachable when doing gossip validation
+                    // as we do not do availability checks here.
+                    BlockError::AvailabilityCheck(_)
+                    | BlockError::InternalError(_)
+                    | BlockError::BlobNotRequired(_) => {
+                        error!(error = %e, "Internal block gossip validation error");
+                        (None, MessageAcceptance::Ignore)
+                    }
+                };
+                debug!(?block_root, ?acceptance, error = ?e, "Received invalid gossip block");
+                self.propagate_validation_result(message_id, peer_id, acceptance);
+                if let Some(penalty) = penalty {
+                    self.gossip_penalize_peer(peer_id, penalty, e.into());
+                }
                 return None;
             }
         };
