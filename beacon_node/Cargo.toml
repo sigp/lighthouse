@@ -1,6 +1,6 @@
 [package]
 name = "beacon_node"
-version = "8.0.0-rc.1"
+version = "8.0.0-rc.2"
 authors = [
     "Paul Hauner <paul@paulhauner.com>",
     "Age Manning <Age@AgeManning.com",
@@ -15,6 +15,7 @@ path = "src/lib.rs"
 write_ssz_files = [
     "beacon_chain/write_ssz_files",
 ] # Writes debugging .ssz files to /tmp during block processing.
+testing = [] # Enables testing-only CLI flags
 
 [dependencies]
 account_utils = { workspace = true }

@@ -950,8 +950,6 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         let proposer_shuffling_decision_block =
             parent_block.proposer_shuffling_root_for_child_block(block_epoch, &chain.spec);
 
-        // We assign to a variable instead of using `if let Some` directly to ensure we drop the
-        // write lock before trying to acquire it again in the `else` clause.
         let block_slot = block.slot();
         let mut opt_parent = None;
         let proposer = chain.with_proposer_cache::<_, BlockError>(
