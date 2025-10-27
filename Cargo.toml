@@ -14,6 +14,7 @@ members = [
     "beacon_node/lighthouse_tracing",
     "beacon_node/network",
     "beacon_node/operation_pool",
+    "beacon_node/proof_generation_service",
     "beacon_node/store",
     "beacon_node/timer",
     "boot_node",

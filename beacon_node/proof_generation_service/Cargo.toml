@@ -1,0 +1,16 @@
+[package]
+name = "proof_generation_service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+beacon_chain = { path = "../beacon_chain" }
+lighthouse_network = { workspace = true }
+network = { workspace = true }
+types = { path = "../../consensus/types" }
+zkvm_execution_layer = { path = "../../zkvm_execution_layer" }
+tokio = { workspace = true }
+logging = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]

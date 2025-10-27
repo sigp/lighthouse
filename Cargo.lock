@@ -1556,6 +1556,7 @@ dependencies = [
  "monitoring_api",
  "network",
  "operation_pool",
+ "proof_generation_service",
  "rand 0.9.0",
  "sensitive_url",
  "serde",
@@ -7339,6 +7340,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.100",
+]
+
+[[package]]
+name = "proof_generation_service"
+version = "0.1.0"
+dependencies = [
+ "beacon_chain",
+ "lighthouse_network",
+ "logging",
+ "network",
+ "tokio",
+ "tracing",
+ "types",
+ "zkvm_execution_layer",
 ]
 
 [[package]]
