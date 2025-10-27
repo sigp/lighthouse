@@ -2,7 +2,7 @@ use lru::LruCache;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use types::{ExecutionBlockHash, ExecutionProof, ExecutionProofSubnetId};
+use types::{ExecutionBlockHash, ExecutionProof, ExecutionProofId};
 
 /// Thread-safe LRU cache for execution proofs
 ///
@@ -32,7 +32,7 @@ impl ProofCache {
         cache
             .get_or_insert_mut(block_hash, Vec::new)
             // TODO(zkproofs): can replace this with a HashSet so we don't need this
-            .retain(|p| p.subnet_id != proof.subnet_id);
+            .retain(|p| p.proof_id != proof.proof_id);
 
         cache.get_mut(&block_hash).unwrap().push(proof);
     }
@@ -49,7 +49,7 @@ impl ProofCache {
     pub async fn get_from_subnets(
         &self,
         block_hash: &ExecutionBlockHash,
-        subnet_ids: &[ExecutionProofSubnetId],
+        proof_ids: &[ExecutionProofId],
     ) -> Vec<ExecutionProof> {
         let cache = self.cache.read().await;
 
@@ -58,7 +58,7 @@ impl ProofCache {
             .map(|proofs| {
                 proofs
                     .iter()
-                    .filter(|p| subnet_ids.contains(&p.subnet_id))
+                    .filter(|p| proof_ids.contains(&p.proof_id))
                     .cloned()
                     .collect()
             })
@@ -79,8 +79,8 @@ impl ProofCache {
             .unwrap_or(false)
     }
 
-    /// Get the number of unique subnets/proofs we have for a particular execution payload
-    pub async fn subnet_count(&self, block_hash: &ExecutionBlockHash) -> usize {
+    /// Get the number of unique proofs we have for a particular execution payload
+    pub async fn proof_count(&self, block_hash: &ExecutionBlockHash) -> usize {
         let cache = self.cache.read().await;
 
         cache
@@ -93,13 +93,13 @@ impl ProofCache {
     pub async fn has_proof_from_subnet(
         &self,
         block_hash: &ExecutionBlockHash,
-        subnet_id: ExecutionProofSubnetId,
+        proof_id: ExecutionProofId,
     ) -> bool {
         let cache = self.cache.read().await;
 
         cache
             .peek(block_hash)
-            .map(|proofs| proofs.iter().any(|p| p.subnet_id == subnet_id))
+            .map(|proofs| proofs.iter().any(|p| p.proof_id == proof_id))
             .unwrap_or(false)
     }
 
@@ -142,17 +142,24 @@ mod tests {
     use types::Hash256;
 
     fn create_test_proof(
-        subnet_id: ExecutionProofSubnetId,
+        proof_id: ExecutionProofId,
         block_hash: ExecutionBlockHash,
     ) -> ExecutionProof {
-        use types::FixedBytesExtended;
-        ExecutionProof::new(subnet_id, block_hash, Hash256::zero(), vec![1, 2, 3]).unwrap()
+        use types::{FixedBytesExtended, Slot};
+        ExecutionProof::new(
+            proof_id,
+            Slot::new(100),
+            block_hash,
+            Hash256::zero(),
+            vec![1, 2, 3],
+        )
+        .unwrap()
     }
 
     #[tokio::test]
     async fn test_cache_insert_and_get() {
         let cache = ProofCache::new(10);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
         let block_hash = ExecutionBlockHash::repeat_byte(1);
         let proof = create_test_proof(subnet_0, block_hash);
 
@@ -166,8 +173,8 @@ mod tests {
     #[tokio::test]
     async fn test_cache_multiple_subnets() {
         let cache = ProofCache::new(10);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
-        let subnet_1 = ExecutionProofSubnetId::new(1).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
+        let subnet_1 = ExecutionProofId::new(1).unwrap();
         let block_hash = ExecutionBlockHash::repeat_byte(1);
 
         let proof_0 = create_test_proof(subnet_0, block_hash);
@@ -178,13 +185,13 @@ mod tests {
 
         let proofs = cache.get(&block_hash).await.unwrap();
         assert_eq!(proofs.len(), 2);
-        assert_eq!(cache.subnet_count(&block_hash).await, 2);
+        assert_eq!(cache.proof_count(&block_hash).await, 2);
     }
 
     #[tokio::test]
     async fn test_cache_replace_same_subnet() {
         let cache = ProofCache::new(10);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
         let block_hash = ExecutionBlockHash::repeat_byte(1);
 
         let mut proof_1 = create_test_proof(subnet_0, block_hash);
@@ -203,8 +210,8 @@ mod tests {
     #[tokio::test]
     async fn test_has_required_proofs() {
         let cache = ProofCache::new(10);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
-        let subnet_1 = ExecutionProofSubnetId::new(1).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
+        let subnet_1 = ExecutionProofId::new(1).unwrap();
         let block_hash = ExecutionBlockHash::repeat_byte(1);
 
         assert!(!cache.has_required_proofs(&block_hash, 2).await);
@@ -219,8 +226,8 @@ mod tests {
     #[tokio::test]
     async fn test_has_proof_from_subnet() {
         let cache = ProofCache::new(10);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
-        let subnet_1 = ExecutionProofSubnetId::new(1).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
+        let subnet_1 = ExecutionProofId::new(1).unwrap();
         let block_hash = ExecutionBlockHash::repeat_byte(1);
 
         assert!(!cache.has_proof_from_subnet(&block_hash, subnet_0).await);
@@ -234,9 +241,9 @@ mod tests {
     #[tokio::test]
     async fn test_get_from_subnets() {
         let cache = ProofCache::new(10);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
-        let subnet_1 = ExecutionProofSubnetId::new(1).unwrap();
-        let subnet_2 = ExecutionProofSubnetId::new(2).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
+        let subnet_1 = ExecutionProofId::new(1).unwrap();
+        let subnet_2 = ExecutionProofId::new(2).unwrap();
         let block_hash = ExecutionBlockHash::repeat_byte(1);
 
         cache.insert(create_test_proof(subnet_0, block_hash)).await;
@@ -247,15 +254,15 @@ mod tests {
             .get_from_subnets(&block_hash, &[subnet_0, subnet_2])
             .await;
         assert_eq!(proofs.len(), 2);
-        assert!(proofs.iter().any(|p| p.subnet_id == subnet_0));
-        assert!(proofs.iter().any(|p| p.subnet_id == subnet_2));
-        assert!(!proofs.iter().any(|p| p.subnet_id == subnet_1));
+        assert!(proofs.iter().any(|p| p.proof_id == subnet_0));
+        assert!(proofs.iter().any(|p| p.proof_id == subnet_2));
+        assert!(!proofs.iter().any(|p| p.proof_id == subnet_1));
     }
 
     #[tokio::test]
     async fn test_cache_remove() {
         let cache = ProofCache::new(10);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
         let block_hash = ExecutionBlockHash::repeat_byte(1);
 
         cache.insert(create_test_proof(subnet_0, block_hash)).await;
@@ -269,7 +276,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_clear() {
         let cache = ProofCache::new(10);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
         let block_hash_1 = ExecutionBlockHash::repeat_byte(1);
         let block_hash_2 = ExecutionBlockHash::repeat_byte(2);
 
@@ -291,7 +298,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_lru_eviction() {
         let cache = ProofCache::new(2);
-        let subnet_0 = ExecutionProofSubnetId::new(0).unwrap();
+        let subnet_0 = ExecutionProofId::new(0).unwrap();
         let block_hash_1 = ExecutionBlockHash::repeat_byte(1);
         let block_hash_2 = ExecutionBlockHash::repeat_byte(2);
         let block_hash_3 = ExecutionBlockHash::repeat_byte(3);
