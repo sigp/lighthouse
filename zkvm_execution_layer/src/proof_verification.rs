@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use thiserror::Error;
-use types::{ExecutionProof, ExecutionProofSubnetId};
+use types::{ExecutionProof, ExecutionProofId};
 
 /// Result type for proof verification operations
 pub type ProofVerificationResult<T> = Result<T, VerificationError>;
@@ -14,8 +14,8 @@ pub enum VerificationError {
     #[error("Invalid proof format: {0}")]
     InvalidProofFormat(String),
 
-    #[error("Unsupported subnet: {0}")]
-    UnsupportedSubnet(ExecutionProofSubnetId),
+    #[error("Unsupported proof ID: {0}")]
+    UnsupportedProofID(ExecutionProofId),
 
     #[error("Proof size mismatch: expected {expected}, got {actual}")]
     ProofSizeMismatch { expected: usize, actual: usize },
@@ -26,20 +26,17 @@ pub enum VerificationError {
 
 /// Trait for proof verification (one implementation per zkVM+EL combination)
 pub trait ProofVerifier: Send + Sync {
-    /// Verify that the proof is valid for the given execution payload
+    /// Verify that the proof is valid.
     ///
-    /// Returns :
+    /// TODO(zkproofs): we can probably collapse Ok(false) and Err or make Ok(false) an enum variant
+    /// 
+    /// Returns:
     /// - Ok(true) if valid,
     /// - Ok(false) if invalid (but well-formed)
     /// - Err if the proof is malformed or verification cannot be performed.
-    /// TODO(zkproofs): Maybe make Ok(false) an enum variant
-    fn verify(
-        &self,
-        payload_hash: &types::ExecutionBlockHash,
-        proof: &ExecutionProof,
-    ) -> ProofVerificationResult<bool>;
+    fn verify(&self, proof: &ExecutionProof) -> ProofVerificationResult<bool>;
 
-    fn subnet_id(&self) -> ExecutionProofSubnetId;
+    fn proof_id(&self) -> ExecutionProofId;
 }
 
 /// Type-erased proof verifier
