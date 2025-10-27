@@ -445,7 +445,7 @@ For archive nodes, the `anchor` will be:
 
 indicating that all states with slots `>= 0` are available, i.e., full state history. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
-Sync](./advanced_checkpoint_sync.md#reconstructing-states).
+Sync](./advanced_checkpoint_sync.md#how-to-run-an-archived-node).
 
 ## `/lighthouse/merge_readiness`
 
