@@ -2,7 +2,7 @@ use crate::dummy_proof_verifier::DummyVerifier;
 use crate::proof_verification::DynProofVerifier;
 use hashbrown::HashMap;
 use std::sync::Arc;
-use types::ExecutionProofSubnetId;
+use types::ExecutionProofId;
 
 /// Registry mapping subnet IDs to proof verifiers
 ///
@@ -10,7 +10,7 @@ use types::ExecutionProofSubnetId;
 /// maintains the mapping from subnet ID to the appropriate verifier implementation.
 #[derive(Clone)]
 pub struct VerifierRegistry {
-    verifiers: HashMap<ExecutionProofSubnetId, DynProofVerifier>,
+    verifiers: HashMap<ExecutionProofId, DynProofVerifier>,
 }
 
 impl VerifierRegistry {
@@ -27,11 +27,11 @@ impl VerifierRegistry {
         let mut verifiers = HashMap::new();
 
         // Register dummy verifiers for all 8 subnets
-        for id in 0..types::EXECUTION_PROOF_SUBNET_COUNT {
-            if let Ok(subnet_id) = ExecutionProofSubnetId::new(id) {
+        for id in 0..types::EXECUTION_PROOF_TYPE_COUNT {
+            if let Ok(proof_id) = ExecutionProofId::new(id) {
                 verifiers.insert(
-                    subnet_id,
-                    Arc::new(DummyVerifier::new(subnet_id)) as DynProofVerifier,
+                    proof_id,
+                    Arc::new(DummyVerifier::new(proof_id)) as DynProofVerifier,
                 );
             }
         }
@@ -45,14 +45,14 @@ impl VerifierRegistry {
         self.verifiers.insert(subnet_id, verifier);
     }
 
-    /// Get a verifier for a specific subnet
-    pub fn get_verifier(&self, subnet_id: ExecutionProofSubnetId) -> Option<DynProofVerifier> {
-        self.verifiers.get(&subnet_id).cloned()
+    /// Get a verifier for a specific proof ID
+    pub fn get_verifier(&self, proof_id: ExecutionProofId) -> Option<DynProofVerifier> {
+        self.verifiers.get(&proof_id).cloned()
     }
 
-    /// Check if a verifier is registered for a subnet
-    pub fn has_verifier(&self, subnet_id: ExecutionProofSubnetId) -> bool {
-        self.verifiers.contains_key(&subnet_id)
+    /// Check if a verifier is registered for a proof ID
+    pub fn has_verifier(&self, proof_id: ExecutionProofId) -> bool {
+        self.verifiers.contains_key(&proof_id)
     }
 
     /// Get the number of registered verifiers
@@ -66,7 +66,7 @@ impl VerifierRegistry {
     }
 
     /// Get all registered subnet IDs
-    pub fn subnet_ids(&self) -> Vec<ExecutionProofSubnetId> {
+    pub fn proof_ids(&self) -> Vec<ExecutionProofId> {
         self.verifiers.keys().copied().collect()
     }
 }
@@ -94,45 +94,45 @@ mod tests {
         assert!(!registry.is_empty());
         assert_eq!(registry.len(), 8); // All 8 subnets
 
-        // Check all subnets are registered
+        // Check all proof IDs are registered
         for id in 0..8 {
-            let subnet_id = ExecutionProofSubnetId::new(id).unwrap();
-            assert!(registry.has_verifier(subnet_id));
-            assert!(registry.get_verifier(subnet_id).is_some());
+            let proof_id = ExecutionProofId::new(id).unwrap();
+            assert!(registry.has_verifier(proof_id));
+            assert!(registry.get_verifier(proof_id).is_some());
         }
     }
 
     #[test]
     fn test_register_verifier() {
         let mut registry = VerifierRegistry::new();
-        let subnet_id = ExecutionProofSubnetId::new(0).unwrap();
-        let verifier = Arc::new(DummyVerifier::new(subnet_id));
+        let proof_id = ExecutionProofId::new(0).unwrap();
+        let verifier = Arc::new(DummyVerifier::new(proof_id));
 
         registry.register_verifier(verifier);
 
         assert_eq!(registry.len(), 1);
-        assert!(registry.has_verifier(subnet_id));
+        assert!(registry.has_verifier(proof_id));
     }
 
     #[test]
     fn test_get_verifier() {
         let registry = VerifierRegistry::new_with_dummy_verifiers();
-        let subnet_id = ExecutionProofSubnetId::new(3).unwrap();
+        let proof_id = ExecutionProofId::new(3).unwrap();
 
-        let verifier = registry.get_verifier(subnet_id);
+        let verifier = registry.get_verifier(proof_id);
         assert!(verifier.is_some());
-        assert_eq!(verifier.unwrap().subnet_id(), subnet_id);
+        assert_eq!(verifier.unwrap().subnet_id(), proof_id);
     }
 
     #[test]
-    fn test_subnet_ids() {
+    fn test_proof_ids() {
         let registry = VerifierRegistry::new_with_dummy_verifiers();
-        let subnet_ids = registry.subnet_ids();
+        let proof_ids = registry.proof_ids();
 
-        assert_eq!(subnet_ids.len(), 8);
+        assert_eq!(proof_ids.len(), 8);
         for id in 0..8 {
-            let subnet_id = ExecutionProofSubnetId::new(id).unwrap();
-            assert!(subnet_ids.contains(&subnet_id));
+            let proof_id = ExecutionProofId::new(id).unwrap();
+            assert!(proof_ids.contains(&proof_id));
         }
     }
 }
