@@ -4591,9 +4591,10 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/custody
-    let get_lighthouse_custody = warp::path("lighthouse")
+    // GET lighthouse/custody/info
+    let get_lighthouse_custody_info = warp::path("lighthouse")
         .and(warp::path("custody"))
+        .and(warp::path("info"))
         .and(warp::path::end())
         .and(task_spawner_filter.clone())
         .and(chain_filter.clone())
@@ -4904,7 +4905,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .uor(get_lighthouse_validator_inclusion)
                 .uor(get_lighthouse_staking)
                 .uor(get_lighthouse_database_info)
-                .uor(get_lighthouse_custody)
+                .uor(get_lighthouse_custody_info)
                 .uor(get_lighthouse_block_rewards)
                 .uor(get_lighthouse_attestation_performance)
                 .uor(get_beacon_light_client_optimistic_update)
