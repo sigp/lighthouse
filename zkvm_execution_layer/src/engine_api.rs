@@ -1,39 +1,21 @@
-/// Keeping this here for now to see if we can encapsulate any behaviour into this. module.
-
-use crate::proof_verification::DynProofVerifier;
-// use crate::proof_cache::ProofCache;
 use execution_layer::{PayloadStatus, Error as ExecutionLayerError, BlockProposalContentsType};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use types::{EthSpec, ExecutionBlockHash, ExecPayload};
 
 type PayloadId = [u8; 8];
 
 pub struct ZkVmEngineApi<E: EthSpec> {
-    /// Cache for storing and retrieving ZK proofs
-    // TODO(zkproofs): Using the cache in the da_checker
-    // proof_cache: Arc<RwLock<ProofCache>>,
-
-    /// Verifier for ZK proofs
-    proof_verifier: DynProofVerifier,
-
-    /// Track the latest validated execution block hash
-    /// TODO(zkproofs): I think we can get this from the beacon chain and it
-    /// may not need to be here
-    // latest_valid_hash: Arc<RwLock<Option<ExecutionBlockHash>>>,
-
     _phantom: std::marker::PhantomData<E>,
 }
 
+impl<E: EthSpec> Default for ZkVmEngineApi<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<E: EthSpec> ZkVmEngineApi<E> {
-    pub fn new(
-        // proof_cache: Arc<RwLock<ProofCache>>,
-        proof_verifier: DynProofVerifier,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
-            // proof_cache,
-            proof_verifier,
-            // latest_valid_hash: Arc::new(RwLock::new(None)),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -44,7 +26,7 @@ impl<E: EthSpec> ZkVmEngineApi<E> {
         _execution_payload: &'a impl ExecPayload<E>,
     ) -> Result<PayloadStatus, ExecutionLayerError> {
         // TODO(zkproofs): There are some engine_api checks that should be made, but these should be
-        // done when we have the proof
+        // done when we have the proof, check the EL newPayload method to see what these are
         Ok(PayloadStatus::Syncing)
     }
 
