@@ -1035,7 +1035,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
-                    info!(
+                    debug!(
                         %block_root,
                         "Gossipsub data column processed, imported fully available block"
                     );
@@ -1241,7 +1241,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     );
                 }
 
-                debug!(
+                info!(
                     slot = %verified_block.block.slot(),
                     root = ?verified_block.block_root,
                     "New block received"
