@@ -1,10 +1,7 @@
 use crate::{BeaconChain, BeaconChainTypes};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
-use types::{
-    BeaconBlockRef, BeaconStateError, ExecutionPayload, ExecutionProofSubnetId, FullPayload,
-    FullPayloadRef, Hash256,
-};
+use types::{BeaconBlockRef, ExecutionPayload, ExecutionProofSubnetId, FullPayload, Hash256};
 
 /// Spawn a background task to generate and store execution proofs with publishing via callback
 /// This provides a clean interface for both HTTP API (publish_blocks) and gossip processing (process_block)
@@ -21,13 +18,10 @@ pub fn spawn_proof_generation_task_with_publishing<T, F>(
     let chain_clone = chain.clone();
 
     // Extract the concrete ExecutionPayload from the BeaconBlock
-    let payload = match extract_execution_payload(block) {
-        Ok(payload) => payload,
-        Err(e) => {
-            warn!(
-                "Failed to extract execution payload for proof generation: {:?}",
-                e
-            );
+    let payload: ExecutionPayload<T::EthSpec> = match block.body().execution_payload() {
+        Ok(payload) => payload.into(),
+        Err(_) => {
+            warn!("Attempting proof generation with a pre-merge block",);
             return;
         }
     };
@@ -130,29 +124,4 @@ pub fn get_configured_proof_subnets<T: BeaconChainTypes>(chain: &Arc<BeaconChain
     } else {
         vec![]
     }
-}
-
-/// Extract execution payload from BeaconBlockRef for proof generation
-pub fn extract_execution_payload<E: types::EthSpec>(
-    block: BeaconBlockRef<'_, E, FullPayload<E>>,
-) -> Result<ExecutionPayload<E>, BeaconStateError> {
-    let payload_ref = block.body().execution_payload()?;
-    Ok(match payload_ref {
-        FullPayloadRef::Bellatrix(payload) => {
-            ExecutionPayload::Bellatrix(payload.execution_payload.clone())
-        }
-        FullPayloadRef::Capella(payload) => {
-            ExecutionPayload::Capella(payload.execution_payload.clone())
-        }
-        FullPayloadRef::Deneb(payload) => {
-            ExecutionPayload::Deneb(payload.execution_payload.clone())
-        }
-        FullPayloadRef::Electra(payload) => {
-            ExecutionPayload::Electra(payload.execution_payload.clone())
-        }
-        FullPayloadRef::Fulu(payload) => ExecutionPayload::Fulu(payload.execution_payload.clone()),
-        FullPayloadRef::Gloas(payload) => {
-            ExecutionPayload::Gloas(payload.execution_payload.clone())
-        }
-    })
 }

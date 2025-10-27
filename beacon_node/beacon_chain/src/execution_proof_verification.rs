@@ -13,11 +13,12 @@ use crate::beacon_chain::{BeaconChain, BeaconChainTypes};
 use crate::execution_proof_generation;
 use crate::observed_data_sidecars::{ObservationStrategy, Observe};
 use slot_clock::SlotClock;
+use strum::IntoStaticStr;
 use types::execution_proof_subnet_id::ExecutionProofSubnetId;
 use types::{ExecutionProof, Hash256, Slot};
 
 /// An error occurred while validating a gossip execution proof.
-#[derive(Debug)]
+#[derive(Debug, IntoStaticStr)]
 pub enum GossipExecutionProofError {
     /// The execution proof is from a slot that is later than the current slot.
     FutureSlot {

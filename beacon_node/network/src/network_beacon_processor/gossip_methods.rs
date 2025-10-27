@@ -3271,7 +3271,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         debug!(
             %block_hash,
-            subnet_id = %subnet_id_u64,
+            %subnet_id,
             description = %proof_description,
             "Processing gossip execution proof"
         );
@@ -3282,60 +3282,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             subnet_id,
             &self.chain,
         ) {
-            Ok(verified) => verified,
-            Err(GossipExecutionProofError::InvalidProof { reason }) => {
-                warn!(
-                    %block_hash,
-                    subnet_id = %subnet_id_u64,
-                    %reason,
-                    "Rejecting execution proof with invalid cryptographic proof"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::HighToleranceError,
-                    "invalid_execution_proof_crypto",
-                );
-                return;
-            }
-            Err(GossipExecutionProofError::InvalidSubnetId { expected, received }) => {
-                warn!(
-                    %block_hash,
-                    expected,
-                    received,
-                    "Rejecting execution proof with mismatched subnet ID"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "execution_proof_subnet_mismatch",
-                );
-                return;
-            }
-            Err(GossipExecutionProofError::InvalidStructure { reason }) => {
-                warn!(
-                    %block_hash,
-                    subnet_id = %subnet_id_u64,
-                    %reason,
-                    "Rejecting structurally invalid execution proof"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "invalid_execution_proof_structure",
-                );
-                return;
+            Ok(verified) => {
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                verified
             }
             Err(e) => {
-                warn!(
-                    %block_hash,
-                    subnet_id = %subnet_id_u64,
-                    error = ?e,
-                    "Failed to verify execution proof"
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                let penalty = match e {
+                    GossipExecutionProofError::InvalidProof { .. } => {
+                        Some(PeerAction::HighToleranceError)
+                    }
+                    GossipExecutionProofError::InvalidSubnetId { .. } => {
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    GossipExecutionProofError::InvalidStructure { .. } => {
+                        Some(PeerAction::LowToleranceError)
+                    }
+                    GossipExecutionProofError::FutureSlot { .. }
+                    | GossipExecutionProofError::PastSlot { .. }
+                    | GossipExecutionProofError::BeaconChainError(_) => None,
+                };
+                let acceptance = if penalty.is_some() {
+                    MessageAcceptance::Reject
+                } else {
+                    MessageAcceptance::Ignore
+                };
+                debug!(?block_hash, %subnet_id, error = ?e, "Rejecting gossip execution proof");
+                self.propagate_validation_result(message_id, peer_id, acceptance);
+                if let Some(penalty) = penalty {
+                    self.gossip_penalize_peer(peer_id, penalty, e.into());
+                }
                 return;
             }
         };
@@ -3351,27 +3326,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             )
             .await
         {
-            Err(e) => {
-                warn!(
-                    %block_hash,
-                    subnet_id = %subnet_id_u64,
-                    error = ?e,
-                    "Failed to store execution proof in data availability checker"
-                );
-
-                // For now, treat all DA checker errors as validation errors
-                // TODO: Add proper error categorization in AvailabilityCheckError
-                self.gossip_penalize_peer(
-                    peer_id,
-                    PeerAction::LowToleranceError,
-                    "execution_proof_validation_failed",
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-            }
             Ok(availability_status) => {
                 match availability_status {
                     AvailabilityProcessingStatus::Imported(imported_root) => {
-                        info!(
+                        debug!(
                             %imported_root,
                             "Imported fully available block after receiving execution proof"
                         );
@@ -3380,11 +3338,6 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             block_root: imported_root,
                             imported: true,
                         });
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Accept,
-                        );
                     }
                     AvailabilityProcessingStatus::MissingComponents(_, _) => {
                         debug!(
@@ -3393,20 +3346,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             subnet_id = subnet_id_u64,
                             "Execution proof stored, but block still missing other components"
                         );
-                        self.propagate_validation_result(
-                            message_id,
-                            peer_id,
-                            MessageAcceptance::Accept,
-                        );
                     }
                 }
-
-                debug!(
-                    %block_root,
-                    execution_block_hash = %block_hash,
-                    subnet_id = subnet_id_u64,
-                    "Execution proof received via gossip"
-                );
 
                 if let Some(event_handler) = self.chain.event_handler.as_ref() {
                     if event_handler.has_execution_proof_subscribers() {
@@ -3415,6 +3356,14 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         ));
                     }
                 }
+            }
+            Err(e) => {
+                warn!(
+                    %block_hash,
+                    subnet_id = %subnet_id_u64,
+                    error = ?e,
+                    "Failed to store execution proof in data availability checker"
+                );
             }
         }
     }
