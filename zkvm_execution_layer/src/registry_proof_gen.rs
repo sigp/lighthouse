@@ -37,8 +37,8 @@ impl GeneratorRegistry {
     }
 
     pub fn register_generator(&mut self, generator: DynProofGenerator) {
-        let subnet_id = generator.subnet_id();
-        self.generators.insert(subnet_id, generator);
+        let proof_id = generator.proof_id();
+        self.generators.insert(proof_id, generator);
     }
 
     pub fn get_generator(&self, proof_id: ExecutionProofId) -> Option<DynProofGenerator> {
@@ -112,7 +112,7 @@ mod tests {
 
         let generator = registry.get_generator(subnet_id);
         assert!(generator.is_some());
-        assert_eq!(generator.unwrap().subnet_id(), subnet_id);
+        assert_eq!(generator.unwrap().proof_id(), subnet_id);
     }
 
     #[test]

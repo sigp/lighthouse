@@ -16,6 +16,7 @@ pub mod engine_api;
 /// Re-export the main ZK-VM engine API and config
 pub use engine_api::ZkVmEngineApi;
 pub use config::ZKVMExecutionLayerConfig;
+pub use registry_proof_gen::GeneratorRegistry;
 
 #[test]
 fn add() {

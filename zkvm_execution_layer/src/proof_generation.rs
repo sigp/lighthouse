@@ -43,7 +43,7 @@ pub trait ProofGenerator: Send + Sync {
     ) -> ProofGenerationResult<ExecutionProof>;
 
     /// Get the proof ID this generator produces proofs for
-    fn subnet_id(&self) -> ExecutionProofId;
+    fn proof_id(&self) -> ExecutionProofId;
 }
 
 /// Type-erased proof generator mainly for convenience
