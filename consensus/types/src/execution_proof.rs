@@ -41,8 +41,7 @@ type ProofData = VariableList<u8, typenum::U1048576>;
 pub struct ExecutionProof {
     /// Which proof type (zkVM+EL combination) this proof belongs to
     /// Examples: 0=SP1+Reth, 1=Risc0+Geth, 2=SP1+Geth, etc.
-    /// TODO(zkproofs): change this from subnet_id from proof_id
-    pub subnet_id: ExecutionProofId,
+    pub proof_id: ExecutionProofId,
 
     /// The slot of the beacon block this proof validates
     pub slot: Slot,
@@ -70,7 +69,7 @@ impl ExecutionProof {
             .map_err(|e| format!("Failed to create proof data: {:?}", e))?;
 
         Ok(Self {
-            subnet_id: proof_id,
+            proof_id,
             slot,
             block_hash,
             block_root,
@@ -95,19 +94,19 @@ impl ExecutionProof {
 
     /// Check if this proof is from a specific proof type
     pub fn is_from_proof_type(&self, proof_id: ExecutionProofId) -> bool {
-        self.subnet_id == proof_id
+        self.proof_id == proof_id
     }
 
     /// Get the proof type ID
     pub fn proof_id(&self) -> ExecutionProofId {
-        self.subnet_id
+        self.proof_id
     }
 }
 
 impl Debug for ExecutionProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutionProof")
-            .field("subnet_id", &self.subnet_id)
+            .field("proof_id", &self.proof_id)
             .field("slot", &self.slot)
             .field("block_hash", &self.block_hash)
             .field("block_root", &self.block_root)
