@@ -18,6 +18,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use types::{ChainSpec, ForkName, MinimalEthSpec as E};
 
+mod execution_proof_tests;
 mod lookups;
 mod range;
 

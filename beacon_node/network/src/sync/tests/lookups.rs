@@ -42,8 +42,8 @@ use tokio::sync::mpsc;
 use tracing::info;
 use types::{
     BeaconState, BeaconStateBase, BlobSidecar, BlockImportSource, DataColumnSidecar, EthSpec,
-    ForkContext, ForkName, Hash256, MinimalEthSpec as E, SignedBeaconBlock, Slot,
-    data_column_sidecar::ColumnIndex,
+    ExecutionBlockHash, ExecutionProof, ExecutionProofId, ForkContext, ForkName, Hash256,
+    MinimalEthSpec as E, SignedBeaconBlock, Slot, data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 
@@ -171,7 +171,7 @@ impl TestRig {
         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob.into()));
     }
 
-    fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
+    pub(super) fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
         self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
             peer_id, block_root,
         ));
@@ -184,7 +184,7 @@ impl TestRig {
         }
     }
 
-    fn rand_block(&mut self) -> SignedBeaconBlock<E> {
+    pub(super) fn rand_block(&mut self) -> SignedBeaconBlock<E> {
         self.rand_block_and_blobs(NumBlobs::None).0
     }
 
@@ -228,7 +228,7 @@ impl TestRig {
         self.sync_manager.active_single_lookups()
     }
 
-    fn active_single_lookups_count(&self) -> usize {
+    pub(super) fn active_single_lookups_count(&self) -> usize {
         self.sync_manager.active_single_lookups().len()
     }
 
@@ -321,7 +321,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_no_active_lookups(&self) {
+    pub(super) fn expect_no_active_lookups(&self) {
         self.expect_no_active_single_lookups();
     }
 
@@ -445,7 +445,7 @@ impl TestRig {
         });
     }
 
-    fn single_lookup_block_response(
+    pub(super) fn single_lookup_block_response(
         &mut self,
         id: SingleLookupReqId,
         peer_id: PeerId,
@@ -525,6 +525,74 @@ impl TestRig {
                 ))
             },
         );
+    }
+
+    /// Send a single execution proof response
+    pub(super) fn single_lookup_proof_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        proof: Option<Arc<ExecutionProof>>,
+    ) {
+        self.send_sync_message(SyncMessage::RpcExecutionProof {
+            sync_request_id: SyncRequestId::SingleExecutionProof { id },
+            peer_id,
+            execution_proof: proof,
+            seen_timestamp: D,
+        });
+    }
+
+    /// Complete execution proof download by sending all requested proofs
+    pub(super) fn complete_single_lookup_proof_download(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        block_root: Hash256,
+        block_hash: ExecutionBlockHash,
+        subnet_ids: Vec<ExecutionProofId>,
+    ) {
+        for subnet_id in subnet_ids {
+            let proof = Arc::new(
+                ExecutionProof::new(subnet_id, types::Slot::new(0), block_hash, block_root, vec![1, 2, 3, 4])
+                    .unwrap(),
+            );
+            self.single_lookup_proof_response(id, peer_id, Some(proof));
+        }
+        // Send stream terminator
+        self.single_lookup_proof_response(id, peer_id, None);
+    }
+
+    /// Expect an execution proof request for a specific block
+    pub(super) fn expect_proof_lookup_request(&mut self, block_root: Hash256) -> SingleLookupReqId {
+        self.pop_received_network_event(|ev| match ev {
+            NetworkMessage::SendRequest {
+                request,
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleExecutionProof { id }),
+                ..
+            } => match request {
+                RequestType::ExecutionProofsByRoot(req) => {
+                    if req.block_root == block_root {
+                        Some(*id)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or_else(|_| panic!("Expected proof request for {block_root}"))
+    }
+
+    /// Send a processing result indicating proofs were processed and block imported
+    pub(super) fn proof_component_processed_imported(&mut self, block_root: Hash256) {
+        let id = self.find_single_lookup_for(block_root);
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type: BlockProcessType::SingleBlock { id },
+            result: BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(
+                block_root,
+            )),
+        });
     }
 
     fn complete_lookup_block_download(&mut self, block: SignedBeaconBlock<E>) {
@@ -786,7 +854,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_block_lookup_request(&mut self, for_block: Hash256) -> SingleLookupReqId {
+    pub(super) fn expect_block_lookup_request(&mut self, for_block: Hash256) -> SingleLookupReqId {
         self.find_block_lookup_request(for_block)
             .unwrap_or_else(|e| panic!("Expected block request for {for_block:?}: {e}"))
     }
@@ -910,7 +978,7 @@ impl TestRig {
     }
 
     #[track_caller]
-    fn expect_block_process(&mut self, response_type: ResponseType) {
+    pub(super) fn expect_block_process(&mut self, response_type: ResponseType) {
         match response_type {
             ResponseType::Block => self
                 .pop_received_processor_event(|ev| {
@@ -927,6 +995,11 @@ impl TestRig {
                     (ev.work_type() == beacon_processor::WorkType::RpcCustodyColumn).then_some(())
                 })
                 .unwrap_or_else(|e| panic!("Expected column work event: {e}")),
+            ResponseType::ExecutionProof => self
+                .pop_received_processor_event(|ev| {
+                    (ev.work_type() == beacon_processor::WorkType::RpcExecutionProofs).then_some(())
+                })
+                .unwrap_or_else(|e| panic!("Expected execution proofs work event: {e}")),
         }
     }
 

@@ -2,7 +2,7 @@ use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockRequestState, CustodyRequestState, PeerId,
+    BlobRequestState, BlockRequestState, CustodyRequestState, ProofRequestState, PeerId,
 };
 use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
@@ -12,7 +12,7 @@ use parking_lot::RwLock;
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{DataColumnSidecarList, SignedBeaconBlock};
+use types::{DataColumnSidecarList, ExecutionProof, SignedBeaconBlock};
 
 use super::SingleLookupId;
 use super::single_block_lookup::{ComponentRequests, DownloadResult};
@@ -22,6 +22,7 @@ pub enum ResponseType {
     Block,
     Blob,
     CustodyColumn,
+    ExecutionProof,
 }
 
 /// This trait unifies common single block lookup functionality across blocks and blobs. This
@@ -211,6 +212,54 @@ impl<T: BeaconChainTypes> RequestState<T> for CustodyRequestState<T::EthSpec> {
     fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {
         &self.state
     }
+    fn get_state_mut(&mut self) -> &mut SingleLookupRequestState<Self::VerifiedResponseType> {
+        &mut self.state
+    }
+}
+
+impl<T: BeaconChainTypes> RequestState<T> for ProofRequestState {
+    type VerifiedResponseType = Vec<Arc<ExecutionProof>>;
+
+    fn make_request(
+        &self,
+        id: Id,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+        _min_proofs: usize,
+        cx: &mut SyncNetworkContext<T>,
+    ) -> Result<LookupRequestResult, LookupRequestError> {
+        cx.execution_proof_lookup_request(id, lookup_peers, self.block_root, self.min_proofs_required)
+            .map_err(LookupRequestError::SendFailedNetwork)
+    }
+
+    fn send_for_processing(
+        id: Id,
+        download_result: DownloadResult<Self::VerifiedResponseType>,
+        cx: &SyncNetworkContext<T>,
+    ) -> Result<(), LookupRequestError> {
+        let DownloadResult {
+            value,
+            block_root,
+            seen_timestamp,
+            ..
+        } = download_result;
+        cx.send_execution_proofs_for_processing(id, block_root, value, seen_timestamp)
+            .map_err(LookupRequestError::SendFailedProcessor)
+    }
+
+    fn response_type() -> ResponseType {
+        ResponseType::ExecutionProof
+    }
+
+    fn request_state_mut(request: &mut SingleBlockLookup<T>) -> Result<&mut Self, &'static str> {
+        request.proof_request
+            .as_mut()
+            .ok_or("no active proof request")
+    }
+
+    fn get_state(&self) -> &SingleLookupRequestState<Self::VerifiedResponseType> {
+        &self.state
+    }
+
     fn get_state_mut(&mut self) -> &mut SingleLookupRequestState<Self::VerifiedResponseType> {
         &mut self.state
     }

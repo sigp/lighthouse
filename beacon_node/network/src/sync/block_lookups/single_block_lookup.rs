@@ -17,7 +17,10 @@ use store::Hash256;
 use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{DataColumnSidecarList, EthSpec, SignedBeaconBlock, Slot};
+use types::{
+    DataColumnSidecarList, EthSpec, ExecutionProof, SignedBeaconBlock,
+    Slot,
+};
 
 // Dedicated enum for LookupResult to force its usage
 #[must_use = "LookupResult must be handled with on_lookup_result"]
@@ -63,6 +66,7 @@ pub struct SingleBlockLookup<T: BeaconChainTypes> {
     pub id: Id,
     pub block_request_state: BlockRequestState<T::EthSpec>,
     pub component_requests: ComponentRequests<T::EthSpec>,
+    pub proof_request: Option<ProofRequestState>,
     /// Peers that claim to have imported this set of block components. This state is shared with
     /// the custody request to have an updated view of the peers that claim to have imported the
     /// block associated with this lookup. The peer set of a lookup can change rapidly, and faster
@@ -102,6 +106,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             id,
             block_request_state: BlockRequestState::new(requested_block_root),
             component_requests: ComponentRequests::WaitingForBlock,
+            proof_request: None,
             peers: Arc::new(RwLock::new(HashSet::from_iter(peers.iter().copied()))),
             block_root: requested_block_root,
             awaiting_parent,
@@ -168,32 +173,53 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
     /// Returns true if the block has already been downloaded.
     pub fn all_components_processed(&self) -> bool {
-        self.block_request_state.state.is_processed()
-            && match &self.component_requests {
-                ComponentRequests::WaitingForBlock => false,
-                ComponentRequests::ActiveBlobRequest(request, _) => request.state.is_processed(),
-                ComponentRequests::ActiveCustodyRequest(request) => request.state.is_processed(),
-                ComponentRequests::NotNeeded { .. } => true,
-            }
+        let block_processed = self.block_request_state.state.is_processed();
+
+        let da_component_processed = match &self.component_requests {
+            ComponentRequests::WaitingForBlock => false,
+            ComponentRequests::ActiveBlobRequest(request, _) => request.state.is_processed(),
+            ComponentRequests::ActiveCustodyRequest(request) => request.state.is_processed(),
+            ComponentRequests::NotNeeded { .. } => true,
+        };
+
+        let proof_processed = self.proof_request
+            .as_ref()
+            .map(|request| request.state.is_processed())
+            .unwrap_or(true);  // If no proof request, consider it processed
+
+        block_processed && da_component_processed && proof_processed
     }
 
     /// Returns true if this request is expecting some event to make progress
     pub fn is_awaiting_event(&self) -> bool {
-        self.awaiting_parent.is_some()
-            || self.block_request_state.state.is_awaiting_event()
-            || match &self.component_requests {
-                // If components are waiting for the block request to complete, here we should
-                // check if the`block_request_state.state.is_awaiting_event(). However we already
-                // checked that above, so `WaitingForBlock => false` is equivalent.
-                ComponentRequests::WaitingForBlock => false,
-                ComponentRequests::ActiveBlobRequest(request, _) => {
-                    request.state.is_awaiting_event()
-                }
-                ComponentRequests::ActiveCustodyRequest(request) => {
-                    request.state.is_awaiting_event()
-                }
-                ComponentRequests::NotNeeded { .. } => false,
+        if self.awaiting_parent.is_some() {
+            return true;
+        }
+
+        if self.block_request_state.state.is_awaiting_event() {
+            return true;
+        }
+
+        let da_awaiting = match &self.component_requests {
+            // If components are waiting for the block request to complete, here we should
+            // check if the`block_request_state.state.is_awaiting_event(). However we already
+            // checked that above, so `WaitingForBlock => false` is equivalent.
+            ComponentRequests::WaitingForBlock => false,
+            ComponentRequests::ActiveBlobRequest(request, _) => {
+                request.state.is_awaiting_event()
             }
+            ComponentRequests::ActiveCustodyRequest(request) => {
+                request.state.is_awaiting_event()
+            }
+            ComponentRequests::NotNeeded { .. } => false,
+        };
+
+        let proof_awaiting = self.proof_request
+            .as_ref()
+            .map(|request| request.state.is_awaiting_event())
+            .unwrap_or(false);
+
+        da_awaiting || proof_awaiting
     }
 
     /// Makes progress on all requests of this lookup. Any error is not recoverable and must result
@@ -239,6 +265,14 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 } else {
                     self.component_requests = ComponentRequests::NotNeeded("outside da window");
                 }
+
+                if cx.chain.should_fetch_execution_proofs(block_epoch) {
+                    if let Some(min_proofs) = cx.chain.min_execution_proofs_required() {
+                        self.proof_request = Some(
+                            ProofRequestState::new(self.block_root, min_proofs)
+                        );
+                    }
+                }
             } else {
                 // Wait to download the block before downloading blobs. Then we can be sure that the
                 // block has data, so there's no need to do "blind" requests for all possible blobs and
@@ -253,6 +287,7 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             }
         }
 
+        // Progress DA component requests
         match &self.component_requests {
             ComponentRequests::WaitingForBlock => {} // do nothing
             ComponentRequests::ActiveBlobRequest(_, expected_blobs) => {
@@ -262,6 +297,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 self.continue_request::<CustodyRequestState<T::EthSpec>>(cx, 0)?
             }
             ComponentRequests::NotNeeded { .. } => {} // do nothing
+        }
+
+        // Progress proof request (separate from DA components)
+        if let Some(request) = &self.proof_request {
+            self.continue_request::<ProofRequestState>(cx, request.min_proofs_required)?;
         }
 
         // If all components of this lookup are already processed, there will be no future events
@@ -400,6 +440,26 @@ impl<E: EthSpec> CustodyRequestState<E> {
         Self {
             block_root,
             state: SingleLookupRequestState::new(),
+        }
+    }
+}
+
+/// The state of the execution proof request component of a `SingleBlockLookup`.
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub struct ProofRequestState {
+    #[derivative(Debug = "ignore")]
+    pub block_root: Hash256,
+    pub state: SingleLookupRequestState<Vec<Arc<ExecutionProof>>>,
+    pub min_proofs_required: usize,
+}
+
+impl ProofRequestState {
+    pub fn new(block_root: Hash256, min_proofs_required: usize) -> Self {
+        Self {
+            block_root,
+            state: SingleLookupRequestState::new(),
+            min_proofs_required,
         }
     }
 }

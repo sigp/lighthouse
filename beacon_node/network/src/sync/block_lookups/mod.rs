@@ -39,7 +39,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::{BlobRequestState, BlockRequestState, CustodyRequestState};
+pub use single_block_lookup::{BlobRequestState, BlockRequestState, CustodyRequestState, ProofRequestState};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;
@@ -532,6 +532,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BlockProcessType::SingleCustodyColumn(id) => {
                 self.on_processing_result_inner::<CustodyRequestState<T::EthSpec>>(id, result, cx)
             }
+            BlockProcessType::SingleExecutionProof { id } => {
+                self.on_processing_result_inner::<ProofRequestState>(id, result, cx)
+            }
         };
         self.on_lookup_result(process_type.id(), lookup_result, "processing_result", cx);
     }
@@ -672,6 +675,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                     ResponseType::Blob => "lookup_blobs_processing_failure",
                                     ResponseType::CustodyColumn => {
                                         "lookup_custody_column_processing_failure"
+                                    }
+                                    ResponseType::ExecutionProof => {
+                                        "lookup_execution_proof_processing_failure"
                                     }
                                 },
                             );

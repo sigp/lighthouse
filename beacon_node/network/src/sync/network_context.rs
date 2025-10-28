@@ -35,6 +35,7 @@ pub use requests::LookupVerifyError;
 use requests::{
     ActiveRequests, BlobsByRangeRequestItems, BlobsByRootRequestItems, BlocksByRangeRequestItems,
     BlocksByRootRequestItems, DataColumnsByRangeRequestItems, DataColumnsByRootRequestItems,
+    ExecutionProofsByRootRequestItems, ExecutionProofsByRootSingleBlockRequest,
 };
 #[cfg(test)]
 use slot_clock::SlotClock;
@@ -50,7 +51,7 @@ use tracing::{Span, debug, debug_span, error, warn};
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::{
     BlobSidecar, BlockImportSource, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
-    ForkContext, Hash256, SignedBeaconBlock, Slot,
+    ExecutionProof, ForkContext, Hash256, SignedBeaconBlock, Slot,
 };
 
 pub mod custody;
@@ -202,6 +203,9 @@ pub struct SyncNetworkContext<T: BeaconChainTypes> {
     /// A mapping of active DataColumnsByRoot requests
     data_columns_by_root_requests:
         ActiveRequests<DataColumnsByRootRequestId, DataColumnsByRootRequestItems<T::EthSpec>>,
+    /// A mapping of active ExecutionProofsByRoot requests
+    execution_proofs_by_root_requests:
+        ActiveRequests<SingleLookupReqId, ExecutionProofsByRootRequestItems<T::EthSpec>>,
     /// A mapping of active BlocksByRange requests
     blocks_by_range_requests:
         ActiveRequests<BlocksByRangeRequestId, BlocksByRangeRequestItems<T::EthSpec>>,
@@ -290,6 +294,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_root_requests: ActiveRequests::new("blocks_by_root"),
             blobs_by_root_requests: ActiveRequests::new("blobs_by_root"),
             data_columns_by_root_requests: ActiveRequests::new("data_columns_by_root"),
+            execution_proofs_by_root_requests: ActiveRequests::new("execution_proofs_by_root"),
             blocks_by_range_requests: ActiveRequests::new("blocks_by_range"),
             blobs_by_range_requests: ActiveRequests::new("blobs_by_range"),
             data_columns_by_range_requests: ActiveRequests::new("data_columns_by_range"),
@@ -317,6 +322,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_root_requests,
             blobs_by_root_requests,
             data_columns_by_root_requests,
+            execution_proofs_by_root_requests,
             blocks_by_range_requests,
             blobs_by_range_requests,
             data_columns_by_range_requests,
@@ -342,6 +348,10 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .active_requests_of_peer(peer_id)
             .into_iter()
             .map(|req_id| SyncRequestId::DataColumnsByRoot(*req_id));
+        let execution_proofs_by_root_ids = execution_proofs_by_root_requests
+            .active_requests_of_peer(peer_id)
+            .into_iter()
+            .map(|id| SyncRequestId::SingleExecutionProof { id: *id });
         let blocks_by_range_ids = blocks_by_range_requests
             .active_requests_of_peer(peer_id)
             .into_iter()
@@ -358,6 +368,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         blocks_by_root_ids
             .chain(blobs_by_root_ids)
             .chain(data_column_by_root_ids)
+            .chain(execution_proofs_by_root_ids)
             .chain(blocks_by_range_ids)
             .chain(blobs_by_range_ids)
             .chain(data_column_by_range_ids)
@@ -414,6 +425,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             blocks_by_root_requests,
             blobs_by_root_requests,
             data_columns_by_root_requests,
+            execution_proofs_by_root_requests,
             blocks_by_range_requests,
             blobs_by_range_requests,
             data_columns_by_range_requests,
@@ -435,6 +447,7 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
             .iter_request_peers()
             .chain(blobs_by_root_requests.iter_request_peers())
             .chain(data_columns_by_root_requests.iter_request_peers())
+            .chain(execution_proofs_by_root_requests.iter_request_peers())
             .chain(blocks_by_range_requests.iter_request_peers())
             .chain(blobs_by_range_requests.iter_request_peers())
             .chain(data_columns_by_range_requests.iter_request_peers())
@@ -1018,6 +1031,100 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         Ok(LookupRequestResult::RequestSent(id.req_id))
     }
 
+    /// Request execution proofs for `block_root`
+    pub fn execution_proof_lookup_request(
+        &mut self,
+        lookup_id: SingleLookupId,
+        lookup_peers: Arc<RwLock<HashSet<PeerId>>>,
+        block_root: Hash256,
+        min_proofs_required: usize,
+    ) -> Result<LookupRequestResult, RpcRequestSendError> {
+        let active_request_count_by_peer = self.active_request_count_by_peer();
+        let Some(peer_id) = lookup_peers
+            .read()
+            .iter()
+            .map(|peer| {
+                (
+                    // Prefer peers with less overall requests
+                    active_request_count_by_peer.get(peer).copied().unwrap_or(0),
+                    // Random factor to break ties, otherwise the PeerID breaks ties
+                    rand::random::<u32>(),
+                    peer,
+                )
+            })
+            .min()
+            .map(|(_, _, peer)| *peer)
+        else {
+            return Ok(LookupRequestResult::Pending("no peers"));
+        };
+
+        // Query DA checker for proofs we already have
+        let already_have = self
+            .chain
+            .data_availability_checker
+            .get_existing_proof_ids(&block_root)
+            .unwrap_or_default();
+
+        let current_count = already_have.len();
+
+        // Calculate how many more proofs we need
+        if current_count >= min_proofs_required {
+            // Already have enough proofs, no request needed
+            return Ok(LookupRequestResult::NoRequestNeeded(
+                "already have minimum proofs",
+            ));
+        }
+
+        let count_needed = min_proofs_required - current_count;
+
+        let id = SingleLookupReqId {
+            lookup_id,
+            req_id: self.next_id(),
+        };
+
+        let request = ExecutionProofsByRootSingleBlockRequest {
+            block_root,
+            already_have: already_have.clone(),
+            count_needed,
+        };
+
+        let network_request = RequestType::ExecutionProofsByRoot(
+            request
+                .clone()
+                .into_request()
+                .map_err(RpcRequestSendError::InternalError)?,
+        );
+
+        self.network_send
+            .send(NetworkMessage::SendRequest {
+                peer_id,
+                request: network_request,
+                app_request_id: AppRequestId::Sync(SyncRequestId::SingleExecutionProof { id }),
+            })
+            .map_err(|_| RpcRequestSendError::InternalError("network send error".to_owned()))?;
+
+        debug!(
+            method = "ExecutionProofsByRoot",
+            ?block_root,
+            already_have_count = already_have.len(),
+            count_needed,
+            peer = %peer_id,
+            %id,
+            "Sync RPC request sent"
+        );
+
+        self.execution_proofs_by_root_requests.insert(
+            id,
+            peer_id,
+            // Don't expect max responses since peer might not have all the proofs we need
+            false,
+            ExecutionProofsByRootRequestItems::new(request),
+            Span::none(),
+        );
+
+        Ok(LookupRequestResult::RequestSent(id.req_id))
+    }
+
     /// Request to send a single `data_columns_by_root` request to the network.
     pub fn data_column_lookup_request(
         &mut self,
@@ -1452,6 +1559,20 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
         self.on_rpc_response_result(id, "BlobsByRoot", resp, peer_id, |_| 1)
     }
 
+    pub(crate) fn on_single_execution_proof_response(
+        &mut self,
+        id: SingleLookupReqId,
+        peer_id: PeerId,
+        rpc_event: RpcEvent<Arc<ExecutionProof>>,
+    ) -> Option<RpcResponseResult<Vec<Arc<ExecutionProof>>>> {
+        let resp = self
+            .execution_proofs_by_root_requests
+            .on_response(id, rpc_event);
+        self.on_rpc_response_result(id, "ExecutionProofsByRoot", resp, peer_id, |proofs| {
+            proofs.len()
+        })
+    }
+
     #[allow(clippy::type_complexity)]
     pub(crate) fn on_data_columns_by_root_response(
         &mut self,
@@ -1644,6 +1765,36 @@ impl<T: BeaconChainTypes> SyncNetworkContext<T> {
                 error!(
                     error = ?e,
                     "Failed to send sync blobs to processor"
+                );
+                SendErrorProcessor::SendError
+            })
+    }
+
+    pub fn send_execution_proofs_for_processing(
+        &self,
+        id: Id,
+        block_root: Hash256,
+        proofs: Vec<Arc<ExecutionProof>>,
+        seen_timestamp: Duration,
+    ) -> Result<(), SendErrorProcessor> {
+        let beacon_processor = self
+            .beacon_processor_if_enabled()
+            .ok_or(SendErrorProcessor::ProcessorNotAvailable)?;
+
+        debug!(?block_root, ?id, "Sending execution proofs for processing");
+        // Lookup sync event safety: If `beacon_processor.send_rpc_execution_proofs` returns Ok() sync
+        // must receive a single `SyncMessage::BlockComponentProcessed` event with this process type
+        beacon_processor
+            .send_rpc_execution_proofs(
+                block_root,
+                proofs,
+                seen_timestamp,
+                BlockProcessType::SingleExecutionProof { id },
+            )
+            .map_err(|e| {
+                error!(
+                    error = ?e,
+                    "Failed to send sync execution proofs to processor"
                 );
                 SendErrorProcessor::SendError
             })
