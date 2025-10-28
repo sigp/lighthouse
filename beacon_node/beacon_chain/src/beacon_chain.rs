@@ -5510,11 +5510,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         randao_reveal,
                         eth1_data,
                         graffiti,
-                        proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings_base.into(),
-                        attestations: attestations_base.into(),
-                        deposits: deposits.into(),
-                        voluntary_exits: voluntary_exits.into(),
+                        proposer_slashings: proposer_slashings
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        attester_slashings: attester_slashings_base
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        attestations: attestations_base
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        deposits: deposits
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        voluntary_exits: voluntary_exits
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
                         _phantom: PhantomData,
                     },
                 }),
@@ -5531,11 +5541,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         randao_reveal,
                         eth1_data,
                         graffiti,
-                        proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings_base.into(),
-                        attestations: attestations_base.into(),
-                        deposits: deposits.into(),
-                        voluntary_exits: voluntary_exits.into(),
+                        proposer_slashings: proposer_slashings
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        attester_slashings: attester_slashings_base
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        attestations: attestations_base
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        deposits: deposits
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
+                        voluntary_exits: voluntary_exits
+                            .try_into()
+                            .map_err(BlockProductionError::SszTypesError)?,
                         sync_aggregate: sync_aggregate
                             .ok_or(BlockProductionError::MissingSyncAggregate)?,
                         _phantom: PhantomData,
@@ -5558,11 +5578,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             randao_reveal,
                             eth1_data,
                             graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings_base.into(),
-                            attestations: attestations_base.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
+                            proposer_slashings: proposer_slashings
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attester_slashings: attester_slashings_base
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attestations: attestations_base
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            deposits: deposits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            voluntary_exits: voluntary_exits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
                             execution_payload: block_proposal_contents
@@ -5590,18 +5620,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             randao_reveal,
                             eth1_data,
                             graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings_base.into(),
-                            attestations: attestations_base.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
+                            proposer_slashings: proposer_slashings
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attester_slashings: attester_slashings_base
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attestations: attestations_base
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            deposits: deposits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            voluntary_exits: voluntary_exits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
                             execution_payload: block_proposal_contents
                                 .to_payload()
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            bls_to_execution_changes: bls_to_execution_changes
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                         },
                     }),
                     None,
@@ -5629,17 +5671,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             randao_reveal,
                             eth1_data,
                             graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings_base.into(),
-                            attestations: attestations_base.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
+                            proposer_slashings: proposer_slashings
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attester_slashings: attester_slashings_base
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attestations: attestations_base
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            deposits: deposits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            voluntary_exits: voluntary_exits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
                             execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            bls_to_execution_changes: bls_to_execution_changes
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             blob_kzg_commitments: kzg_commitments.ok_or(
                                 BlockProductionError::MissingKzgCommitment(
                                     "Kzg commitments missing from block contents".to_string(),
@@ -5672,17 +5726,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             randao_reveal,
                             eth1_data,
                             graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings_electra.into(),
-                            attestations: attestations_electra.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
+                            proposer_slashings: proposer_slashings
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attester_slashings: attester_slashings_electra
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attestations: attestations_electra
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            deposits: deposits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            voluntary_exits: voluntary_exits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
                             execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            bls_to_execution_changes: bls_to_execution_changes
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
@@ -5714,17 +5780,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             randao_reveal,
                             eth1_data,
                             graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings_electra.into(),
-                            attestations: attestations_electra.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
+                            proposer_slashings: proposer_slashings
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attester_slashings: attester_slashings_electra
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attestations: attestations_electra
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            deposits: deposits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            voluntary_exits: voluntary_exits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
                             execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            bls_to_execution_changes: bls_to_execution_changes
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests
@@ -5756,17 +5834,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             randao_reveal,
                             eth1_data,
                             graffiti,
-                            proposer_slashings: proposer_slashings.into(),
-                            attester_slashings: attester_slashings_electra.into(),
-                            attestations: attestations_electra.into(),
-                            deposits: deposits.into(),
-                            voluntary_exits: voluntary_exits.into(),
+                            proposer_slashings: proposer_slashings
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attester_slashings: attester_slashings_electra
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            attestations: attestations_electra
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            deposits: deposits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
+                            voluntary_exits: voluntary_exits
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             sync_aggregate: sync_aggregate
                                 .ok_or(BlockProductionError::MissingSyncAggregate)?,
                             execution_payload: payload
                                 .try_into()
                                 .map_err(|_| BlockProductionError::InvalidPayloadFork)?,
-                            bls_to_execution_changes: bls_to_execution_changes.into(),
+                            bls_to_execution_changes: bls_to_execution_changes
+                                .try_into()
+                                .map_err(BlockProductionError::SszTypesError)?,
                             blob_kzg_commitments: kzg_commitments
                                 .ok_or(BlockProductionError::InvalidPayloadFork)?,
                             execution_requests: maybe_requests

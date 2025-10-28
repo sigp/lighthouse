@@ -2324,7 +2324,7 @@ where
             .collect::<Vec<_>>();
 
         // Building a VarList from leaves
-        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
+        let deposit_data_list = VariableList::<_, U4294967296>::try_from(leaves.clone()).unwrap();
 
         // Setting the deposit_root to be the tree_hash_root of the VarList
         state.eth1_data_mut().deposit_root = deposit_data_list.tree_hash_root();
@@ -2348,7 +2348,7 @@ where
         let deposits = datas
             .into_par_iter()
             .zip(proofs.into_par_iter())
-            .map(|(data, proof)| (data, proof.into()))
+            .map(|(data, proof)| (data, proof.try_into().unwrap()))
             .map(|(data, proof)| Deposit { proof, data })
             .collect::<Vec<_>>();
 

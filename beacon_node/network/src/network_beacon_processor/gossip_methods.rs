@@ -1190,7 +1190,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
 
         match &result {
             Ok(AvailabilityProcessingStatus::Imported(block_root)) => {
-                info!(
+                debug!(
                     %block_root,
                     "Gossipsub blob processed - imported fully available block"
                 );
@@ -1299,7 +1299,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         match &result {
             Ok(availability) => match availability {
                 AvailabilityProcessingStatus::Imported(block_root) => {
-                    info!(
+                    debug!(
                         %block_root,
                         "Gossipsub data column processed, imported fully available block"
                     );
@@ -3034,6 +3034,20 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                 }
+            }
+            AttnError::SszTypesError(_) => {
+                error!(
+                    %peer_id,
+                    block = ?beacon_block_root,
+                    ?attestation_type,
+                    "Rejecting attestation due to a critical SSZ types error"
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "attn_ssz_types_error",
+                );
             }
         }
 
