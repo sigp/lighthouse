@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "8.0.0-rc.1"
+version = "8.0.0-rc.2"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
 autotests = false
@@ -81,6 +81,7 @@ malloc_utils = { workspace = true, features = ["jemalloc"] }
 malloc_utils = { workspace = true, features = [] }
 
 [dev-dependencies]
+beacon_node = { workspace = true, features = ["testing"] }
 beacon_node_fallback = { workspace = true }
 beacon_processor = { workspace = true }
 eth2 = { workspace = true }

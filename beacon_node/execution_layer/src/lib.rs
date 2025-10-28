@@ -171,9 +171,16 @@ pub enum Error {
     InvalidPayloadBody(String),
     InvalidPayloadConversion,
     InvalidBlobConversion(String),
+    SszTypesError(ssz_types::Error),
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
     VerifyingVersionedHashes(versioned_hashes::Error),
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszTypesError(e)
+    }
 }
 
 impl From<BeaconStateError> for Error {
@@ -2102,6 +2109,7 @@ enum InvalidBuilderPayload {
         payload: u64,
         expected: u64,
     },
+    SszTypesError(ssz_types::Error),
 }
 
 impl fmt::Display for InvalidBuilderPayload {
@@ -2143,6 +2151,7 @@ impl fmt::Display for InvalidBuilderPayload {
             InvalidBuilderPayload::GasLimitMismatch { payload, expected } => {
                 write!(f, "payload gas limit was {} not {}", payload, expected)
             }
+            Self::SszTypesError(e) => write!(f, "{:?}", e),
         }
     }
 }
@@ -2198,7 +2207,13 @@ fn verify_builder_bid<E: EthSpec>(
         .withdrawals()
         .ok()
         .cloned()
-        .map(|withdrawals| Withdrawals::<E>::from(withdrawals).tree_hash_root());
+        .map(|withdrawals| {
+            Withdrawals::<E>::try_from(withdrawals)
+                .map_err(InvalidBuilderPayload::SszTypesError)
+                .map(|w| w.tree_hash_root())
+        })
+        .transpose()?;
+
     let payload_withdrawals_root = header.withdrawals_root().ok();
     let expected_gas_limit = proposer_gas_limit
         .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit, target_gas_limit, spec));

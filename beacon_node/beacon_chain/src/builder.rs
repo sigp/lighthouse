@@ -5,6 +5,7 @@ use crate::beacon_chain::{
     ProofGenerationEvent,
 };
 use crate::beacon_proposer_cache::BeaconProposerCache;
+use crate::custody_context::NodeCustodyType;
 use crate::data_availability_checker::DataAvailabilityChecker;
 use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
@@ -103,7 +104,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     kzg: Arc<Kzg>,
     task_executor: Option<TaskExecutor>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
     rng: Option<Box<dyn RngCore + Send>>,
     /// ZK-VM execution layer configuration.
     ///
@@ -152,7 +153,7 @@ where
             kzg,
             task_executor: None,
             validator_monitor_config: None,
-            import_all_data_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
             rng: None,
             zkvm_execution_layer_config: None,
             zkvm_generator_registry: None,
@@ -656,9 +657,9 @@ where
         self
     }
 
-    /// Sets whether to require and import all data columns when importing block.
-    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
-        self.import_all_data_columns = import_all_data_columns;
+    /// Sets the node custody type for data column import.
+    pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
+        self.node_custody_type = node_custody_type;
         self
     }
 
@@ -974,17 +975,26 @@ where
 
         // Load the persisted custody context from the db and initialize
         // the context for this run
-        let custody_context = if let Some(custody) =
+        let (custody_context, cgc_changed_opt) = if let Some(custody) =
             load_custody_context::<E, THotStore, TColdStore>(store.clone())
         {
-            Arc::new(CustodyContext::new_from_persisted_custody_context(
+            let head_epoch = canonical_head
+                .cached_head()
+                .head_slot()
+                .epoch(E::slots_per_epoch());
+            CustodyContext::new_from_persisted_custody_context(
                 custody,
-                self.import_all_data_columns,
-            ))
+                self.node_custody_type,
+                head_epoch,
+                &self.spec,
+            )
         } else {
-            Arc::new(CustodyContext::new(self.import_all_data_columns))
+            (
+                CustodyContext::new(self.node_custody_type, &self.spec),
+                None,
+            )
         };
-        debug!(?custody_context, "Loading persisted custody context");
+        debug!(?custody_context, "Loaded persisted custody context");
 
         let has_execution_layer_and_proof_gen = self.execution_layer.is_some()
             && self.zkvm_generator_registry.is_some();
@@ -1065,7 +1075,7 @@ where
                     slot_clock,
                     self.kzg.clone(),
                     store,
-                    custody_context,
+                    Arc::new(custody_context),
                     self.spec,
                     // Create verifier registry if zkvm mode is enabled
                     // For now, we use dummy verifiers for all subnets
@@ -1117,6 +1127,14 @@ where
                 "You must use the `--purge-db` flag to clear the database and restart sync. You may be on a hostile network."
             );
             return Err(format!("Weak subjectivity verification failed: {:?}", e));
+        }
+
+        if let Some(cgc_changed) = cgc_changed_opt {
+            // Update data column custody info if there's a CGC change from CLI flags.
+            // This will trigger column backfill.
+            let cgc_change_effective_slot =
+                cgc_changed.effective_epoch.start_slot(E::slots_per_epoch());
+            beacon_chain.update_data_column_custody_info(Some(cgc_change_effective_slot));
         }
 
         info!(

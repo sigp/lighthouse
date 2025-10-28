@@ -919,7 +919,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "8.0.0-rc.1"
+version = "8.0.0-rc.2"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -1195,7 +1195,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "8.0.0-rc.1"
+version = "8.0.0-rc.2"
 dependencies = [
  "beacon_node",
  "bytes",
@@ -1237,10 +1237,12 @@ dependencies = [
  "eth2",
  "ethereum_ssz",
  "lighthouse_version",
+ "mockito",
  "reqwest 0.11.27",
  "sensitive_url",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1660,15 +1662,19 @@ dependencies = [
 
 [[package]]
 name = "compare_fields"
-version = "0.2.0"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05162add7c8618791829528194a271dca93f69194d35b19db1ca7fbfb8275278"
 dependencies = [
  "compare_fields_derive",
- "itertools 0.10.5",
+ "itertools 0.14.0",
 ]
 
 [[package]]
 name = "compare_fields_derive"
-version = "0.2.0"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f5ee468b2e568b668e2a686112935e7bbe9a81bf4fa6b9f6fc3410ea45fb7ce"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -2541,7 +2547,6 @@ dependencies = [
  "beacon_chain",
  "bls",
  "compare_fields",
- "compare_fields_derive",
  "context_deserialize",
  "derivative",
  "eth2_network_config",
@@ -5066,7 +5071,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "8.0.0-rc.1"
+version = "8.0.0-rc.2"
 dependencies = [
  "account_utils",
  "beacon_chain",
@@ -5576,7 +5581,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "8.0.0-rc.1"
+version = "8.0.0-rc.2"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -8955,14 +8960,14 @@ dependencies = [
 
 [[package]]
 name = "ssz_types"
-version = "0.11.0"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b55bedc9a18ed2860a46d6beb4f4082416ee1d60be0cc364cebdcdddc7afd4"
+checksum = "704671195db617afa3d919da8f220f2535f20d0fa8dad96a1c27a38a5f8f6e9c"
 dependencies = [
  "arbitrary",
  "ethereum_serde_utils",
  "ethereum_ssz",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "serde",
  "serde_derive",
  "smallvec",
@@ -9919,7 +9924,6 @@ dependencies = [
  "beacon_chain",
  "bls",
  "compare_fields",
- "compare_fields_derive",
  "context_deserialize",
  "criterion",
  "derivative",

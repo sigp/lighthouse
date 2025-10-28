@@ -1,5 +1,5 @@
 use super::types::*;
-use crate::Error;
+use crate::{Error, success_or_error};
 use reqwest::{
     IntoUrl,
     header::{HeaderMap, HeaderValue},
@@ -145,7 +145,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Perform a HTTP DELETE request, returning the `Response` for further processing.
@@ -157,7 +157,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
@@ -218,7 +218,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     async fn post<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
@@ -250,7 +250,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await?;
+        success_or_error(response).await?;
         Ok(())
     }
 
@@ -268,7 +268,7 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::from)?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Perform a HTTP DELETE request.
@@ -679,22 +679,5 @@ impl ValidatorClientHttpClient {
     pub async fn delete_graffiti(&self, pubkey: &PublicKeyBytes) -> Result<(), Error> {
         let url = self.make_graffiti_url(pubkey)?;
         self.delete(url).await
-    }
-}
-
-/// Returns `Ok(response)` if the response is a `200 OK` response or a
-/// `202 Accepted` response. Otherwise, creates an appropriate error message.
-async fn ok_or_error(response: Response) -> Result<Response, Error> {
-    let status = response.status();
-
-    if status == StatusCode::OK
-        || status == StatusCode::ACCEPTED
-        || status == StatusCode::NO_CONTENT
-    {
-        Ok(response)
-    } else if let Ok(message) = response.json().await {
-        Err(Error::ServerMessage(message))
-    } else {
-        Err(Error::StatusCode(status))
     }
 }

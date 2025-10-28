@@ -29,15 +29,21 @@ pub const MAX_ERROR_LEN: u64 = 256;
 #[derive(Debug, Clone)]
 pub struct ErrorType(pub VariableList<u8, MaxErrorLen>);
 
-impl From<String> for ErrorType {
-    fn from(s: String) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+impl From<&str> for ErrorType {
+    // This will truncate the error if `string.as_bytes()` exceeds `MaxErrorLen`.
+    fn from(s: &str) -> Self {
+        let mut bytes = s.as_bytes().to_vec();
+        bytes.truncate(MAX_ERROR_LEN as usize);
+        Self(
+            VariableList::try_from(bytes)
+                .expect("length should not exceed MaxErrorLen after truncation"),
+        )
     }
 }
 
-impl From<&str> for ErrorType {
-    fn from(s: &str) -> Self {
-        Self(VariableList::from(s.as_bytes().to_vec()))
+impl From<String> for ErrorType {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
     }
 }
 
