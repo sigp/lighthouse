@@ -2042,7 +2042,7 @@ const fn default_min_epochs_for_blob_sidecars_requests() -> u64 {
 }
 
 const fn default_min_epochs_for_execution_proof_requests() -> u64 {
-    // TODO(zkproofs): add into specs with rational
+    // TODO(zkproofs): add into consensus-specs with rational
     2
 }
 
