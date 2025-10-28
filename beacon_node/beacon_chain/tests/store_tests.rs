@@ -3211,12 +3211,12 @@ async fn test_import_historical_data_columns_batch() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        for data_column in data_columns.unwrap_or(vec![]) {
+        for data_column in data_columns.unwrap_or_default() {
             data_columns_list.push(data_column);
         }
     }
 
-    assert!(data_columns_list.len() > 0);
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3256,8 +3256,17 @@ async fn test_import_historical_data_columns_batch() {
 
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
-        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some())
+        if !harness
+            .get_block(block_root.into())
+            .unwrap()
+            .message()
+            .body()
+            .blob_kzg_commitments()
+            .unwrap().is_empty()
+        {
+            let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+            assert!(data_columns.is_some())
+        };
     }
 }
 
@@ -3292,7 +3301,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
 
-        for data_column in data_columns.unwrap_or(vec![]) {
+        for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
             if data_column.index % 2 == 0 {
                 data_column.signed_block_header.message.body_root = Hash256::ZERO;
@@ -3301,7 +3310,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
             data_columns_list.push(Arc::new(data_column));
         }
     }
-    assert!(data_columns_list.len() > 0);
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
@@ -3380,14 +3389,14 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
 
-        for data_column in data_columns.unwrap_or(vec![]) {
+        for data_column in data_columns.unwrap_or_default() {
             let mut data_column = (*data_column).clone();
             data_column.signed_block_header.message.body_root = Hash256::ZERO;
             data_columns_list.push(Arc::new(data_column));
         }
     }
 
-    assert!(data_columns_list.len() > 0);
+    assert!(!data_columns_list.is_empty());
 
     harness
         .extend_chain(
