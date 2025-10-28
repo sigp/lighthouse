@@ -488,6 +488,7 @@ mod tests {
             .deterministic_keypairs(64)
             .fresh_ephemeral_store()
             .mock_execution_layer()
+            .zkvm_with_dummy_verifiers()
             .build();
 
         harness.advance_slot();
@@ -556,7 +557,7 @@ mod tests {
         harness
             .chain
             .data_availability_checker
-            .put_execution_proofs(block_root, vec![proof.clone()])
+            .put_rpc_execution_proofs(block_root, vec![proof.clone()])
             .expect("Should put proof in DA cache");
 
         // Verify it's in the cache

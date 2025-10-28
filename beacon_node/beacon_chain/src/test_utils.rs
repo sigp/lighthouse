@@ -211,6 +211,7 @@ pub struct Builder<T: BeaconChainTypes> {
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
     import_all_data_columns: bool,
+    zkvm_execution_layer_config: Option<zkvm_execution_layer::ZKVMExecutionLayerConfig>,
     runtime: TestRuntime,
 }
 
@@ -357,6 +358,7 @@ where
             validator_monitor_config: None,
             genesis_state_builder: None,
             import_all_data_columns: false,
+            zkvm_execution_layer_config: None,
             runtime,
         }
     }
@@ -530,6 +532,13 @@ where
         self
     }
 
+    /// Enable zkVM execution proof verification with dummy verifiers for testing.
+    pub fn zkvm_with_dummy_verifiers(mut self) -> Self {
+        self.zkvm_execution_layer_config =
+            Some(zkvm_execution_layer::ZKVMExecutionLayerConfig::default());
+        self
+    }
+
     pub fn with_genesis_state_builder(
         mut self,
         f: impl FnOnce(InteropGenesisBuilder<E>) -> InteropGenesisBuilder<E>,
@@ -569,6 +578,12 @@ where
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config)
             .rng(Box::new(StdRng::seed_from_u64(42)));
+
+        builder = if let Some(zkvm_config) = self.zkvm_execution_layer_config {
+            builder.zkvm_execution_layer_config(Some(zkvm_config))
+        } else {
+            builder
+        };
 
         builder = if let Some(mutator) = self.initial_mutator {
             mutator(builder)
