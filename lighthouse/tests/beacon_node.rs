@@ -4,6 +4,7 @@ use beacon_node::beacon_chain::chain_config::{
     DEFAULT_RE_ORG_MAX_EPOCHS_SINCE_FINALIZATION, DEFAULT_SYNC_TOLERANCE_EPOCHS,
     DisallowedReOrgOffsets,
 };
+use beacon_node::beacon_chain::custody_context::NodeCustodyType;
 use beacon_node::{
     ClientConfig as Config, beacon_chain::graffiti_calculator::GraffitiOrigin,
     beacon_chain::store::config::DatabaseBackend as BeaconNodeBackend,
@@ -782,20 +783,38 @@ fn network_subscribe_all_data_column_subnets_flag() {
     CommandLineTest::new()
         .flag("subscribe-all-data-column-subnets", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
+        .with_config(|config| {
+            assert_eq!(config.chain.node_custody_type, NodeCustodyType::Supernode)
+        });
 }
 #[test]
 fn network_supernode_flag() {
     CommandLineTest::new()
         .flag("supernode", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.network.subscribe_all_data_column_subnets));
+        .with_config(|config| {
+            assert_eq!(config.chain.node_custody_type, NodeCustodyType::Supernode)
+        });
 }
 #[test]
-fn network_subscribe_all_data_column_subnets_default() {
+fn network_semi_supernode_flag() {
+    CommandLineTest::new()
+        .flag("semi-supernode", None)
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.node_custody_type,
+                NodeCustodyType::SemiSupernode
+            )
+        });
+}
+#[test]
+fn network_node_custody_type_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(!config.network.subscribe_all_data_column_subnets));
+        .with_config(|config| {
+            assert_eq!(config.chain.node_custody_type, NodeCustodyType::Fullnode)
+        });
 }
 #[test]
 fn blob_publication_batches() {
