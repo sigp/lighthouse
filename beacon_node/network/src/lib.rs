@@ -4,6 +4,7 @@ pub mod service;
 mod metrics;
 mod nat;
 mod network_beacon_processor;
+mod partial_data_column_cache;
 mod persisted_dht;
 mod router;
 mod status;

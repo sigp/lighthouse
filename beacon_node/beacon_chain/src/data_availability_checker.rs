@@ -39,7 +39,9 @@ use crate::metrics::{
 };
 use crate::observed_data_sidecars::ObservationStrategy;
 pub use error::{Error as AvailabilityCheckError, ErrorCategory as AvailabilityCheckErrorCategory};
+use types::das_column::{ColumnComparison, DasColumn};
 use types::non_zero_usize::new_non_zero_usize;
+use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
 
 /// The LRU Cache stores `PendingComponents`, which store block and its associated blob data:
 ///
@@ -179,18 +181,40 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             })
     }
 
-    /// Check if the exact data column is in the availability cache.
-    pub fn is_data_column_cached(
+    /// Check if the (potentially partial) data column is in the availability cache.
+    /// Returns None if this is not checkable due to conflicting data, and a vec of missing cells
+    /// otherwise.
+    pub fn determine_missing_cells<C: DasColumn<T::EthSpec>>(
         &self,
         block_root: &Hash256,
-        data_column: &DataColumnSidecar<T::EthSpec>,
-    ) -> bool {
+        data_column: &C,
+    ) -> Option<Vec<usize>> {
+        fn do_compare<E: EthSpec, C1: DasColumn<E>, C2: DasColumn<E>>(
+            cached: &C1,
+            data_column: &C2,
+        ) -> Option<Vec<usize>> {
+            match cached.compare(data_column) {
+                ColumnComparison::Equal => Some(vec![]),
+                ColumnComparison::MissingCells { missing_in_lhs, .. } => Some(missing_in_lhs),
+                _ => None,
+            }
+        }
+
         self.availability_cache
             .peek_pending_components(block_root, |components| {
-                components.is_some_and(|components| {
-                    let cached_column_opt = components.get_cached_data_column(data_column.index);
-                    cached_column_opt.is_some_and(|cached| *cached == *data_column)
-                })
+                if let Some(components) = components {
+                    if let Some(cached_column) =
+                        components.get_cached_data_column(data_column.index())
+                    {
+                        return do_compare(cached_column.as_ref(), data_column);
+                    }
+                    if let Some(cached_column) =
+                        components.get_cached_partial_data_column(data_column.index())
+                    {
+                        return do_compare(cached_column.as_ref(), data_column);
+                    }
+                }
+                Some(data_column.cells_present().collect())
             })
     }
 
@@ -266,8 +290,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(KzgVerifiedCustodyDataColumn::from_asserted_custody)
             .collect::<Vec<_>>();
 
-        self.availability_cache
-            .put_kzg_verified_data_columns(block_root, verified_custody_columns)
+        self.availability_cache.put_kzg_verified_data_columns(
+            block_root,
+            verified_custody_columns,
+            |_| (),
+        )
     }
 
     /// Check if we've cached other blobs for this block. If it completes a set and we also
@@ -306,12 +333,14 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     #[instrument(skip_all, level = "trace")]
     pub fn put_gossip_verified_data_columns<
         O: ObservationStrategy,
-        I: IntoIterator<Item = GossipVerifiedDataColumn<T, O>>,
+        C: DasColumn<T::EthSpec>,
+        I: IntoIterator<Item = GossipVerifiedDataColumn<T, C, O>>,
     >(
         &self,
         block_root: Hash256,
         slot: Slot,
         data_columns: I,
+        publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
@@ -323,20 +352,28 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .map(|c| KzgVerifiedCustodyDataColumn::from_asserted_custody(c.into_inner()))
             .collect::<Vec<_>>();
 
-        self.availability_cache
-            .put_kzg_verified_data_columns(block_root, custody_columns)
+        self.availability_cache.put_kzg_verified_data_columns(
+            block_root,
+            custody_columns,
+            publish_fn,
+        )
     }
 
     #[instrument(skip_all, level = "trace")]
     pub fn put_kzg_verified_custody_data_columns<
-        I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec>>,
+        I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<T::EthSpec, C>>,
+        C: DasColumn<T::EthSpec>,
     >(
         &self,
         block_root: Hash256,
         custody_columns: I,
+        publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache
-            .put_kzg_verified_data_columns(block_root, custody_columns)
+        self.availability_cache.put_kzg_verified_data_columns(
+            block_root,
+            custody_columns,
+            publish_fn,
+        )
     }
 
     /// Check if we have all the blobs for a block. Returns `Availability` which has information
@@ -651,7 +688,11 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         );
 
         self.availability_cache
-            .put_kzg_verified_data_columns(*block_root, data_columns_to_import_and_publish.clone())
+            .put_kzg_verified_data_columns(
+                *block_root,
+                data_columns_to_import_and_publish.clone(),
+                |_| (),
+            )
             .map(|availability| {
                 DataColumnReconstructionResult::Success((
                     availability,
@@ -861,6 +902,20 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
     }
 }
 
+pub struct MergedData<E: EthSpec> {
+    pub completed_columns: Vec<Arc<DataColumnSidecar<E>>>,
+    pub updated_partials: Vec<Arc<VerifiablePartialDataColumn<E>>>,
+}
+
+impl<E: EthSpec> MergedData<E> {
+    pub fn empty() -> Self {
+        MergedData {
+            completed_columns: vec![],
+            updated_partials: vec![],
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -878,7 +933,9 @@ mod test {
     use std::time::Duration;
     use store::HotColdDB;
     use types::data_column_sidecar::DataColumn;
-    use types::{ChainSpec, ColumnIndex, EthSpec, ForkName, MainnetEthSpec, Slot};
+    use types::{
+        ChainSpec, ColumnIndex, DataColumnSidecar, EthSpec, ForkName, MainnetEthSpec, Slot,
+    };
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;
@@ -1011,10 +1068,10 @@ mod test {
         let gossip_columns = data_columns
             .into_iter()
             .filter(|d| requested_columns.contains(&d.index))
-            .map(GossipVerifiedDataColumn::<T>::__new_for_testing)
+            .map(GossipVerifiedDataColumn::<T, DataColumnSidecar<E>>::__new_for_testing)
             .collect::<Vec<_>>();
         da_checker
-            .put_gossip_verified_data_columns(block_root, cgc_change_slot, gossip_columns)
+            .put_gossip_verified_data_columns(block_root, cgc_change_slot, gossip_columns, |_| ())
             .expect("should put gossip custody columns");
 
         // THEN the sampling size for the end slot of the same epoch remains unchanged
@@ -1141,7 +1198,7 @@ mod test {
 
         da_checker
             .availability_cache
-            .put_kzg_verified_data_columns(block_root, custody_columns)
+            .put_kzg_verified_data_columns(block_root, custody_columns, |_| ())
             .expect("should put custody columns");
 
         // Try reconstrucing

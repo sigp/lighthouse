@@ -6,11 +6,12 @@ use crate::{
 };
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
+use beacon_chain::data_availability_checker::MergedData;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
-    GossipVerifiedBlock, NotifyExecutionLayer,
+    GossipVerifiedBlock, IntoExecutionPendingBlock, NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -20,9 +21,12 @@ use beacon_chain::{
     validator_monitor::{get_block_delay_ms, get_slot_delay_ms},
 };
 use beacon_processor::{Work, WorkEvent};
-use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use lighthouse_network::{
+    Client, MessageAcceptance, MessageId, PeerAction, PeerId, PubsubMessage, ReportSource,
+};
 use lighthouse_tracing::{
     SPAN_PROCESS_GOSSIP_BLOB, SPAN_PROCESS_GOSSIP_BLOCK, SPAN_PROCESS_GOSSIP_DATA_COLUMN,
+    SPAN_PROCESS_GOSSIP_PARTIAL_DATA_COLUMN,
 };
 use logging::crit;
 use operation_pool::ReceivedPreCapella;
@@ -51,6 +55,9 @@ use beacon_processor::{
         ReprocessQueueMessage,
     },
 };
+use store::DatabaseBlock;
+use types::das_column::DasColumn;
+use types::partial_data_column_sidecar::{DanglingPartialDataColumn, VerifiablePartialDataColumn};
 
 /// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
 /// messages.
@@ -768,6 +775,227 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    #[instrument(
+        name = SPAN_PROCESS_GOSSIP_PARTIAL_DATA_COLUMN,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(block_root = ?column_sidecar.block_root, index = column_sidecar.index),
+    )]
+    pub async fn process_gossip_dangling_partial_data_column_sidecar(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        _subnet_id: DataColumnSubnetId,
+        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
+        seen_duration: Duration,
+    ) {
+        let partial_column = match self
+            .chain
+            .store
+            .try_get_full_block(&column_sidecar.block_root)
+        {
+            Ok(Some(DatabaseBlock::Full(block))) => {
+                Some(VerifiablePartialDataColumn::from_dangling_and_block(
+                    column_sidecar.clone(),
+                    &block,
+                ))
+            }
+            Ok(Some(DatabaseBlock::Blinded(block))) => {
+                Some(VerifiablePartialDataColumn::from_dangling_and_block(
+                    column_sidecar.clone(),
+                    &block,
+                ))
+            }
+            Ok(None) => None,
+            Err(err) => {
+                warn!(?err, "Error getting block for partial data column");
+                None
+            }
+        };
+
+        match partial_column {
+            Some(Ok(partial_column)) => {
+                debug!("Received partial while having block");
+                self.process_gossip_verifiable_partial_data_column_sidecar(
+                    peer_id,
+                    Arc::new(partial_column),
+                    seen_duration,
+                )
+                .await;
+            }
+            Some(Err(err)) => {
+                warn!(?err, "Error creating verifiable partial data column");
+            }
+            None => {
+                debug!("Received partial while not having block");
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_CACHED_TOTAL,
+                );
+                self.partial_data_column_cache.lock().insert(
+                    column_sidecar,
+                    peer_id,
+                    seen_duration,
+                );
+            }
+        }
+    }
+
+    #[instrument(
+        name = SPAN_PROCESS_GOSSIP_PARTIAL_DATA_COLUMN,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(slot = %column_sidecar.slot(), block_root = ?column_sidecar.block_root(), index = column_sidecar.index()),
+    )]
+    pub async fn process_gossip_verifiable_partial_data_column_sidecar(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        column_sidecar: Arc<VerifiablePartialDataColumn<T::EthSpec>>,
+        seen_duration: Duration,
+    ) {
+        let slot = column_sidecar.slot();
+        let block_root = column_sidecar.block_root();
+        let index = column_sidecar.index();
+        let delay = get_slot_delay_ms(seen_duration, slot, &self.chain.slot_clock);
+        // Log metrics to track delay from other nodes on the network.
+        metrics::observe_duration(
+            &metrics::BEACON_PARTIAL_DATA_COLUMN_GOSSIP_SLOT_START_DELAY_TIME,
+            delay,
+        );
+        match self
+            .chain
+            .verify_partial_data_column_sidecar_for_gossip(column_sidecar.clone())
+        {
+            Ok(gossip_verified_data_column) => {
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_GOSSIP_PARTIAL_DATA_COLUMN_SIDECAR_VERIFIED_TOTAL,
+                );
+
+                debug!(
+                    %slot,
+                    %block_root,
+                    %index,
+                    "Successfully verified gossip partial data column sidecar"
+                );
+
+                // TODO(dknopik): wait for joao's validation result impl
+                //self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // Log metrics to keep track of propagation delay times.
+                if let Some(duration) = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .ok()
+                    .and_then(|now| now.checked_sub(seen_duration))
+                {
+                    metrics::observe_duration(
+                        &metrics::BEACON_PARTIAL_DATA_COLUMN_GOSSIP_PROPAGATION_VERIFICATION_DELAY_TIME,
+                        duration,
+                    );
+                }
+
+                self.process_gossip_verified_data_column(
+                    peer_id,
+                    gossip_verified_data_column,
+                    seen_duration,
+                )
+                .await
+            }
+            Err(err) => {
+                match err {
+                    GossipDataColumnError::PriorKnownUnpublished => {
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Gossip data column already processed via the EL. Accepting the column sidecar without re-processing."
+                        );
+                        // TODO(dknopik): Joao
+                        //self.propagate_validation_result(
+                        //    message_id,
+                        //    peer_id,
+                        //    MessageAcceptance::Accept,
+                        //);
+                    }
+                    // ParentUnknown can't really happen, so we treat it like an internal error
+                    GossipDataColumnError::ParentUnknown { .. }
+                    | GossipDataColumnError::PubkeyCacheTimeout
+                    | GossipDataColumnError::BeaconChainError(_) => {
+                        crit!(
+                            error = ?err,
+                            "Internal error when verifying column sidecar"
+                        )
+                    }
+                    GossipDataColumnError::ProposalSignatureInvalid
+                    | GossipDataColumnError::UnknownValidator(_)
+                    | GossipDataColumnError::ProposerIndexMismatch { .. }
+                    | GossipDataColumnError::IsNotLaterThanParent { .. }
+                    | GossipDataColumnError::InvalidSubnetId { .. }
+                    | GossipDataColumnError::InvalidInclusionProof
+                    | GossipDataColumnError::InvalidKzgProof { .. }
+                    | GossipDataColumnError::UnexpectedDataColumn
+                    | GossipDataColumnError::InvalidColumnIndex(_)
+                    | GossipDataColumnError::MaxBlobsPerBlockExceeded { .. }
+                    | GossipDataColumnError::InconsistentCommitmentsLength { .. }
+                    | GossipDataColumnError::InconsistentProofsLength { .. }
+                    | GossipDataColumnError::NotFinalizedDescendant { .. } => {
+                        debug!(
+                            error = ?err,
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Could not verify column sidecar for gossip. Rejecting the column sidecar"
+                        );
+                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_data_column_low",
+                        );
+                        // TODO(dknopik): Joao
+                        //self.propagate_validation_result(
+                        //    message_id,
+                        //    peer_id,
+                        //    MessageAcceptance::Reject,
+                        //);
+                    }
+                    GossipDataColumnError::PriorKnown { .. } => {
+                        // Data column is available via either the EL or reconstruction.
+                        // Do not penalise the peer.
+                        // Gossip filter should filter any duplicates received after this.
+                        debug!(
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Received already available column sidecar. Ignoring the column sidecar"
+                        )
+                    }
+                    GossipDataColumnError::FutureSlot { .. }
+                    | GossipDataColumnError::PastFinalizedSlot { .. } => {
+                        debug!(
+                            error = ?err,
+                            %slot,
+                            %block_root,
+                            %index,
+                            "Could not verify column sidecar for gossip. Ignoring the column sidecar"
+                        );
+                        // Prevent recurring behaviour by penalizing the peer slightly.
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "gossip_data_column_high",
+                        );
+                        // TODO(dknopik): Joao
+                        //self.propagate_validation_result(
+                        //    message_id,
+                        //    peer_id,
+                        //    MessageAcceptance::Ignore,
+                        //);
+                    }
+                }
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[instrument(
         name = SPAN_PROCESS_GOSSIP_BLOB,
@@ -1014,10 +1242,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
-    async fn process_gossip_verified_data_column(
+    async fn process_gossip_verified_data_column<C: DasColumn<T::EthSpec>>(
         self: &Arc<Self>,
         peer_id: PeerId,
-        verified_data_column: GossipVerifiedDataColumn<T>,
+        verified_data_column: GossipVerifiedDataColumn<T, C>,
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
@@ -1026,9 +1254,45 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let data_column_slot = verified_data_column.slot();
         let data_column_index = verified_data_column.index();
 
+        let cloned_self = self.clone();
+        let data_publish_fn = move |merged_data: MergedData<T::EthSpec>| {
+            debug!(
+                partial = merged_data.updated_partials.len(),
+                full = merged_data.completed_columns.len(),
+                "Sending merged data"
+            );
+            let messages: Vec<_> = merged_data
+                .updated_partials
+                .into_iter()
+                .map(|partial| {
+                    PubsubMessage::PartialDataColumnSidecar(Box::new((
+                        DataColumnSubnetId::from_column_index(
+                            partial.index(),
+                            &cloned_self.chain.spec,
+                        ),
+                        partial.column.clone().into(),
+                    )))
+                })
+                .chain(merged_data.completed_columns.into_iter().flat_map(|full| {
+                    let subnet =
+                        DataColumnSubnetId::from_column_index(full.index, &self.chain.spec);
+                    [
+                        PubsubMessage::PartialDataColumnSidecar(Box::new((
+                            subnet,
+                            (*full).clone().into_partial().column.clone().into(),
+                        ))),
+                        PubsubMessage::DataColumnSidecar(Box::new((subnet, full))),
+                    ]
+                }))
+                .collect();
+            if !messages.is_empty() {
+                cloned_self.send_network_message(NetworkMessage::Publish { messages })
+            }
+        };
+
         let result = self
             .chain
-            .process_gossip_data_columns(vec![verified_data_column], || Ok(()))
+            .process_gossip_data_columns(vec![verified_data_column], || Ok(()), data_publish_fn)
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "data_column");
 
@@ -1166,6 +1430,35 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             Span::current().record("block_root", block_root.to_string());
 
             if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
+                // First, get the partial columns that have been waiting. Do this first in order to gossip them quickly (i guess?) TODO(dknopik): check if good
+                let partials = {
+                    let mut partial_cache = self.partial_data_column_cache.lock();
+                    let partials = partial_cache.get_for_block(block_root);
+                    // Opportunistically clean the cache as we are holding the lock anyway. TODO(dknopik): do somewhere else
+                    partial_cache.clean();
+                    partials
+                };
+
+                for cached_partial in partials {
+                    // TODO(dknopik): Do this in parallel (queueing it maybe)
+                    match VerifiablePartialDataColumn::from_dangling_and_block(
+                        cached_partial.sidecar,
+                        gossip_verified_block.block(),
+                    ) {
+                        Ok(partial_data_column) => {
+                            self.process_gossip_verifiable_partial_data_column_sidecar(
+                                cached_partial.peer_id,
+                                Arc::new(partial_data_column),
+                                cached_partial.seen_duration,
+                            )
+                            .await;
+                        }
+                        Err(err) => {
+                            warn!(?err, "Unable to process cached partial column")
+                        }
+                    }
+                }
+
                 self.process_gossip_verified_block(
                     peer_id,
                     gossip_verified_block,

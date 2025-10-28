@@ -104,11 +104,13 @@ pub mod slot_data;
 pub mod sqlite;
 
 pub mod blob_sidecar;
+pub mod das_column;
 pub mod data_column_custody_group;
 pub mod data_column_sidecar;
 pub mod data_column_subnet_id;
 pub mod light_client_header;
 pub mod non_zero_usize;
+pub mod partial_data_column_sidecar;
 pub mod runtime_fixed_vector;
 pub mod runtime_var_list;
 

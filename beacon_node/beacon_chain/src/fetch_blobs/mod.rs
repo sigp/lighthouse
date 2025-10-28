@@ -17,7 +17,7 @@ use crate::block_verification_types::AsBlock;
 use crate::data_column_verification::{KzgVerifiedCustodyDataColumn, KzgVerifiedDataColumn};
 #[cfg_attr(test, double)]
 use crate::fetch_blobs::fetch_blobs_beacon_adapter::FetchBlobsBeaconAdapter;
-use crate::kzg_utils::blobs_to_data_column_sidecars;
+use crate::kzg_utils::blobs_to_partial_data_columns;
 use crate::observed_block_producers::ProposalKey;
 use crate::validator_monitor::timestamp_now;
 use crate::{
@@ -32,9 +32,11 @@ use mockall_double::double;
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tracing::{Span, debug, instrument, warn};
+use tracing::{Span, debug, instrument};
 use types::blob_sidecar::BlobSidecarError;
+use types::das_column::DasColumn;
 use types::data_column_sidecar::DataColumnSidecarError;
+use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
 use types::{
     BeaconStateError, Blob, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, KzgProofs,
     SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
@@ -47,7 +49,9 @@ use types::{
 pub enum EngineGetBlobsOutput<T: BeaconChainTypes> {
     Blobs(Vec<KzgVerifiedBlob<T::EthSpec>>),
     /// A filtered list of custody data columns to be imported into the `DataAvailabilityChecker`.
-    CustodyColumns(Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>),
+    CustodyColumns(
+        Vec<KzgVerifiedCustodyDataColumn<T::EthSpec, VerifiablePartialDataColumn<T::EthSpec>>>,
+    ),
 }
 
 #[derive(Debug)]
@@ -246,9 +250,10 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     let num_expected_blobs = versioned_hashes.len();
 
     metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
+    // TODO(dknopik): implement fallback to get_blobs_v2
     debug!(num_expected_blobs, "Fetching blobs from the EL");
     let response = chain_adapter
-        .get_blobs_v2(versioned_hashes)
+        .get_blobs_v3(versioned_hashes)
         .await
         .inspect_err(|_| {
             inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
@@ -260,30 +265,15 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         return Ok(None);
     };
 
-    let (blobs, proofs): (Vec<_>, Vec<_>) = blobs_and_proofs
+    let blobs_and_proofs: Vec<_> = blobs_and_proofs
         .into_iter()
-        .map(|blob_and_proof| {
-            let BlobAndProofV2 { blob, proofs } = blob_and_proof;
-            (blob, proofs)
-        })
-        .unzip();
+        .map(|blob_and_proof| blob_and_proof.map(|BlobAndProofV2 { blob, proofs }| (blob, proofs)))
+        .collect();
 
-    let num_fetched_blobs = blobs.len();
+    let num_fetched_blobs = blobs_and_proofs.len();
     metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
 
-    if num_fetched_blobs != num_expected_blobs {
-        // This scenario is not supposed to happen if the EL is spec compliant.
-        // It should either return all requested blobs or none, but NOT partial responses.
-        // If we attempt to compute columns with partial blobs, we'd end up with invalid columns.
-        warn!(
-            num_fetched_blobs,
-            num_expected_blobs, "The EL did not return all requested blobs"
-        );
-        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
-        return Ok(None);
-    }
-
-    debug!(num_fetched_blobs, "All expected blobs received from the EL");
+    debug!(num_fetched_blobs, "Blobs received from the EL");
     inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
 
     if chain_adapter.fork_choice_contains_block(&block_root) {
@@ -300,8 +290,7 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         &chain_adapter,
         block_root,
         block.clone(),
-        blobs,
-        proofs,
+        blobs_and_proofs,
         custody_columns_indices,
     )
     .await?;
@@ -337,10 +326,12 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     chain_adapter: &Arc<FetchBlobsBeaconAdapter<T>>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    blobs: Vec<Blob<T::EthSpec>>,
-    proofs: Vec<KzgProofs<T::EthSpec>>,
+    blobs_and_proofs: Vec<Option<(Blob<T::EthSpec>, KzgProofs<T::EthSpec>)>>,
     custody_columns_indices: &[ColumnIndex],
-) -> Result<Vec<KzgVerifiedCustodyDataColumn<T::EthSpec>>, FetchEngineBlobError> {
+) -> Result<
+    Vec<KzgVerifiedCustodyDataColumn<T::EthSpec, VerifiablePartialDataColumn<T::EthSpec>>>,
+    FetchEngineBlobError,
+> {
     let kzg = chain_adapter.kzg().clone();
     let spec = chain_adapter.spec().clone();
     let chain_adapter_cloned = chain_adapter.clone();
@@ -353,13 +344,19 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                 let _guard = current_span.enter();
                 let mut timer = metrics::start_timer_vec(
                     &metrics::DATA_COLUMN_SIDECAR_COMPUTATION,
-                    &[&blobs.len().to_string()],
+                    &[&blobs_and_proofs.len().to_string()],
                 );
 
-                let blob_refs = blobs.iter().collect::<Vec<_>>();
-                let cell_proofs = proofs.into_iter().flatten().collect();
+                let blob_and_cell_refs = blobs_and_proofs
+                    .iter()
+                    .map(|option| {
+                        option
+                            .as_ref()
+                            .map(|(blob, proofs)| (blob, proofs.as_ref()))
+                    })
+                    .collect::<Vec<_>>();
                 let data_columns_result =
-                    blobs_to_data_column_sidecars(&blob_refs, cell_proofs, &block, &kzg, &spec)
+                    blobs_to_partial_data_columns(blob_and_cell_refs, &block, &kzg, &spec)
                         .discard_timer_on_break(&mut timer);
                 drop(timer);
 
@@ -370,7 +367,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map(|data_columns| {
                         data_columns
                             .into_iter()
-                            .filter(|col| custody_columns_indices.contains(&col.index))
+                            .filter(|col| custody_columns_indices.contains(&col.index()))
                             .map(|col| {
                                 KzgVerifiedCustodyDataColumn::from_asserted_custody(
                                     KzgVerifiedDataColumn::from_execution_verified(col),

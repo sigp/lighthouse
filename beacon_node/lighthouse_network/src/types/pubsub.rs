@@ -1,14 +1,17 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::TopicHash;
+use crate::types::partial::PartialDataColumnSidecarMessage;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use crate::{Gossipsub, TopicHash};
+use gossipsub::{IdentTopic, PublishError};
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
+use types::partial_data_column_sidecar::{DanglingPartialDataColumn, PartialDataColumnSidecar};
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName, Hash256,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
@@ -26,6 +29,8 @@ pub enum PubsubMessage<E: EthSpec> {
     BlobSidecar(Box<(u64, Arc<BlobSidecar<E>>)>),
     /// Gossipsub message providing notification of a [`DataColumnSidecar`] along with the subnet id where it was received.
     DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
+    /// Gossipsub message providing notification of a [`PartialDataColumnSidecar`] along with the subnet id where it was received.
+    PartialDataColumnSidecar(Box<(DataColumnSubnetId, PartialDataColumnSidecarMessage<E>)>), // TODO(dknopik): review `Arc` situation
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
     /// Gossipsub message providing notification of a `SingleAttestation` with its subnet id.
@@ -134,6 +139,9 @@ impl<E: EthSpec> PubsubMessage<E> {
             }
             PubsubMessage::DataColumnSidecar(column_sidecar_data) => {
                 GossipKind::DataColumnSidecar(column_sidecar_data.0)
+            }
+            PubsubMessage::PartialDataColumnSidecar(partial_column_sidecar_data) => {
+                GossipKind::DataColumnSidecar(partial_column_sidecar_data.0)
             }
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
@@ -392,17 +400,49 @@ impl<E: EthSpec> PubsubMessage<E> {
         }
     }
 
+    pub fn decode_partial(topic: &TopicHash, group: &[u8], data: &[u8]) -> Result<Self, String> {
+        match GossipTopic::decode(topic.as_str()) {
+            Err(_) => Err(format!("Unknown gossipsub topic: {:?}", topic)),
+            Ok(gossip_topic) => match gossip_topic.kind() {
+                GossipKind::DataColumnSidecar(id) => {
+                    let block_root = Hash256::from_ssz_bytes(group)
+                        .map_err(|e| format!("Error decoding group: {:?}", e))?;
+                    let sidecar = PartialDataColumnSidecar::from_ssz_bytes(data)
+                        .map_err(|e| format!("Error decoding sidecar: {:?}", e))?;
+                    let data_column = DanglingPartialDataColumn {
+                        block_root,
+                        // Partial messages are spec'd under the assumption that there is one column per subnet.
+                        index: **id,
+                        sidecar,
+                    };
+                    Ok(Self::PartialDataColumnSidecar(Box::new((
+                        *id,
+                        data_column.into(),
+                    ))))
+                }
+                other => Err(format!("Partial message unsupported for topic: {other}")),
+            },
+        }
+    }
+
     /// Encodes a `PubsubMessage` based on the topic encodings. The first known encoding is used. If
     /// no encoding is known, and error is returned.
-    pub fn encode(&self, _encoding: GossipEncoding) -> Vec<u8> {
+    pub fn publish(
+        &self,
+        gossipsub: &mut Gossipsub,
+        topic: IdentTopic,
+    ) -> Result<(), PublishError> {
         // Currently do not employ encoding strategies based on the topic. All messages are ssz
         // encoded.
         // Also note, that the compression is handled by the `SnappyTransform` struct. Gossipsub will compress the
         // messages for us.
-        match &self {
+        let bytes = match &self {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
             PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::PartialDataColumnSidecar(data) => {
+                return gossipsub.publish_partial(topic, &data.1);
+            }
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
@@ -413,7 +453,8 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::BlsToExecutionChange(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
-        }
+        };
+        gossipsub.publish(topic, bytes).map(|_| ())
     }
 }
 
@@ -437,6 +478,19 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 "DataColumnSidecar: slot: {}, column index: {}",
                 data.1.slot(),
                 data.1.index,
+            ),
+            PubsubMessage::PartialDataColumnSidecar(data) => write!(
+                f,
+                "PartialDataColumnSidecar: group: {}, column index: {}, cells: {}",
+                data.1.partial_column.block_root,
+                data.1.partial_column.block_root,
+                hex::encode(
+                    data.1
+                        .partial_column
+                        .sidecar
+                        .cells_present_bitmap
+                        .as_slice()
+                ),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

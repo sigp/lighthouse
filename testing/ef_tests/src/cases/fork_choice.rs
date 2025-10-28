@@ -530,11 +530,12 @@ impl<E: EthSpec> Tester<E> {
                 })
                 .collect();
 
-            let result = self.block_on_dangerous(
-                self.harness
-                    .chain
-                    .process_gossip_data_columns(gossip_verified_data_columns, || Ok(())),
-            )?;
+            let result =
+                self.block_on_dangerous(self.harness.chain.process_gossip_data_columns(
+                    gossip_verified_data_columns,
+                    || Ok(()),
+                    |_| (),
+                ))?;
             if valid {
                 assert!(result.is_ok());
             }

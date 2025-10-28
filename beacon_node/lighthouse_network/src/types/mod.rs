@@ -1,4 +1,5 @@
 mod globals;
+mod partial;
 mod pubsub;
 mod subnet;
 mod topics;

@@ -1662,6 +1662,27 @@ pub static DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histog
             "Full runtime of data column sidecars gossip verification",
         )
     });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_REQUESTS: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_partial_data_column_sidecar_processing_requests_total",
+            "Count of all partial data column sidecars submitted for processing",
+        )
+    });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_PROCESSING_SUCCESSES: LazyLock<Result<IntCounter>> =
+    LazyLock::new(|| {
+        try_create_int_counter(
+            "beacon_partial_data_column_sidecar_processing_successes_total",
+            "Number of partial data column sidecars verified for gossip",
+        )
+    });
+pub static PARTIAL_DATA_COLUMN_SIDECAR_GOSSIP_VERIFICATION_TIMES: LazyLock<Result<Histogram>> =
+    LazyLock::new(|| {
+        try_create_histogram(
+            "beacon_partial_data_column_sidecar_gossip_verification_seconds",
+            "Full runtime of partial data column sidecars gossip verification",
+        )
+    });
 
 pub static BLOBS_FROM_EL_HIT_TOTAL: LazyLock<Result<IntCounter>> = LazyLock::new(|| {
     try_create_int_counter(

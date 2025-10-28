@@ -29,8 +29,9 @@ use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
-    DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName, FullPayload,
-    FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName,
+    FullPayload, FullPayloadBellatrix, Hash256, KzgProofs, SignedBeaconBlock,
+    SignedBlindedBeaconBlock,
 };
 use warp::http::StatusCode;
 use warp::{Rejection, Reply, reply::Response};
@@ -247,7 +248,8 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
             // Importing the columns could trigger block import and network publication in the case
             // where the block was already seen on gossip.
             if let Err(e) =
-                Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn)).await
+                Box::pin(chain.process_gossip_data_columns(sampling_columns, publish_fn, |_| ()))
+                    .await
             {
                 let msg = format!("Invalid data column: {e}");
                 return if let BroadcastValidation::Gossip = validation_level {
@@ -347,7 +349,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
 type BuildDataSidecarTaskResult<T> = Result<
     (
         Vec<Option<GossipVerifiedBlob<T>>>,
-        Vec<GossipVerifiedDataColumn<T>>,
+        Vec<GossipVerifiedDataColumn<T, DataColumnSidecar<<T as BeaconChainTypes>::EthSpec>>>,
     ),
     Rejection,
 >;
@@ -405,7 +407,7 @@ fn build_data_columns<T: BeaconChainTypes>(
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
     kzg_cell_proofs: KzgProofs<T::EthSpec>,
-) -> Result<Vec<GossipVerifiedDataColumn<T>>, Rejection> {
+) -> Result<Vec<GossipVerifiedDataColumn<T, DataColumnSidecar<T::EthSpec>>>, Rejection> {
     let slot = block.slot();
     let data_column_sidecars =
         build_blob_data_column_sidecars(chain, block, blobs, kzg_cell_proofs).map_err(|e| {
@@ -499,7 +501,7 @@ fn publish_blob_sidecars<T: BeaconChainTypes>(
 
 fn publish_column_sidecars<T: BeaconChainTypes>(
     sender_clone: &UnboundedSender<NetworkMessage<T::EthSpec>>,
-    data_column_sidecars: &[GossipVerifiedDataColumn<T>],
+    data_column_sidecars: &[GossipVerifiedDataColumn<T, DataColumnSidecar<T::EthSpec>>],
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError> {
     let malicious_withhold_count = chain.config.malicious_withhold_count;

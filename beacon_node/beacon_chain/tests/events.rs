@@ -79,7 +79,7 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
 
     let _ = harness
         .chain
-        .process_gossip_data_columns(vec![gossip_verified_data_column], || Ok(()))
+        .process_gossip_data_columns(vec![gossip_verified_data_column], || Ok(()), |_| ())
         .await
         .unwrap();
 

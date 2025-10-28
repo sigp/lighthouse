@@ -12,6 +12,7 @@ pub const SPAN_PUBLISH_BLOCK: &str = "publish_block";
 pub const SPAN_PENDING_COMPONENTS: &str = "pending_components";
 
 /// Gossip methods root spans
+pub const SPAN_PROCESS_GOSSIP_PARTIAL_DATA_COLUMN: &str = "process_gossip_partial_data_column";
 pub const SPAN_PROCESS_GOSSIP_DATA_COLUMN: &str = "process_gossip_data_column";
 pub const SPAN_PROCESS_GOSSIP_BLOB: &str = "process_gossip_blob";
 pub const SPAN_PROCESS_GOSSIP_BLOCK: &str = "process_gossip_block";

@@ -22,7 +22,7 @@ use crate::{Enr, NetworkGlobals, PubsubMessage, TopicHash, metrics};
 use api_types::{AppRequestId, Response};
 use futures::stream::StreamExt;
 use gossipsub::{
-    IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
+    Event, IdentTopic as Topic, MessageAcceptance, MessageAuthenticity, MessageId, PublishError,
     TopicScoreParams,
 };
 use gossipsub_scoring_parameters::{PeerScoreSettings, lighthouse_gossip_thresholds};
@@ -805,9 +805,10 @@ impl<E: EthSpec> Network<E> {
             .write()
             .insert(topic.clone());
 
+        let partial = topic.kind().supports_partial_messages();
         let topic: Topic = topic.into();
 
-        match self.gossipsub_mut().subscribe(&topic) {
+        match self.gossipsub_mut().subscribe(&topic, partial) {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
@@ -838,11 +839,8 @@ impl<E: EthSpec> Network<E> {
     pub fn publish(&mut self, messages: Vec<PubsubMessage<E>>) {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
-                let message_data = message.encode(GossipEncoding::default());
-                if let Err(e) = self
-                    .gossipsub_mut()
-                    .publish(Topic::from(topic.clone()), message_data.clone())
-                {
+                let result = message.publish(self.gossipsub_mut(), topic.clone().into());
+                if let Err(e) = result {
                     match e {
                         PublishError::Duplicate => {
                             debug!(
@@ -880,7 +878,8 @@ impl<E: EthSpec> Network<E> {
                     }
 
                     if let PublishError::NoPeersSubscribedToTopic = e {
-                        self.gossip_cache.insert(topic, message_data);
+                        // TODO(dknopik): fix gossip cache
+                        //self.gossip_cache.insert(gossip_topic, message);
                     }
                 }
             }
@@ -1288,6 +1287,44 @@ impl<E: EthSpec> Network<E> {
                             topic: gs_msg.topic,
                             message: msg,
                         });
+                    }
+                }
+            }
+            Event::Partial {
+                topic_id,
+                propagation_source,
+                group_id,
+                message,
+                metadata: _,
+            } => {
+                // TODO(dknopik): take a look at the metadata and publish if we have something for them
+                // maybe by reusing the gossip cache?!
+
+                if let Some(message) = message {
+                    match PubsubMessage::decode_partial(&topic_id, &group_id, &message) {
+                        Err(error) => {
+                            debug!(
+                                topic = ?topic_id,
+                                error,
+                                "Could not decode gossipsub partial message"
+                            );
+                            //reject the message
+                            // TODO(dknopik): implement when ready in libp2p
+                            //self.gossipsub_mut().report_message_validation_result(
+                            //    &todo!(),
+                            //    &propagation_source,
+                            //    MessageAcceptance::Reject,
+                            //);
+                        }
+                        Ok(message) => {
+                            // Notify the network
+                            return Some(NetworkEvent::PubsubMessage {
+                                id: MessageId::new(&[]), // TODO(dknopik): waht to send
+                                source: propagation_source,
+                                topic: topic_id,
+                                message,
+                            });
+                        }
                     }
                 }
             }
@@ -1764,7 +1801,10 @@ impl<E: EthSpec> Network<E> {
 
     fn inject_upnp_event(&mut self, event: libp2p::upnp::Event) {
         match event {
-            libp2p::upnp::Event::NewExternalAddr(addr) => {
+            libp2p::upnp::Event::NewExternalAddr {
+                external_addr: addr,
+                ..
+            } => {
                 info!(%addr, "UPnP route established");
                 let mut iter = addr.iter();
                 let is_ip6 = {
@@ -1794,7 +1834,7 @@ impl<E: EthSpec> Network<E> {
                     }
                 }
             }
-            libp2p::upnp::Event::ExpiredExternalAddr(_) => {}
+            libp2p::upnp::Event::ExpiredExternalAddr { .. } => {}
             libp2p::upnp::Event::GatewayNotFound => {
                 info!("UPnP not available");
             }

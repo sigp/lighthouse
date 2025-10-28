@@ -1,3 +1,4 @@
+use crate::partial_data_column_cache::PartialDataColumnCache;
 use crate::sync::manager::BlockProcessType;
 use crate::{service::NetworkMessage, sync::manager::SyncMessage};
 use beacon_chain::blob_verification::{GossipBlobError, observe_gossip_blob};
@@ -11,6 +12,7 @@ use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
 };
+use futures::FutureExt;
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
@@ -21,6 +23,7 @@ use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, LightClientBootstrapRequest, StatusMessage},
 };
+use parking_lot::Mutex;
 use rand::prelude::SliceRandom;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,6 +31,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc::{self, error::TrySendError};
 use tracing::{debug, error, instrument, trace, warn};
+use types::partial_data_column_sidecar::DanglingPartialDataColumn;
 use types::*;
 
 pub use sync_methods::ChainSegmentProcessId;
@@ -55,6 +59,7 @@ pub enum InvalidBlockStorage {
 pub struct NetworkBeaconProcessor<T: BeaconChainTypes> {
     pub beacon_processor_send: BeaconProcessorSend<T::EthSpec>,
     pub duplicate_cache: DuplicateCache,
+    pub partial_data_column_cache: Mutex<PartialDataColumnCache<T::EthSpec>>,
     pub chain: Arc<BeaconChain<T>>,
     pub network_tx: mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
     pub sync_tx: mpsc::UnboundedSender<SyncMessage<T::EthSpec>>,
@@ -246,6 +251,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::GossipDataColumnSidecar(Box::pin(process_fn)),
+        })
+    }
+
+    /// Create a new `Work` event for some partial data column sidecar.
+    pub fn send_gossip_partial_data_column_sidecar(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        subnet_id: DataColumnSubnetId,
+        column_sidecar: Arc<DanglingPartialDataColumn<T::EthSpec>>,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_dangling_partial_data_column_sidecar(
+                    peer_id,
+                    subnet_id,
+                    column_sidecar,
+                    seen_timestamp,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipPartialDataColumnSidecar(Box::pin(process_fn)),
         })
     }
 
@@ -762,6 +793,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let custody_columns = self.chain.sampling_columns_for_epoch(epoch);
         let self_cloned = self.clone();
+        let block_cloned = block.clone();
         let publish_fn = move |blobs_or_data_column| {
             if publish_blobs {
                 match blobs_or_data_column {
@@ -772,10 +804,33 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                         );
                     }
                     EngineGetBlobsOutput::CustodyColumns(columns) => {
+                        // Gradually publish any full columns
                         self_cloned.publish_data_columns_gradually(
-                            columns.into_iter().map(|c| c.clone_arc()).collect(),
+                            columns
+                                .iter()
+                                .flat_map(|c| {
+                                    c.clone_arc()
+                                        .as_full(Some(&block_cloned))
+                                        .map(|block| Arc::new(block.into_owned()))
+                                })
+                                .collect(),
                             block_root,
                         );
+                        // "Publish" all columns as partial without eager send
+                        self_cloned.send_network_message(NetworkMessage::Publish {
+                            messages: columns
+                                .into_iter()
+                                .map(|c| {
+                                    PubsubMessage::PartialDataColumnSidecar(Box::new((
+                                        DataColumnSubnetId::from_column_index(
+                                            c.index(),
+                                            &self_cloned.chain.spec,
+                                        ),
+                                        c.into_partial().into_inner().column.clone().into(),
+                                    )))
+                                })
+                                .collect(),
+                        })
                     }
                 };
             }
@@ -1036,6 +1091,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     }
 }
 
+use types::das_column::DasColumn;
 #[cfg(test)]
 use {
     beacon_chain::builder::Witness, beacon_processor::BeaconProcessorChannels,
@@ -1068,6 +1124,7 @@ impl<E: EthSpec> NetworkBeaconProcessor<TestBeaconChainType<E>> {
         let network_beacon_processor = Self {
             beacon_processor_send: beacon_processor_tx,
             duplicate_cache: DuplicateCache::default(),
+            partial_data_column_cache: Mutex::new(PartialDataColumnCache::new()),
             chain,
             network_tx,
             sync_tx,

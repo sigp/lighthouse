@@ -15,10 +15,12 @@ use std::iter;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tracing::{debug, instrument};
+use types::das_column::DasColumn;
 use types::data_column_sidecar::ColumnIndex;
+use types::partial_data_column_sidecar::{DanglingPartialDataColumn, VerifiablePartialDataColumn};
 use types::{
     BeaconStateError, ChainSpec, DataColumnSidecar, DataColumnSubnetId, EthSpec, Hash256,
-    SignedBeaconBlockHeader, Slot,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// An error occurred while validating a gossip data column.
@@ -187,13 +189,19 @@ impl From<BeaconStateError> for GossipDataColumnError {
 /// A wrapper around a `DataColumnSidecar` that indicates it has been approved for re-gossiping on
 /// the p2p network.
 #[derive(Debug)]
-pub struct GossipVerifiedDataColumn<T: BeaconChainTypes, O: ObservationStrategy = Observe> {
+pub struct GossipVerifiedDataColumn<
+    T: BeaconChainTypes,
+    C: DasColumn<T::EthSpec>,
+    O: ObservationStrategy = Observe,
+> {
     block_root: Hash256,
-    data_column: KzgVerifiedDataColumn<T::EthSpec>,
+    data_column: KzgVerifiedDataColumn<T::EthSpec, C>,
     _phantom: PhantomData<O>,
 }
 
-impl<T: BeaconChainTypes, O: ObservationStrategy> Clone for GossipVerifiedDataColumn<T, O> {
+impl<T: BeaconChainTypes, C: DasColumn<T::EthSpec>, O: ObservationStrategy> Clone
+    for GossipVerifiedDataColumn<T, C, O>
+{
     fn clone(&self) -> Self {
         Self {
             block_root: self.block_root,
@@ -203,23 +211,69 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> Clone for GossipVerifiedDataCo
     }
 }
 
-impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O> {
+impl<T: BeaconChainTypes, C: DasColumn<T::EthSpec>, O: ObservationStrategy>
+    GossipVerifiedDataColumn<T, C, O>
+{
+    /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
+    pub fn __new_for_testing(column_sidecar: Arc<C>) -> Self {
+        Self {
+            block_root: column_sidecar.block_root(),
+            data_column: KzgVerifiedDataColumn::__new_for_testing(column_sidecar),
+            _phantom: Default::default(),
+        }
+    }
+
+    pub fn as_data_column(&self) -> &C {
+        self.data_column.as_data_column()
+    }
+
+    /// This is cheap as we're calling clone on an Arc
+    pub fn clone_data_column(&self) -> Arc<C> {
+        self.data_column.clone_data_column()
+    }
+
+    pub fn block_root(&self) -> Hash256 {
+        self.block_root
+    }
+
+    pub fn slot(&self) -> Slot {
+        self.data_column.data.slot()
+    }
+
+    pub fn index(&self) -> ColumnIndex {
+        self.data_column.index()
+    }
+
+    pub fn signed_block_header(&self) -> Option<&SignedBeaconBlockHeader> {
+        self.data_column.data.signed_block_header()
+    }
+
+    pub fn into_inner(self) -> KzgVerifiedDataColumn<T::EthSpec, C> {
+        self.data_column
+    }
+}
+
+impl<T: BeaconChainTypes, O: ObservationStrategy>
+    GossipVerifiedDataColumn<T, DataColumnSidecar<T::EthSpec>, O>
+{
     pub fn new(
         column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>,
         subnet_id: DataColumnSubnetId,
         chain: &BeaconChain<T>,
     ) -> Result<Self, GossipDataColumnError> {
-        let header = column_sidecar.signed_block_header.clone();
+        let header = column_sidecar.signed_block_header().cloned();
         // We only process slashing info if the gossip verification failed
         // since we do not process the data column any further in that case.
-        validate_data_column_sidecar_for_gossip::<T, O>(column_sidecar, subnet_id, chain).map_err(
-            |e| {
+        validate_data_column_sidecar_for_gossip(column_sidecar, subnet_id, chain).map_err(|e| {
+            if let Some(header) = header {
                 process_block_slash_info::<_, GossipDataColumnError>(
                     chain,
                     BlockSlashInfo::from_early_error_data_column(header, e),
                 )
-            },
-        )
+            } else {
+                e
+            }
+        })
     }
 
     /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for block production ONLY.
@@ -238,9 +292,12 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
         // In this case, we should accept it for gossip propagation.
         verify_is_unknown_sidecar(chain, &column_sidecar)?;
 
+        // TODO(dknopik): is proper handling of none?
         if chain
             .data_availability_checker
-            .is_data_column_cached(&column_sidecar.block_root(), &column_sidecar)
+            .determine_missing_cells(&column_sidecar.block_root(), column_sidecar.as_ref())
+            .ok_or_else(|| GossipDataColumnError::UnexpectedDataColumn)?
+            .is_empty()
         {
             // Observe this data column so we don't process it again.
             if O::observe() {
@@ -255,97 +312,76 @@ impl<T: BeaconChainTypes, O: ObservationStrategy> GossipVerifiedDataColumn<T, O>
             _phantom: Default::default(),
         })
     }
+}
 
-    /// Create a `GossipVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
-    pub fn __new_for_testing(column_sidecar: Arc<DataColumnSidecar<T::EthSpec>>) -> Self {
-        Self {
-            block_root: column_sidecar.block_root(),
-            data_column: KzgVerifiedDataColumn::__new_for_testing(column_sidecar),
-            _phantom: Default::default(),
-        }
-    }
-
-    pub fn as_data_column(&self) -> &DataColumnSidecar<T::EthSpec> {
-        self.data_column.as_data_column()
-    }
-
-    /// This is cheap as we're calling clone on an Arc
-    pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<T::EthSpec>> {
-        self.data_column.clone_data_column()
-    }
-
-    pub fn block_root(&self) -> Hash256 {
-        self.block_root
-    }
-
-    pub fn slot(&self) -> Slot {
-        self.data_column.data.slot()
-    }
-
-    pub fn index(&self) -> ColumnIndex {
-        self.data_column.data.index
-    }
-
-    pub fn signed_block_header(&self) -> SignedBeaconBlockHeader {
-        self.data_column.data.signed_block_header.clone()
-    }
-
-    pub fn into_inner(self) -> KzgVerifiedDataColumn<T::EthSpec> {
-        self.data_column
+impl<T: BeaconChainTypes, O: ObservationStrategy>
+    GossipVerifiedDataColumn<T, VerifiablePartialDataColumn<T::EthSpec>, O>
+{
+    pub fn new_partial(
+        column_sidecar: Arc<VerifiablePartialDataColumn<T::EthSpec>>,
+        chain: &BeaconChain<T>,
+    ) -> Result<Self, GossipDataColumnError> {
+        validate_partial_data_column_sidecar_for_gossip(column_sidecar, chain)
     }
 }
 
 /// Wrapper over a `DataColumnSidecar` for which we have completed kzg verification.
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derive(Debug, Derivative, Clone)]
 #[derivative(PartialEq, Eq)]
-#[ssz(struct_behaviour = "transparent")]
-pub struct KzgVerifiedDataColumn<E: EthSpec> {
-    data: Arc<DataColumnSidecar<E>>,
+pub struct KzgVerifiedDataColumn<E: EthSpec, C: DasColumn<E>> {
+    data: Arc<C>,
+    _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> KzgVerifiedDataColumn<E> {
-    pub fn new(
-        data_column: Arc<DataColumnSidecar<E>>,
-        kzg: &Kzg,
-    ) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
+impl<E: EthSpec, C: DasColumn<E>> KzgVerifiedDataColumn<E, C> {
+    pub fn new(data_column: Arc<C>, kzg: &Kzg) -> Result<Self, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column(data_column, kzg)
     }
 
     /// Mark a data column as KZG verified. Caller must ONLY use this on columns constructed
     /// from EL blobs.
-    pub fn from_execution_verified(data_column: Arc<DataColumnSidecar<E>>) -> Self {
-        Self { data: data_column }
+    pub fn from_execution_verified(data_column: Arc<C>) -> Self {
+        Self {
+            data: data_column,
+            _phantom: PhantomData,
+        }
     }
 
     /// Create a `KzgVerifiedDataColumn` from `DataColumnSidecar` for testing ONLY.
-    pub(crate) fn __new_for_testing(data_column: Arc<DataColumnSidecar<E>>) -> Self {
-        Self { data: data_column }
+    pub(crate) fn __new_for_testing(data_column: Arc<C>) -> Self {
+        Self {
+            data: data_column,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn from_batch_with_scoring(
-        data_columns: Vec<Arc<DataColumnSidecar<E>>>,
+        data_columns: Vec<Arc<C>>,
         kzg: &Kzg,
     ) -> Result<Vec<Self>, (Option<ColumnIndex>, KzgError)> {
         verify_kzg_for_data_column_list(data_columns.iter(), kzg)?;
         Ok(data_columns
             .into_iter()
-            .map(|column| Self { data: column })
+            .map(|column| Self {
+                data: column,
+                _phantom: PhantomData,
+            })
             .collect())
     }
 
-    pub fn to_data_column(self) -> Arc<DataColumnSidecar<E>> {
+    pub fn to_data_column(self) -> Arc<C> {
         self.data
     }
-    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
+    pub fn as_data_column(&self) -> &C {
         &self.data
     }
     /// This is cheap as we're calling clone on an Arc
-    pub fn clone_data_column(&self) -> Arc<DataColumnSidecar<E>> {
+    pub fn clone_data_column(&self) -> Arc<C> {
         self.data.clone()
     }
 
     pub fn index(&self) -> ColumnIndex {
-        self.data.index
+        self.data.index()
     }
 }
 
@@ -383,22 +419,70 @@ impl<E: EthSpec> CustodyDataColumn<E> {
 }
 
 /// Data column that we must custody and has completed kzg verification
-#[derive(Debug, Derivative, Clone, Encode, Decode)]
+#[derive(Debug, Derivative, Clone)]
 #[derivative(PartialEq, Eq)]
-#[ssz(struct_behaviour = "transparent")]
-pub struct KzgVerifiedCustodyDataColumn<E: EthSpec> {
-    data: Arc<DataColumnSidecar<E>>,
+pub struct KzgVerifiedCustodyDataColumn<E: EthSpec, C: DasColumn<E>> {
+    data: Arc<C>,
+    _phantom: PhantomData<E>,
 }
 
-impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
+impl<E: EthSpec, C: DasColumn<E>> KzgVerifiedCustodyDataColumn<E, C> {
     /// Mark a column as custody column. Caller must ensure that our current custody requirements
     /// include this column
-    pub fn from_asserted_custody(kzg_verified: KzgVerifiedDataColumn<E>) -> Self {
+    pub fn from_asserted_custody(kzg_verified: KzgVerifiedDataColumn<E, C>) -> Self {
         Self {
             data: kzg_verified.to_data_column(),
+            _phantom: PhantomData,
         }
     }
 
+    pub fn into_inner(self) -> Arc<C> {
+        self.data
+    }
+
+    pub fn as_data_column(&self) -> &C {
+        &self.data
+    }
+    pub fn clone_arc(&self) -> Arc<C> {
+        self.data.clone()
+    }
+    pub fn index(&self) -> ColumnIndex {
+        self.data.index()
+    }
+
+    // TODO(dknopik): below three functions are baaaad. They clone in far too many cases
+
+    pub fn try_as_full(&self) -> Option<KzgVerifiedCustodyDataColumn<E, DataColumnSidecar<E>>> {
+        self.data
+            .as_full(None)
+            .map(|full| KzgVerifiedCustodyDataColumn {
+                data: Arc::new(full.into_owned()),
+                _phantom: PhantomData,
+            })
+    }
+
+    pub fn try_upgrade_full(
+        &self,
+        block: &SignedBeaconBlock<E>,
+    ) -> Option<KzgVerifiedCustodyDataColumn<E, DataColumnSidecar<E>>> {
+        self.data
+            .as_full(Some(block))
+            .map(|full| KzgVerifiedCustodyDataColumn {
+                data: Arc::new(full.into_owned()),
+                _phantom: PhantomData,
+            })
+    }
+
+    pub fn into_partial(self) -> KzgVerifiedCustodyDataColumn<E, VerifiablePartialDataColumn<E>> {
+        let column = Arc::try_unwrap(self.data).unwrap_or_else(|column| (*column).clone());
+        KzgVerifiedCustodyDataColumn {
+            data: Arc::new(column.into_partial()),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E, DataColumnSidecar<E>> {
     /// Verify a column already marked as custody column
     pub fn new(
         data_column: CustodyDataColumn<E>,
@@ -407,6 +491,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         verify_kzg_for_data_column(data_column.clone_arc(), kzg)?;
         Ok(Self {
             data: data_column.data,
+            _phantom: PhantomData,
         })
     }
 
@@ -414,7 +499,7 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         kzg: &Kzg,
         partial_set_of_columns: &[Self],
         spec: &ChainSpec,
-    ) -> Result<Vec<KzgVerifiedCustodyDataColumn<E>>, KzgError> {
+    ) -> Result<Vec<Self>, KzgError> {
         let all_data_columns = reconstruct_data_columns(
             kzg,
             partial_set_of_columns
@@ -427,23 +512,45 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
         Ok(all_data_columns
             .into_iter()
             .map(|data| {
-                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn { data })
+                KzgVerifiedCustodyDataColumn::from_asserted_custody(KzgVerifiedDataColumn {
+                    data,
+                    _phantom: PhantomData,
+                })
             })
             .collect::<Vec<_>>())
     }
+}
 
-    pub fn into_inner(self) -> Arc<DataColumnSidecar<E>> {
-        self.data
-    }
+impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E, VerifiablePartialDataColumn<E>> {
+    pub fn merge(&mut self, other: &Self) -> bool {
+        let to_be_added = other
+            .data
+            .column
+            .sidecar
+            .cells_present_bitmap
+            .difference(&self.data.column.sidecar.cells_present_bitmap);
+        if to_be_added.is_zero() {
+            return false;
+        };
 
-    pub fn as_data_column(&self) -> &DataColumnSidecar<E> {
-        &self.data
-    }
-    pub fn clone_arc(&self) -> Arc<DataColumnSidecar<E>> {
-        self.data.clone()
-    }
-    pub fn index(&self) -> ColumnIndex {
-        self.data.index
+        let Some(merged) = self.data.column.sidecar.merge(&other.data.column.sidecar) else {
+            return false;
+        };
+
+        *self = Self {
+            data: Arc::new(VerifiablePartialDataColumn {
+                column: Arc::new(DanglingPartialDataColumn {
+                    block_root: self.data.column.block_root,
+                    index: self.data.column.index,
+                    sidecar: merged,
+                }),
+                kzg_commitments: self.data.kzg_commitments.clone(),
+                slot: self.data.slot,
+            }),
+            _phantom: PhantomData,
+        };
+
+        true
     }
 }
 
@@ -451,13 +558,16 @@ impl<E: EthSpec> KzgVerifiedCustodyDataColumn<E> {
 ///
 /// Returns an error if the kzg verification check fails.
 #[instrument(skip_all, level = "debug")]
-pub fn verify_kzg_for_data_column<E: EthSpec>(
-    data_column: Arc<DataColumnSidecar<E>>,
+pub fn verify_kzg_for_data_column<E: EthSpec, C: DasColumn<E>>(
+    data_column: Arc<C>,
     kzg: &Kzg,
-) -> Result<KzgVerifiedDataColumn<E>, (Option<ColumnIndex>, KzgError)> {
+) -> Result<KzgVerifiedDataColumn<E, C>, (Option<ColumnIndex>, KzgError)> {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_SINGLE_TIMES);
     validate_data_columns(kzg, iter::once(&data_column))?;
-    Ok(KzgVerifiedDataColumn { data: data_column })
+    Ok(KzgVerifiedDataColumn {
+        data: data_column,
+        _phantom: PhantomData,
+    })
 }
 
 /// Complete kzg verification for a list of `DataColumnSidecar`s.
@@ -465,12 +575,14 @@ pub fn verify_kzg_for_data_column<E: EthSpec>(
 ///
 /// Note: This function should be preferred over calling `verify_kzg_for_data_column`
 /// in a loop since this function kzg verifies a list of data columns more efficiently.
-pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I>(
+pub fn verify_kzg_for_data_column_list<'a, E: EthSpec, I, A, C>(
     data_column_iter: I,
     kzg: &'a Kzg,
 ) -> Result<(), (Option<ColumnIndex>, KzgError)>
 where
-    I: Iterator<Item = &'a Arc<DataColumnSidecar<E>>> + Clone,
+    I: Iterator<Item = &'a A> + Clone,
+    A: AsRef<C> + 'a,
+    C: DasColumn<E> + 'a,
 {
     let _timer = metrics::start_timer(&metrics::KZG_VERIFICATION_DATA_COLUMN_BATCH_TIMES);
     validate_data_columns(kzg, data_column_iter)?;
@@ -482,7 +594,7 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     data_column: Arc<DataColumnSidecar<T::EthSpec>>,
     subnet: DataColumnSubnetId,
     chain: &BeaconChain<T>,
-) -> Result<GossipVerifiedDataColumn<T, O>, GossipDataColumnError> {
+) -> Result<GossipVerifiedDataColumn<T, DataColumnSidecar<T::EthSpec>, O>, GossipDataColumnError> {
     let column_slot = data_column.slot();
     verify_data_column_sidecar(&data_column, &chain.spec)?;
     verify_index_matches_subnet(&data_column, subnet, &chain.spec)?;
@@ -491,13 +603,16 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     verify_is_unknown_sidecar(chain, &data_column)?;
 
     // Check if the data column is already in the DA checker cache. This happens when data columns
-    // are made available through the `engine_getBlobs` method.  If it exists in the cache, we know
-    // it has already passed the gossip checks, even though this particular instance hasn't been
-    // seen / published on the gossip network yet (passed the `verify_is_unknown_sidecar` check above).
-    // In this case, we should accept it for gossip propagation.
+    // are made available through the `engine_getBlobs` method and/or partial messages have arrived.
+    // If it exists in the cache, we know it has already passed the gossip checks, even though this
+    // particular instance hasn't been seen / published on the gossip network yet (passed the
+    // `verify_is_unknown_sidecar` check above). In this case, we should accept it for gossip
+    // propagation.
     if chain
         .data_availability_checker
-        .is_data_column_cached(&data_column.block_root(), &data_column)
+        .determine_missing_cells(&data_column.block_root(), data_column.as_ref())
+        .ok_or_else(|| GossipDataColumnError::UnexpectedDataColumn)?
+        .is_empty()
     {
         // Observe this data column so we don't process it again.
         if O::observe() {
@@ -527,6 +642,56 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     if O::observe() {
         observe_gossip_data_column(&data_column, chain)?;
     }
+
+    Ok(GossipVerifiedDataColumn {
+        block_root: data_column.block_root(),
+        data_column: kzg_verified_data_column,
+        _phantom: PhantomData,
+    })
+}
+
+#[instrument(skip_all, level = "debug")]
+pub fn validate_partial_data_column_sidecar_for_gossip<
+    T: BeaconChainTypes,
+    O: ObservationStrategy,
+>(
+    data_column: Arc<VerifiablePartialDataColumn<T::EthSpec>>,
+    chain: &BeaconChain<T>,
+) -> Result<
+    GossipVerifiedDataColumn<T, VerifiablePartialDataColumn<T::EthSpec>, O>,
+    GossipDataColumnError,
+> {
+    // TODO(dknopik): This is kinda underspecified, just slap everything in here that *could* apply
+    let column_slot = data_column.slot();
+    verify_sidecar_not_from_future_slot(chain, column_slot)?;
+    verify_slot_greater_than_latest_finalized_slot(chain, column_slot)?;
+
+    let missing_cells = chain
+        .data_availability_checker
+        .determine_missing_cells(&data_column.block_root(), data_column.as_ref())
+        .ok_or_else(|| GossipDataColumnError::UnexpectedDataColumn)?;
+    if missing_cells.is_empty() {
+        return Err(GossipDataColumnError::PriorKnownUnpublished);
+    }
+
+    let filtered_column = Arc::new(
+        data_column
+            .clone_filter(|idx| missing_cells.contains(&idx))
+            .ok_or_else(|| GossipDataColumnError::UnexpectedDataColumn)?,
+    );
+
+    // We do not have to check block related data here, as we create the verifiable column from
+    // gossip accepted block
+
+    let kzg = &chain.kzg;
+    let kzg_verified_data_column = verify_kzg_for_data_column(filtered_column, kzg)
+        .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
+
+    // TODO(dknopik): observe?! I do not think so, as publishing works differently anyway...
+    // Basically we publish if we update our internal view, but this is merged elsewhere
+    //if O::observe() {
+    //    observe_gossip_data_column(&data_column, chain)?;
+    //}
 
     Ok(GossipVerifiedDataColumn {
         block_root: data_column.block_root(),
@@ -851,7 +1016,7 @@ mod test {
         harness.advance_slot();
 
         let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
-            GossipVerifiedDataColumn::<_>::new_for_block_publishing(
+            GossipVerifiedDataColumn::<_, _>::new_for_block_publishing(
                 column_sidecar.into(),
                 &harness.chain,
             )

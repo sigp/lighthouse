@@ -3206,7 +3206,7 @@ where
 
             if !verified_columns.is_empty() {
                 self.chain
-                    .process_gossip_data_columns(verified_columns, || Ok(()))
+                    .process_gossip_data_columns(verified_columns, || Ok(()), |_| ())
                     .await
                     .unwrap();
             }
