@@ -299,7 +299,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             .get_verifier(subnet_id)
             .ok_or_else(|| {
                 warn!(?subnet_id, "No verifier registered for subnet");
-                AvailabilityCheckError::UnsupportedProofSubnet(subnet_id)
+                AvailabilityCheckError::UnsupportedProofID(subnet_id)
             })?;
 
         verifier.verify(proof).map_err(|e| {
@@ -452,7 +452,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 .get_verifier(proof_id)
                 .ok_or_else(|| {
                     warn!(?proof_id, "No verifier registered for proof ID");
-                    AvailabilityCheckError::UnsupportedProofSubnet(proof_id)
+                    AvailabilityCheckError::UnsupportedProofID(proof_id)
                 })?;
 
             // Verify the proof (proof contains block_hash internally)
