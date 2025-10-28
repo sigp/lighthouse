@@ -456,6 +456,7 @@ curl "http://localhost:5052/lighthouse/custody/info" | jq
 ```
 
 ```json
+{
   "earliest_custodied_data_column_slot": "8823040",
   "custody_group_count": "4",
   "custody_columns": [
