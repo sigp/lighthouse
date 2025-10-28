@@ -7,6 +7,7 @@ use beacon_chain::{BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use itertools::{Itertools, process_results};
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
+    ExecutionProofsByRootRequest,
 };
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, ReportSource, Response, SyncInfo};
@@ -14,6 +15,7 @@ use lighthouse_tracing::{
     SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
     SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
     SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST, SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
+    SPAN_HANDLE_EXECUTION_PROOFS_BY_ROOT_REQUEST,
     SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP, SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
     SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE, SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
 };
@@ -360,6 +362,98 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
             ?requested_indices,
             returned = send_blob_count,
             "BlobsByRoot outgoing response processed"
+        );
+
+        Ok(())
+    }
+
+    /// Handle an `ExecutionProofsByRoot` request from the peer.
+    #[instrument(
+        name = SPAN_HANDLE_EXECUTION_PROOFS_BY_ROOT_REQUEST,
+        parent = None,
+        level = "debug",
+        skip_all,
+        fields(
+            peer_id = %peer_id,
+            client = tracing::field::Empty,
+        )
+    )]
+    pub fn handle_execution_proofs_by_root_request(
+        self: Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: ExecutionProofsByRootRequest,
+    ) {
+        let client = self.network_globals.client(&peer_id);
+        Span::current().record("client", field::display(client.kind));
+
+        self.terminate_response_stream(
+            peer_id,
+            inbound_request_id,
+            self.handle_execution_proofs_by_root_request_inner(peer_id, inbound_request_id, request),
+            Response::ExecutionProofsByRoot,
+        );
+    }
+
+    /// Handle an `ExecutionProofsByRoot` request from the peer.
+    fn handle_execution_proofs_by_root_request_inner(
+        &self,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: ExecutionProofsByRootRequest,
+    ) -> Result<(), (RpcErrorResponse, &'static str)> {
+        let block_root = request.block_root;
+        let already_have_set: std::collections::HashSet<_> = request.already_have.iter().copied().collect();
+        let count_needed = request.count_needed as usize;
+
+        // Get all execution proofs we have for this block from the DA checker
+        let available_proofs = match self
+            .chain
+            .data_availability_checker
+            .get_execution_proofs(&block_root)
+        {
+            Some(proofs) => proofs,
+            None => {
+                // No proofs available for this block
+                debug!(
+                    %peer_id,
+                    %block_root,
+                    "No execution proofs available for peer"
+                );
+                return Ok(());
+            }
+        };
+
+        // Filter out proofs the peer already has and send up to count_needed
+        let mut sent_count = 0;
+        for proof in available_proofs {
+            // Skip proofs the peer already has
+            if already_have_set.contains(&proof.proof_id) {
+                continue;
+            }
+
+            // Send the proof
+            self.send_response(
+                peer_id,
+                inbound_request_id,
+                Response::ExecutionProofsByRoot(Some(proof)),
+            );
+
+            sent_count += 1;
+
+            // Stop when we've sent the requested count
+            if sent_count >= count_needed {
+                break;
+            }
+        }
+
+        debug!(
+            %peer_id,
+            %block_root,
+            requested = count_needed,
+            already_have = already_have_set.len(),
+            sent = sent_count,
+            "ExecutionProofsByRoot outgoing response processed"
         );
 
         Ok(())

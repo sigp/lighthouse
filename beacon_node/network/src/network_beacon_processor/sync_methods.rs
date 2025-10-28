@@ -255,6 +255,21 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         Box::pin(process_fn)
     }
 
+    pub fn generate_rpc_execution_proofs_process_fn(
+        self: Arc<Self>,
+        block_root: Hash256,
+        proofs: Vec<Arc<types::ExecutionProof>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> AsyncFn {
+        let process_fn = async move {
+            self.clone()
+                .process_rpc_execution_proofs(block_root, proofs, seen_timestamp, process_type)
+                .await;
+        };
+        Box::pin(process_fn)
+    }
+
     /// Attempt to process a list of blobs received from a direct RPC request.
     #[instrument(
         name = SPAN_PROCESS_RPC_BLOBS,
@@ -883,5 +898,80 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 })
             }
         }
+    }
+
+    /// Process execution proofs received via RPC.
+    pub async fn process_rpc_execution_proofs(
+        self: Arc<NetworkBeaconProcessor<T>>,
+        block_root: Hash256,
+        proofs: Vec<Arc<types::ExecutionProof>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) {
+        // Get slot directly from the first proof. All proofs should be for the same block.
+        let slot = match proofs.first() {
+            Some(proof) => proof.slot,
+            None => {
+                debug!(?block_root, "No execution proofs to process");
+                return;
+            }
+        };
+
+        let proof_ids: Vec<_> = proofs.iter().map(|p| p.proof_id).collect();
+
+        debug!(
+            ?proof_ids,
+            %block_root,
+            %slot,
+            proof_count = proofs.len(),
+            "RPC execution proofs received"
+        );
+
+        if let Ok(current_slot) = self.chain.slot()
+            && current_slot == slot
+        {
+            // let delay = get_slot_delay_ms(seen_timestamp, slot, &self.chain.slot_clock);
+            // TODO(zkproofs): Add dedicated metrics for execution proofs
+        }
+
+        let result = self
+            .chain
+            .process_rpc_execution_proofs(slot, block_root, proofs)
+            .await;
+
+        // TODO(zkproofs): Add dedicated metrics for execution proof processing
+        // register_process_result_metrics(&result, metrics::BlockSource::Rpc, "execution_proofs");
+
+        match &result {
+            Ok(AvailabilityProcessingStatus::Imported(hash)) => {
+                debug!(
+                    result = "imported block with execution proofs",
+                    %slot,
+                    block_hash = %hash,
+                    "Block components retrieved"
+                );
+                self.chain.recompute_head_at_current_slot().await;
+            }
+            Ok(AvailabilityProcessingStatus::MissingComponents(_, _)) => {
+                debug!(
+                    block_hash = %block_root,
+                    %slot,
+                    "Missing components over rpc (still need more proofs or other components)"
+                );
+            }
+            Err(BlockError::DuplicateFullyImported(_)) => {
+                debug!(
+                    block_hash = %block_root,
+                    %slot,
+                    "Execution proofs have already been imported"
+                );
+            }
+            Err(_) => {}
+        }
+
+        self.send_sync_message(SyncMessage::BlockComponentProcessed {
+            process_type,
+            result: result.into(),
+        });
     }
 }

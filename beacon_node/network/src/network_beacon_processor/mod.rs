@@ -14,7 +14,7 @@ use beacon_processor::{
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
     BlobsByRangeRequest, BlobsByRootRequest, DataColumnsByRangeRequest, DataColumnsByRootRequest,
-    LightClientUpdatesByRangeRequest,
+    ExecutionProofsByRootRequest, LightClientUpdatesByRangeRequest,
 };
 use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PubsubMessage,
@@ -248,6 +248,32 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some execution proof.
+    pub fn send_gossip_execution_proof(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_proof: Arc<ExecutionProof>,
+        seen_timestamp: Duration,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = async move {
+            processor
+                .process_gossip_execution_proof(
+                    message_id,
+                    peer_id,
+                    execution_proof,
+                    seen_timestamp,
+                )
+                .await
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::GossipExecutionProof(Box::pin(process_fn)),
+        })
+    }
+
     /// Create a new `Work` event for some sync committee signature.
     pub fn send_gossip_sync_signature(
         self: &Arc<Self>,
@@ -468,6 +494,30 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         })
     }
 
+    /// Create a new `Work` event for some execution proofs. `process_rpc_execution_proofs` reports
+    /// the result back to sync.
+    pub fn send_rpc_execution_proofs(
+        self: &Arc<Self>,
+        block_root: Hash256,
+        proofs: Vec<Arc<ExecutionProof>>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Result<(), Error<T::EthSpec>> {
+        if proofs.is_empty() {
+            return Ok(());
+        }
+        let process_fn = self.clone().generate_rpc_execution_proofs_process_fn(
+            block_root,
+            proofs,
+            seen_timestamp,
+            process_type,
+        );
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::RpcExecutionProofs { process_fn },
+        })
+    }
+
     /// Create a new `Work` event for some custody columns. `process_rpc_custody_columns` reports
     /// the result back to sync.
     pub fn send_rpc_custody_columns(
@@ -609,6 +659,24 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::BlobsByRootsRequest(Box::new(process_fn)),
+        })
+    }
+
+    /// Create a new work event to process `ExecutionProofsByRootRequest`s from the RPC network.
+    pub fn send_execution_proofs_by_roots_request(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        inbound_request_id: InboundRequestId,
+        request: ExecutionProofsByRootRequest,
+    ) -> Result<(), Error<T::EthSpec>> {
+        let processor = self.clone();
+        let process_fn = move || {
+            processor.handle_execution_proofs_by_root_request(peer_id, inbound_request_id, request)
+        };
+
+        self.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::ExecutionProofsByRootsRequest(Box::new(process_fn)),
         })
     }
 

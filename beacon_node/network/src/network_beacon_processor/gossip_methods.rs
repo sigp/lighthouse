@@ -7,6 +7,9 @@ use crate::{
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use beacon_chain::execution_proof_verification::{
+    GossipExecutionProofError, GossipVerifiedExecutionProof,
+};
 use beacon_chain::store::Error;
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
@@ -37,10 +40,10 @@ use store::hot_cold_store::HotColdDBError;
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
-    DataColumnSubnetId, EthSpec, Hash256, IndexedAttestation, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
+    DataColumnSubnetId, EthSpec, ExecutionProof, Hash256, IndexedAttestation,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
+    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -768,6 +771,211 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         }
     }
 
+    /// Process a gossip execution proof.
+    ///
+    /// Validates the execution proof according to the gossip spec and processes it
+    /// through the DataAvailabilityChecker if valid.
+    pub async fn process_gossip_execution_proof(
+        self: &Arc<Self>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        execution_proof: Arc<ExecutionProof>,
+        _seen_timestamp: Duration,
+    ) {
+        let block_root = execution_proof.block_root;
+        let proof_id = execution_proof.proof_id;
+
+        debug!(
+            %peer_id,
+            %proof_id,
+            %block_root,
+            "Received execution proof via gossip"
+        );
+
+        // Verify the execution proof for gossip
+        match self
+            .chain
+            .verify_execution_proof_for_gossip(execution_proof.clone())
+        {
+            Ok(gossip_verified_proof) => {
+                debug!(
+                    %block_root,
+                    subnet_id = %gossip_verified_proof.subnet_id(),
+                    "Successfully verified gossip execution proof"
+                );
+
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // Process the verified proof through DA checker
+                self.process_gossip_verified_execution_proof(
+                    peer_id,
+                    gossip_verified_proof,
+                    _seen_timestamp,
+                )
+                .await
+            }
+            Err(err) => {
+                match err {
+                    GossipExecutionProofError::PriorKnownUnpublished => {
+                        debug!(
+                            %block_root,
+                            %proof_id,
+                            "Gossip execution proof already processed via the EL. Accepting the proof without re-processing."
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Accept,
+                        );
+                    }
+                    GossipExecutionProofError::PriorKnown { block_root, proof_id, .. } => {
+                        // Proof already known via gossip. No penalty, gossip filter should
+                        // filter duplicates.
+                        debug!(
+                            %block_root,
+                            %proof_id,
+                            "Received already known execution proof. Ignoring the proof"
+                        );
+                    }
+                    GossipExecutionProofError::ParentUnknown { parent_root } => {
+                        debug!(
+                            action = "requesting parent",
+                            %block_root,
+                            %parent_root,
+                            "Unknown parent hash for execution proof"
+                        );
+                        // TODO(zkproofs): Implement parent lookup for execution proofs
+                        // This might require creating a new SyncMessage variant
+                        // For now, we just ignore the proof
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    GossipExecutionProofError::BeaconChainError(_) => {
+                        crit!(
+                            error = ?err,
+                            "Internal error when verifying execution proof"
+                        )
+                    }
+                    GossipExecutionProofError::ProofVerificationFailed(ref reason) => {
+                        warn!(
+                            error = ?err,
+                            %block_root,
+                            %proof_id,
+                            %reason,
+                            "Execution proof verification failed. Rejecting the proof"
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_execution_proof_verification_failed",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                    }
+                    GossipExecutionProofError::ProofTooLarge { size, max_size } => {
+                        warn!(
+                            error = ?err,
+                            %block_root,
+                            %proof_id,
+                            %size,
+                            %max_size,
+                            "Execution proof exceeds maximum size. Rejecting the proof"
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_execution_proof_too_large",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                    }
+                    GossipExecutionProofError::BlockNotAvailable { block_root } => {
+                        debug!(
+                            error = ?err,
+                            %block_root,
+                            %proof_id,
+                            "Block for execution proof not yet available. Ignoring the proof"
+                        );
+                        // Block might arrive later, so don't penalize heavily
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    GossipExecutionProofError::NotFinalizedDescendant { block_parent_root } => {
+                        debug!(
+                            error = ?err,
+                            %block_root,
+                            %block_parent_root,
+                            %proof_id,
+                            "Execution proof conflicts with finality. Rejecting the proof"
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_execution_proof_not_finalized_descendant",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Reject,
+                        );
+                    }
+                    GossipExecutionProofError::FutureSlot { message_slot, latest_permissible_slot } => {
+                        debug!(
+                            error = ?err,
+                            %block_root,
+                            %proof_id,
+                            %message_slot,
+                            %latest_permissible_slot,
+                            "Execution proof from future slot. Ignoring the proof"
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::HighToleranceError,
+                            "gossip_execution_proof_future_slot",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                    GossipExecutionProofError::PastFinalizedSlot { proof_slot, finalized_slot } => {
+                        debug!(
+                            error = ?err,
+                            %block_root,
+                            %proof_id,
+                            %proof_slot,
+                            %finalized_slot,
+                            "Execution proof from past finalized slot. Ignoring the proof"
+                        );
+                        self.gossip_penalize_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "gossip_execution_proof_past_finalized",
+                        );
+                        self.propagate_validation_result(
+                            message_id,
+                            peer_id,
+                            MessageAcceptance::Ignore,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[instrument(
         name = SPAN_PROCESS_GOSSIP_BLOB,
@@ -1119,6 +1327,80 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         // If a block is in the da_checker, sync maybe awaiting for an event when block is finally
         // imported. A block can become imported both after processing a block or data column. If a
         // importing a block results in `Imported`, notify. Do not notify of data column errors.
+        if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
+            self.send_sync_message(SyncMessage::GossipBlockProcessResult {
+                block_root,
+                imported: true,
+            });
+        }
+    }
+
+    async fn process_gossip_verified_execution_proof(
+        self: &Arc<Self>,
+        peer_id: PeerId,
+        verified_proof: GossipVerifiedExecutionProof<T>,
+        _seen_duration: Duration,
+    ) {
+        let processing_start_time = Instant::now();
+        let block_root = verified_proof.block_root();
+        let proof_slot = verified_proof.slot();
+        let subnet_id = verified_proof.subnet_id();
+
+        let result = self.chain.process_gossip_execution_proof(verified_proof, || Ok(())).await;
+        register_process_result_metrics(&result, metrics::BlockSource::Gossip, "execution_proof");
+
+        match &result {
+            Ok(availability) => match availability {
+                AvailabilityProcessingStatus::Imported(block_root) => {
+                    info!(
+                        %block_root,
+                        %subnet_id,
+                        "Gossipsub execution proof processed, imported fully available block"
+                    );
+                    self.chain.recompute_head_at_current_slot().await;
+
+                    debug!(
+                        processing_time_ms = processing_start_time.elapsed().as_millis(),
+                        "Execution proof full verification complete"
+                    );
+                }
+                AvailabilityProcessingStatus::MissingComponents(slot, block_root) => {
+                    trace!(
+                        %slot,
+                        %subnet_id,
+                        "Execution proof cached, block still needs more components"
+                    );
+                    debug!(
+                        %block_root,
+                        %proof_slot,
+                        %subnet_id,
+                        "Execution proof cached for pending block"
+                    );
+                }
+            },
+            Err(BlockError::DuplicateFullyImported(_)) => {
+                debug!(
+                    ?block_root,
+                    %subnet_id,
+                    "Ignoring gossip execution proof for already imported block"
+                );
+            }
+            Err(err) => {
+                debug!(
+                    outcome = ?err,
+                    ?block_root,
+                    block_slot = %proof_slot,
+                    %subnet_id,
+                    "Invalid gossip execution proof"
+                );
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "bad_gossip_execution_proof",
+                );
+            }
+        }
+
         if matches!(result, Ok(AvailabilityProcessingStatus::Imported(_))) {
             self.send_sync_message(SyncMessage::GossipBlockProcessResult {
                 block_root,

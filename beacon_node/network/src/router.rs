@@ -24,7 +24,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, trace, warn};
-use types::{BlobSidecar, DataColumnSidecar, EthSpec, ForkContext, SignedBeaconBlock};
+use types::{
+    BlobSidecar, DataColumnSidecar, EthSpec, ExecutionProof, ForkContext, SignedBeaconBlock,
+};
 
 /// Handles messages from the network and routes them to the appropriate service to be handled.
 pub struct Router<T: BeaconChainTypes> {
@@ -272,6 +274,10 @@ impl<T: BeaconChainTypes> Router<T> {
                             request,
                         ),
                 ),
+            RequestType::ExecutionProofsByRoot(request) => self.handle_beacon_processor_send_result(
+                self.network_beacon_processor
+                    .send_execution_proofs_by_roots_request(peer_id, inbound_request_id, request),
+            ),
             _ => {}
         }
     }
@@ -308,6 +314,13 @@ impl<T: BeaconChainTypes> Router<T> {
             }
             Response::DataColumnsByRange(data_column) => {
                 self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
+            }
+            Response::ExecutionProofsByRoot(execution_proof) => {
+                self.on_execution_proofs_by_root_response(
+                    peer_id,
+                    app_request_id,
+                    execution_proof,
+                );
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
@@ -382,6 +395,16 @@ impl<T: BeaconChainTypes> Router<T> {
                             column_sidecar,
                             timestamp_now(),
                         ),
+                )
+            }
+            PubsubMessage::ExecutionProof(execution_proof) => {
+                self.handle_beacon_processor_send_result(
+                    self.network_beacon_processor.send_gossip_execution_proof(
+                        message_id,
+                        peer_id,
+                        execution_proof,
+                        timestamp_now(),
+                    ),
                 )
             }
             PubsubMessage::VoluntaryExit(exit) => {
@@ -666,6 +689,40 @@ impl<T: BeaconChainTypes> Router<T> {
             sync_request_id,
             peer_id,
             blob_sidecar,
+            seen_timestamp: timestamp_now(),
+        });
+    }
+
+    /// Handle an `ExecutionProofsByRoot` response from the peer.
+    pub fn on_execution_proofs_by_root_response(
+        &mut self,
+        peer_id: PeerId,
+        app_request_id: AppRequestId,
+        execution_proof: Option<Arc<ExecutionProof>>,
+    ) {
+        let sync_request_id = match app_request_id {
+            AppRequestId::Sync(sync_id) => match sync_id {
+                id @ SyncRequestId::SingleExecutionProof { .. } => id,
+                other => {
+                    crit!(request = ?other, "ExecutionProofsByRoot response on incorrect request");
+                    return;
+                }
+            },
+            AppRequestId::Router => {
+                crit!(%peer_id, "All ExecutionProofsByRoot requests belong to sync");
+                return;
+            }
+            AppRequestId::Internal => unreachable!("Handled internally"),
+        };
+
+        trace!(
+            %peer_id,
+            "Received ExecutionProofsByRoot Response"
+        );
+        self.send_to_sync(SyncMessage::RpcExecutionProof {
+            sync_request_id,
+            peer_id,
+            execution_proof,
             seen_timestamp: timestamp_now(),
         });
     }
