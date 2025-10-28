@@ -5,7 +5,6 @@ use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
 use crate::*;
 use compare_fields::CompareFields;
-use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};

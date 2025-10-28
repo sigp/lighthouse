@@ -445,7 +445,28 @@ For archive nodes, the `anchor` will be:
 
 indicating that all states with slots `>= 0` are available, i.e., full state history. For more information
 on the specific meanings of these fields see the docs on [Checkpoint
-Sync](./advanced_checkpoint_sync.md#reconstructing-states).
+Sync](./advanced_checkpoint_sync.md#how-to-run-an-archived-node).
+
+## `/lighthouse/custody/info`
+
+Information about data columns custody info.
+
+```bash
+curl "http://localhost:5052/lighthouse/custody/info" | jq
+```
+
+```json
+{
+  "earliest_custodied_data_column_slot": "8823040",
+  "custody_group_count": "4",
+  "custody_columns": [
+    "117",
+    "72",
+    "31",
+    "79"
+  ]
+}
+```
 
 ## `/lighthouse/merge_readiness`
 

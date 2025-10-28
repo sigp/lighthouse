@@ -868,16 +868,16 @@ mod test {
         let state = harness.get_current_state();
         let ((block, _blobs_opt), _state) = harness
             .make_block_with_modifier(state, slot, |block| {
-                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].into();
+                *block.body_mut().blob_kzg_commitments_mut().unwrap() = vec![].try_into().unwrap();
             })
             .await;
 
         let index = 0;
         let column_sidecar = DataColumnSidecar::<E> {
             index,
-            column: vec![].into(),
-            kzg_commitments: vec![].into(),
-            kzg_proofs: vec![].into(),
+            column: vec![].try_into().unwrap(),
+            kzg_commitments: vec![].try_into().unwrap(),
+            kzg_proofs: vec![].try_into().unwrap(),
             signed_block_header: block.signed_block_header(),
             kzg_commitments_inclusion_proof: block
                 .message()
@@ -914,7 +914,9 @@ mod test {
         let ((block, _blobs_opt), _state) = harness
             .make_block_with_modifier(state, slot, |block| {
                 *block.body_mut().blob_kzg_commitments_mut().unwrap() =
-                    vec![preloaded_commitments_single[0]; blob_count].into();
+                    vec![preloaded_commitments_single[0]; blob_count]
+                        .try_into()
+                        .unwrap();
             })
             .await;
 
