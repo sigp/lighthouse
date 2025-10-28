@@ -3262,7 +3262,8 @@ async fn test_import_historical_data_columns_batch() {
             .message()
             .body()
             .blob_kzg_commitments()
-            .unwrap().is_empty()
+            .unwrap()
+            .is_empty()
         {
             let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
             assert!(data_columns.is_some())
