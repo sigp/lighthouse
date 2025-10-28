@@ -98,6 +98,7 @@ pub enum BeaconChainError {
     ObservedAttestersError(ObservedAttestersError),
     ObservedBlockProducersError(ObservedBlockProducersError),
     ObservedDataSidecarsError(ObservedDataSidecarsError),
+    ObservedExecutionProofError(String),
     AttesterCacheError(AttesterCacheError),
     PruningError(PruningError),
     ArithError(ArithError),

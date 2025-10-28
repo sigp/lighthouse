@@ -19,6 +19,7 @@ pub mod canonical_head;
 pub mod chain_config;
 pub mod data_availability_checker;
 pub mod data_column_verification;
+pub mod execution_proof_verification;
 mod early_attester_cache;
 mod errors;
 pub mod events;
@@ -39,6 +40,7 @@ pub mod observed_aggregates;
 mod observed_attesters;
 pub mod observed_block_producers;
 pub mod observed_data_sidecars;
+pub mod observed_execution_proofs;
 pub mod observed_operations;
 mod observed_slashable;
 pub mod persisted_beacon_chain;
@@ -63,7 +65,7 @@ pub use self::beacon_chain::{
     BeaconBlockResponseWrapper, BeaconChain, BeaconChainTypes, BeaconStore, BlockProcessStatus,
     ChainSegmentResult, ForkChoiceError, INVALID_FINALIZED_MERGE_TRANSITION_BLOCK_SHUTDOWN_REASON,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, LightClientProducerEvent, OverrideForkchoiceUpdate,
-    ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    ProduceBlockVerification, ProofGenerationEvent, StateSkipConfig, WhenSlotSkipped,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;
