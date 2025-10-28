@@ -3,17 +3,17 @@ use types::{EthSpec, ExecutionBlockHash, ExecPayload};
 
 type PayloadId = [u8; 8];
 
-pub struct ZkVmEngineApi<E: EthSpec> {
+pub struct ZKVMEngineApi<E: EthSpec> {
     _phantom: std::marker::PhantomData<E>,
 }
 
-impl<E: EthSpec> Default for ZkVmEngineApi<E> {
+impl<E: EthSpec> Default for ZKVMEngineApi<E> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<E: EthSpec> ZkVmEngineApi<E> {
+impl<E: EthSpec> ZKVMEngineApi<E> {
     pub fn new() -> Self {
         Self {
             _phantom: std::marker::PhantomData,
