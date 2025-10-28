@@ -26,46 +26,8 @@ pub use types::*;
 #[cfg(feature = "lighthouse")]
 use crate::lighthouse::BlockReward;
 
-/// An API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Error {
-    Indexed(IndexedErrorMessage),
-    Message(ErrorMessage),
-}
-
-/// An API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct ErrorMessage {
-    pub code: u16,
-    pub message: String,
-    #[serde(default)]
-    pub stacktraces: Vec<String>,
-}
-
-/// An indexed API error serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct IndexedErrorMessage {
-    pub code: u16,
-    pub message: String,
-    pub failures: Vec<Failure>,
-}
-
-/// A single failure in an index of API errors, serializable to JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Failure {
-    pub index: u64,
-    pub message: String,
-}
-
-impl Failure {
-    pub fn new(index: usize, message: String) -> Self {
-        Self {
-            index: index as u64,
-            message,
-        }
-    }
-}
+// Re-export error types from the unified error module
+pub use crate::error::{ErrorMessage, Failure, IndexedErrorMessage, ResponseError as Error};
 
 /// The version of a single API endpoint, e.g. the `v1` in `/eth/v1/beacon/blocks`.
 #[derive(Debug, Clone, Copy, PartialEq)]
