@@ -198,50 +198,6 @@ pub struct QueuedColumnReconstruction {
     pub process_fn: AsyncFn,
 }
 
-impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBatchedAttestation {
-    type Error = WorkEvent<E>;
-
-    fn try_from(event: WorkEvent<E>) -> Result<Self, WorkEvent<E>> {
-        match event {
-            WorkEvent {
-                work:
-                    Work::GossipAttestation {
-                        attestation,
-                        process_individual,
-                        process_batch,
-                    },
-                ..
-            } => Ok(QueuedBatchedAttestation {
-                attestation,
-                process_individual,
-                process_batch,
-            }),
-
-            _ => Err(event),
-        }
-    }
-}
-
-impl<E: EthSpec> TryFrom<Work<E>> for QueuedBatchedAttestation {
-    type Error = Work<E>;
-
-    fn try_from(work: Work<E>) -> Result<Self, Work<E>> {
-        match work {
-            Work::GossipAttestation {
-                attestation,
-                process_individual,
-                process_batch,
-            } => Ok(QueuedBatchedAttestation {
-                attestation,
-                process_individual,
-                process_batch,
-            }),
-
-            _ => Err(work),
-        }
-    }
-}
-
 impl<E: EthSpec> TryFrom<WorkEvent<E>> for QueuedBackfillBatch {
     type Error = WorkEvent<E>;
 
