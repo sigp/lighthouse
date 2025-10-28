@@ -6,9 +6,10 @@ edition = { workspace = true }
 
 [dependencies]
 axum = { workspace = true }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
 http = "1"
 lighthouse_version = { workspace = true }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
