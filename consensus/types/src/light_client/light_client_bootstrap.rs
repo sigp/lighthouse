@@ -162,32 +162,44 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Altair | ForkName::Bellatrix => Self::Altair(LightClientBootstrapAltair {
                 header: LightClientHeaderAltair::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella {
                 header: LightClientHeaderCapella::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
                 header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
                 header: LightClientHeaderElectra::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu {
                 header: LightClientHeaderFulu::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Gloas => Self::Gloas(LightClientBootstrapGloas {
                 header: LightClientHeaderGloas::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
         };
 
@@ -212,32 +224,44 @@ impl<E: EthSpec> LightClientBootstrap<E> {
             ForkName::Altair | ForkName::Bellatrix => Self::Altair(LightClientBootstrapAltair {
                 header: LightClientHeaderAltair::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Capella => Self::Capella(LightClientBootstrapCapella {
                 header: LightClientHeaderCapella::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Deneb => Self::Deneb(LightClientBootstrapDeneb {
                 header: LightClientHeaderDeneb::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Electra => Self::Electra(LightClientBootstrapElectra {
                 header: LightClientHeaderElectra::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Fulu => Self::Fulu(LightClientBootstrapFulu {
                 header: LightClientHeaderFulu::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
             ForkName::Gloas => Self::Gloas(LightClientBootstrapGloas {
                 header: LightClientHeaderGloas::block_to_light_client_header(block)?,
                 current_sync_committee,
-                current_sync_committee_branch: current_sync_committee_branch.into(),
+                current_sync_committee_branch: current_sync_committee_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
             }),
         };
 

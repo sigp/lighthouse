@@ -106,7 +106,7 @@ Once the checkpoint is loaded, Lighthouse will sync forwards to the head of the 
 
 If a validator client is connected to the beacon node it will be able to start its duties as soon as forwards sync completes, which typically takes 1-2 minutes.
 
-> Note: If you have an existing Lighthouse database, you will need to delete the database by using the `--purge-db` flag or manually delete the database with `sudo rm -r /path_to_database/beacon`. If you do use a `--purge-db` flag, once checkpoint sync is complete, you can remove the flag upon a restart.
+> Note: If you have an existing Lighthouse database, you will need to delete the database by using the `--purge-db-force` flag or manually delete the database with `sudo rm -r /path_to_database/beacon`. If you do use a `--purge-db-force` flag, once checkpoint sync is complete, you can remove the flag upon a restart.
 
 > **Security Note**: You should cross-reference the `block_root` and `slot` of the loaded checkpoint
 > against a trusted source like another [public endpoint](https://eth-clients.github.io/checkpoint-sync-endpoints/),

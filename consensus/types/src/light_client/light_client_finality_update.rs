@@ -122,7 +122,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                     finalized_header: LightClientHeaderAltair::block_to_light_client_header(
                         finalized_block,
                     )?,
-                    finality_branch: finality_branch.into(),
+                    finality_branch: finality_branch
+                        .try_into()
+                        .map_err(LightClientError::SszTypesError)?,
                     sync_aggregate,
                     signature_slot,
                 })
@@ -134,7 +136,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderCapella::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
@@ -145,7 +149,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderDeneb::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
@@ -156,7 +162,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderElectra::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
@@ -167,7 +175,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderFulu::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),
@@ -178,7 +188,9 @@ impl<E: EthSpec> LightClientFinalityUpdate<E> {
                 finalized_header: LightClientHeaderGloas::block_to_light_client_header(
                     finalized_block,
                 )?,
-                finality_branch: finality_branch.into(),
+                finality_branch: finality_branch
+                    .try_into()
+                    .map_err(LightClientError::SszTypesError)?,
                 sync_aggregate,
                 signature_slot,
             }),

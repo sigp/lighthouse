@@ -828,7 +828,7 @@ mod test {
         block_verification::PayloadVerificationOutcome,
         block_verification_types::{AsBlock, BlockImportData},
         custody_context::NodeCustodyType,
-        data_availability_checker::STATE_LRU_CAPACITY,
+        data_availability_checker::STATE_LRU_CAPACITY_NON_ZERO,
         test_utils::{BaseHarnessType, BeaconChainHarness, DiskHarnessType},
     };
     use fork_choice::PayloadVerificationStatus;
@@ -842,6 +842,7 @@ mod test {
     use types::{ExecPayload, MinimalEthSpec};
 
     const LOW_VALIDATOR_COUNT: usize = 32;
+    const STATE_LRU_CAPACITY: usize = STATE_LRU_CAPACITY_NON_ZERO.get();
 
     fn get_store_with_spec<E: EthSpec>(
         db_path: &TempDir,

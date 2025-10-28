@@ -1,4 +1,4 @@
-use compare_fields_derive::CompareFields;
+use compare_fields::CompareFields;
 use context_deserialize::context_deserialize;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};

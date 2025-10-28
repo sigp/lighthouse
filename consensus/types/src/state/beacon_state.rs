@@ -2,7 +2,6 @@ use std::{fmt, hash::Hash, mem, sync::Arc};
 
 use bls::{AggregatePublicKey, PublicKeyBytes, Signature};
 use compare_fields::CompareFields;
-use compare_fields_derive::CompareFields;
 use context_deserialize::ContextDeserialize;
 use derivative::Derivative;
 use ethereum_hashing::hash;

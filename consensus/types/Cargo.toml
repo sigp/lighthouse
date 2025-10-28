@@ -29,7 +29,6 @@ alloy-rlp = { version = "0.3.4", features = ["derive"] }
 arbitrary = { workspace = true, features = ["derive"], optional = true }
 bls = { workspace = true }
 compare_fields = { workspace = true }
-compare_fields_derive = { workspace = true }
 context_deserialize = { workspace = true }
 derivative = { workspace = true }
 eth2_interop_keypairs = { path = "../../common/eth2_interop_keypairs" }

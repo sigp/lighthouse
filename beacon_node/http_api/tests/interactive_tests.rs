@@ -2,7 +2,9 @@
 use beacon_chain::{
     ChainConfig,
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
-    test_utils::{AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy},
+    test_utils::{
+        AttestationStrategy, BlockStrategy, LightClientStrategy, SyncCommitteeStrategy, test_spec,
+    },
 };
 use beacon_processor::{Work, WorkEvent, work_reprocessing_queue::ReprocessQueueMessage};
 use eth2::types::ProduceBlockV3Response;
@@ -1045,5 +1047,79 @@ async fn proposer_duties_with_gossip_tolerance() {
     assert_eq!(
         proposer_duties_tolerant_current_epoch,
         proposer_duties_current_epoch
+    );
+}
+
+// Test that a request for next epoch proposer duties suceeds when the current slot clock is within
+// gossip clock disparity (500ms) of the new epoch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lighthouse_custody_info() {
+    let mut spec = test_spec::<E>();
+
+    // Skip pre-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
+
+    // Use a short DA expiry period so we can observe non-zero values for the oldest data column
+    // slot.
+    spec.min_epochs_for_blob_sidecars_requests = 2;
+    spec.min_epochs_for_data_column_sidecars_requests = 2;
+
+    let validator_count = 24;
+
+    let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
+    let harness = &tester.harness;
+    let spec = &harness.spec;
+    let client = &tester.client;
+
+    let num_initial = 2 * E::slots_per_epoch();
+    let num_secondary = 2 * E::slots_per_epoch();
+
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    assert_eq!(harness.chain.slot().unwrap(), num_initial);
+
+    let info = client.get_lighthouse_custody_info().await.unwrap();
+    assert_eq!(info.earliest_custodied_data_column_slot, 0);
+    assert_eq!(info.custody_group_count, spec.custody_requirement);
+    assert_eq!(
+        info.custody_columns.len(),
+        info.custody_group_count as usize
+    );
+
+    // Advance the chain some more to expire some blobs.
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_secondary as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    assert_eq!(harness.chain.slot().unwrap(), num_initial + num_secondary);
+
+    let info = client.get_lighthouse_custody_info().await.unwrap();
+    assert_eq!(
+        info.earliest_custodied_data_column_slot,
+        num_initial + num_secondary
+            - spec.min_epochs_for_data_column_sidecars_requests * E::slots_per_epoch()
+    );
+    assert_eq!(info.custody_group_count, spec.custody_requirement);
+    assert_eq!(
+        info.custody_columns.len(),
+        info.custody_group_count as usize
     );
 }

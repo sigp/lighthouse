@@ -1415,7 +1415,7 @@ async fn proposer_shuffling_changing_with_lookahead() {
 
     let execution_requests = ExecutionRequests::<E> {
         deposits: VariableList::new(vec![deposit_request]).unwrap(),
-        withdrawals: vec![].into(),
+        withdrawals: vec![].try_into().unwrap(),
         consolidations: VariableList::new(vec![consolidation_request]).unwrap(),
     };
 
