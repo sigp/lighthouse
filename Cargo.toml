@@ -19,8 +19,6 @@ members = [
     "boot_node",
     "common/account_utils",
     "common/clap_utils",
-    "common/compare_fields",
-    "common/compare_fields_derive",
     "common/deposit_contract",
     "common/directory",
     "common/eip_3076",
@@ -121,8 +119,7 @@ c-kzg = { version = "2.1", default-features = false }
 cargo_metadata = "0.19"
 clap = { version = "4.5.4", features = ["derive", "cargo", "wrap_help"] }
 clap_utils = { path = "common/clap_utils" }
-compare_fields = { path = "common/compare_fields" }
-compare_fields_derive = { path = "common/compare_fields_derive" }
+compare_fields = "0.1"
 console-subscriber = "0.4"
 context_deserialize = { path = "consensus/context_deserialize/context_deserialize", features = [
     "all",

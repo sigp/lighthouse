@@ -1658,15 +1658,19 @@ dependencies = [
 
 [[package]]
 name = "compare_fields"
-version = "0.2.0"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05162add7c8618791829528194a271dca93f69194d35b19db1ca7fbfb8275278"
 dependencies = [
  "compare_fields_derive",
- "itertools 0.10.5",
+ "itertools 0.14.0",
 ]
 
 [[package]]
 name = "compare_fields_derive"
-version = "0.2.0"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f5ee468b2e568b668e2a686112935e7bbe9a81bf4fa6b9f6fc3410ea45fb7ce"
 dependencies = [
  "quote",
  "syn 1.0.109",
@@ -2539,7 +2543,6 @@ dependencies = [
  "beacon_chain",
  "bls",
  "compare_fields",
- "compare_fields_derive",
  "context_deserialize",
  "derivative",
  "eth2_network_config",
@@ -9903,7 +9906,6 @@ dependencies = [
  "beacon_chain",
  "bls",
  "compare_fields",
- "compare_fields_derive",
  "context_deserialize",
  "criterion",
  "derivative",
