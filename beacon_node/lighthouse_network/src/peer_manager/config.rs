@@ -21,7 +21,7 @@ pub struct Config {
     /// Whether quic is enabled.
     pub quic_enabled: bool,
     /// Whether execution proofs are enabled.
-    pub execution_proof_enabled : bool,
+    pub execution_proof_enabled: bool,
     /// Target number of peers to connect to.
     pub target_peer_count: usize,
 

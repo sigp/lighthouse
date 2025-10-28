@@ -39,7 +39,9 @@ use fnv::FnvHashMap;
 use lighthouse_network::service::api_types::SingleLookupReqId;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
-pub use single_block_lookup::{BlobRequestState, BlockRequestState, CustodyRequestState, ProofRequestState};
+pub use single_block_lookup::{
+    BlobRequestState, BlockRequestState, CustodyRequestState, ProofRequestState,
+};
 use std::collections::hash_map::Entry;
 use std::sync::Arc;
 use std::time::Duration;

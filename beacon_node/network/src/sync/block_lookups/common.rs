@@ -2,7 +2,7 @@ use crate::sync::block_lookups::single_block_lookup::{
     LookupRequestError, SingleBlockLookup, SingleLookupRequestState,
 };
 use crate::sync::block_lookups::{
-    BlobRequestState, BlockRequestState, CustodyRequestState, ProofRequestState, PeerId,
+    BlobRequestState, BlockRequestState, CustodyRequestState, PeerId, ProofRequestState,
 };
 use crate::sync::manager::BlockProcessType;
 use crate::sync::network_context::{LookupRequestResult, SyncNetworkContext};
@@ -227,8 +227,13 @@ impl<T: BeaconChainTypes> RequestState<T> for ProofRequestState {
         _min_proofs: usize,
         cx: &mut SyncNetworkContext<T>,
     ) -> Result<LookupRequestResult, LookupRequestError> {
-        cx.execution_proof_lookup_request(id, lookup_peers, self.block_root, self.min_proofs_required)
-            .map_err(LookupRequestError::SendFailedNetwork)
+        cx.execution_proof_lookup_request(
+            id,
+            lookup_peers,
+            self.block_root,
+            self.min_proofs_required,
+        )
+        .map_err(LookupRequestError::SendFailedNetwork)
     }
 
     fn send_for_processing(
@@ -251,7 +256,8 @@ impl<T: BeaconChainTypes> RequestState<T> for ProofRequestState {
     }
 
     fn request_state_mut(request: &mut SingleBlockLookup<T>) -> Result<&mut Self, &'static str> {
-        request.proof_request
+        request
+            .proof_request
             .as_mut()
             .ok_or("no active proof request")
     }

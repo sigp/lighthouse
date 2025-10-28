@@ -1,7 +1,7 @@
 use super::*;
 use crate::sync::block_lookups::common::ResponseType;
-use lighthouse_network::service::api_types::SyncRequestId;
 use lighthouse_network::rpc::{RPCError, RpcErrorResponse};
+use lighthouse_network::service::api_types::SyncRequestId;
 use types::{ExecutionBlockHash, ExecutionProof, ExecutionProofId, Hash256, Slot};
 
 /// Test successful execution proof fetch and verification
@@ -330,10 +330,7 @@ fn test_proof_lookup_timeout() {
     rig.send_sync_message(SyncMessage::RpcError {
         sync_request_id: SyncRequestId::SingleExecutionProof { id: proof_id },
         peer_id,
-        error: RPCError::ErrorResponse(
-            RpcErrorResponse::ServerError,
-            "timeout".to_string(),
-        ),
+        error: RPCError::ErrorResponse(RpcErrorResponse::ServerError, "timeout".to_string()),
     });
 
     // Should penalize peer for timeout

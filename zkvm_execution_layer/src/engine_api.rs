@@ -1,5 +1,5 @@
-use execution_layer::{PayloadStatus, Error as ExecutionLayerError, BlockProposalContentsType};
-use types::{EthSpec, ExecutionBlockHash, ExecPayload};
+use execution_layer::{BlockProposalContentsType, Error as ExecutionLayerError, PayloadStatus};
+use types::{EthSpec, ExecPayload, ExecutionBlockHash};
 
 type PayloadId = [u8; 8];
 

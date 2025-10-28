@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use types::{execution_proof::DEFAULT_MIN_PROOFS_REQUIRED, ExecutionProofId};
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZKVMExecutionLayerConfig {
     /// Minimum number of proofs required from _different_ proof types (proof_ids)
@@ -88,7 +87,9 @@ impl ZKVMExecutionLayerConfigBuilder {
     /// Build the configuration
     pub fn build(self) -> Result<ZKVMExecutionLayerConfig, String> {
         let config = ZKVMExecutionLayerConfig {
-            min_proofs_required: self.min_proofs_required.unwrap_or(DEFAULT_MIN_PROOFS_REQUIRED),
+            min_proofs_required: self
+                .min_proofs_required
+                .unwrap_or(DEFAULT_MIN_PROOFS_REQUIRED),
             generation_proof_types: self.generation_proof_types,
             proof_cache_size: self.proof_cache_size.unwrap_or(1024),
         };
@@ -164,7 +165,7 @@ mod tests {
 
         let config = ZKVMExecutionLayerConfig::builder()
             .add_generation_proof_type(proof_type_0)
-            .min_proofs_required(2) 
+            .min_proofs_required(2)
             .build();
 
         assert!(config.is_ok());

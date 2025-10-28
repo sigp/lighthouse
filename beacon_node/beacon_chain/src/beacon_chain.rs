@@ -27,13 +27,13 @@ use crate::data_availability_checker::{
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
-use crate::execution_proof_verification::{
-    GossipExecutionProofError, GossipVerifiedExecutionProof,
-};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{NotifyExecutionLayer, PreparePayloadHandle, get_execution_payload};
+use crate::execution_proof_verification::{
+    GossipExecutionProofError, GossipVerifiedExecutionProof,
+};
 use crate::fetch_blobs::EngineGetBlobsOutput;
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
 use crate::graffiti_calculator::GraffitiCalculator;
@@ -133,12 +133,12 @@ use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
-use zkvm_execution_layer::GeneratorRegistry;
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
 use types::payload::BlockProductionVersion;
 use types::*;
+use zkvm_execution_layer::GeneratorRegistry;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -3085,11 +3085,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        self.check_gossip_execution_proof_availability_and_import(
-            execution_proof,
-            publish_fn,
-        )
-        .await
+        self.check_gossip_execution_proof_availability_and_import(execution_proof, publish_fn)
+            .await
     }
 
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was

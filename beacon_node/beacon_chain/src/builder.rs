@@ -718,10 +718,7 @@ where
     }
 
     /// Sets a `Sender` to notify the proof generation service of new blocks.
-    pub fn proof_generation_tx(
-        mut self,
-        sender: UnboundedSender<ProofGenerationEvent<E>>,
-    ) -> Self {
+    pub fn proof_generation_tx(mut self, sender: UnboundedSender<ProofGenerationEvent<E>>) -> Self {
         self.proof_generation_tx = Some(sender);
         self
     }
@@ -996,8 +993,8 @@ where
         };
         debug!(?custody_context, "Loaded persisted custody context");
 
-        let has_execution_layer_and_proof_gen = self.execution_layer.is_some()
-            && self.zkvm_generator_registry.is_some();
+        let has_execution_layer_and_proof_gen =
+            self.execution_layer.is_some() && self.zkvm_generator_registry.is_some();
 
         let beacon_chain = BeaconChain {
             spec: self.spec.clone(),

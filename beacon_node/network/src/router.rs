@@ -274,10 +274,15 @@ impl<T: BeaconChainTypes> Router<T> {
                             request,
                         ),
                 ),
-            RequestType::ExecutionProofsByRoot(request) => self.handle_beacon_processor_send_result(
-                self.network_beacon_processor
-                    .send_execution_proofs_by_roots_request(peer_id, inbound_request_id, request),
-            ),
+            RequestType::ExecutionProofsByRoot(request) => self
+                .handle_beacon_processor_send_result(
+                    self.network_beacon_processor
+                        .send_execution_proofs_by_roots_request(
+                            peer_id,
+                            inbound_request_id,
+                            request,
+                        ),
+                ),
             _ => {}
         }
     }
@@ -316,11 +321,7 @@ impl<T: BeaconChainTypes> Router<T> {
                 self.on_data_columns_by_range_response(peer_id, app_request_id, data_column);
             }
             Response::ExecutionProofsByRoot(execution_proof) => {
-                self.on_execution_proofs_by_root_response(
-                    peer_id,
-                    app_request_id,
-                    execution_proof,
-                );
+                self.on_execution_proofs_by_root_response(peer_id, app_request_id, execution_proof);
             }
             // Light client responses should not be received
             Response::LightClientBootstrap(_)
@@ -397,16 +398,15 @@ impl<T: BeaconChainTypes> Router<T> {
                         ),
                 )
             }
-            PubsubMessage::ExecutionProof(execution_proof) => {
-                self.handle_beacon_processor_send_result(
+            PubsubMessage::ExecutionProof(execution_proof) => self
+                .handle_beacon_processor_send_result(
                     self.network_beacon_processor.send_gossip_execution_proof(
                         message_id,
                         peer_id,
                         execution_proof,
                         timestamp_now(),
                     ),
-                )
-            }
+                ),
             PubsubMessage::VoluntaryExit(exit) => {
                 debug!(%peer_id, "Received a voluntary exit");
                 self.handle_beacon_processor_send_result(

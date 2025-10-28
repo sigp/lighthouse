@@ -17,12 +17,11 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec,
-    ExecutionProof, ForkContext, ForkName, Hash256,
-    LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
-    LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
-    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
-    SignedBeaconBlockGloas,
+    ExecutionProof, ForkContext, ForkName, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList,
+    SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
+    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
+    SignedBeaconBlockFulu, SignedBeaconBlockGloas,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -575,8 +574,9 @@ fn handle_rpc_request<E: EthSpec>(
             let request = ExecutionProofsByRootRequest::from_ssz_bytes(decoded_buffer)
                 .map_err(RPCError::SSZDecodeError)?;
 
-            request.validate(spec)
-                .map_err(|e| RPCError::InvalidData(e))?;
+            request
+                .validate(spec)
+                .map_err(RPCError::InvalidData)?;
 
             Ok(Some(RequestType::ExecutionProofsByRoot(request)))
         }
@@ -927,9 +927,9 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-        DataColumnsByRootIdentifier, EmptyBlock, Epoch, ExecutionProofId,
-        FixedBytesExtended, FullPayload, KzgCommitment, KzgProof, Signature,
-        SignedBeaconBlockHeader, Slot, blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
+        DataColumnsByRootIdentifier, EmptyBlock, Epoch, ExecutionProofId, FixedBytesExtended,
+        FullPayload, KzgCommitment, KzgProof, Signature, SignedBeaconBlockHeader, Slot,
+        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
     };
 
     type Spec = types::MainnetEthSpec;

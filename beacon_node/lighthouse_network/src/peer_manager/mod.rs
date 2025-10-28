@@ -1021,7 +1021,7 @@ impl<E: EthSpec> PeerManager<E> {
         // Check if we have enough zkVM-enabled peers
         // Count peers subscribed to the execution_proof gossip topic
         // TODO(zkproofs): Note that since peers do not advertise whether
-        // they are proof generating, we cannot favour them. This is 
+        // they are proof generating, we cannot favour them. This is
         // fine for optional proofs and mandatory proofs will imply
         // that the builder who is well connected will propagate it
         // to most of the network.

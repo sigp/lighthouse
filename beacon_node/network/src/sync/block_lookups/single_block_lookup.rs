@@ -17,10 +17,7 @@ use store::Hash256;
 use strum::IntoStaticStr;
 use tracing::{Span, debug_span};
 use types::blob_sidecar::FixedBlobSidecarList;
-use types::{
-    DataColumnSidecarList, EthSpec, ExecutionProof, SignedBeaconBlock,
-    Slot,
-};
+use types::{DataColumnSidecarList, EthSpec, ExecutionProof, SignedBeaconBlock, Slot};
 
 // Dedicated enum for LookupResult to force its usage
 #[must_use = "LookupResult must be handled with on_lookup_result"]
@@ -182,10 +179,11 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             ComponentRequests::NotNeeded { .. } => true,
         };
 
-        let proof_processed = self.proof_request
+        let proof_processed = self
+            .proof_request
             .as_ref()
             .map(|request| request.state.is_processed())
-            .unwrap_or(true);  // If no proof request, consider it processed
+            .unwrap_or(true); // If no proof request, consider it processed
 
         block_processed && da_component_processed && proof_processed
     }
@@ -205,16 +203,13 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
             // check if the`block_request_state.state.is_awaiting_event(). However we already
             // checked that above, so `WaitingForBlock => false` is equivalent.
             ComponentRequests::WaitingForBlock => false,
-            ComponentRequests::ActiveBlobRequest(request, _) => {
-                request.state.is_awaiting_event()
-            }
-            ComponentRequests::ActiveCustodyRequest(request) => {
-                request.state.is_awaiting_event()
-            }
+            ComponentRequests::ActiveBlobRequest(request, _) => request.state.is_awaiting_event(),
+            ComponentRequests::ActiveCustodyRequest(request) => request.state.is_awaiting_event(),
             ComponentRequests::NotNeeded { .. } => false,
         };
 
-        let proof_awaiting = self.proof_request
+        let proof_awaiting = self
+            .proof_request
             .as_ref()
             .map(|request| request.state.is_awaiting_event())
             .unwrap_or(false);
@@ -268,9 +263,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
 
                 if cx.chain.should_fetch_execution_proofs(block_epoch) {
                     if let Some(min_proofs) = cx.chain.min_execution_proofs_required() {
-                        self.proof_request = Some(
-                            ProofRequestState::new(self.block_root, min_proofs)
-                        );
+                        self.proof_request =
+                            Some(ProofRequestState::new(self.block_root, min_proofs));
                     }
                 }
             } else {

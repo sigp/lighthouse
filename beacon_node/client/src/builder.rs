@@ -4,12 +4,12 @@ use crate::compute_light_client_updates::{
 };
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
+use beacon_chain::ProofGenerationEvent;
 use beacon_chain::attestation_simulator::start_attestation_simulator_service;
 use beacon_chain::data_availability_checker::start_availability_cache_maintenance_service;
 use beacon_chain::graffiti_calculator::start_engine_version_cache_refresh_service;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
-use beacon_chain::ProofGenerationEvent;
 use beacon_chain::{
     BeaconChain, BeaconChainTypes, MigratorConfig, ServerSentEventHandler,
     builder::{BeaconChainBuilder, Witness},
@@ -21,8 +21,6 @@ use beacon_chain::{Kzg, LightClientProducerEvent};
 use beacon_processor::{BeaconProcessor, BeaconProcessorChannels};
 use beacon_processor::{BeaconProcessorConfig, BeaconProcessorQueueLengths};
 use environment::RuntimeContext;
-use proof_generation_service;
-use zkvm_execution_layer;
 use eth2::{
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
     types::{BlockId, StateId},
@@ -34,6 +32,7 @@ use genesis::{DEFAULT_ETH1_BLOCK_HASH, interop_genesis_state};
 use lighthouse_network::{NetworkGlobals, prometheus_client::registry::Registry};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkSenders, NetworkService};
+use proof_generation_service;
 use rand::SeedableRng;
 use rand::rngs::{OsRng, StdRng};
 use slasher::Slasher;
@@ -50,6 +49,7 @@ use types::{
     BeaconState, BlobSidecarList, ChainSpec, EthSpec, ExecutionBlockHash, Hash256,
     SignedBeaconBlock, test_utils::generate_deterministic_keypairs,
 };
+use zkvm_execution_layer;
 
 /// Interval between polling the eth1 node for genesis information.
 pub const ETH1_GENESIS_UPDATE_INTERVAL_MILLIS: u64 = 7_000;
@@ -91,7 +91,8 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     beacon_processor_config: Option<BeaconProcessorConfig>,
     beacon_processor_channels: Option<BeaconProcessorChannels<T::EthSpec>>,
     light_client_server_rv: Option<Receiver<LightClientProducerEvent<T::EthSpec>>>,
-    proof_generation_rx: Option<tokio::sync::mpsc::UnboundedReceiver<ProofGenerationEvent<T::EthSpec>>>,
+    proof_generation_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<ProofGenerationEvent<T::EthSpec>>>,
     eth_spec_instance: T::EthSpec,
 }
 

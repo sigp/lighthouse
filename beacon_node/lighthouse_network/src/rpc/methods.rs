@@ -17,8 +17,8 @@ use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
     ExecutionProof, ExecutionProofId, ForkContext, Hash256, LightClientBootstrap,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate,
-    RuntimeVariableList, SignedBeaconBlock, Slot, blob_sidecar::BlobSidecar,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList,
+    SignedBeaconBlock, Slot, blob_sidecar::BlobSidecar,
 };
 
 /// Maximum length of error message.
@@ -839,7 +839,10 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             Self::LightClientOptimisticUpdate(r) => Some(r.get_slot()),
             Self::LightClientUpdatesByRange(r) => Some(r.attested_header_slot()),
             // TODO(zkproofs): Change this when we add Slot to ExecutionProof
-            Self::ExecutionProofsByRoot(_) | Self::MetaData(_) | Self::Status(_) | Self::Pong(_) => None,
+            Self::ExecutionProofsByRoot(_)
+            | Self::MetaData(_)
+            | Self::Status(_)
+            | Self::Pong(_) => None,
         }
     }
 }

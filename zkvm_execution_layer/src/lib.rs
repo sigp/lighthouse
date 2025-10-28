@@ -13,9 +13,9 @@ pub mod dummy_proof_verifier;
 /// Engine API implementation for ZK-VM execution
 pub mod engine_api;
 
+pub use config::ZKVMExecutionLayerConfig;
 /// Re-export the main ZK-VM engine API and config
 pub use engine_api::ZKVMEngineApi;
-pub use config::ZKVMExecutionLayerConfig;
 pub use registry_proof_gen::GeneratorRegistry;
 
 #[test]

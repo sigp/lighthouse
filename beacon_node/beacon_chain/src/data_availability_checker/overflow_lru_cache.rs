@@ -355,8 +355,8 @@ impl<E: EthSpec> PendingComponents<E> {
         // Nodes that have EL but DON'T generate proofs are lightweight verifiers and wait for proofs.
         // TODO(zkproofs): This is a technicality mainly because we cannot remove the EL on kurtosis
         // ie each CL is coupled with an EL
-        let needs_execution_proofs = spec.zkvm_min_proofs_required().is_some()
-            && !has_execution_layer_and_proof_gen;
+        let needs_execution_proofs =
+            spec.zkvm_min_proofs_required().is_some() && !has_execution_layer_and_proof_gen;
 
         if needs_execution_proofs {
             let min_proofs = spec.zkvm_min_proofs_required().unwrap();

@@ -1255,9 +1255,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         peer_id: PeerId,
         execution_proof: RpcEvent<Arc<ExecutionProof>>,
     ) {
-        if let Some(resp) = self
-            .network
-            .on_single_execution_proof_response(id, peer_id, execution_proof)
+        if let Some(resp) =
+            self.network
+                .on_single_execution_proof_response(id, peer_id, execution_proof)
         {
             self.block_lookups
                 .on_download_response::<ProofRequestState>(

@@ -94,8 +94,14 @@ mod tests {
         let block_root = Hash256::repeat_byte(99);
 
         // Generate twice
-        let proof1 = generator.generate(slot, &block_hash, &block_root).await.unwrap();
-        let proof2 = generator.generate(slot, &block_hash, &block_root).await.unwrap();
+        let proof1 = generator
+            .generate(slot, &block_hash, &block_root)
+            .await
+            .unwrap();
+        let proof2 = generator
+            .generate(slot, &block_hash, &block_root)
+            .await
+            .unwrap();
 
         // Should be identical
         assert_eq!(proof1.proof_data_slice(), proof2.proof_data_slice());

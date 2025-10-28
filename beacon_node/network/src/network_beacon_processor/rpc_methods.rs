@@ -15,9 +15,9 @@ use lighthouse_tracing::{
     SPAN_HANDLE_BLOBS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOBS_BY_ROOT_REQUEST,
     SPAN_HANDLE_BLOCKS_BY_RANGE_REQUEST, SPAN_HANDLE_BLOCKS_BY_ROOT_REQUEST,
     SPAN_HANDLE_DATA_COLUMNS_BY_RANGE_REQUEST, SPAN_HANDLE_DATA_COLUMNS_BY_ROOT_REQUEST,
-    SPAN_HANDLE_EXECUTION_PROOFS_BY_ROOT_REQUEST,
-    SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP, SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE,
-    SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE, SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
+    SPAN_HANDLE_EXECUTION_PROOFS_BY_ROOT_REQUEST, SPAN_HANDLE_LIGHT_CLIENT_BOOTSTRAP,
+    SPAN_HANDLE_LIGHT_CLIENT_FINALITY_UPDATE, SPAN_HANDLE_LIGHT_CLIENT_OPTIMISTIC_UPDATE,
+    SPAN_HANDLE_LIGHT_CLIENT_UPDATES_BY_RANGE,
 };
 use methods::LightClientUpdatesByRangeRequest;
 use slot_clock::SlotClock;
@@ -415,7 +415,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self.terminate_response_stream(
             peer_id,
             inbound_request_id,
-            self.handle_execution_proofs_by_root_request_inner(peer_id, inbound_request_id, request),
+            self.handle_execution_proofs_by_root_request_inner(
+                peer_id,
+                inbound_request_id,
+                request,
+            ),
             Response::ExecutionProofsByRoot,
         );
     }
@@ -428,7 +432,8 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         request: ExecutionProofsByRootRequest,
     ) -> Result<(), (RpcErrorResponse, &'static str)> {
         let block_root = request.block_root;
-        let already_have_set: std::collections::HashSet<_> = request.already_have.iter().copied().collect();
+        let already_have_set: std::collections::HashSet<_> =
+            request.already_have.iter().copied().collect();
         let count_needed = request.count_needed as usize;
 
         // Get all execution proofs we have for this block from the DA checker

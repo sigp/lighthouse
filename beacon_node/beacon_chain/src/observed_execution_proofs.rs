@@ -4,7 +4,7 @@
 //! This cache prevents DoS attacks where an attacker repeatedly gossips the same execution proof,
 //! forcing expensive zkVM verification operations. Only proofs that have passed basic gossip
 //! validation and proof verification should be added to this cache.
-//! 
+//!
 //! TODO(zkproofs): we want the proofs to be signed and then we can just add them to the cache
 //! once the signature has been verified like `observed_data_sidecars`
 
@@ -68,7 +68,7 @@ impl ObservedExecutionProofs {
     /// Returns `true` if the proof was already observed (duplicate), `false` if it's new.
     ///
     /// Returns an error if the proof's slot is at or below the finalized slot.
-    /// Note: This shouldn't happen because it means we've received a proof for 
+    /// Note: This shouldn't happen because it means we've received a proof for
     /// a finalized block
     pub fn observe_proof(
         &mut self,
@@ -341,19 +341,25 @@ mod tests {
         let proof_id = ExecutionProofId::new(0).unwrap();
 
         // Slot 50 should be rejected (finalized)
-        assert!(cache
-            .is_known(Slot::new(50), Hash256::from_low_u64_be(50), proof_id)
-            .is_err());
+        assert!(
+            cache
+                .is_known(Slot::new(50), Hash256::from_low_u64_be(50), proof_id)
+                .is_err()
+        );
 
         // Slot 51 should still be present (> finalized)
-        assert!(cache
-            .is_known(Slot::new(51), Hash256::from_low_u64_be(51), proof_id)
-            .unwrap());
+        assert!(
+            cache
+                .is_known(Slot::new(51), Hash256::from_low_u64_be(51), proof_id)
+                .unwrap()
+        );
 
         // Slot 52 should still be present
-        assert!(cache
-            .is_known(Slot::new(52), Hash256::from_low_u64_be(52), proof_id)
-            .unwrap());
+        assert!(
+            cache
+                .is_known(Slot::new(52), Hash256::from_low_u64_be(52), proof_id)
+                .unwrap()
+        );
     }
 
     #[test]

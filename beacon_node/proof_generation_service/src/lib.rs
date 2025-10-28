@@ -11,7 +11,7 @@ use types::{EthSpec, ExecPayload, ExecutionProofId, Hash256, SignedBeaconBlock, 
 /// This service receives notifications about newly imported blocks and generates
 /// execution proofs for blocks that don't have proofs yet. This allows any node
 /// (not just the block proposer) to generate and publish proofs.
-/// 
+///
 /// Note: While proofs are optional, we don't have the proposer making proofs
 /// for their own block. The proposer should insert the block into their own
 /// chain, so this should trigger.
@@ -65,8 +65,8 @@ impl<T: BeaconChainTypes> ProofGenerationService<T> {
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) {
         // Check if proofs are required for this epoch
-        // TODO(zkproofs): alternative is to only enable this when 
-        // the zkvm fork is enabled. Check if this is possible 
+        // TODO(zkproofs): alternative is to only enable this when
+        // the zkvm fork is enabled. Check if this is possible
         let block_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         if !self
             .chain
@@ -137,9 +137,16 @@ impl<T: BeaconChainTypes> ProofGenerationService<T> {
     }
 
     /// Check if a proof already exists for this block
-    fn check_if_proof_exists(&self, slot: Slot, block_root: Hash256, proof_id: ExecutionProofId) -> bool {
+    fn check_if_proof_exists(
+        &self,
+        slot: Slot,
+        block_root: Hash256,
+        proof_id: ExecutionProofId,
+    ) -> bool {
         let observed = self.chain.observed_execution_proofs.read();
-        observed.is_known(slot, block_root, proof_id).unwrap_or(false)
+        observed
+            .is_known(slot, block_root, proof_id)
+            .unwrap_or(false)
     }
 
     /// Spawn a task to generate a proof
@@ -204,7 +211,10 @@ impl<T: BeaconChainTypes> ProofGenerationService<T> {
 
                         // Double-check that proof didn't arrive via gossip while we were generating
                         let observed = chain.observed_execution_proofs.read();
-                        if observed.is_known(slot, block_root, proof_id).unwrap_or(false) {
+                        if observed
+                            .is_known(slot, block_root, proof_id)
+                            .unwrap_or(false)
+                        {
                             info!(
                                 slot = ?slot,
                                 proof_id = ?proof_id,
@@ -306,7 +316,10 @@ mod tests {
         let proof_id = ExecutionProofId::new(0).unwrap();
 
         // Should return false for a proof that hasn't been observed
-        assert_eq!(service.check_if_proof_exists(slot, block_root, proof_id), false);
+        assert_eq!(
+            service.check_if_proof_exists(slot, block_root, proof_id),
+            false
+        );
     }
 
     #[tokio::test]
@@ -331,7 +344,10 @@ mod tests {
             .unwrap();
 
         // Should return true for an observed proof
-        assert_eq!(service.check_if_proof_exists(slot, block_root, proof_id), true);
+        assert_eq!(
+            service.check_if_proof_exists(slot, block_root, proof_id),
+            true
+        );
     }
 
     #[tokio::test]
@@ -349,11 +365,13 @@ mod tests {
 
         harness.advance_slot();
 
-        harness.extend_chain(
-            1,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        ).await;
+        harness
+            .extend_chain(
+                1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
 
         let block = harness.chain.head_snapshot().beacon_block.clone();
         let block_root = block.canonical_root();
@@ -365,8 +383,9 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         // Should not have published any proofs because epoch doesn't require them
-        assert!(network_rx.try_recv().is_err(), "Should not publish proofs when epoch doesn't require them");
+        assert!(
+            network_rx.try_recv().is_err(),
+            "Should not publish proofs when epoch doesn't require them"
+        );
     }
-
-
 }

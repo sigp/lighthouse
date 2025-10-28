@@ -211,10 +211,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
 
     /// Get all execution proofs we have for a block.
     /// Used when responding to RPC requests.
-    pub fn get_execution_proofs(
-        &self,
-        block_root: &Hash256,
-    ) -> Option<Vec<Arc<ExecutionProof>>> {
+    pub fn get_execution_proofs(&self, block_root: &Hash256) -> Option<Vec<Arc<ExecutionProof>>> {
         self.availability_cache
             .peek_pending_components(block_root, |components| {
                 components.map(|components| {
@@ -289,17 +286,16 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
             // If the chain spec enables zkVM, the node must have --activate-zkvm flag set.
             return Err(AvailabilityCheckError::ProofVerificationError(
                 "Node is receiving execution proofs but zkVM verification is not enabled. \
-                 Use --activate-zkvm flag to enable proof verification.".to_string()
+                 Use --activate-zkvm flag to enable proof verification."
+                    .to_string(),
             ));
         };
 
         let subnet_id = proof.proof_id;
-        let verifier = verifier_registry
-            .get_verifier(subnet_id)
-            .ok_or_else(|| {
-                warn!(?subnet_id, "No verifier registered for subnet");
-                AvailabilityCheckError::UnsupportedProofID(subnet_id)
-            })?;
+        let verifier = verifier_registry.get_verifier(subnet_id).ok_or_else(|| {
+            warn!(?subnet_id, "No verifier registered for subnet");
+            AvailabilityCheckError::UnsupportedProofID(subnet_id)
+        })?;
 
         verifier.verify(proof).map_err(|e| {
             AvailabilityCheckError::ProofVerificationError(format!(
@@ -418,7 +414,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 components.and_then(|c| c.block.as_ref().and_then(|b| b.execution_payload_hash()))
             })
             .ok_or_else(|| {
-                warn!(?block_root, "Cannot verify proofs: block not in cache or has no execution payload");
+                warn!(
+                    ?block_root,
+                    "Cannot verify proofs: block not in cache or has no execution payload"
+                );
                 AvailabilityCheckError::MissingExecutionPayload
             })?;
 
@@ -447,12 +446,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                 });
             }
 
-            let verifier = verifier_registry
-                .get_verifier(proof_id)
-                .ok_or_else(|| {
-                    warn!(?proof_id, "No verifier registered for proof ID");
-                    AvailabilityCheckError::UnsupportedProofID(proof_id)
-                })?;
+            let verifier = verifier_registry.get_verifier(proof_id).ok_or_else(|| {
+                warn!(?proof_id, "No verifier registered for proof ID");
+                AvailabilityCheckError::UnsupportedProofID(proof_id)
+            })?;
 
             // Verify the proof (proof contains block_hash internally)
             match verifier.verify(&proof) {
@@ -810,9 +807,9 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     ///
     /// Note: This follows the same pattern as blob retention: proofs are required starting from
     /// the zkvm_fork epoch, but only retained for a configured number of epochs.
-    /// 
+    ///
     /// TODO(zkproofs): We don't store proofs forever and we also don't store
-    /// blobs forever, perhaps we should because when the blob disappears, we may not 
+    /// blobs forever, perhaps we should because when the blob disappears, we may not
     /// be able to remake the proof when we put blobs in blocks.
     /// We don't for now because proofs are quite large at the moment.
     ///

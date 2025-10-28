@@ -174,5 +174,4 @@ mod tests {
         let result = ExecutionProof::new(subnet_id, slot, block_hash, block_root, proof_data);
         assert!(result.is_ok());
     }
-
 }

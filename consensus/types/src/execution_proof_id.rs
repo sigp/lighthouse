@@ -5,7 +5,7 @@ use tree_hash::TreeHash;
 
 /// Number of execution proofs
 /// Each proof represents a different zkVM+EL combination
-/// 
+///
 /// TODO(zkproofs): The number 8 is a parameter that we will want to configure in the future
 pub const EXECUTION_PROOF_TYPE_COUNT: u8 = 8;
 

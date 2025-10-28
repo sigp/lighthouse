@@ -29,7 +29,7 @@ pub trait ProofVerifier: Send + Sync {
     /// Verify that the proof is valid.
     ///
     /// TODO(zkproofs): we can probably collapse Ok(false) and Err or make Ok(false) an enum variant
-    /// 
+    ///
     /// Returns:
     /// - Ok(true) if valid,
     /// - Ok(false) if invalid (but well-formed)

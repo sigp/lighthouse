@@ -282,7 +282,7 @@ impl<E: EthSpec> PeerInfo<E> {
 
         // Check if the peer has zkVM enabled (execution proof support)
         if let Some(enr) = self.enr.as_ref() {
-            return enr.zkvm_enabled()
+            return enr.zkvm_enabled();
         }
 
         false

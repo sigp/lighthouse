@@ -16,8 +16,8 @@ use network_utils::enr_ext::{CombinedKeyExt, EnrExt, peer_id_to_node_id};
 
 use alloy_rlp::bytes::Bytes;
 use enr::{
-    ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY,
-    SYNC_COMMITTEE_BITFIELD_ENR_KEY, ZKVM_ENABLED_ENR_KEY,
+    ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY,
+    ZKVM_ENABLED_ENR_KEY,
 };
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;

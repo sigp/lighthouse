@@ -108,7 +108,9 @@ pub struct GossipVerifiedExecutionProof<T: BeaconChainTypes, O: ObservationStrat
     _phantom: PhantomData<(T, O)>,
 }
 
-impl<T: BeaconChainTypes, O: ObservationStrategy> std::fmt::Debug for GossipVerifiedExecutionProof<T, O> {
+impl<T: BeaconChainTypes, O: ObservationStrategy> std::fmt::Debug
+    for GossipVerifiedExecutionProof<T, O>
+{
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GossipVerifiedExecutionProof")
             .field("block_root", &self.block_root)
@@ -327,7 +329,7 @@ fn verify_slot_greater_than_latest_finalized_slot<T: BeaconChainTypes>(
 }
 
 /// Verify the zkVM proof.
-/// 
+///
 /// Note: This is expensive
 fn verify_zkvm_proof<T: BeaconChainTypes>(
     execution_proof: &ExecutionProof,
@@ -395,10 +397,8 @@ mod tests {
         let proof_id = ExecutionProofId::new(0).expect("Valid proof id");
         let proof = create_test_execution_proof(proof_id, future_slot, Hash256::random());
 
-        let result = validate_execution_proof_for_gossip::<_, Observe>(
-            Arc::new(proof),
-            &harness.chain,
-        );
+        let result =
+            validate_execution_proof_for_gossip::<_, Observe>(Arc::new(proof), &harness.chain);
 
         assert!(matches!(
             result.err(),
@@ -420,22 +420,25 @@ mod tests {
         harness.advance_slot();
 
         // Advance chain to create finalized slot
-        harness.extend_chain(
-            32,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        ).await;
+        harness
+            .extend_chain(
+                32,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
 
-        let finalized_slot = harness.finalized_checkpoint().epoch.start_slot(E::slots_per_epoch());
+        let finalized_slot = harness
+            .finalized_checkpoint()
+            .epoch
+            .start_slot(E::slots_per_epoch());
         // Create proof for slot before finalized
         let old_slot = finalized_slot.saturating_sub(1u64);
         let proof_id = ExecutionProofId::new(0).expect("Valid proof id");
         let proof = create_test_execution_proof(proof_id, old_slot, Hash256::random());
 
-        let result = validate_execution_proof_for_gossip::<_, Observe>(
-            Arc::new(proof),
-            &harness.chain,
-        );
+        let result =
+            validate_execution_proof_for_gossip::<_, Observe>(Arc::new(proof), &harness.chain);
 
         assert!(matches!(
             result.err(),
@@ -461,10 +464,8 @@ mod tests {
         let block_root = harness.chain.head_beacon_block_root();
         let proof = create_test_execution_proof(proof_id, current_slot, block_root);
 
-        let result = validate_execution_proof_for_gossip::<_, Observe>(
-            Arc::new(proof),
-            &harness.chain,
-        );
+        let result =
+            validate_execution_proof_for_gossip::<_, Observe>(Arc::new(proof), &harness.chain);
 
         match result {
             Ok(_) => {}
@@ -495,19 +496,19 @@ mod tests {
         let current_slot = harness.get_current_slot();
         let proof_id = ExecutionProofId::new(0).expect("Valid proof id");
         let block_root = Hash256::random();
-        let proof = Arc::new(create_test_execution_proof(proof_id, current_slot, block_root));
+        let proof = Arc::new(create_test_execution_proof(
+            proof_id,
+            current_slot,
+            block_root,
+        ));
 
-        let result1 = validate_execution_proof_for_gossip::<_, Observe>(
-            proof.clone(),
-            &harness.chain,
-        );
+        let result1 =
+            validate_execution_proof_for_gossip::<_, Observe>(proof.clone(), &harness.chain);
         assert!(result1.is_ok());
 
         // Should now be rejected as duplicate
-        let result2 = validate_execution_proof_for_gossip::<_, Observe>(
-            proof.clone(),
-            &harness.chain,
-        );
+        let result2 =
+            validate_execution_proof_for_gossip::<_, Observe>(proof.clone(), &harness.chain);
 
         assert!(
             matches!(
@@ -551,7 +552,11 @@ mod tests {
         let current_slot = harness.get_current_slot();
         let block_root = Hash256::random();
 
-        let proof = Arc::new(create_test_execution_proof(subnet_id, current_slot, block_root));
+        let proof = Arc::new(create_test_execution_proof(
+            subnet_id,
+            current_slot,
+            block_root,
+        ));
 
         // Put the proof directly into the DA checker cache (this can happen if it arritves via RPC)
         harness
@@ -581,10 +586,8 @@ mod tests {
         );
 
         // Now it arrives via gossip
-        let result = validate_execution_proof_for_gossip::<_, Observe>(
-            proof.clone(),
-            &harness.chain,
-        );
+        let result =
+            validate_execution_proof_for_gossip::<_, Observe>(proof.clone(), &harness.chain);
 
         // Should be rejected with PriorKnownUnpublished (safe to propagate)
         assert!(
@@ -608,13 +611,14 @@ mod tests {
         );
 
         // Second gossip attempt should be rejected as PriorKnown (not PriorKnownUnpublished)
-        let result2 = validate_execution_proof_for_gossip::<_, Observe>(
-            proof.clone(),
-            &harness.chain,
-        );
+        let result2 =
+            validate_execution_proof_for_gossip::<_, Observe>(proof.clone(), &harness.chain);
 
         assert!(
-            matches!(result2.err(), Some(GossipExecutionProofError::PriorKnown { .. })),
+            matches!(
+                result2.err(),
+                Some(GossipExecutionProofError::PriorKnown { .. })
+            ),
             "Second gossip should be rejected as PriorKnown (already observed)"
         );
     }

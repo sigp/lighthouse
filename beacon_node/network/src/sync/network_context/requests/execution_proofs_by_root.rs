@@ -13,12 +13,8 @@ pub struct ExecutionProofsByRootSingleBlockRequest {
 
 impl ExecutionProofsByRootSingleBlockRequest {
     pub fn into_request(self) -> Result<ExecutionProofsByRootRequest, String> {
-        ExecutionProofsByRootRequest::new(
-            self.block_root,
-            self.already_have,
-            self.count_needed,
-        )
-        .map_err(|e| e.to_string())
+        ExecutionProofsByRootRequest::new(self.block_root, self.already_have, self.count_needed)
+            .map_err(|e| e.to_string())
     }
 }
 

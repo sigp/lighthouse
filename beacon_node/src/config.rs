@@ -347,7 +347,12 @@ pub fn get_config<E: EthSpec>(
                 .split(',')
                 .map(|s| s.trim().parse::<u8>())
                 .collect::<Result<Vec<u8>, _>>()
-                .map_err(|e| format!("Invalid proof type ID in --zkvm-generation-proof-types: {}", e))?
+                .map_err(|e| {
+                    format!(
+                        "Invalid proof type ID in --zkvm-generation-proof-types: {}",
+                        e
+                    )
+                })?
                 .into_iter()
                 .map(|id| ExecutionProofId::new(id))
                 .collect::<Result<HashSet<_>, _>>()

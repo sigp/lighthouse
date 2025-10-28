@@ -14,7 +14,7 @@ pub enum Subnet {
     SyncCommittee(SyncSubnetId),
     /// Represents a gossipsub data column subnet.
     DataColumn(DataColumnSubnetId),
-    /// Represents execution proof support. 
+    /// Represents execution proof support.
     //
     /// Note: ExecutionProof uses a single gossip topic (not multiple topics),
     /// but we track it here for ENR-based peer discovery to find zkVM-enabled peers.

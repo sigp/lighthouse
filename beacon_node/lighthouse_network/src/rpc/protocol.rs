@@ -416,7 +416,10 @@ impl SupportedProtocol {
             ]);
         }
         if fork_context.spec.is_zkvm_enabled() {
-            supported.push(ProtocolId::new(SupportedProtocol::ExecutionProofsByRootV1, Encoding::SSZSnappy));
+            supported.push(ProtocolId::new(
+                SupportedProtocol::ExecutionProofsByRootV1,
+                Encoding::SSZSnappy,
+            ));
         }
         supported
     }
@@ -661,10 +664,7 @@ pub fn rpc_data_column_limits<E: EthSpec>(
 
 pub fn rpc_execution_proof_limits() -> RpcLimits {
     // TODO(zkproofs): Can max proof size change over hardforks?
-    RpcLimits::new(
-        ExecutionProof::min_size(),
-        ExecutionProof::max_size(),
-    )
+    RpcLimits::new(ExecutionProof::min_size(), ExecutionProof::max_size())
 }
 
 /* Inbound upgrade */

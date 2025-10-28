@@ -41,9 +41,10 @@ use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use types::{
     Attestation, AttestationData, AttestationRef, AttesterSlashing, BlobSidecar, DataColumnSidecar,
     DataColumnSubnetId, EthSpec, ExecutionProof, Hash256, IndexedAttestation,
-    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBlsToExecutionChange, SignedContributionAndProof, SignedVoluntaryExit,
-    SingleAttestation, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBlsToExecutionChange,
+    SignedContributionAndProof, SignedVoluntaryExit, SingleAttestation, Slot, SubnetId,
+    SyncCommitteeMessage, SyncSubnetId, beacon_block::BlockImportSource,
 };
 
 use beacon_processor::work_reprocessing_queue::QueuedColumnReconstruction;
@@ -828,7 +829,11 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Accept,
                         );
                     }
-                    GossipExecutionProofError::PriorKnown { block_root, proof_id, .. } => {
+                    GossipExecutionProofError::PriorKnown {
+                        block_root,
+                        proof_id,
+                        ..
+                    } => {
                         // Proof already known via gossip. No penalty, gossip filter should
                         // filter duplicates.
                         debug!(
@@ -931,7 +936,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Reject,
                         );
                     }
-                    GossipExecutionProofError::FutureSlot { message_slot, latest_permissible_slot } => {
+                    GossipExecutionProofError::FutureSlot {
+                        message_slot,
+                        latest_permissible_slot,
+                    } => {
                         debug!(
                             error = ?err,
                             %block_root,
@@ -951,7 +959,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                             MessageAcceptance::Ignore,
                         );
                     }
-                    GossipExecutionProofError::PastFinalizedSlot { proof_slot, finalized_slot } => {
+                    GossipExecutionProofError::PastFinalizedSlot {
+                        proof_slot,
+                        finalized_slot,
+                    } => {
                         debug!(
                             error = ?err,
                             %block_root,
@@ -1346,7 +1357,10 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let proof_slot = verified_proof.slot();
         let subnet_id = verified_proof.subnet_id();
 
-        let result = self.chain.process_gossip_execution_proof(verified_proof, || Ok(())).await;
+        let result = self
+            .chain
+            .process_gossip_execution_proof(verified_proof, || Ok(()))
+            .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "execution_proof");
 
         match &result {

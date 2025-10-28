@@ -17,8 +17,8 @@ use tracing::{Instrument, debug, error, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EmptyBlock, Epoch,
-    EthSpec, ExecutionBlockHash, ExecutionProof, ExecutionProofId, FixedBytesExtended,
-    ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec, RuntimeVariableList, Signature,
+    EthSpec, ExecutionBlockHash, ExecutionProof, ExecutionProofId, FixedBytesExtended, ForkName,
+    Hash256, KzgCommitment, KzgProof, MinimalEthSpec, RuntimeVariableList, Signature,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
@@ -1772,8 +1772,8 @@ fn test_tcp_execution_proofs_by_root_single() {
         let rpc_request = RequestType::ExecutionProofsByRoot(
             ExecutionProofsByRootRequest::new(
                 block_root,
-                vec![],  // No proofs already have
-                2,       // Request 2 proofs
+                vec![], // No proofs already have
+                2,      // Request 2 proofs
             )
             .unwrap(),
         );
@@ -1836,7 +1836,11 @@ fn test_tcp_execution_proofs_by_root_single() {
                         if request_type == rpc_request {
                             debug!("Receiver got request");
                             // Send the proof
-                            receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                            receiver.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                rpc_response.clone(),
+                            );
                             // Send stream termination
                             receiver.send_response(
                                 peer_id,
@@ -1899,12 +1903,7 @@ fn test_tcp_execution_proofs_by_root_chunked() {
 
         // ExecutionProofsByRoot Request for multiple proofs
         let rpc_request = RequestType::ExecutionProofsByRoot(
-            ExecutionProofsByRootRequest::new(
-                block_root,
-                vec![],
-                proof_ids.len(),
-            )
-            .unwrap(),
+            ExecutionProofsByRootRequest::new(block_root, vec![], proof_ids.len()).unwrap(),
         );
 
         // Create proofs for each proof ID
@@ -2032,12 +2031,7 @@ fn test_tcp_execution_proofs_by_root_empty_response() {
         let block_root = Hash256::random();
 
         let rpc_request = RequestType::ExecutionProofsByRoot(
-            ExecutionProofsByRootRequest::new(
-                block_root,
-                vec![],
-                2,
-            )
-            .unwrap(),
+            ExecutionProofsByRootRequest::new(block_root, vec![], 2).unwrap(),
         );
 
         let mut received_termination = false;

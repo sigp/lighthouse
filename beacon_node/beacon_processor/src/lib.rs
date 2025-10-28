@@ -886,7 +886,8 @@ impl<E: EthSpec> BeaconProcessor<E> {
         let mut gossip_block_queue = FifoQueue::new(queue_lengths.gossip_block_queue);
         let mut gossip_blob_queue = FifoQueue::new(queue_lengths.gossip_blob_queue);
         let mut gossip_data_column_queue = FifoQueue::new(queue_lengths.gossip_data_column_queue);
-        let mut gossip_execution_proof_queue = FifoQueue::new(queue_lengths.gossip_execution_proof_queue);
+        let mut gossip_execution_proof_queue =
+            FifoQueue::new(queue_lengths.gossip_execution_proof_queue);
         let mut delayed_block_queue = FifoQueue::new(queue_lengths.delayed_block_queue);
 
         let mut status_queue = FifoQueue::new(queue_lengths.status_queue);
@@ -1406,7 +1407,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 gossip_bls_to_execution_change_queue.push(work, work_id)
                             }
                             Work::BlobsByRootsRequest { .. } => blbroots_queue.push(work, work_id),
-                            Work::ExecutionProofsByRootsRequest { .. } => blbroots_queue.push(work, work_id),
+                            Work::ExecutionProofsByRootsRequest { .. } => {
+                                blbroots_queue.push(work, work_id)
+                            }
                             Work::DataColumnsByRootsRequest { .. } => {
                                 dcbroots_queue.push(work, work_id)
                             }

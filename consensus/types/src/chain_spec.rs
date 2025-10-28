@@ -1226,7 +1226,8 @@ impl ChainSpec {
             /*
              * Networking zkvm specific
              */
-            min_epochs_for_execution_proof_requests: default_min_epochs_for_execution_proof_requests(),
+            min_epochs_for_execution_proof_requests:
+                default_min_epochs_for_execution_proof_requests(),
 
             /*
              * Application specific
@@ -1587,7 +1588,8 @@ impl ChainSpec {
             /*
              * Networking zkvm specific
              */
-            min_epochs_for_execution_proof_requests: default_min_epochs_for_execution_proof_requests(),
+            min_epochs_for_execution_proof_requests:
+                default_min_epochs_for_execution_proof_requests(),
 
             /*
              * Application specific

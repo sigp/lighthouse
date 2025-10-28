@@ -1665,9 +1665,11 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::DataColumnsByRange(resp) => {
                         self.build_response(id, peer_id, Response::DataColumnsByRange(Some(resp)))
                     }
-                    RpcSuccessResponse::ExecutionProofsByRoot(resp) => {
-                        self.build_response(id, peer_id, Response::ExecutionProofsByRoot(Some(resp)))
-                    }
+                    RpcSuccessResponse::ExecutionProofsByRoot(resp) => self.build_response(
+                        id,
+                        peer_id,
+                        Response::ExecutionProofsByRoot(Some(resp)),
+                    ),
                     // Should never be reached
                     RpcSuccessResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
@@ -1697,7 +1699,9 @@ impl<E: EthSpec> Network<E> {
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
                     ResponseTermination::DataColumnsByRange => Response::DataColumnsByRange(None),
-                    ResponseTermination::ExecutionProofsByRoot => Response::ExecutionProofsByRoot(None),
+                    ResponseTermination::ExecutionProofsByRoot => {
+                        Response::ExecutionProofsByRoot(None)
+                    }
                     ResponseTermination::LightClientUpdatesByRange => {
                         Response::LightClientUpdatesByRange(None)
                     }

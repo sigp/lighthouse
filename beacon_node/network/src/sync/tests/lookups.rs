@@ -43,7 +43,8 @@ use tracing::info;
 use types::{
     BeaconState, BeaconStateBase, BlobSidecar, BlockImportSource, DataColumnSidecar, EthSpec,
     ExecutionBlockHash, ExecutionProof, ExecutionProofId, ForkContext, ForkName, Hash256,
-    MinimalEthSpec as E, SignedBeaconBlock, Slot, data_column_sidecar::ColumnIndex,
+    MinimalEthSpec as E, SignedBeaconBlock, Slot,
+    data_column_sidecar::ColumnIndex,
     test_utils::{SeedableRng, TestRandom, XorShiftRng},
 };
 
@@ -171,7 +172,11 @@ impl TestRig {
         self.send_sync_message(SyncMessage::UnknownParentBlob(peer_id, blob.into()));
     }
 
-    pub(super) fn trigger_unknown_block_from_attestation(&mut self, block_root: Hash256, peer_id: PeerId) {
+    pub(super) fn trigger_unknown_block_from_attestation(
+        &mut self,
+        block_root: Hash256,
+        peer_id: PeerId,
+    ) {
         self.send_sync_message(SyncMessage::UnknownBlockHashFromAttestation(
             peer_id, block_root,
         ));
@@ -553,8 +558,14 @@ impl TestRig {
     ) {
         for subnet_id in subnet_ids {
             let proof = Arc::new(
-                ExecutionProof::new(subnet_id, types::Slot::new(0), block_hash, block_root, vec![1, 2, 3, 4])
-                    .unwrap(),
+                ExecutionProof::new(
+                    subnet_id,
+                    types::Slot::new(0),
+                    block_hash,
+                    block_root,
+                    vec![1, 2, 3, 4],
+                )
+                .unwrap(),
             );
             self.single_lookup_proof_response(id, peer_id, Some(proof));
         }
@@ -589,9 +600,7 @@ impl TestRig {
         let id = self.find_single_lookup_for(block_root);
         self.send_sync_message(SyncMessage::BlockComponentProcessed {
             process_type: BlockProcessType::SingleBlock { id },
-            result: BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(
-                block_root,
-            )),
+            result: BlockProcessingResult::Ok(AvailabilityProcessingStatus::Imported(block_root)),
         });
     }
 
