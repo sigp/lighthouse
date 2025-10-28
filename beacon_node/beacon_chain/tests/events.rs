@@ -16,7 +16,7 @@ type E = MinimalEthSpec;
 /// Verifies that a blob event is emitted when a gossip verified blob is received via gossip or the publish block API.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_gossip_blob() {
-    if fork_name_from_env().is_none_or(|f| !f.deneb_enabled() || f.fulu_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.deneb_enabled() || f.fulu_enabled()) {
         return;
     };
 
@@ -54,7 +54,7 @@ async fn blob_sidecar_event_on_process_gossip_blob() {
 /// Verifies that a data column event is emitted when a gossip verified data column is received via gossip or the publish block API.
 #[tokio::test]
 async fn data_column_sidecar_event_on_process_gossip_data_column() {
-    if fork_name_from_env().is_none_or(|f| !f.fulu_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
         return;
     };
 
@@ -103,7 +103,7 @@ async fn data_column_sidecar_event_on_process_gossip_data_column() {
 /// Verifies that a blob event is emitted when blobs are received via RPC.
 #[tokio::test]
 async fn blob_sidecar_event_on_process_rpc_blobs() {
-    if fork_name_from_env().is_none_or(|f| !f.deneb_enabled() || f.fulu_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.deneb_enabled() || f.fulu_enabled()) {
         return;
     };
 
@@ -158,7 +158,7 @@ async fn blob_sidecar_event_on_process_rpc_blobs() {
 
 #[tokio::test]
 async fn data_column_sidecar_event_on_process_rpc_columns() {
-    if fork_name_from_env().is_none_or(|f| !f.fulu_enabled()) {
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
         return;
     };
 

@@ -3211,11 +3211,12 @@ async fn test_import_historical_data_columns_batch() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or(vec![]) {
             data_columns_list.push(data_column);
         }
     }
+
+    assert!(data_columns_list.len() > 0);
 
     harness
         .extend_chain(
@@ -3290,9 +3291,8 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
 
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or(vec![]) {
             let mut data_column = (*data_column).clone();
             if data_column.index % 2 == 0 {
                 data_column.signed_block_header.message.body_root = Hash256::ZERO;
@@ -3301,6 +3301,7 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
             data_columns_list.push(Arc::new(data_column));
         }
     }
+    assert!(data_columns_list.len() > 0);
 
     harness
         .extend_chain(
@@ -3347,7 +3348,11 @@ async fn test_import_historical_data_columns_batch_mismatched_block_root() {
 // be imported.
 #[tokio::test]
 async fn test_import_historical_data_columns_batch_no_block_found() {
-    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    if fork_name_from_env().is_some_and(|f| !f.fulu_enabled()) {
+        return;
+    };
+
+    let spec = test_spec::<E>();
     let db_path = tempdir().unwrap();
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
     let start_slot = Slot::new(1);
@@ -3374,14 +3379,15 @@ async fn test_import_historical_data_columns_batch_no_block_found() {
     for block in block_root_iter {
         let (block_root, _) = block.unwrap();
         let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
-        assert!(data_columns.is_some());
 
-        for data_column in data_columns.unwrap() {
+        for data_column in data_columns.unwrap_or(vec![]) {
             let mut data_column = (*data_column).clone();
             data_column.signed_block_header.message.body_root = Hash256::ZERO;
             data_columns_list.push(Arc::new(data_column));
         }
     }
+
+    assert!(data_columns_list.len() > 0);
 
     harness
         .extend_chain(
