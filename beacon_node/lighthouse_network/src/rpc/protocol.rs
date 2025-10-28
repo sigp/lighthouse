@@ -17,10 +17,11 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BlobSidecar, ChainSpec, DataColumnSidecar,
-    EmptyBlock, Epoch, EthSpec, EthSpecId, ForkContext, ForkName, LightClientBootstrap,
-    LightClientBootstrapAltair, LightClientFinalityUpdate, LightClientFinalityUpdateAltair,
-    LightClientOptimisticUpdate, LightClientOptimisticUpdateAltair, LightClientUpdate,
-    MainnetEthSpec, MinimalEthSpec, Signature, SignedBeaconBlock,
+    EmptyBlock, Epoch, EthSpec, EthSpecId, ExecutionProof, ForkContext, ForkName,
+    LightClientBootstrap, LightClientBootstrapAltair, LightClientFinalityUpdate,
+    LightClientFinalityUpdateAltair, LightClientOptimisticUpdate,
+    LightClientOptimisticUpdateAltair, LightClientUpdate, MainnetEthSpec, MinimalEthSpec,
+    Signature, SignedBeaconBlock,
 };
 
 // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -247,6 +248,9 @@ pub enum Protocol {
     /// The `DataColumnSidecarsByRange` protocol name.
     #[strum(serialize = "data_column_sidecars_by_range")]
     DataColumnsByRange,
+    /// The `ExecutionProofsByRoot` protocol name.
+    #[strum(serialize = "execution_proofs_by_root")]
+    ExecutionProofsByRoot,
     /// The `Ping` protocol name.
     Ping,
     /// The `MetaData` protocol name.
@@ -277,6 +281,7 @@ impl Protocol {
             Protocol::BlobsByRoot => Some(ResponseTermination::BlobsByRoot),
             Protocol::DataColumnsByRoot => Some(ResponseTermination::DataColumnsByRoot),
             Protocol::DataColumnsByRange => Some(ResponseTermination::DataColumnsByRange),
+            Protocol::ExecutionProofsByRoot => Some(ResponseTermination::ExecutionProofsByRoot),
             Protocol::Ping => None,
             Protocol::MetaData => None,
             Protocol::LightClientBootstrap => None,
@@ -307,6 +312,7 @@ pub enum SupportedProtocol {
     BlobsByRootV1,
     DataColumnsByRootV1,
     DataColumnsByRangeV1,
+    ExecutionProofsByRootV1,
     PingV1,
     MetaDataV1,
     MetaDataV2,
@@ -331,6 +337,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlobsByRootV1 => "1",
             SupportedProtocol::DataColumnsByRootV1 => "1",
             SupportedProtocol::DataColumnsByRangeV1 => "1",
+            SupportedProtocol::ExecutionProofsByRootV1 => "1",
             SupportedProtocol::PingV1 => "1",
             SupportedProtocol::MetaDataV1 => "1",
             SupportedProtocol::MetaDataV2 => "2",
@@ -355,6 +362,7 @@ impl SupportedProtocol {
             SupportedProtocol::BlobsByRootV1 => Protocol::BlobsByRoot,
             SupportedProtocol::DataColumnsByRootV1 => Protocol::DataColumnsByRoot,
             SupportedProtocol::DataColumnsByRangeV1 => Protocol::DataColumnsByRange,
+            SupportedProtocol::ExecutionProofsByRootV1 => Protocol::ExecutionProofsByRoot,
             SupportedProtocol::PingV1 => Protocol::Ping,
             SupportedProtocol::MetaDataV1 => Protocol::MetaData,
             SupportedProtocol::MetaDataV2 => Protocol::MetaData,
@@ -404,6 +412,9 @@ impl SupportedProtocol {
                 ProtocolId::new(SupportedProtocol::DataColumnsByRootV1, Encoding::SSZSnappy),
                 ProtocolId::new(SupportedProtocol::DataColumnsByRangeV1, Encoding::SSZSnappy),
             ]);
+        }
+        if fork_context.spec.is_zkvm_enabled() {
+            supported.push(ProtocolId::new(SupportedProtocol::ExecutionProofsByRootV1, Encoding::SSZSnappy));
         }
         supported
     }
@@ -517,6 +528,7 @@ impl ProtocolId {
                 DataColumnsByRangeRequest::ssz_min_len(),
                 DataColumnsByRangeRequest::ssz_max_len::<E>(),
             ),
+            Protocol::ExecutionProofsByRoot => RpcLimits::new(0, spec.max_blocks_by_root_request),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -553,6 +565,7 @@ impl ProtocolId {
             Protocol::DataColumnsByRange => {
                 rpc_data_column_limits::<E>(fork_context.current_fork_epoch(), &fork_context.spec)
             }
+            Protocol::ExecutionProofsByRoot => rpc_execution_proof_limits(),
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
                 <Ping as Encode>::ssz_fixed_len(),
@@ -594,6 +607,7 @@ impl ProtocolId {
             | SupportedProtocol::StatusV2
             | SupportedProtocol::BlocksByRootV1
             | SupportedProtocol::BlocksByRangeV1
+            | SupportedProtocol::ExecutionProofsByRootV1
             | SupportedProtocol::PingV1
             | SupportedProtocol::MetaDataV1
             | SupportedProtocol::MetaDataV2
@@ -640,6 +654,14 @@ pub fn rpc_data_column_limits<E: EthSpec>(
     RpcLimits::new(
         DataColumnSidecar::<E>::min_size(),
         DataColumnSidecar::<E>::max_size(spec.max_blobs_per_block(current_digest_epoch) as usize),
+    )
+}
+
+pub fn rpc_execution_proof_limits() -> RpcLimits {
+    // TODO(zkproofs): Can max proof size change over hardforks?
+    RpcLimits::new(
+        ExecutionProof::min_size(),
+        ExecutionProof::max_size(),
     )
 }
 
@@ -722,6 +744,7 @@ pub enum RequestType<E: EthSpec> {
     BlobsByRoot(BlobsByRootRequest),
     DataColumnsByRoot(DataColumnsByRootRequest<E>),
     DataColumnsByRange(DataColumnsByRangeRequest),
+    ExecutionProofsByRoot(ExecutionProofsByRootRequest),
     LightClientBootstrap(LightClientBootstrapRequest),
     LightClientOptimisticUpdate,
     LightClientFinalityUpdate,
@@ -745,6 +768,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(req) => req.blob_ids.len() as u64,
             RequestType::DataColumnsByRoot(req) => req.max_requested() as u64,
             RequestType::DataColumnsByRange(req) => req.max_requested::<E>(),
+            RequestType::ExecutionProofsByRoot(req) => req.max_requested() as u64,
             RequestType::Ping(_) => 1,
             RequestType::MetaData(_) => 1,
             RequestType::LightClientBootstrap(_) => 1,
@@ -774,6 +798,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(_) => SupportedProtocol::BlobsByRootV1,
             RequestType::DataColumnsByRoot(_) => SupportedProtocol::DataColumnsByRootV1,
             RequestType::DataColumnsByRange(_) => SupportedProtocol::DataColumnsByRangeV1,
+            RequestType::ExecutionProofsByRoot(_) => SupportedProtocol::ExecutionProofsByRootV1,
             RequestType::Ping(_) => SupportedProtocol::PingV1,
             RequestType::MetaData(req) => match req {
                 MetadataRequest::V1(_) => SupportedProtocol::MetaDataV1,
@@ -805,6 +830,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(_) => ResponseTermination::BlobsByRoot,
             RequestType::DataColumnsByRoot(_) => ResponseTermination::DataColumnsByRoot,
             RequestType::DataColumnsByRange(_) => ResponseTermination::DataColumnsByRange,
+            RequestType::ExecutionProofsByRoot(_) => ResponseTermination::ExecutionProofsByRoot,
             RequestType::Status(_) => unreachable!(),
             RequestType::Goodbye(_) => unreachable!(),
             RequestType::Ping(_) => unreachable!(),
@@ -851,6 +877,10 @@ impl<E: EthSpec> RequestType<E> {
                 SupportedProtocol::DataColumnsByRangeV1,
                 Encoding::SSZSnappy,
             )],
+            RequestType::ExecutionProofsByRoot(_) => vec![ProtocolId::new(
+                SupportedProtocol::ExecutionProofsByRootV1,
+                Encoding::SSZSnappy,
+            )],
             RequestType::Ping(_) => vec![ProtocolId::new(
                 SupportedProtocol::PingV1,
                 Encoding::SSZSnappy,
@@ -889,6 +919,7 @@ impl<E: EthSpec> RequestType<E> {
             RequestType::BlobsByRoot(_) => false,
             RequestType::DataColumnsByRoot(_) => false,
             RequestType::DataColumnsByRange(_) => false,
+            RequestType::ExecutionProofsByRoot(_) => false,
             RequestType::Ping(_) => true,
             RequestType::MetaData(_) => true,
             RequestType::LightClientBootstrap(_) => true,
@@ -1001,6 +1032,9 @@ impl<E: EthSpec> std::fmt::Display for RequestType<E> {
             RequestType::DataColumnsByRoot(req) => write!(f, "Data columns by root: {:?}", req),
             RequestType::DataColumnsByRange(req) => {
                 write!(f, "Data columns by range: {:?}", req)
+            }
+            RequestType::ExecutionProofsByRoot(req) => {
+                write!(f, "Execution proofs by root: {:?}", req)
             }
             RequestType::Ping(ping) => write!(f, "Ping: {}", ping.data),
             RequestType::MetaData(_) => write!(f, "MetaData request"),

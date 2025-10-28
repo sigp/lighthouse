@@ -16,9 +16,9 @@ use types::blob_sidecar::BlobIdentifier;
 use types::light_client_update::MAX_REQUEST_LIGHT_CLIENT_UPDATES;
 use types::{
     ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnsByRootIdentifier, Epoch, EthSpec,
-    ForkContext, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, Slot,
-    blob_sidecar::BlobSidecar,
+    ExecutionProof, ExecutionProofId, ForkContext, Hash256, LightClientBootstrap,
+    LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate,
+    RuntimeVariableList, SignedBeaconBlock, Slot, blob_sidecar::BlobSidecar,
 };
 
 /// Maximum length of error message.
@@ -540,6 +540,63 @@ impl<E: EthSpec> DataColumnsByRootRequest<E> {
     }
 }
 
+/// Request execution proofs by block root and proof IDs.
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct ExecutionProofsByRootRequest {
+    /// The block root we need proofs for
+    pub block_root: Hash256,
+    /// How many additional proofs we need
+    /// TODO(zkproofs): Remove. This can be inferred since `MIN_PROOFS_REQUIRED`
+    /// is a global value
+    pub count_needed: u64,
+    /// Proof IDs we already have (responder should exclude these)
+    pub already_have: Vec<ExecutionProofId>,
+}
+
+impl ExecutionProofsByRootRequest {
+    pub fn new(
+        block_root: Hash256,
+        already_have: Vec<ExecutionProofId>,
+        count_needed: usize,
+    ) -> Result<Self, &'static str> {
+        if already_have.len() > types::execution_proof::MAX_PROOFS {
+            return Err("Too many proof IDs in already_have");
+        }
+        if count_needed == 0 {
+            return Err("count_needed must be > 0");
+        }
+        if count_needed > types::execution_proof::MAX_PROOFS {
+            return Err("count_needed too large");
+        }
+        Ok(Self {
+            block_root,
+            count_needed: count_needed as u64,
+            already_have,
+        })
+    }
+
+    pub fn validate(&self, _spec: &ChainSpec) -> Result<(), String> {
+        if self.already_have.len() > types::execution_proof::MAX_PROOFS {
+            return Err("Too many proof IDs in already_have".to_string());
+        }
+        if self.count_needed == 0 {
+            return Err("count_needed must be > 0".to_string());
+        }
+        if self.count_needed > types::execution_proof::MAX_PROOFS as u64 {
+            return Err(format!(
+                "count_needed too large: {} > {}",
+                self.count_needed,
+                types::execution_proof::MAX_PROOFS
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn max_requested(&self) -> usize {
+        self.count_needed as usize
+    }
+}
+
 /// Request a number of beacon data columns from a peer.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct LightClientUpdatesByRangeRequest {
@@ -607,6 +664,9 @@ pub enum RpcSuccessResponse<E: EthSpec> {
     /// A response to a get DATA_COLUMN_SIDECARS_BY_RANGE request.
     DataColumnsByRange(Arc<DataColumnSidecar<E>>),
 
+    /// A response to a get EXECUTION_PROOFS_BY_ROOT request.
+    ExecutionProofsByRoot(Arc<ExecutionProof>),
+
     /// A PONG response to a PING request.
     Pong(Ping),
 
@@ -635,6 +695,9 @@ pub enum ResponseTermination {
     /// Data column sidecars by range stream termination.
     DataColumnsByRange,
 
+    /// Execution proofs by root stream termination.
+    ExecutionProofsByRoot,
+
     /// Light client updates by range stream termination.
     LightClientUpdatesByRange,
 }
@@ -648,6 +711,7 @@ impl ResponseTermination {
             ResponseTermination::BlobsByRoot => Protocol::BlobsByRoot,
             ResponseTermination::DataColumnsByRoot => Protocol::DataColumnsByRoot,
             ResponseTermination::DataColumnsByRange => Protocol::DataColumnsByRange,
+            ResponseTermination::ExecutionProofsByRoot => Protocol::ExecutionProofsByRoot,
             ResponseTermination::LightClientUpdatesByRange => Protocol::LightClientUpdatesByRange,
         }
     }
@@ -743,6 +807,7 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             RpcSuccessResponse::BlobsByRoot(_) => Protocol::BlobsByRoot,
             RpcSuccessResponse::DataColumnsByRoot(_) => Protocol::DataColumnsByRoot,
             RpcSuccessResponse::DataColumnsByRange(_) => Protocol::DataColumnsByRange,
+            RpcSuccessResponse::ExecutionProofsByRoot(_) => Protocol::ExecutionProofsByRoot,
             RpcSuccessResponse::Pong(_) => Protocol::Ping,
             RpcSuccessResponse::MetaData(_) => Protocol::MetaData,
             RpcSuccessResponse::LightClientBootstrap(_) => Protocol::LightClientBootstrap,
@@ -767,7 +832,8 @@ impl<E: EthSpec> RpcSuccessResponse<E> {
             Self::LightClientFinalityUpdate(r) => Some(r.get_attested_header_slot()),
             Self::LightClientOptimisticUpdate(r) => Some(r.get_slot()),
             Self::LightClientUpdatesByRange(r) => Some(r.attested_header_slot()),
-            Self::MetaData(_) | Self::Status(_) | Self::Pong(_) => None,
+            // TODO(zkproofs): Change this when we add Slot to ExecutionProof
+            Self::ExecutionProofsByRoot(_) | Self::MetaData(_) | Self::Status(_) | Self::Pong(_) => None,
         }
     }
 }
@@ -826,6 +892,9 @@ impl<E: EthSpec> std::fmt::Display for RpcSuccessResponse<E> {
                     "DataColumnsByRange: Data column slot: {}",
                     sidecar.slot()
                 )
+            }
+            RpcSuccessResponse::ExecutionProofsByRoot(proof) => {
+                write!(f, "ExecutionProofsByRoot: Block root: {}", proof.block_root)
             }
             RpcSuccessResponse::Pong(ping) => write!(f, "Pong: {}", ping.data),
             RpcSuccessResponse::MetaData(metadata) => {
@@ -934,6 +1003,18 @@ impl<E: EthSpec> std::fmt::Display for DataColumnsByRootRequest<E> {
             f,
             "Request: DataColumnsByRoot: Number of Requested Data Column Ids: {}",
             self.data_column_ids.len()
+        )
+    }
+}
+
+impl std::fmt::Display for ExecutionProofsByRootRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request: ExecutionProofsByRoot: Block Root: {}, Already Have: {}, Count Needed: {}",
+            self.block_root,
+            self.already_have.len(),
+            self.count_needed
         )
     }
 }

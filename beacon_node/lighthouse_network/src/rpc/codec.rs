@@ -16,12 +16,13 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec, ForkContext,
-    ForkName, Hash256, LightClientBootstrap, LightClientFinalityUpdate,
-    LightClientOptimisticUpdate, LightClientUpdate, RuntimeVariableList, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
-    SignedBeaconBlockCapella, SignedBeaconBlockDeneb, SignedBeaconBlockElectra,
-    SignedBeaconBlockFulu, SignedBeaconBlockGloas,
+    BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EthSpec,
+    ExecutionProof, ForkContext, ForkName, Hash256,
+    LightClientBootstrap, LightClientFinalityUpdate, LightClientOptimisticUpdate,
+    LightClientUpdate, RuntimeVariableList, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockBellatrix, SignedBeaconBlockCapella,
+    SignedBeaconBlockDeneb, SignedBeaconBlockElectra, SignedBeaconBlockFulu,
+    SignedBeaconBlockGloas,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -80,6 +81,7 @@ impl<E: EthSpec> SSZSnappyInboundCodec<E> {
                 RpcSuccessResponse::BlobsByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::DataColumnsByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::DataColumnsByRange(res) => res.as_ssz_bytes(),
+                RpcSuccessResponse::ExecutionProofsByRoot(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientBootstrap(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientOptimisticUpdate(res) => res.as_ssz_bytes(),
                 RpcSuccessResponse::LightClientFinalityUpdate(res) => res.as_ssz_bytes(),
@@ -360,6 +362,7 @@ impl<E: EthSpec> Encoder<RequestType<E>> for SSZSnappyOutboundCodec<E> {
             RequestType::BlobsByRoot(req) => req.blob_ids.as_ssz_bytes(),
             RequestType::DataColumnsByRange(req) => req.as_ssz_bytes(),
             RequestType::DataColumnsByRoot(req) => req.data_column_ids.as_ssz_bytes(),
+            RequestType::ExecutionProofsByRoot(req) => req.as_ssz_bytes(),
             RequestType::Ping(req) => req.as_ssz_bytes(),
             RequestType::LightClientBootstrap(req) => req.as_ssz_bytes(),
             RequestType::LightClientUpdatesByRange(req) => req.as_ssz_bytes(),
@@ -568,6 +571,15 @@ fn handle_rpc_request<E: EthSpec>(
                     )?,
             },
         ))),
+        SupportedProtocol::ExecutionProofsByRootV1 => {
+            let request = ExecutionProofsByRootRequest::from_ssz_bytes(decoded_buffer)
+                .map_err(RPCError::SSZDecodeError)?;
+
+            request.validate(spec)
+                .map_err(|e| RPCError::InvalidData(e))?;
+
+            Ok(Some(RequestType::ExecutionProofsByRoot(request)))
+        }
         SupportedProtocol::PingV1 => Ok(Some(RequestType::Ping(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -731,6 +743,11 @@ fn handle_rpc_response<E: EthSpec>(
                 ),
             )),
         },
+        SupportedProtocol::ExecutionProofsByRootV1 => {
+            Ok(Some(RpcSuccessResponse::ExecutionProofsByRoot(Arc::new(
+                ExecutionProof::from_ssz_bytes(decoded_buffer)?,
+            ))))
+        }
         SupportedProtocol::PingV1 => Ok(Some(RpcSuccessResponse::Pong(Ping {
             data: u64::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -910,9 +927,9 @@ mod tests {
     use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
-        DataColumnsByRootIdentifier, EmptyBlock, Epoch, FixedBytesExtended, FullPayload,
-        KzgCommitment, KzgProof, Signature, SignedBeaconBlockHeader, Slot,
-        blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
+        DataColumnsByRootIdentifier, EmptyBlock, Epoch, ExecutionProofId,
+        FixedBytesExtended, FullPayload, KzgCommitment, KzgProof, Signature,
+        SignedBeaconBlockHeader, Slot, blob_sidecar::BlobIdentifier, data_column_sidecar::Cell,
     };
 
     type Spec = types::MainnetEthSpec;
@@ -1107,6 +1124,18 @@ mod tests {
         .unwrap()
     }
 
+    fn execution_proofs_by_root_request(
+        _fork_name: ForkName,
+        _spec: &ChainSpec,
+    ) -> ExecutionProofsByRootRequest {
+        ExecutionProofsByRootRequest::new(
+            Hash256::zero(),
+            vec![ExecutionProofId::new(0).unwrap()],
+            2,
+        )
+        .unwrap()
+    }
+
     fn ping_message() -> Ping {
         Ping { data: 1 }
     }
@@ -1260,6 +1289,9 @@ mod tests {
             }
             RequestType::DataColumnsByRange(dcbrange) => {
                 assert_eq!(decoded, RequestType::DataColumnsByRange(dcbrange))
+            }
+            RequestType::ExecutionProofsByRoot(exec_proofs) => {
+                assert_eq!(decoded, RequestType::ExecutionProofsByRoot(exec_proofs))
             }
             RequestType::Ping(ping) => {
                 assert_eq!(decoded, RequestType::Ping(ping))
@@ -2002,6 +2034,10 @@ mod tests {
                 RequestType::BlocksByRoot(bbroot_request_v1(fork_name, &chain_spec)),
                 RequestType::BlocksByRoot(bbroot_request_v2(fork_name, &chain_spec)),
                 RequestType::DataColumnsByRoot(dcbroot_request(fork_name, &chain_spec)),
+                RequestType::ExecutionProofsByRoot(execution_proofs_by_root_request(
+                    fork_name,
+                    &chain_spec,
+                )),
             ]
         };
         for fork_name in ForkName::list_all() {

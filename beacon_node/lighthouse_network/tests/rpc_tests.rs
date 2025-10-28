@@ -17,8 +17,9 @@ use tracing::{Instrument, debug, error, info_span, warn};
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, BeaconBlockHeader,
     BlobSidecar, ChainSpec, DataColumnSidecar, DataColumnsByRootIdentifier, EmptyBlock, Epoch,
-    EthSpec, FixedBytesExtended, ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec,
-    RuntimeVariableList, Signature, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    EthSpec, ExecutionBlockHash, ExecutionProof, ExecutionProofId, FixedBytesExtended,
+    ForkName, Hash256, KzgCommitment, KzgProof, MinimalEthSpec, RuntimeVariableList, Signature,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 type E = MinimalEthSpec;
@@ -1725,6 +1726,377 @@ fn test_active_requests() {
 
         tokio::select! {
             _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
+// Tests ExecutionProofsByRoot RPC - basic single proof request
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_execution_proofs_by_root_single() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = true;
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
+
+    let spec = Arc::new(spec_with_all_forks_enabled());
+    let current_fork_name = ForkName::Fulu;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+    rt.block_on(async {
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            current_fork_name,
+            spec.clone(),
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        let block_root = Hash256::random();
+        let block_hash = ExecutionBlockHash::from_root(Hash256::random());
+        let subnet_id = ExecutionProofId::new(0).unwrap();
+
+        // ExecutionProofsByRoot Request
+        let rpc_request = RequestType::ExecutionProofsByRoot(
+            ExecutionProofsByRootRequest::new(
+                block_root,
+                vec![],  // No proofs already have
+                2,       // Request 2 proofs
+            )
+            .unwrap(),
+        );
+
+        // ExecutionProofsByRoot Response
+        let proof = Arc::new(
+            ExecutionProof::new(
+                subnet_id,
+                Slot::new(100),
+                block_hash,
+                block_root,
+                vec![1, 2, 3, 4],
+            )
+            .unwrap(),
+        );
+        let rpc_response = Response::ExecutionProofsByRoot(Some(proof.clone()));
+
+        // Build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!("Sending RPC");
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        app_request_id: AppRequestId::Router,
+                        response,
+                    } => match response {
+                        Response::ExecutionProofsByRoot(Some(received_proof)) => {
+                            debug!("Proof received");
+                            assert_eq!(received_proof.block_root, block_root);
+                            assert_eq!(received_proof.block_hash, block_hash);
+                            assert_eq!(received_proof.proof_id, subnet_id);
+                        }
+                        Response::ExecutionProofsByRoot(None) => {
+                            debug!("Stream terminated");
+                            return;
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // Build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        inbound_request_id,
+                        request_type,
+                    } => {
+                        if request_type == rpc_request {
+                            debug!("Receiver got request");
+                            // Send the proof
+                            receiver.send_response(peer_id, inbound_request_id, rpc_response.clone());
+                            // Send stream termination
+                            receiver.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                Response::ExecutionProofsByRoot(None),
+                            );
+                            debug!("Sent proof and termination");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
+// Tests ExecutionProofsByRoot RPC - multiple proofs chunked response
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_execution_proofs_by_root_chunked() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = true;
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
+
+    let spec = Arc::new(spec_with_all_forks_enabled());
+    let current_fork_name = ForkName::Deneb;
+
+    let messages_to_send = 3;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+    rt.block_on(async {
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            current_fork_name,
+            spec.clone(),
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        let block_root = Hash256::random();
+        let block_hash = ExecutionBlockHash::from_root(Hash256::random());
+        let proof_ids = vec![
+            ExecutionProofId::new(0).unwrap(),
+            ExecutionProofId::new(1).unwrap(),
+            ExecutionProofId::new(2).unwrap(),
+        ];
+        assert_eq!(proof_ids.len(), messages_to_send);
+
+        // ExecutionProofsByRoot Request for multiple proofs
+        let rpc_request = RequestType::ExecutionProofsByRoot(
+            ExecutionProofsByRootRequest::new(
+                block_root,
+                vec![],
+                proof_ids.len(),
+            )
+            .unwrap(),
+        );
+
+        // Create proofs for each proof ID
+        let proofs: Vec<Arc<ExecutionProof>> = proof_ids
+            .iter()
+            .map(|subnet_id| {
+                Arc::new(
+                    ExecutionProof::new(
+                        *subnet_id,
+                        Slot::new(100),
+                        block_hash,
+                        block_root,
+                        vec![1, 2, 3, 4],
+                    )
+                    .unwrap(),
+                )
+            })
+            .collect();
+
+        let mut messages_received = 0;
+
+        // Build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!("Sending RPC");
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        app_request_id: AppRequestId::Router,
+                        response,
+                    } => match response {
+                        Response::ExecutionProofsByRoot(Some(received_proof)) => {
+                            debug!("Chunk received");
+                            assert_eq!(received_proof.block_root, block_root);
+                            assert_eq!(received_proof.block_hash, block_hash);
+                            messages_received += 1;
+                        }
+                        Response::ExecutionProofsByRoot(None) => {
+                            debug!("Stream terminated");
+                            assert_eq!(messages_received, messages_to_send);
+                            return;
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // Build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        inbound_request_id,
+                        request_type,
+                    } => {
+                        if request_type == rpc_request {
+                            debug!("Receiver got request");
+                            // Send all proofs
+                            for proof in &proofs {
+                                receiver.send_response(
+                                    peer_id,
+                                    inbound_request_id,
+                                    Response::ExecutionProofsByRoot(Some(proof.clone())),
+                                );
+                                debug!("Sent proof chunk");
+                            }
+                            // Send stream termination
+                            receiver.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                Response::ExecutionProofsByRoot(None),
+                            );
+                            debug!("Sent termination");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+
+        tokio::select! {
+            _ = sender_future => {}
+            _ = receiver_future => {}
+            _ = sleep(Duration::from_secs(30)) => {
+                panic!("Future timed out");
+            }
+        }
+    })
+}
+
+// Tests ExecutionProofsByRoot RPC - empty response (peer has no proofs)
+#[test]
+#[allow(clippy::single_match)]
+fn test_tcp_execution_proofs_by_root_empty_response() {
+    // Set up the logging.
+    let log_level = "debug";
+    let enable_logging = true;
+    let _subscriber = build_tracing_subscriber(log_level, enable_logging);
+
+    let spec = Arc::new(spec_with_all_forks_enabled());
+    let current_fork_name = ForkName::Fulu;
+
+    let rt = Arc::new(Runtime::new().unwrap());
+    rt.block_on(async {
+        let (mut sender, mut receiver) = common::build_node_pair(
+            Arc::downgrade(&rt),
+            current_fork_name,
+            spec.clone(),
+            Protocol::Tcp,
+            false,
+            None,
+        )
+        .await;
+
+        let block_root = Hash256::random();
+
+        let rpc_request = RequestType::ExecutionProofsByRoot(
+            ExecutionProofsByRootRequest::new(
+                block_root,
+                vec![],
+                2,
+            )
+            .unwrap(),
+        );
+
+        let mut received_termination = false;
+
+        // Build the sender future
+        let sender_future = async {
+            loop {
+                match sender.next_event().await {
+                    NetworkEvent::PeerConnectedOutgoing(peer_id) => {
+                        debug!("Sending RPC");
+                        sender
+                            .send_request(peer_id, AppRequestId::Router, rpc_request.clone())
+                            .unwrap();
+                    }
+                    NetworkEvent::ResponseReceived {
+                        peer_id: _,
+                        app_request_id: AppRequestId::Router,
+                        response,
+                    } => match response {
+                        Response::ExecutionProofsByRoot(Some(_)) => {
+                            panic!("Should not receive any proofs in empty response test");
+                        }
+                        Response::ExecutionProofsByRoot(None) => {
+                            debug!("Stream terminated (empty response)");
+                            received_termination = true;
+                            return;
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
+        .instrument(info_span!("Sender"));
+
+        // Build the receiver future
+        let receiver_future = async {
+            loop {
+                match receiver.next_event().await {
+                    NetworkEvent::RequestReceived {
+                        peer_id,
+                        inbound_request_id,
+                        request_type,
+                    } => {
+                        if request_type == rpc_request {
+                            debug!("Receiver got request");
+                            // Send only stream termination (no proofs)
+                            receiver.send_response(
+                                peer_id,
+                                inbound_request_id,
+                                Response::ExecutionProofsByRoot(None),
+                            );
+                            debug!("Sent empty response (termination only)");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        .instrument(info_span!("Receiver"));
+
+        tokio::select! {
+            _ = sender_future => {
+                assert!(received_termination, "Should have received stream termination");
+            }
             _ = receiver_future => {}
             _ = sleep(Duration::from_secs(30)) => {
                 panic!("Future timed out");
