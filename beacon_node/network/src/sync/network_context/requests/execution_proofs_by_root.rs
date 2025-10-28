@@ -70,3 +70,146 @@ impl<E: EthSpec> ActiveRequestItems for ExecutionProofsByRootRequestItems<E> {
         std::mem::take(&mut self.items)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::{ExecutionBlockHash, Hash256, MinimalEthSpec as E};
+
+    fn make_proof(
+        block_root: Hash256,
+        subnet_id: u8,
+        block_hash: ExecutionBlockHash,
+    ) -> Arc<ExecutionProof> {
+        Arc::new(
+            ExecutionProof::new(
+                ExecutionProofId::new(subnet_id).unwrap(),
+                types::Slot::new(0),
+                block_hash,
+                block_root,
+                vec![1, 2, 3],
+            )
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn test_add_proof_success() {
+        let block_root = Hash256::random();
+        let request = ExecutionProofsByRootSingleBlockRequest {
+            block_root,
+            already_have: vec![],
+            count_needed: 2,
+        };
+
+        let mut items = ExecutionProofsByRootRequestItems::<E>::new(request);
+        let proof = make_proof(block_root, 0, ExecutionBlockHash::zero());
+
+        let result = items.add(proof);
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // Not complete yet (need 2)
+    }
+
+    #[test]
+    fn test_add_proof_wrong_block_root() {
+        let block_root = Hash256::random();
+        let wrong_root = Hash256::random();
+        let request = ExecutionProofsByRootSingleBlockRequest {
+            block_root,
+            already_have: vec![],
+            count_needed: 1,
+        };
+
+        let mut items = ExecutionProofsByRootRequestItems::<E>::new(request);
+        let proof = make_proof(wrong_root, 0, ExecutionBlockHash::zero());
+
+        let result = items.add(proof);
+        assert!(matches!(
+            result,
+            Err(LookupVerifyError::UnrequestedBlockRoot(_))
+        ));
+    }
+
+    #[test]
+    fn test_add_proof_already_have() {
+        let block_root = Hash256::random();
+        let request = ExecutionProofsByRootSingleBlockRequest {
+            block_root,
+            already_have: vec![ExecutionProofId::new(0).unwrap()],
+            count_needed: 2,
+        };
+
+        let mut items = ExecutionProofsByRootRequestItems::<E>::new(request);
+        let proof = make_proof(block_root, 0, ExecutionBlockHash::zero()); // proof 0 in already_have
+
+        let result = items.add(proof);
+        assert!(matches!(
+            result,
+            Err(LookupVerifyError::UnrequestedProof(_))
+        ));
+    }
+
+    #[test]
+    fn test_add_duplicate_subnet() {
+        let block_root = Hash256::random();
+        let request = ExecutionProofsByRootSingleBlockRequest {
+            block_root,
+            already_have: vec![],
+            count_needed: 1,
+        };
+
+        let mut items = ExecutionProofsByRootRequestItems::<E>::new(request);
+        let proof1 = make_proof(block_root, 0, ExecutionBlockHash::zero());
+        let proof2 = make_proof(block_root, 0, ExecutionBlockHash::zero());
+
+        assert!(items.add(proof1).is_ok());
+        let result = items.add(proof2);
+        assert!(matches!(
+            result,
+            Err(LookupVerifyError::DuplicatedProofIDs(_))
+        ));
+    }
+
+    #[test]
+    fn test_complete_when_count_reached() {
+        let block_root = Hash256::random();
+        let request = ExecutionProofsByRootSingleBlockRequest {
+            block_root,
+            already_have: vec![],
+            count_needed: 2,
+        };
+
+        let mut items = ExecutionProofsByRootRequestItems::<E>::new(request);
+        let proof1 = make_proof(block_root, 0, ExecutionBlockHash::zero());
+        let proof2 = make_proof(block_root, 1, ExecutionBlockHash::zero());
+
+        assert!(!items.add(proof1).unwrap()); // Not complete
+        assert!(items.add(proof2).unwrap()); // Complete!
+
+        let received = items.consume();
+        assert_eq!(received.len(), 2);
+    }
+
+    #[test]
+    fn test_already_have_excludes_proofs() {
+        let block_root = Hash256::random();
+        let request = ExecutionProofsByRootSingleBlockRequest {
+            block_root,
+            already_have: vec![ExecutionProofId::new(0).unwrap(), ExecutionProofId::new(1).unwrap()],
+            count_needed: 2,
+        };
+
+        let mut items = ExecutionProofsByRootRequestItems::<E>::new(request);
+
+        // Should accept proofs not in already_have
+        let proof2 = make_proof(block_root, 2, ExecutionBlockHash::zero());
+        let proof3 = make_proof(block_root, 3, ExecutionBlockHash::zero());
+
+        assert!(!items.add(proof2).unwrap()); // Not complete
+        assert!(items.add(proof3).unwrap()); // Complete!
+
+        let received = items.consume();
+        assert_eq!(received.len(), 2);
+    }
+}
