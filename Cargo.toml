@@ -239,7 +239,7 @@ slashing_protection = { path = "validator_client/slashing_protection" }
 slot_clock = { path = "common/slot_clock" }
 smallvec = { version = "1.11.2", features = ["arbitrary"] }
 snap = "1"
-ssz_types = "0.11.0"
+ssz_types = "0.12.2"
 state_processing = { path = "consensus/state_processing" }
 store = { path = "beacon_node/store" }
 strum = { version = "0.24", features = ["derive"] }

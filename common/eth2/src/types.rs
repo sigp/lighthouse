@@ -1690,8 +1690,8 @@ mod tests {
             BeaconBlock::<E>::Deneb(BeaconBlockDeneb::empty(&spec)),
             Signature::empty(),
         );
-        let blobs = BlobsList::<E>::from(vec![Blob::<E>::default()]);
-        let kzg_proofs = KzgProofs::<E>::from(vec![KzgProof::empty()]);
+        let blobs = BlobsList::<E>::try_from(vec![Blob::<E>::default()]).unwrap();
+        let kzg_proofs = KzgProofs::<E>::try_from(vec![KzgProof::empty()]).unwrap();
         let signed_block_contents =
             PublishBlockRequest::new(Arc::new(block), Some((kzg_proofs, blobs)));
 

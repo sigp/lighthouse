@@ -26,8 +26,11 @@ fn create_test_block_and_blobs<E: EthSpec>(
     let blobs = (0..num_of_blobs)
         .map(|_| Blob::<E>::default())
         .collect::<Vec<_>>()
-        .into();
-    let proofs = vec![KzgProof::empty(); num_of_blobs * E::number_of_columns()].into();
+        .try_into()
+        .unwrap();
+    let proofs = vec![KzgProof::empty(); num_of_blobs * E::number_of_columns()]
+        .try_into()
+        .unwrap();
 
     (signed_block, blobs, proofs)
 }
