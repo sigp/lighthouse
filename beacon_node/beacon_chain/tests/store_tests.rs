@@ -3,7 +3,9 @@
 use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
+use beacon_chain::custody_context::CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS;
 use beacon_chain::data_availability_checker::AvailableBlock;
+use beacon_chain::historical_data_columns::HistoricalDataColumnError;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
@@ -16,6 +18,7 @@ use beacon_chain::{
     beacon_proposer_cache::{
         compute_proposer_duties_from_head, ensure_state_can_determine_proposers_for_epoch,
     },
+    custody_context::NodeCustodyType,
     data_availability_checker::MaybeAvailableBlock,
     historical_blocks::HistoricalBlockError,
     migrate::MigratorConfig,
@@ -96,7 +99,12 @@ fn get_harness(
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };
-    get_harness_generic(store, validator_count, chain_config, false)
+    get_harness_generic(
+        store,
+        validator_count,
+        chain_config,
+        NodeCustodyType::Fullnode,
+    )
 }
 
 fn get_harness_import_all_data_columns(
@@ -108,14 +116,19 @@ fn get_harness_import_all_data_columns(
         reconstruct_historic_states: true,
         ..ChainConfig::default()
     };
-    get_harness_generic(store, validator_count, chain_config, true)
+    get_harness_generic(
+        store,
+        validator_count,
+        chain_config,
+        NodeCustodyType::Supernode,
+    )
 }
 
 fn get_harness_generic(
     store: Arc<HotColdDB<E, BeaconNodeBackend<E>, BeaconNodeBackend<E>>>,
     validator_count: usize,
     chain_config: ChainConfig,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
 ) -> TestHarness {
     let harness = TestHarness::builder(MinimalEthSpec)
         .spec(store.get_chain_spec().clone())
@@ -123,7 +136,7 @@ fn get_harness_generic(
         .fresh_disk_store(store)
         .mock_execution_layer()
         .chain_config(chain_config)
-        .import_all_data_columns(import_all_data_columns)
+        .node_custody_type(node_custody_type)
         .build();
     harness.advance_slot();
     harness
@@ -3169,6 +3182,245 @@ async fn weak_subjectivity_sync_test(
     assert_eq!(store.get_anchor_info().state_upper_limit, Slot::new(0));
 }
 
+#[tokio::test]
+async fn test_import_historical_data_columns_batch() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Epoch::new(0).start_slot(E::slots_per_epoch()) + 1;
+    let end_slot = Epoch::new(0).end_slot(E::slots_per_epoch());
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some());
+        for data_column in data_columns.unwrap() {
+            data_columns_list.push(data_column);
+        }
+    }
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    harness
+        .chain
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list)
+        .unwrap();
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some())
+    }
+}
+
+// This should verify that a data column sidecar containing mismatched block roots should fail to be imported.
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_mismatched_block_root() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some());
+
+        for data_column in data_columns.unwrap() {
+            let mut data_column = (*data_column).clone();
+            if data_column.index % 2 == 0 {
+                data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            }
+
+            data_columns_list.push(Arc::new(data_column));
+        }
+    }
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(
+            start_slot.epoch(E::slots_per_epoch()),
+            data_columns_list,
+        )
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::NoBlockFound { .. }
+    ));
+}
+
+// This should verify that a data column sidecar associated to a block root that doesn't exist in the store cannot
+// be imported.
+#[tokio::test]
+async fn test_import_historical_data_columns_batch_no_block_found() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let start_slot = Slot::new(1);
+    let end_slot = Slot::new(E::slots_per_epoch() * 2 - 1);
+
+    let harness = get_harness_import_all_data_columns(store.clone(), LOW_VALIDATOR_COUNT);
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 2) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+    harness.advance_slot();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    let mut data_columns_list = vec![];
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_some());
+
+        for data_column in data_columns.unwrap() {
+            let mut data_column = (*data_column).clone();
+            data_column.signed_block_header.message.body_root = Hash256::ZERO;
+            data_columns_list.push(Arc::new(data_column));
+        }
+    }
+
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 4) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    harness.advance_slot();
+
+    harness
+        .chain
+        .store
+        .try_prune_blobs(true, Epoch::new(2))
+        .unwrap();
+
+    let block_root_iter = harness
+        .chain
+        .forwards_iter_block_roots_until(start_slot, end_slot)
+        .unwrap();
+
+    for block in block_root_iter {
+        let (block_root, _) = block.unwrap();
+        let data_columns = harness.chain.store.get_data_columns(&block_root).unwrap();
+        assert!(data_columns.is_none())
+    }
+
+    let error = harness
+        .chain
+        .import_historical_data_column_batch(Epoch::new(0), data_columns_list)
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        HistoricalDataColumnError::NoBlockFound { .. }
+    ));
+}
+
 /// Test that blocks and attestations that refer to states around an unaligned split state are
 /// processed correctly.
 #[tokio::test]
@@ -3179,7 +3431,12 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let harness = get_harness_generic(store.clone(), LOW_VALIDATOR_COUNT, chain_config, false);
+    let harness = get_harness_generic(
+        store.clone(),
+        LOW_VALIDATOR_COUNT,
+        chain_config,
+        NodeCustodyType::Fullnode,
+    );
 
     let all_validators = (0..LOW_VALIDATOR_COUNT).collect::<Vec<_>>();
 
@@ -3598,14 +3855,13 @@ async fn schema_downgrade_to_min_version(
         reconstruct_historic_states,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config.clone(), spec.clone());
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config.clone(),
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     harness
@@ -4376,6 +4632,65 @@ async fn fulu_prune_data_columns_fork_boundary() {
     check_data_column_existence(&harness, pruned_slot, harness.head_slot(), true);
 }
 
+#[tokio::test]
+async fn test_column_da_boundary() {
+    let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
+    let fulu_fork_epoch = Epoch::new(4);
+    spec.fulu_fork_epoch = Some(fulu_fork_epoch);
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        panic!("PeerDAS not scheduled");
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // The column da boundary should be the fulu fork epoch
+    assert_eq!(
+        harness.chain.column_data_availability_boundary(),
+        Some(fulu_fork_epoch)
+    );
+}
+
+#[tokio::test]
+async fn test_earliest_custodied_data_column_epoch() {
+    let spec = ForkName::Fulu.make_genesis_spec(E::default_spec());
+    let db_path = tempdir().unwrap();
+    let store = get_store_generic(&db_path, StoreConfig::default(), spec);
+    let custody_info_epoch = Epoch::new(4);
+
+    if !store.get_chain_spec().is_peer_das_scheduled() {
+        // No-op if PeerDAS not scheduled.
+        panic!("PeerDAS not scheduled");
+    }
+
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    // earliest custody info is set to the last slot in `custody_info_epoch`
+    harness
+        .chain
+        .update_data_column_custody_info(Some(custody_info_epoch.end_slot(E::slots_per_epoch())));
+
+    // earliest custodied data column epoch should be `custody_info_epoch` + 1
+    assert_eq!(
+        harness.chain.earliest_custodied_data_column_epoch(),
+        Some(custody_info_epoch + 1)
+    );
+
+    // earliest custody info is set to the first slot in `custody_info_epoch`
+    harness
+        .chain
+        .update_data_column_custody_info(Some(custody_info_epoch.start_slot(E::slots_per_epoch())));
+
+    // earliest custodied data column epoch should be `custody_info_epoch`
+    assert_eq!(
+        harness.chain.earliest_custodied_data_column_epoch(),
+        Some(custody_info_epoch)
+    );
+}
+
 /// Check that blob pruning prunes data columns older than the data availability boundary with
 /// margin applied.
 #[tokio::test]
@@ -4569,14 +4884,13 @@ async fn ancestor_state_root_prior_to_split() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config, spec);
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config,
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     // Produce blocks until we have passed through two full snapshot periods. This period length is
@@ -4663,14 +4977,13 @@ async fn replay_from_split_state() {
         reconstruct_historic_states: false,
         ..ChainConfig::default()
     };
-    let import_all_data_columns = false;
 
     let store = get_store_generic(&db_path, store_config.clone(), spec.clone());
     let harness = get_harness_generic(
         store.clone(),
         LOW_VALIDATOR_COUNT,
         chain_config,
-        import_all_data_columns,
+        NodeCustodyType::Fullnode,
     );
 
     // Produce blocks until we finalize epoch 3 which will not be stored as a snapshot.
@@ -4791,6 +5104,166 @@ async fn test_custody_column_filtering_supernode() {
         stored_column_indices, expected_custody_columns,
         "Supernode should store all custody columns"
     );
+}
+
+#[tokio::test]
+async fn test_missing_columns_after_cgc_change() {
+    let spec = test_spec::<E>();
+
+    let num_validators = 8;
+
+    let num_epochs_before_increase = 4;
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone().into())
+        .deterministic_keypairs(num_validators)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let state = harness.chain.head_beacon_state_cloned();
+
+    if !state.fork_name_unchecked().fulu_enabled() {
+        return;
+    }
+
+    let custody_context = harness.chain.data_availability_checker.custody_context();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * num_epochs_before_increase) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let epoch_before_increase = Epoch::new(num_epochs_before_increase);
+
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_before_increase);
+
+    // We should have no missing columns
+    assert_eq!(missing_columns.len(), 0);
+
+    let epoch_after_increase = Epoch::new(num_epochs_before_increase + 2);
+
+    let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
+    custody_context.register_validators(vec![(1, 32_000_000_000 * 9)], cgc_change_slot, &spec);
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 5) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    // We should have missing columns from before the cgc increase
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_before_increase);
+
+    assert!(!missing_columns.is_empty());
+
+    // We should have no missing columns after the cgc increase
+    let missing_columns = harness
+        .chain
+        .get_missing_columns_for_epoch(epoch_after_increase);
+
+    assert!(missing_columns.is_empty());
+}
+
+#[tokio::test]
+async fn test_safely_backfill_data_column_custody_info() {
+    let spec = test_spec::<E>();
+
+    let num_validators = 8;
+
+    let start_epochs = 4;
+
+    let harness = BeaconChainHarness::builder(E::default())
+        .spec(spec.clone().into())
+        .deterministic_keypairs(num_validators)
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    let state = harness.chain.head_beacon_state_cloned();
+
+    if !state.fork_name_unchecked().fulu_enabled() {
+        return;
+    }
+
+    let custody_context = harness.chain.data_availability_checker.custody_context();
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * start_epochs) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let epoch_before_increase = Epoch::new(start_epochs);
+    let effective_delay_slots =
+        CUSTODY_CHANGE_DA_EFFECTIVE_DELAY_SECONDS / harness.chain.spec.seconds_per_slot;
+
+    let cgc_change_slot = epoch_before_increase.end_slot(E::slots_per_epoch());
+
+    custody_context.register_validators(vec![(1, 32_000_000_000 * 16)], cgc_change_slot, &spec);
+
+    let epoch_after_increase =
+        (cgc_change_slot + effective_delay_slots).epoch(E::slots_per_epoch());
+
+    harness.advance_slot();
+    harness
+        .extend_chain(
+            (E::slots_per_epoch() * 5) as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
+
+    let head_slot = harness.chain.head().snapshot.beacon_block.slot();
+
+    harness
+        .chain
+        .update_data_column_custody_info(Some(head_slot));
+
+    // We can only safely update custody column info 1 epoch at a time
+    // Skipping an epoch should return an error
+    harness
+        .chain
+        .safely_backfill_data_column_custody_info(head_slot.epoch(E::slots_per_epoch()) - 2)
+        .unwrap_err();
+
+    // Iterate from the head epoch back to 0 and try to backfill data column custody info
+    for epoch in (0..head_slot.epoch(E::slots_per_epoch()).into()).rev() {
+        // This is an epoch before the cgc change took into effect, we shouldnt be able to update
+        // without performing custody backfill sync
+        if epoch <= epoch_after_increase.into() {
+            harness
+                .chain
+                .safely_backfill_data_column_custody_info(Epoch::new(epoch))
+                .unwrap_err();
+        } else {
+            // This is an epoch after the cgc change took into effect, we should be able to update
+            // as long as we iterate epoch by epoch
+            harness
+                .chain
+                .safely_backfill_data_column_custody_info(Epoch::new(epoch))
+                .unwrap();
+            let earliest_available_epoch = harness
+                .chain
+                .earliest_custodied_data_column_epoch()
+                .unwrap();
+            assert_eq!(Epoch::new(epoch), earliest_available_epoch);
+        }
+    }
 }
 
 /// Checks that two chains are the same, for the purpose of these tests.
