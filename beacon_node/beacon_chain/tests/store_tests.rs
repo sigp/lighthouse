@@ -5,11 +5,11 @@ use beacon_chain::block_verification_types::RpcBlock;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::data_availability_checker::AvailableBlock;
 use beacon_chain::schema_change::migrate_schema;
-use beacon_chain::test_utils::SyncCommitteeStrategy;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType, get_kzg,
     mock_execution_layer_from_parts, test_spec,
 };
+use beacon_chain::test_utils::{SyncCommitteeStrategy, fork_name_from_env};
 use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BeaconSnapshot, BlockError, ChainConfig,
     NotifyExecutionLayer, ServerSentEventHandler, WhenSlotSkipped,
@@ -3852,6 +3852,12 @@ async fn deneb_prune_blobs_no_finalization() {
 /// Check that blob pruning does not fail trying to prune across the fork boundary.
 #[tokio::test]
 async fn prune_blobs_across_fork_boundary() {
+    // This test covers earlier forks and only need to be executed once.
+    // Note: this test is quite expensive (building a chain to epoch 15) and we should revisit this
+    if fork_name_from_env() != Some(ForkName::latest_stable()) {
+        return;
+    }
+
     let mut spec = ForkName::Capella.make_genesis_spec(E::default_spec());
 
     let deneb_fork_epoch = Epoch::new(4);
@@ -3868,6 +3874,7 @@ async fn prune_blobs_across_fork_boundary() {
     let store = get_store_generic(&db_path, StoreConfig::default(), spec);
 
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    harness.execution_block_generator().set_min_blob_count(1);
 
     let blocks_to_deneb_finalization = E::slots_per_epoch() * 7;
     let blocks_to_electra_finalization = E::slots_per_epoch() * 4;
@@ -4023,7 +4030,7 @@ async fn prune_blobs_across_fork_boundary() {
             // Fulu fork epochs
             // Pruning should have been triggered
             assert!(store.get_blob_info().oldest_blob_slot <= Some(oldest_slot));
-            // Oldest blost slot should never be greater than the first fulu slot
+            // Oldest blob slot should never be greater than the first fulu slot
             let fulu_first_slot = fulu_fork_epoch.start_slot(E::slots_per_epoch());
             assert!(store.get_blob_info().oldest_blob_slot <= Some(fulu_first_slot));
             // Blobs should not exist post-Fulu
@@ -4449,7 +4456,7 @@ async fn fulu_prune_data_columns_margin_test(margin: u64) {
     check_data_column_existence(&harness, oldest_data_column_slot, harness.head_slot(), true);
 }
 
-/// Check tat there are data column sidecars (or not) at every slot in the range.
+/// Check that there are data column sidecars (or not) at every slot in the range.
 fn check_data_column_existence(
     harness: &TestHarness,
     start_slot: Slot,
