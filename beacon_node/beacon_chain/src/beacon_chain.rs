@@ -26,6 +26,9 @@ use crate::data_availability_checker::{
     DataAvailabilityChecker, DataColumnReconstructionResult,
 };
 use crate::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
+use crate::execution_proof_verification::{
+    GossipExecutionProofError, GossipVerifiedExecutionProof,
+};
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::events::ServerSentEventHandler;
@@ -54,6 +57,7 @@ use crate::observed_attesters::{
 };
 use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_data_sidecars::ObservedDataSidecars;
+use crate::observed_execution_proofs::ObservedExecutionProofs;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::observed_slashable::ObservedSlashable;
 use crate::persisted_beacon_chain::PersistedBeaconChain;
@@ -126,8 +130,10 @@ use store::{
     KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{RayonPoolType, ShutdownReason, TaskExecutor};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::Stream;
 use tracing::{Span, debug, debug_span, error, info, info_span, instrument, trace, warn};
+use zkvm_execution_layer::GeneratorRegistry;
 use tree_hash::TreeHash;
 use types::blob_sidecar::FixedBlobSidecarList;
 use types::data_column_sidecar::ColumnIndex;
@@ -343,6 +349,8 @@ pub enum BlockProcessStatus<E: EthSpec> {
 
 pub type LightClientProducerEvent<T> = (Hash256, Slot, SyncAggregate<T>);
 
+pub type ProofGenerationEvent<E> = (Hash256, Slot, Arc<SignedBeaconBlock<E>>);
+
 pub type BeaconForkChoice<T> = ForkChoice<
     BeaconForkChoiceStore<
         <T as BeaconChainTypes>::EthSpec,
@@ -414,6 +422,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub observed_blob_sidecars: RwLock<ObservedDataSidecars<BlobSidecar<T::EthSpec>>>,
     /// Maintains a record of column sidecars seen over the gossip network.
     pub observed_column_sidecars: RwLock<ObservedDataSidecars<DataColumnSidecar<T::EthSpec>>>,
+    /// Maintains a record of execution proofs seen over the gossip network.
+    pub observed_execution_proofs: RwLock<ObservedExecutionProofs>,
     /// Maintains a record of slashable message seen over the gossip network or RPC.
     pub observed_slashable: RwLock<ObservedSlashable<T::EthSpec>>,
     /// Maintains a record of which validators have submitted voluntary exits.
@@ -482,6 +492,10 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub kzg: Arc<Kzg>,
     /// RNG instance used by the chain. Currently used for shuffling column sidecars in block publishing.
     pub rng: Arc<Mutex<Box<dyn RngCore + Send>>>,
+    /// Registry of zkVM proof generators for altruistic proof generation
+    pub zkvm_generator_registry: Option<Arc<GeneratorRegistry>>,
+    /// Sender to notify proof generation service of blocks needing proofs
+    pub proof_generation_tx: Option<UnboundedSender<ProofGenerationEvent<T::EthSpec>>>,
 }
 
 pub enum BeaconBlockResponseWrapper<E: EthSpec> {
@@ -2203,6 +2217,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     #[instrument(skip_all, level = "trace")]
+    pub fn verify_execution_proof_for_gossip(
+        self: &Arc<Self>,
+        execution_proof: Arc<ExecutionProof>,
+    ) -> Result<GossipVerifiedExecutionProof<T>, GossipExecutionProofError> {
+        // TODO(zkproofs): Add metrics
+        GossipVerifiedExecutionProof::new(execution_proof, self)
+    }
+
+    #[instrument(skip_all, level = "trace")]
     pub fn verify_blob_sidecar_for_gossip(
         self: &Arc<Self>,
         blob_sidecar: Arc<BlobSidecar<T::EthSpec>>,
@@ -3039,6 +3062,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.check_gossip_blob_availability_and_import(blob).await
     }
 
+    /// Process a gossip-verified execution proof by storing it in the DA checker.
+    ///
+    /// This method takes an execution proof that has already been validated via gossip
+    /// and stores it in the DataAvailabilityChecker. If all components for a block are
+    /// now available, the block will be imported to fork choice.
+    #[instrument(skip_all, level = "debug")]
+    pub async fn process_gossip_execution_proof(
+        self: &Arc<Self>,
+        execution_proof: GossipVerifiedExecutionProof<T>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        let block_root = execution_proof.block_root();
+
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its execution proofs again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::DuplicateFullyImported(block_root));
+        }
+
+        self.check_gossip_execution_proof_availability_and_import(
+            execution_proof,
+            publish_fn,
+        )
+        .await
+    }
+
     /// Cache the data columns in the processing cache, process it, then evict it from the cache if it was
     /// imported or errors.
     #[instrument(skip_all, level = "debug")]
@@ -3119,6 +3172,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().flatten().map(Arc::as_ref));
 
         self.check_rpc_blob_availability_and_import(slot, block_root, blobs)
+            .await
+    }
+
+    /// Process execution proofs retrieved via RPC and returns the `AvailabilityProcessingStatus`.
+    ///
+    /// This method handles execution proofs received from peers during block sync. The proofs
+    /// are verified and stored in the data availability checker. If all required components
+    /// (block, blobs/columns, and proofs) are available, the block is imported into fork choice.
+    pub async fn process_rpc_execution_proofs(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        execution_proofs: Vec<Arc<types::ExecutionProof>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        // If this block has already been imported to forkchoice it must have been available, so
+        // we don't need to process its execution proofs again.
+        if self
+            .canonical_head
+            .fork_choice_read_lock()
+            .contains_block(&block_root)
+        {
+            return Err(BlockError::DuplicateFullyImported(block_root));
+        }
+
+        // Validate that all proofs are for the expected block_root
+        for proof in &execution_proofs {
+            if proof.block_root != block_root {
+                return Err(BlockError::AvailabilityCheck(
+                    AvailabilityCheckError::Unexpected(format!(
+                        "Proof block_root mismatch: expected {}, got {}",
+                        block_root, proof.block_root
+                    )),
+                ));
+            }
+        }
+
+        // TODO(zkproofs): We can emit SSE events for execution proofs yet
+
+        self.check_rpc_execution_proof_availability_and_import(slot, block_root, execution_proofs)
             .await
     }
 
@@ -3564,6 +3656,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
     }
 
+    /// Checks if the provided execution proof can make any cached blocks available, and imports
+    /// immediately if so, otherwise caches the proof in the data availability checker.
+    async fn check_gossip_execution_proof_availability_and_import(
+        self: &Arc<Self>,
+        execution_proof: GossipVerifiedExecutionProof<T>,
+        publish_fn: impl FnOnce() -> Result<(), BlockError>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        let block_root = execution_proof.block_root();
+        let slot = execution_proof.slot();
+
+        // TODO(zkproofs): Can we avoid the clone
+        let proof_arc = execution_proof.into_inner();
+        let proof = (*proof_arc).clone();
+
+        // Store the proof in the DA checker
+        let availability = self
+            .data_availability_checker
+            .put_verified_execution_proofs(block_root, std::iter::once(proof))
+            .map_err(|e| BlockError::AvailabilityCheck(e))?;
+
+        self.process_availability(slot, availability, publish_fn)
+            .await
+    }
+
     fn check_blobs_for_slashability<'a>(
         self: &Arc<Self>,
         block_root: Hash256,
@@ -3654,6 +3770,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot,
             custody_columns,
         )?;
+
+        self.process_availability(slot, availability, || Ok(()))
+            .await
+    }
+
+    /// Checks if the provided execution proofs can make any cached blocks available, and imports
+    /// immediately if so, otherwise caches the proofs in the data availability checker.
+    async fn check_rpc_execution_proof_availability_and_import(
+        self: &Arc<Self>,
+        slot: Slot,
+        block_root: Hash256,
+        execution_proofs: Vec<Arc<types::ExecutionProof>>,
+    ) -> Result<AvailabilityProcessingStatus, BlockError> {
+        // TODO(zkproofs): For optional proofs, they are currently not signed
+        // so we can't add any slashability checks here. We also don't want this
+        // because it could cause issues where we slash a validator for giving us bad
+        // proofs, but for nodes that don't need proofs (most of the network), they will
+        // not see this slashing or care about.
+
+        let availability = self
+            .data_availability_checker
+            .put_rpc_execution_proofs(block_root, execution_proofs)?;
 
         self.process_availability(slot, availability, || Ok(()))
             .await
@@ -4034,6 +4172,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             payload_verification_status,
             current_slot,
         );
+
+        // Notify proof generation service for altruistic proof generation
+        if let Some(ref proof_gen_tx) = self.proof_generation_tx {
+            let slot = signed_block.slot();
+            let event = (block_root, slot, signed_block.clone());
+
+            if let Err(e) = proof_gen_tx.send(event) {
+                debug!(
+                    error = ?e,
+                    ?block_root,
+                    "Failed to send proof generation event"
+                );
+            }
+        }
 
         Ok(block_root)
     }
@@ -7265,6 +7417,59 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.data_availability_checker
             .custody_context()
             .custody_columns_for_epoch(epoch_opt, &self.spec)
+    }
+
+    /// Returns a deterministic list of execution proof subnet IDs to request for a block in the given epoch.
+    ///
+    /// The selection is deterministic based on the epoch, ensuring all nodes request the same
+    /// subnets for blocks in the same epoch. Different epochs will result in different subnet
+    /// selections, providing rotation over time.
+    ///
+    /// # Arguments
+    /// * `epoch` - The epoch of the block
+    /// * `count` - Number of subnets to select (typically min_execution_proofs_required)
+    ///
+    /// # Returns
+    /// A vector of `count` subnet IDs, deterministically selected based on the epoch.
+    pub fn execution_proof_subnets_for_epoch(
+        &self,
+        epoch: Epoch,
+        count: usize,
+    ) -> Vec<types::ExecutionProofId> {
+        use types::EXECUTION_PROOF_TYPE_COUNT;
+
+        let total_subnets = EXECUTION_PROOF_TYPE_COUNT as usize;
+        let count = std::cmp::min(count, total_subnets);
+
+        if count == 0 {
+            return vec![];
+        }
+
+        // Use epoch as a deterministic seed
+        // Hash the epoch to get a pseudo-random but deterministic ordering
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        epoch.hash(&mut hasher);
+        let seed = hasher.finish();
+
+        // Create a deterministic permutation of subnet IDs based on the seed
+        let mut subnet_ids: Vec<u8> = (0..EXECUTION_PROOF_TYPE_COUNT).collect();
+
+        // Simple deterministic shuffle using the seed
+        // This is a Fisher-Yates shuffle variant using deterministic randomness
+        for i in (1..subnet_ids.len()).rev() {
+            // Use seed + i for deterministic pseudo-random index
+            let j = ((seed.wrapping_add(i as u64).wrapping_mul(2654435761)) % ((i + 1) as u64))
+                as usize;
+            subnet_ids.swap(i, j);
+        }
+
+        // Take the first `count` subnet IDs and convert to ExecutionProofId
+        subnet_ids
+            .into_iter()
+            .take(count)
+            .filter_map(|id| types::ExecutionProofId::new(id).ok())
+            .collect()
     }
 }
 
