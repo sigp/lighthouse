@@ -1,10 +1,13 @@
 use super::RangeSyncType;
-use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::metrics;
 use crate::network_beacon_processor::ChainSegmentProcessId;
+use crate::sync::batch::BatchId;
+use crate::sync::batch::{
+    BatchConfig, BatchInfo, BatchOperationOutcome, BatchProcessingResult, BatchState,
+};
 use crate::sync::block_sidecar_coupling::CouplingError;
 use crate::sync::network_context::{RangeRequestId, RpcRequestSendError, RpcResponseError};
-use crate::sync::{BatchOperationOutcome, BatchProcessResult, network_context::SyncNetworkContext};
+use crate::sync::{BatchProcessResult, network_context::SyncNetworkContext};
 use beacon_chain::BeaconChainTypes;
 use beacon_chain::block_verification_types::RpcBlock;
 use lighthouse_network::service::api_types::Id;
@@ -12,6 +15,8 @@ use lighthouse_network::{PeerAction, PeerId};
 use lighthouse_tracing::SPAN_SYNCING_CHAIN;
 use logging::crit;
 use std::collections::{BTreeMap, HashSet, btree_map::Entry};
+use std::hash::{Hash, Hasher};
+use std::marker::PhantomData;
 use strum::IntoStaticStr;
 use tracing::{Span, debug, instrument, warn};
 use types::{ColumnIndex, Epoch, EthSpec, Hash256, Slot};
@@ -35,6 +40,35 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// and continued is now in an inconsistent state.
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 
+type RpcBlocks<E> = Vec<RpcBlock<E>>;
+type RangeSyncBatchInfo<E> = BatchInfo<E, RangeSyncBatchConfig<E>, RpcBlocks<E>>;
+type RangeSyncBatches<E> = BTreeMap<BatchId, RangeSyncBatchInfo<E>>;
+
+/// The number of times to retry a batch before it is considered failed.
+const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
+
+/// Invalid batches are attempted to be re-downloaded from other peers. If a batch cannot be processed
+/// after `MAX_BATCH_PROCESSING_ATTEMPTS` times, it is considered faulty.
+const MAX_BATCH_PROCESSING_ATTEMPTS: u8 = 3;
+
+pub struct RangeSyncBatchConfig<E: EthSpec> {
+    marker: PhantomData<E>,
+}
+
+impl<E: EthSpec> BatchConfig for RangeSyncBatchConfig<E> {
+    fn max_batch_download_attempts() -> u8 {
+        MAX_BATCH_DOWNLOAD_ATTEMPTS
+    }
+    fn max_batch_processing_attempts() -> u8 {
+        MAX_BATCH_PROCESSING_ATTEMPTS
+    }
+    fn batch_attempt_hash<D: Hash>(data: &D) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        data.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
 /// Reasons for removing a chain
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -55,7 +89,6 @@ pub struct KeepChain;
 
 /// A chain identifier
 pub type ChainId = Id;
-pub type BatchId = Epoch;
 
 #[derive(Debug, Copy, Clone, IntoStaticStr)]
 pub enum SyncingChainType {
@@ -85,7 +118,7 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     pub target_head_root: Hash256,
 
     /// Sorted map of batches undergoing some kind of processing.
-    batches: BTreeMap<BatchId, BatchInfo<T::EthSpec>>,
+    batches: RangeSyncBatches<T::EthSpec>,
 
     /// The peers that agree on the `target_head_slot` and `target_head_root` as a canonical chain
     /// and thus available to download this chain from, as well as the batches we are currently
@@ -249,7 +282,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // request_id matches
                 // TODO(das): removed peer_id matching as the node may request a different peer for data
                 // columns.
-                if !batch.is_expecting_block(&request_id) {
+                if !batch.is_expecting_request_id(&request_id) {
                     return Ok(KeepChain);
                 }
                 batch
@@ -260,7 +293,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // Remove the request from the peer's active batches
 
         // TODO(das): should use peer group here https://github.com/sigp/lighthouse/issues/6258
-        let received = batch.download_completed(blocks, *peer_id)?;
+        let received = blocks.len();
+        batch.download_completed(blocks, *peer_id)?;
         let awaiting_batches = batch_id
             .saturating_sub(self.optimistic_start.unwrap_or(self.processing_target))
             / EPOCHS_PER_BATCH;
@@ -871,7 +905,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     CouplingError::DataColumnPeerFailure {
                         error,
                         faulty_peers,
-                        action,
                         exceeded_retries,
                     } => {
                         debug!(?batch_id, error, "Block components coupling error");
@@ -883,12 +916,22 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                             failed_columns.insert(*column);
                             failed_peers.insert(*peer);
                         }
-                        for peer in failed_peers.iter() {
-                            network.report_peer(*peer, *action, "failed to return columns");
-                        }
                         // Retry the failed columns if the column requests haven't exceeded the
                         // max retries. Otherwise, remove treat it as a failed batch below.
                         if !*exceeded_retries {
+                            // Set the batch back to `AwaitingDownload` before retrying.
+                            // This is to ensure that the batch doesn't get stuck in `Downloading` state.
+                            //
+                            // DataColumn retries has a retry limit so calling `downloading_to_awaiting_download`
+                            // is safe.
+                            if let BatchOperationOutcome::Failed { blacklist } =
+                                batch.downloading_to_awaiting_download()?
+                            {
+                                return Err(RemoveChain::ChainFailed {
+                                    blacklist,
+                                    failing_batch: batch_id,
+                                });
+                            }
                             return self.retry_partial_batch(
                                 network,
                                 batch_id,
@@ -909,7 +952,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // A batch could be retried without the peer failing the request (disconnecting/
             // sending an error /timeout) if the peer is removed from the chain for other
             // reasons. Check that this block belongs to the expected peer
-            if !batch.is_expecting_block(&request_id) {
+            if !batch.is_expecting_request_id(&request_id) {
                 debug!(
                     batch_epoch = %batch_id,
                     batch_state = ?batch.state(),
@@ -936,7 +979,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     failing_batch: batch_id,
                 });
             }
-            self.send_batch(network, batch_id)
+            // The errored batch is set to AwaitingDownload above.
+            // We now just attempt to download all batches stuck in `AwaitingDownload`
+            // state in the right order.
+            self.attempt_send_awaiting_download_batches(network, "injecting error")
         } else {
             debug!(
                 batch_epoch = %batch_id,
@@ -969,7 +1015,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .collect();
         debug!(
             ?awaiting_downloads,
-            src, "Attempting to send batches awaiting downlaod"
+            src, "Attempting to send batches awaiting download"
         );
 
         for batch_id in awaiting_downloads {
@@ -998,11 +1044,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             let (request, batch_type) = batch.to_blocks_by_range_request();
             let failed_peers = batch.failed_peers();
 
-            let synced_peers = network
+            let synced_column_peers = network
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, Some(&self.peers))
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -1013,7 +1059,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     chain_id: self.id,
                     batch_id,
                 },
-                &synced_peers,
+                // Request blocks only from peers of this specific chain
+                &self.peers,
+                // Request column from all synced peers, even if they are not part of this chain.
+                // This is to avoid splitting of good column peers across many head chains in a heavy forking
+                // environment. If the column peers and block peer are on different chains, then we return
+                // a coupling error and retry only the columns that failed to couple. See `Self::retry_partial_batch`.
+                &synced_column_peers,
                 &failed_peers,
             ) {
                 Ok(request_id) => {
@@ -1081,7 +1133,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 .network_globals()
                 .peers
                 .read()
-                .synced_peers_for_epoch(batch_id, Some(&self.peers))
+                .synced_peers_for_epoch(batch_id)
                 .cloned()
                 .collect::<HashSet<_>>();
 
@@ -1093,6 +1145,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 &failed_columns,
             ) {
                 Ok(_) => {
+                    // inform the batch about the new request
+                    batch.start_downloading(id)?;
                     debug!(
                         ?batch_id,
                         id, "Retried column requests from different peers"
@@ -1100,6 +1154,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     return Ok(KeepChain);
                 }
                 Err(e) => {
+                    // No need to explicitly fail the batch since its in `AwaitingDownload` state
+                    // before we attempted to retry.
                     debug!(?batch_id, id, e, "Failed to retry partial batch");
                 }
             }
@@ -1123,6 +1179,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     ) -> Result<KeepChain, RemoveChain> {
         let _guard = self.span.clone().entered();
         debug!("Resuming chain");
+        // attempt to download any batches stuck in the `AwaitingDownload` state because of
+        // a lack of peers before.
+        self.attempt_send_awaiting_download_batches(network, "resume")?;
         // Request more batches if needed.
         self.request_batches(network)?;
         // If there is any batch ready for processing, send it.
@@ -1208,7 +1267,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // only request batches up to the buffer size limit
         // NOTE: we don't count batches in the AwaitingValidation state, to prevent stalling sync
         // if the current processing window is contained in a long range of skip slots.
-        let in_buffer = |batch: &BatchInfo<T::EthSpec>| {
+        let in_buffer = |batch: &RangeSyncBatchInfo<T::EthSpec>| {
             matches!(
                 batch.state(),
                 BatchState::Downloading(..) | BatchState::AwaitingProcessing(..)
@@ -1295,7 +1354,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
     }
 }
 
-use super::batch::WrongState as WrongBatchState;
+use crate::sync::batch::WrongState as WrongBatchState;
 impl From<WrongBatchState> for RemoveChain {
     fn from(err: WrongBatchState) -> Self {
         RemoveChain::WrongBatchState(err.0)

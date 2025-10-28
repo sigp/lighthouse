@@ -57,6 +57,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
     // Store info if we are required to do a backfill sync.
     let original_oldest_block_slot = beacon_chain.store.get_anchor_info().oldest_block_slot;
 
+    // Use this info during custody backfill sync.
+    let mut original_earliest_data_column_slot = None;
+
     let interval_future = async move {
         // Perform pre-genesis logging.
         loop {
@@ -80,6 +83,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
         // Perform post-genesis logging.
         let mut last_backfill_log_slot = None;
+        let mut last_custody_backfill_log_slot = None;
 
         loop {
             // Run the notifier half way through each slot.
@@ -110,6 +114,18 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     (SyncState::BackFillSyncing { .. }, _) => {
                         // We have transitioned from a backfill sync, reset the speedo
                         let mut speedo = speedo.lock().await;
+                        speedo.clear();
+                    }
+                    (_, SyncState::CustodyBackFillSyncing { .. }) => {
+                        // We have transitioned to a custody backfill sync. Reset the speedo.
+                        let mut speedo = speedo.lock().await;
+                        last_custody_backfill_log_slot = None;
+                        speedo.clear();
+                    }
+                    (SyncState::CustodyBackFillSyncing { .. }, _) => {
+                        // We have transitioned from a custody backfill sync, reset the speedo
+                        let mut speedo = speedo.lock().await;
+                        last_custody_backfill_log_slot = None;
                         speedo.clear();
                     }
                     (_, _) => {}
@@ -154,6 +170,38 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             Instant::now(),
                         );
                 }
+                SyncState::CustodyBackFillSyncing { .. } => {
+                    match beacon_chain.store.get_data_column_custody_info() {
+                        Ok(data_column_custody_info) => {
+                            if let Some(earliest_data_column_slot) = data_column_custody_info
+                                .and_then(|info| info.earliest_data_column_slot)
+                                && let Some(da_boundary) = beacon_chain.get_column_da_boundary()
+                            {
+                                sync_distance = earliest_data_column_slot.saturating_sub(
+                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch()),
+                                );
+
+                                // We keep track of our starting point for custody backfill sync
+                                // so we can measure our speed of progress.
+                                if original_earliest_data_column_slot.is_none() {
+                                    original_earliest_data_column_slot =
+                                        Some(earliest_data_column_slot)
+                                }
+
+                                if let Some(original_earliest_data_column_slot) =
+                                    original_earliest_data_column_slot
+                                {
+                                    speedo.observe(
+                                        original_earliest_data_column_slot
+                                            .saturating_sub(earliest_data_column_slot),
+                                        Instant::now(),
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => error!(error=?e, "Unable to get data column custody info"),
+                    }
+                }
                 SyncState::SyncingFinalized { .. }
                 | SyncState::SyncingHead { .. }
                 | SyncState::SyncTransition => {
@@ -190,6 +238,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
             // Log if we are backfilling.
             let is_backfilling = matches!(current_sync_state, SyncState::BackFillSyncing { .. });
+            let is_custody_backfilling =
+                matches!(current_sync_state, SyncState::CustodyBackFillSyncing { .. });
             if is_backfilling
                 && last_backfill_log_slot
                     .is_none_or(|slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
@@ -232,6 +282,51 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             } else if !is_backfilling && last_backfill_log_slot.is_some() {
                 last_backfill_log_slot = None;
                 info!("Historical block download complete");
+            }
+
+            if is_custody_backfilling
+                && last_custody_backfill_log_slot
+                    .is_none_or(|slot| slot + BACKFILL_LOG_INTERVAL <= current_slot)
+            {
+                last_custody_backfill_log_slot = Some(current_slot);
+
+                let distance = format!(
+                    "{} slots ({})",
+                    sync_distance.as_u64(),
+                    slot_distance_pretty(sync_distance, slot_duration)
+                );
+
+                let speed = speedo.slots_per_second();
+                let display_speed = speed.is_some_and(|speed| speed != 0.0);
+
+                if display_speed {
+                    info!(
+                        distance,
+                        speed = sync_speed_pretty(speed),
+                        est_time =
+                            estimated_time_pretty(beacon_chain.get_column_da_boundary().and_then(
+                                |da_boundary| speedo.estimated_time_till_slot(
+                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch())
+                                )
+                            )),
+                        "Downloading historical data columns"
+                    );
+                } else {
+                    info!(
+                        distance,
+                        est_time =
+                            estimated_time_pretty(beacon_chain.get_column_da_boundary().and_then(
+                                |da_boundary| speedo.estimated_time_till_slot(
+                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch())
+                                )
+                            )),
+                        "Downloading historical data columns"
+                    );
+                }
+            } else if !is_custody_backfilling && last_custody_backfill_log_slot.is_some() {
+                last_custody_backfill_log_slot = None;
+                original_earliest_data_column_slot = None;
+                info!("Historical data column download complete");
             }
 
             // Log if we are syncing

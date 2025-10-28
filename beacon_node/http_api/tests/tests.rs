@@ -1,3 +1,4 @@
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     BeaconChain, ChainConfig, StateSkipConfig, WhenSlotSkipped,
@@ -90,7 +91,7 @@ struct ApiTester {
 struct ApiTesterConfig {
     spec: ChainSpec,
     retain_historic_states: bool,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
 }
 
 impl Default for ApiTesterConfig {
@@ -100,7 +101,7 @@ impl Default for ApiTesterConfig {
         Self {
             spec,
             retain_historic_states: false,
-            import_all_data_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
         }
     }
 }
@@ -139,7 +140,7 @@ impl ApiTester {
             .deterministic_withdrawal_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .mock_execution_layer()
-            .import_all_data_columns(config.import_all_data_columns)
+            .node_custody_type(config.node_custody_type)
             .build();
 
         harness
@@ -1369,12 +1370,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_consolidations(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1383,7 +1386,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_consolidations().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self
@@ -7835,8 +7843,7 @@ async fn get_blobs_post_fulu_supernode() {
     let mut config = ApiTesterConfig {
         retain_historic_states: false,
         spec: E::default_spec(),
-        // For supernode, we import all data columns
-        import_all_data_columns: true,
+        node_custody_type: NodeCustodyType::Supernode,
     };
     config.spec.altair_fork_epoch = Some(Epoch::new(0));
     config.spec.bellatrix_fork_epoch = Some(Epoch::new(0));
