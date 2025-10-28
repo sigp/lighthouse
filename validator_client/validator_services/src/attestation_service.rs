@@ -1,8 +1,7 @@
 use crate::duties_service::{DutiesService, DutyAndProof};
 use tokio::sync::Mutex;
 
-use crate::head_monitor_service::HeadEvent;
-use beacon_node_fallback::{ApiTopic, BeaconNodeFallback};
+use beacon_node_fallback::{ApiTopic, BeaconNodeFallback, beacon_head_monitor::HeadEvent};
 use futures::future::join_all;
 use logging::crit;
 use slot_clock::SlotClock;

@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 
 use account_utils::validator_definitions::ValidatorDefinitions;
 use beacon_node_fallback::{
-    BeaconHeadCache, BeaconNodeFallback, CandidateBeaconNode, start_fallback_updater_service,
+    BeaconNodeFallback, CandidateBeaconNode, start_fallback_updater_service,
 };
 use clap::ArgMatches;
 use doppelganger_service::DoppelgangerService;
@@ -43,7 +43,6 @@ use validator_services::{
     attestation_service::{AttestationService, AttestationServiceBuilder},
     block_service::{BlockService, BlockServiceBuilder},
     duties_service::{self, DutiesService, DutiesServiceBuilder},
-    head_monitor_service::{HeadMonitorService, HeadMonitorServiceBuilder},
     latency_service,
     preparation_service::{PreparationService, PreparationServiceBuilder},
     sync_committee_service::SyncCommitteeService,
@@ -81,7 +80,6 @@ pub struct ProductionValidatorClient<E: EthSpec> {
     context: RuntimeContext<E>,
     duties_service: Arc<DutiesService<ValidatorStore<E>, SystemTimeSlotClock>>,
     block_service: BlockService<ValidatorStore<E>, SystemTimeSlotClock>,
-    head_monitor_service: HeadMonitorService<ValidatorStore<E>, SystemTimeSlotClock>,
     attestation_service: AttestationService<ValidatorStore<E>, SystemTimeSlotClock>,
     sync_committee_service: SyncCommitteeService<ValidatorStore<E>, SystemTimeSlotClock>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
@@ -355,11 +353,8 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         // Initialize the number of connected, avaliable beacon nodes to 0.
         set_gauge(&validator_metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
 
-        let beacon_head_cache = Arc::new(BeaconHeadCache::new());
-
         let mut beacon_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             candidates,
-            beacon_head_cache.clone(),
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
@@ -367,7 +362,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
 
         let mut proposer_nodes: BeaconNodeFallback<_> = BeaconNodeFallback::new(
             proposer_candidates,
-            beacon_head_cache.clone(),
             config.beacon_node_fallback,
             config.broadcast_topics.clone(),
             context.eth2_config.spec.clone(),
@@ -500,17 +494,9 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             block_service_builder = block_service_builder.proposer_nodes(proposer_nodes.clone());
         }
 
-        let (head_sender, head_receiver) = mpsc::channel(1_024);
+        let (_, head_receiver) = mpsc::channel(1_024);
 
         let block_service = block_service_builder.build()?;
-
-        let head_monitor_service = HeadMonitorServiceBuilder::new()
-            .executor(context.executor.clone())
-            .validator_store(validator_store.clone())
-            .beacon_nodes(beacon_nodes.clone())
-            .beacon_head_cache(beacon_head_cache.clone())
-            .head_monitor_tx(Arc::new(head_sender))
-            .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
@@ -544,7 +530,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             context,
             duties_service,
             block_service,
-            head_monitor_service,
             attestation_service,
             sync_committee_service,
             doppelganger_service,
@@ -622,13 +607,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start preparation service: {}", e))?;
-
-        if let Err(e) = self.head_monitor_service.clone().start_update_service() {
-            warn!(
-                error = %e,
-                "Unable to start head monitor service, validator client running compromised performance"
-            );
-        }
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(
