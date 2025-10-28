@@ -10,6 +10,7 @@ use beacon_chain::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes, 
 use beacon_processor::{
     BeaconProcessorSend, DuplicateCache, GossipAggregatePackage, GossipAttestationPackage, Work,
     WorkEvent as BeaconWorkEvent,
+    work_reprocessing_queue::{QueuedBatchedAttestation, ReprocessQueueMessage},
 };
 use lighthouse_network::rpc::InboundRequestId;
 use lighthouse_network::rpc::methods::{
@@ -100,20 +101,22 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let process_batch =
             move |attestations| processor.process_gossip_attestation_batch(attestations, true);
 
-        self.try_send(BeaconWorkEvent {
-            drop_during_sync: true,
-            work: Work::GossipAttestation {
-                attestation: Box::new(GossipAttestationPackage {
-                    message_id,
-                    peer_id,
-                    attestation: Box::new(attestation),
-                    subnet_id,
-                    should_import,
-                    seen_timestamp,
-                }),
-                process_individual: Box::new(process_individual),
-                process_batch: Box::new(process_batch),
-            },
+        self.beacon_processor_send.try_send(BeaconWorkEvent {
+            drop_during_sync: false,
+            work: Work::Reprocess(ReprocessQueueMessage::BatchedAttestation(
+                QueuedBatchedAttestation {
+                    attestation: Box::new(GossipAttestationPackage {
+                        message_id,
+                        peer_id,
+                        attestation: Box::new(attestation),
+                        subnet_id,
+                        should_import,
+                        seen_timestamp,
+                    }),
+                    process_individual: Box::new(process_individual),
+                    process_batch: Box::new(process_batch),
+                },
+            )),
         })
     }
 
