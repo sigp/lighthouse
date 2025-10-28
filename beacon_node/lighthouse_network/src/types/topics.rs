@@ -270,6 +270,7 @@ impl GossipTopic {
                 PROPOSER_SLASHING_TOPIC => GossipKind::ProposerSlashing,
                 ATTESTER_SLASHING_TOPIC => GossipKind::AttesterSlashing,
                 BLS_TO_EXECUTION_CHANGE_TOPIC => GossipKind::BlsToExecutionChange,
+                EXECUTION_PROOF_TOPIC => GossipKind::ExecutionProof,
                 LIGHT_CLIENT_FINALITY_UPDATE => GossipKind::LightClientFinalityUpdate,
                 LIGHT_CLIENT_OPTIMISTIC_UPDATE => GossipKind::LightClientOptimisticUpdate,
                 topic => match subnet_topic_index(topic) {
