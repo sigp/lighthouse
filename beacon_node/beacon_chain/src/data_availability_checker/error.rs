@@ -1,5 +1,5 @@
 use kzg::{Error as KzgError, KzgCommitment};
-use types::{BeaconStateError, ColumnIndex, Hash256};
+use types::{BeaconStateError, ColumnIndex, ExecutionProofId, Hash256};
 
 #[derive(Debug)]
 pub enum Error {
@@ -22,6 +22,27 @@ pub enum Error {
     BlockReplayError(state_processing::BlockReplayError),
     RebuildingStateCaches(BeaconStateError),
     SlotClockError,
+    /// Execution proof verification failed - proof is invalid.
+    /// Penalize peer, a peer should not forward invalid proofs
+    InvalidProof {
+        proof_id: ExecutionProofId,
+        reason: String,
+    },
+    /// No verifier registered for this proof ID.
+    /// Internal error; no peer penalization.
+    UnsupportedProofID(ExecutionProofId),
+    /// Error during proof verification process.
+    /// Internal error; no peer penalization.
+    ProofVerificationError(String),
+    /// Could not extract execution payload from block.
+    /// Internal error; no peer penalization.
+    MissingExecutionPayload,
+    /// Execution payload hash mismatch between proof and block.
+    /// Penalize peer, similar to an invalid proof.
+    ExecutionPayloadHashMismatch {
+        proof_hash: types::ExecutionBlockHash,
+        block_hash: types::ExecutionBlockHash,
+    },
 }
 
 #[derive(PartialEq, Eq)]
@@ -44,13 +65,18 @@ impl Error {
             | Error::ParentStateMissing(_)
             | Error::BlockReplayError(_)
             | Error::RebuildingStateCaches(_)
-            | Error::SlotClockError => ErrorCategory::Internal,
+            | Error::SlotClockError
+            | Error::UnsupportedProofID(_)
+            | Error::ProofVerificationError(_)
+            | Error::MissingExecutionPayload => ErrorCategory::Internal,
             Error::InvalidBlobs { .. }
             | Error::InvalidColumn { .. }
             | Error::ReconstructColumnsError { .. }
             | Error::BlobIndexInvalid(_)
             | Error::DataColumnIndexInvalid(_)
-            | Error::KzgCommitmentMismatch { .. } => ErrorCategory::Malicious,
+            | Error::KzgCommitmentMismatch { .. }
+            | Error::InvalidProof { .. }
+            | Error::ExecutionPayloadHashMismatch { .. } => ErrorCategory::Malicious,
         }
     }
 }

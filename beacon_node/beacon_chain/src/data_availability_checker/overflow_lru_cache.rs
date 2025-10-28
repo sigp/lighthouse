@@ -55,6 +55,16 @@ impl<E: EthSpec> CachedBlock<E> {
             .blob_kzg_commitments()
             .map_or(0, |commitments| commitments.len())
     }
+
+    /// Get the execution payload hash if this block has an execution payload
+    pub fn execution_payload_hash(&self) -> Option<types::ExecutionBlockHash> {
+        self.as_block()
+            .message()
+            .body()
+            .execution_payload()
+            .ok()
+            .map(|payload| payload.execution_payload_ref().block_hash())
+    }
 }
 
 /// This represents the components of a partially available block
@@ -205,11 +215,11 @@ impl<E: EthSpec> PendingComponents<E> {
         &self.verified_execution_proofs
     }
 
-    /// Check if we have a proof from a specific subnet
-    pub fn has_proof_from_subnet(&self, subnet_id: types::ExecutionProofSubnetId) -> bool {
+    /// Check if we have a specific proof
+    pub fn has_proof_with_id(&self, proof_id: types::ExecutionProofId) -> bool {
         self.verified_execution_proofs
             .iter()
-            .any(|proof| proof.subnet_id == subnet_id)
+            .any(|proof| proof.proof_id == proof_id)
     }
 
     /// Get the number of unique subnet proofs we have
@@ -226,8 +236,8 @@ impl<E: EthSpec> PendingComponents<E> {
         // Verify the proof is for the correct block
         // ExecutionBlockHash is a wrapper around Hash256, so we need to convert
 
-        // Don't insert duplicate proofs from the same subnet
-        if self.has_proof_from_subnet(proof.subnet_id) {
+        // Don't insert duplicate proofs
+        if self.has_proof_with_id(proof.proof_id) {
             return;
         }
 
@@ -262,7 +272,7 @@ impl<E: EthSpec> PendingComponents<E> {
         &self,
         spec: &Arc<ChainSpec>,
         num_expected_columns_opt: Option<usize>,
-        min_execution_proofs_opt: Option<usize>,
+        has_execution_layer_and_proof_gen: bool,
         recover: R,
     ) -> Result<Option<AvailableExecutedBlock<E>>, AvailabilityCheckError>
     where
@@ -340,8 +350,16 @@ impl<E: EthSpec> PendingComponents<E> {
             return Ok(None);
         };
 
-        // Check execution proof availability for ZK-VM mode
-        if let Some(min_proofs) = min_execution_proofs_opt {
+        // Check if this node needs execution proofs to validate blocks.
+        // Nodes that have EL and generate proofs validate via EL execution.
+        // Nodes that have EL but DON'T generate proofs are lightweight verifiers and wait for proofs.
+        // TODO(zkproofs): This is a technicality mainly because we cannot remove the EL on kurtosis
+        // ie each CL is coupled with an EL
+        let needs_execution_proofs = spec.zkvm_min_proofs_required().is_some()
+            && !has_execution_layer_and_proof_gen;
+
+        if needs_execution_proofs {
+            let min_proofs = spec.zkvm_min_proofs_required().unwrap();
             let num_proofs = self.execution_proof_subnet_count();
             if num_proofs < min_proofs {
                 // Not enough execution proofs yet
@@ -470,9 +488,10 @@ pub struct DataAvailabilityCheckerInner<T: BeaconChainTypes> {
     state_cache: StateLRUCache<T>,
     custody_context: Arc<CustodyContext<T::EthSpec>>,
     spec: Arc<ChainSpec>,
-    /// Minimum number of execution proofs required from different subnets.
-    /// If None, execution proof checking is disabled (standard execution engine).
-    min_execution_proofs_required: Option<usize>,
+    /// Whether this node has an execution layer AND generates proofs.
+    /// - true: Node has EL and generates proofs → validates via EL execution
+    /// - false: Node either has no EL, or has EL but doesn't generate → waits for proofs (lightweight verifier)
+    has_execution_layer_and_proof_gen: bool,
 }
 
 // This enum is only used internally within the crate in the reconstruction function to improve
@@ -490,20 +509,15 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         beacon_store: BeaconStore<T>,
         custody_context: Arc<CustodyContext<T::EthSpec>>,
         spec: Arc<ChainSpec>,
-        min_execution_proofs_required: Option<usize>,
+        has_execution_layer_and_proof_gen: bool,
     ) -> Result<Self, AvailabilityCheckError> {
         Ok(Self {
             critical: RwLock::new(LruCache::new(capacity)),
             state_cache: StateLRUCache::new(beacon_store, spec.clone()),
             custody_context,
             spec,
-            min_execution_proofs_required,
+            has_execution_layer_and_proof_gen,
         })
-    }
-
-    /// Returns the minimum number of execution proofs required (if ZK-VM mode enabled)
-    pub fn min_execution_proofs_required(&self) -> Option<usize> {
-        self.min_execution_proofs_required
     }
 
     /// Returns true if the block root is known, without altering the LRU ordering
@@ -706,7 +720,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         if let Some(available_block) = pending_components.make_available(
             &self.spec,
             num_expected_columns_opt,
-            self.min_execution_proofs_required,
+            self.has_execution_layer_and_proof_gen,
             |block, span| self.state_cache.recover_pending_executed_block(block, span),
         )? {
             // Explicitly drop read lock before acquiring write lock
@@ -1151,7 +1165,7 @@ mod test {
                 test_store,
                 custody_context,
                 spec.clone(),
-                None,
+                false,
             )
             .expect("should create cache"),
         );
