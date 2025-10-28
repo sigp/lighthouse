@@ -1,6 +1,7 @@
 use crate::{ExecutionBlockHash, Hash256, Slot, VariableList};
 use serde::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
+use ssz::Encode;
+use ssz_derive::{Decode, Encode as DeriveEncode};
 use ssz_types::typenum;
 use std::fmt::{self, Debug};
 use tree_hash_derive::TreeHash;
@@ -37,7 +38,7 @@ type ProofData = VariableList<u8, typenum::U1048576>;
 /// Each proof is associated with a specific proof_id, which identifies the
 /// zkVM and EL combination used to generate it. Multiple proofs from different
 /// proof IDs can exist for the same execution payload, providing both zkVM and EL diversity.
-#[derive(Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, DeriveEncode, Decode, TreeHash, PartialEq, Eq)]
 pub struct ExecutionProof {
     /// Which proof type (zkVM+EL combination) this proof belongs to
     /// Examples: 0=SP1+Reth, 1=Risc0+Geth, 2=SP1+Geth, etc.
@@ -101,6 +102,35 @@ impl ExecutionProof {
     pub fn proof_id(&self) -> ExecutionProofId {
         self.proof_id
     }
+
+    /// Minimum size of an ExecutionProof in SSZ bytes (with empty proof_data)
+    /// TODO(zkproofs): If the proof_data is empty, then that is an invalid proof
+    pub fn min_size() -> usize {
+        use bls::FixedBytesExtended;
+        Self {
+            proof_id: ExecutionProofId::new(0).unwrap(),
+            slot: Slot::new(0),
+            block_hash: ExecutionBlockHash::zero(),
+            block_root: Hash256::zero(),
+            proof_data: ProofData::new(vec![]).unwrap(),
+        }
+        .as_ssz_bytes()
+        .len()
+    }
+
+    /// Maximum size of an ExecutionProof in SSZ bytes (with max proof_data)
+    pub fn max_size() -> usize {
+        use bls::FixedBytesExtended;
+        Self {
+            proof_id: ExecutionProofId::new(0).unwrap(),
+            slot: Slot::new(0),
+            block_hash: ExecutionBlockHash::zero(),
+            block_root: Hash256::zero(),
+            proof_data: ProofData::new(vec![0u8; MAX_PROOF_DATA_BYTES]).unwrap(),
+        }
+        .as_ssz_bytes()
+        .len()
+    }
 }
 
 impl Debug for ExecutionProof {
@@ -130,7 +160,7 @@ mod tests {
 
         let result = ExecutionProof::new(subnet_id, slot, block_hash, block_root, proof_data);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Proof data too large"));
+        assert!(result.unwrap_err().contains("Failed to create proof data"));
     }
 
     #[test]

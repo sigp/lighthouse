@@ -220,9 +220,7 @@ impl<T: BeaconChainTypes> ProofGenerationService<T> {
                         // 3. We already have the block, so we don't need the proof for ourselves
 
                         // Publish the proof to the network
-                        let pubsub_message = PubsubMessage::ExecutionProof(
-                            Box::new((proof_id, Arc::new(proof)))
-                        );
+                        let pubsub_message = PubsubMessage::ExecutionProof(Arc::new(proof));
 
                         let network_message = NetworkMessage::Publish {
                             messages: vec![pubsub_message],
