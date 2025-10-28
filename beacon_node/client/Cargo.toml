@@ -16,6 +16,7 @@ ethereum_ssz = { workspace = true }
 execution_layer = { workspace = true }
 # TODO(zkproofs): add as a workspace dependency
 zkvm_execution_layer = { path = "../../zkvm_execution_layer" }
+proof_generation_service = { path = "../proof_generation_service" }
 futures = { workspace = true }
 genesis = { workspace = true }
 http_api = { workspace = true }

@@ -923,33 +923,24 @@ pub fn cli_app() -> Command {
         )
         /* ZK-VM Execution Layer settings */
         .arg(
-            Arg::new("zkvm-min-proofs")
-                .long("zkvm-min-proofs")
-                .value_name("NUM")
-                .help("Minimum number of execution proofs required from different subnets \
-                       before marking an execution payload as valid in ZK-VM mode. \
-                       When set, enables ZK-VM execution proof verification.")
-                .value_parser(clap::value_parser!(usize))
-                .action(ArgAction::Set)
+            Arg::new("activate-zkvm")
+                .long("activate-zkvm")
+                .help("Activates ZKVM execution proof mode. Enables the node to subscribe to the \
+                       execution_proof gossip topic, receive and verify execution proofs from peers, \
+                       and advertise zkVM support in its ENR for peer discovery. \
+                       Use --zkvm-generation-proof-types to specify which proof types this node \
+                       should generate (optional - nodes can verify without generating).")
+                .action(ArgAction::SetTrue)
                 .display_order(0)
         )
         .arg(
-            Arg::new("zkvm-subscribed-subnets")
-                .long("zkvm-subscribed-subnets")
-                .value_name("SUBNET_IDS")
-                .help("Comma-separated list of execution proof subnet IDs to subscribe to \
-                       (e.g., '0,1,2'). Required when --zkvm-min-proofs is set.")
-                .requires("zkvm-min-proofs")
-                .action(ArgAction::Set)
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("zkvm-generation-subnets")
-                .long("zkvm-generation-subnets")
-                .value_name("SUBNET_IDS")
-                .help("Comma-separated list of execution proof subnet IDs to generate proofs for \
-                       (e.g., '0,1'). Must be a subset of --zkvm-subscribed-subnets.")
-                .requires("zkvm-subscribed-subnets")
+            Arg::new("zkvm-generation-proof-types")
+                .long("zkvm-generation-proof-types")
+                .value_name("PROOF_TYPE_IDS")
+                .help("Comma-separated list of proof type IDs to generate \
+                       (e.g., '0,1' where 0=SP1+Reth, 1=Risc0+Geth). \
+                       Optional - nodes can verify proofs without generating them.")
+                .requires("activate-zkvm")
                 .action(ArgAction::Set)
                 .display_order(0)
         )
