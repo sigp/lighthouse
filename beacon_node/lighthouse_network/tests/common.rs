@@ -29,6 +29,8 @@ pub fn spec_with_all_forks_enabled() -> ChainSpec {
     chain_spec.electra_fork_epoch = Some(Epoch::new(5));
     chain_spec.fulu_fork_epoch = Some(Epoch::new(6));
     chain_spec.gloas_fork_epoch = Some(Epoch::new(7));
+    // Enable zkVM
+    chain_spec.zkvm_enabled = true;
 
     // check that we have all forks covered
     assert!(chain_spec.fork_epoch(ForkName::latest()).is_some());

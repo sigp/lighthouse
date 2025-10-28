@@ -15,7 +15,10 @@ pub use libp2p::identity::{Keypair, PublicKey};
 use network_utils::enr_ext::{CombinedKeyExt, EnrExt, peer_id_to_node_id};
 
 use alloy_rlp::bytes::Bytes;
-use enr::{ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY, SYNC_COMMITTEE_BITFIELD_ENR_KEY};
+use enr::{
+    ATTESTATION_BITFIELD_ENR_KEY, ETH2_ENR_KEY,
+    SYNC_COMMITTEE_BITFIELD_ENR_KEY, ZKVM_ENABLED_ENR_KEY,
+};
 use futures::prelude::*;
 use futures::stream::FuturesUnordered;
 use libp2p::core::transport::PortUse;
@@ -560,6 +563,12 @@ impl<E: EthSpec> Discovery<E> {
             }
             // Data column subnets are computed from node ID. No subnet bitfield in the ENR.
             Subnet::DataColumn(_) => return Ok(()),
+            // Execution proof uses a simple boolean flag in the ENR
+            Subnet::ExecutionProof => {
+                self.discv5
+                    .enr_insert(ZKVM_ENABLED_ENR_KEY, &value)
+                    .map_err(|e| format!("{:?}", e))?;
+            }
         }
 
         // replace the global version
@@ -904,6 +913,7 @@ impl<E: EthSpec> Discovery<E> {
                                 Subnet::Attestation(_) => "attestation",
                                 Subnet::SyncCommittee(_) => "sync_committee",
                                 Subnet::DataColumn(_) => "data_column",
+                                Subnet::ExecutionProof => "execution_proof",
                             };
 
                             if let Some(v) = metrics::get_int_counter(

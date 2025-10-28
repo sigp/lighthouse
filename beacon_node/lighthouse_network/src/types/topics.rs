@@ -2,7 +2,9 @@ use gossipsub::{IdentTopic as Topic, TopicHash};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use strum::AsRefStr;
-use types::{ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned};
+use types::{
+    ChainSpec, DataColumnSubnetId, EthSpec, ForkName, SubnetId, SyncSubnetId, Unsigned,
+};
 
 use crate::Subnet;
 
@@ -16,6 +18,7 @@ pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const BLOB_SIDECAR_PREFIX: &str = "blob_sidecar_";
 pub const DATA_COLUMN_SIDECAR_PREFIX: &str = "data_column_sidecar_";
+pub const EXECUTION_PROOF_TOPIC: &str = "execution_proof";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
 pub const PROPOSER_SLASHING_TOPIC: &str = "proposer_slashing";
 pub const ATTESTER_SLASHING_TOPIC: &str = "attester_slashing";
@@ -91,6 +94,14 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
         }
     }
 
+    // Subscribe to execution proof topic if zkVM mode is enabled for this fork.
+    // TODO(zkproofs): this looks different than the other checks because
+    // there is no official zkvm_fork and we enable this alongside a current fork
+    let zkvm_check = spec.is_zkvm_enabled_for_fork(fork_name);
+    if zkvm_check {
+        topics.push(GossipKind::ExecutionProof);
+    }
+
     topics
 }
 
@@ -109,6 +120,7 @@ pub fn is_fork_non_core_topic(topic: &GossipTopic, _fork_name: ForkName) -> bool
         | GossipKind::BeaconAggregateAndProof
         | GossipKind::BlobSidecar(_)
         | GossipKind::DataColumnSidecar(_)
+        | GossipKind::ExecutionProof
         | GossipKind::VoluntaryExit
         | GossipKind::ProposerSlashing
         | GossipKind::AttesterSlashing
@@ -156,6 +168,8 @@ pub enum GossipKind {
     BlobSidecar(u64),
     /// Topic for publishing DataColumnSidecars.
     DataColumnSidecar(DataColumnSubnetId),
+    /// Topic for publishing ExecutionProofs
+    ExecutionProof,
     /// Topic for publishing raw attestations on a particular subnet.
     #[strum(serialize = "beacon_attestation")]
     Attestation(SubnetId),
@@ -320,6 +334,7 @@ impl std::fmt::Display for GossipTopic {
             GossipKind::DataColumnSidecar(column_subnet_id) => {
                 format!("{}{}", DATA_COLUMN_SIDECAR_PREFIX, *column_subnet_id)
             }
+            GossipKind::ExecutionProof => EXECUTION_PROOF_TOPIC.into(),
             GossipKind::BlsToExecutionChange => BLS_TO_EXECUTION_CHANGE_TOPIC.into(),
             GossipKind::LightClientFinalityUpdate => LIGHT_CLIENT_FINALITY_UPDATE.into(),
             GossipKind::LightClientOptimisticUpdate => LIGHT_CLIENT_OPTIMISTIC_UPDATE.into(),
@@ -341,6 +356,7 @@ impl From<Subnet> for GossipKind {
             Subnet::Attestation(s) => GossipKind::Attestation(s),
             Subnet::SyncCommittee(s) => GossipKind::SyncCommitteeMessage(s),
             Subnet::DataColumn(s) => GossipKind::DataColumnSidecar(s),
+            Subnet::ExecutionProof => GossipKind::ExecutionProof,
         }
     }
 }

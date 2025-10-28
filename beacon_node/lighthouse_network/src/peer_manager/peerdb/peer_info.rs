@@ -105,6 +105,14 @@ impl<E: EthSpec> PeerInfo<E> {
                 Subnet::DataColumn(subnet_id) => {
                     return self.is_assigned_to_custody_subnet(subnet_id);
                 }
+                Subnet::ExecutionProof => {
+                    // ExecutionProof capability is advertised via ENR zkvm flag, not metadata
+                    // A node cannot dynamically change what the support.
+                    if let Some(enr) = self.enr.as_ref() {
+                        return enr.zkvm_enabled();
+                    }
+                    return false;
+                }
             }
         }
         false
@@ -270,6 +278,11 @@ impl<E: EthSpec> PeerInfo<E> {
             .any(|subnet_id| self.subnets.contains(&Subnet::DataColumn(*subnet_id)));
         if subscribed_to_any_custody_subnets {
             return true;
+        }
+
+        // Check if the peer has zkVM enabled (execution proof support)
+        if let Some(enr) = self.enr.as_ref() {
+            return enr.zkvm_enabled()
         }
 
         false

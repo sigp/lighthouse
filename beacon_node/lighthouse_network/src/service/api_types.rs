@@ -3,7 +3,7 @@ use libp2p::PeerId;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use types::{
-    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, LightClientBootstrap,
+    BlobSidecar, DataColumnSidecar, Epoch, EthSpec, ExecutionProof, LightClientBootstrap,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, LightClientUpdate, SignedBeaconBlock,
 };
 
@@ -22,6 +22,8 @@ pub enum SyncRequestId {
     SingleBlock { id: SingleLookupReqId },
     /// Request searching for a set of blobs given a hash.
     SingleBlob { id: SingleLookupReqId },
+    /// Request searching for execution proofs given a block hash and proof IDs.
+    SingleExecutionProof { id: SingleLookupReqId },
     /// Request searching for a set of data columns given a hash and list of column indices.
     DataColumnsByRoot(DataColumnsByRootRequestId),
     /// Blocks by range request
@@ -140,6 +142,8 @@ pub enum Response<E: EthSpec> {
     BlobsByRoot(Option<Arc<BlobSidecar<E>>>),
     /// A response to a get DATA_COLUMN_SIDECARS_BY_ROOT request.
     DataColumnsByRoot(Option<Arc<DataColumnSidecar<E>>>),
+    /// A response to a get EXECUTION_PROOFS_BY_ROOT request.
+    ExecutionProofsByRoot(Option<Arc<ExecutionProof>>),
     /// A response to a LightClientUpdate request.
     LightClientBootstrap(Arc<LightClientBootstrap<E>>),
     /// A response to a LightClientOptimisticUpdate request.
@@ -176,6 +180,10 @@ impl<E: EthSpec> std::convert::From<Response<E>> for RpcResponse<E> {
             Response::DataColumnsByRange(r) => match r {
                 Some(d) => RpcResponse::Success(RpcSuccessResponse::DataColumnsByRange(d)),
                 None => RpcResponse::StreamTermination(ResponseTermination::DataColumnsByRange),
+            },
+            Response::ExecutionProofsByRoot(r) => match r {
+                Some(p) => RpcResponse::Success(RpcSuccessResponse::ExecutionProofsByRoot(p)),
+                None => RpcResponse::StreamTermination(ResponseTermination::ExecutionProofsByRoot),
             },
             Response::Status(s) => RpcResponse::Success(RpcSuccessResponse::Status(s)),
             Response::LightClientBootstrap(b) => {

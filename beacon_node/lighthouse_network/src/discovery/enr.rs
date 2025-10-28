@@ -29,6 +29,8 @@ pub const ATTESTATION_BITFIELD_ENR_KEY: &str = "attnets";
 pub const SYNC_COMMITTEE_BITFIELD_ENR_KEY: &str = "syncnets";
 /// The ENR field specifying the peerdas custody group count.
 pub const PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY: &str = "cgc";
+/// The ENR field specifying whether zkVM execution proofs are enabled.
+pub const ZKVM_ENABLED_ENR_KEY: &str = "zkvm";
 
 /// Extension trait for ENR's within Eth2.
 pub trait Eth2Enr {
@@ -42,6 +44,9 @@ pub trait Eth2Enr {
 
     /// The peerdas custody group count associated with the ENR.
     fn custody_group_count<E: EthSpec>(&self, spec: &ChainSpec) -> Result<u64, &'static str>;
+
+    /// Whether zkVM execution proofs are enabled for this node.
+    fn zkvm_enabled(&self) -> bool;
 
     /// The next fork digest associated with the ENR.
     fn next_fork_digest(&self) -> Result<[u8; 4], &'static str>;
@@ -83,6 +88,13 @@ impl Eth2Enr for Enr {
         } else {
             Err("Invalid custody group count in ENR")
         }
+    }
+
+    fn zkvm_enabled(&self) -> bool {
+        // If the key exists and is true, zkVM is enabled, otherwise false
+        self.get_decodable::<bool>(ZKVM_ENABLED_ENR_KEY)
+            .and_then(|result| result.ok())
+            .unwrap_or(false)
     }
 
     fn next_fork_digest(&self) -> Result<[u8; 4], &'static str> {
@@ -278,6 +290,10 @@ pub fn build_enr<E: EthSpec>(
         &bitfield.as_ssz_bytes().into(),
     );
 
+    if spec.is_zkvm_enabled() {
+        builder.add_value(ZKVM_ENABLED_ENR_KEY, &true);
+    }
+
     // only set `cgc` and `nfd` if PeerDAS fork (Fulu) epoch has been scheduled
     if spec.is_peer_das_scheduled() {
         let custody_group_count = if let Some(cgc) = custody_group_count {
@@ -317,11 +333,12 @@ fn compare_enr(local_enr: &Enr, disk_enr: &Enr) -> bool {
         && (local_enr.udp4().is_none() || local_enr.udp4() == disk_enr.udp4())
         && (local_enr.udp6().is_none() || local_enr.udp6() == disk_enr.udp6())
         // we need the ATTESTATION_BITFIELD_ENR_KEY and SYNC_COMMITTEE_BITFIELD_ENR_KEY and
-        // PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY key to match, otherwise we use a new ENR. This will
-        // likely only be true for non-validating nodes.
+        // PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY and ZKVM_ENABLED_ENR_KEY key to match,
+        // otherwise we use a new ENR. This will likely only be true for non-validating nodes.
         && local_enr.get_decodable::<Bytes>(ATTESTATION_BITFIELD_ENR_KEY) == disk_enr.get_decodable(ATTESTATION_BITFIELD_ENR_KEY)
         && local_enr.get_decodable::<Bytes>(SYNC_COMMITTEE_BITFIELD_ENR_KEY) == disk_enr.get_decodable(SYNC_COMMITTEE_BITFIELD_ENR_KEY)
         && local_enr.get_decodable::<Bytes>(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY) == disk_enr.get_decodable(PEERDAS_CUSTODY_GROUP_COUNT_ENR_KEY)
+        && local_enr.get_decodable::<bool>(ZKVM_ENABLED_ENR_KEY) == disk_enr.get_decodable(ZKVM_ENABLED_ENR_KEY)
 }
 
 /// Loads enr from the given directory

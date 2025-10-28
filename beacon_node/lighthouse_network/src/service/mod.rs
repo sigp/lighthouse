@@ -52,6 +52,10 @@ pub mod utils;
 /// The number of peers we target per subnet for discovery queries.
 pub const TARGET_SUBNET_PEERS: usize = 3;
 
+/// The number of peers we target for execution proof peer discovery.
+/// Set to 1 since we don't expect many nodes to run it
+pub const TARGET_EXECUTION_PROOF_PEERS: usize = 1;
+
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
 /// The types of events than can be obtained from polling the behaviour.
@@ -255,6 +259,7 @@ impl<E: EthSpec> Network<E> {
                 // .signed_contribution_and_proof_timeout(timeout) // Do not retry
                 // .sync_committee_message_timeout(timeout) // Do not retry
                 .bls_to_execution_change_timeout(half_epoch * 2)
+                .execution_proof_timeout(slot_duration)
                 .build()
         };
 
@@ -411,6 +416,7 @@ impl<E: EthSpec> Network<E> {
                 quic_enabled: !config.disable_quic_support,
                 metrics_enabled: config.metrics_enabled,
                 target_peer_count: config.target_peers,
+                execution_proof_enabled: ctx.chain_spec.is_zkvm_enabled(),
                 ..Default::default()
             };
             PeerManager::new(peer_manager_cfg, network_globals.clone())?
@@ -1563,6 +1569,17 @@ impl<E: EthSpec> Network<E> {
                             request_type,
                         })
                     }
+                    RequestType::ExecutionProofsByRoot(_) => {
+                        metrics::inc_counter_vec(
+                            &metrics::TOTAL_RPC_REQUESTS,
+                            &["execution_proofs_by_root"],
+                        );
+                        Some(NetworkEvent::RequestReceived {
+                            peer_id,
+                            inbound_request_id,
+                            request_type,
+                        })
+                    }
                     RequestType::LightClientBootstrap(_) => {
                         metrics::inc_counter_vec(
                             &metrics::TOTAL_RPC_REQUESTS,
@@ -1648,6 +1665,9 @@ impl<E: EthSpec> Network<E> {
                     RpcSuccessResponse::DataColumnsByRange(resp) => {
                         self.build_response(id, peer_id, Response::DataColumnsByRange(Some(resp)))
                     }
+                    RpcSuccessResponse::ExecutionProofsByRoot(resp) => {
+                        self.build_response(id, peer_id, Response::ExecutionProofsByRoot(Some(resp)))
+                    }
                     // Should never be reached
                     RpcSuccessResponse::LightClientBootstrap(bootstrap) => {
                         self.build_response(id, peer_id, Response::LightClientBootstrap(bootstrap))
@@ -1677,6 +1697,7 @@ impl<E: EthSpec> Network<E> {
                     ResponseTermination::BlobsByRoot => Response::BlobsByRoot(None),
                     ResponseTermination::DataColumnsByRoot => Response::DataColumnsByRoot(None),
                     ResponseTermination::DataColumnsByRange => Response::DataColumnsByRange(None),
+                    ResponseTermination::ExecutionProofsByRoot => Response::ExecutionProofsByRoot(None),
                     ResponseTermination::LightClientUpdatesByRange => {
                         Response::LightClientUpdatesByRange(None)
                     }

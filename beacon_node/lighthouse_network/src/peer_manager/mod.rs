@@ -1,7 +1,7 @@
 //! Implementation of Lighthouse's peer management system.
 
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RpcErrorResponse};
-use crate::service::TARGET_SUBNET_PEERS;
+use crate::service::{TARGET_EXECUTION_PROOF_PEERS, TARGET_SUBNET_PEERS};
 use crate::{Gossipsub, NetworkGlobals, PeerId, Subnet, SubnetDiscovery, metrics};
 use delay_map::HashSetDelay;
 use discv5::Enr;
@@ -113,6 +113,8 @@ pub struct PeerManager<E: EthSpec> {
     /// discovery queries for subnet peers if we disconnect from existing sync
     /// committee subnet peers.
     sync_committee_subnets: HashMap<SyncSubnetId, Instant>,
+    /// Keeps track of whether this node has zkVM execution proof support enabled.
+    execution_proof_enabled: bool,
     /// A mapping of all custody groups to column subnets to avoid re-computation.
     subnets_by_custody_group: HashMap<u64, Vec<DataColumnSubnetId>>,
     /// The heartbeat interval to perform routine maintenance.
@@ -162,6 +164,7 @@ impl<E: EthSpec> PeerManager<E> {
         let config::Config {
             discovery_enabled,
             metrics_enabled,
+            execution_proof_enabled,
             target_peer_count,
             status_interval,
             ping_interval_inbound,
@@ -199,6 +202,7 @@ impl<E: EthSpec> PeerManager<E> {
             target_peers: target_peer_count,
             temporary_banned_peers: LRUTimeCache::new(PEER_RECONNECTION_TIMEOUT),
             sync_committee_subnets: Default::default(),
+            execution_proof_enabled,
             subnets_by_custody_group,
             heartbeat,
             discovery_enabled,
@@ -601,6 +605,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
+                    Protocol::ExecutionProofsByRoot => PeerAction::MidToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
@@ -621,6 +626,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlobsByRoot => return,
                     Protocol::DataColumnsByRoot => return,
                     Protocol::DataColumnsByRange => return,
+                    Protocol::ExecutionProofsByRoot => return,
                     Protocol::Goodbye => return,
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
@@ -644,6 +650,7 @@ impl<E: EthSpec> PeerManager<E> {
                     Protocol::BlobsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRoot => PeerAction::MidToleranceError,
                     Protocol::DataColumnsByRange => PeerAction::MidToleranceError,
+                    Protocol::ExecutionProofsByRoot => PeerAction::MidToleranceError,
                     Protocol::LightClientBootstrap => return,
                     Protocol::LightClientOptimisticUpdate => return,
                     Protocol::LightClientFinalityUpdate => return,
@@ -1004,6 +1011,46 @@ impl<E: EthSpec> PeerManager<E> {
         }
     }
 
+    /// Run discovery query for zkVM-enabled peers if we fall below `TARGET_EXECUTION_PROOF_PEERS`.
+    fn maintain_execution_proof_peers(&mut self) {
+        // Only maintain peers if zkVM is enabled
+        if !self.execution_proof_enabled {
+            return;
+        }
+
+        // Check if we have enough zkVM-enabled peers
+        // Count peers subscribed to the execution_proof gossip topic
+        // TODO(zkproofs): Note that since peers do not advertise whether
+        // they are proof generating, we cannot favour them. This is 
+        // fine for optional proofs and mandatory proofs will imply
+        // that the builder who is well connected will propagate it
+        // to most of the network.
+        let zkvm_peer_count = self
+            .network_globals
+            .peers
+            .read()
+            .connected_peers()
+            .filter(|(_, info)| {
+                // Check if peer is subscribed to ExecutionProof gossip topic
+                info.on_subnet_gossipsub(&Subnet::ExecutionProof)
+            })
+            .count();
+
+        if zkvm_peer_count < TARGET_EXECUTION_PROOF_PEERS {
+            debug!(
+                current_peers = zkvm_peer_count,
+                target = TARGET_EXECUTION_PROOF_PEERS,
+                "Making discovery query for zkVM-enabled peers"
+            );
+            self.events.push(PeerManagerEvent::DiscoverSubnetPeers(vec![
+                SubnetDiscovery {
+                    subnet: Subnet::ExecutionProof,
+                    min_ttl: None,
+                },
+            ]));
+        }
+    }
+
     fn maintain_trusted_peers(&mut self) {
         let trusted_peers = self.trusted_peers.clone();
         for trusted_peer in trusted_peers {
@@ -1080,6 +1127,10 @@ impl<E: EthSpec> PeerManager<E> {
                     }
                     Subnet::DataColumn(id) => {
                         peer_info.custody_subnets.insert(id);
+                    }
+                    Subnet::ExecutionProof => {
+                        // ExecutionProof uses a single topic, not subnet-based
+                        // So there is no subnet assignment to track
                     }
                 }
             }
@@ -1448,6 +1499,9 @@ impl<E: EthSpec> PeerManager<E> {
 
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
+
+        // Maintain minimum count for zkVM-enabled peers (if zkVM is enabled).
+        self.maintain_execution_proof_peers();
 
         // Prune any excess peers back to our target in such a way that incentivises good scores and
         // a uniform distribution of subnets.

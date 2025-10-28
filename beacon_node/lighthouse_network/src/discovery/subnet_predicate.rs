@@ -41,6 +41,10 @@ where
                     false
                 }
             }
+            Subnet::ExecutionProof => {
+                // Check if ENR advertises zkVM support
+                enr.zkvm_enabled()
+            }
         });
 
         if !predicate {

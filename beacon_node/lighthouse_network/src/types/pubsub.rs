@@ -8,7 +8,7 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
-    DataColumnSidecar, DataColumnSubnetId, EthSpec, ForkContext, ForkName,
+    DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecutionProof, ForkContext, ForkName,
     LightClientFinalityUpdate, LightClientOptimisticUpdate, ProposerSlashing,
     SignedAggregateAndProof, SignedAggregateAndProofBase, SignedAggregateAndProofElectra,
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockBellatrix,
@@ -26,6 +26,8 @@ pub enum PubsubMessage<E: EthSpec> {
     BlobSidecar(Box<(u64, Arc<BlobSidecar<E>>)>),
     /// Gossipsub message providing notification of a [`DataColumnSidecar`] along with the subnet id where it was received.
     DataColumnSidecar(Box<(DataColumnSubnetId, Arc<DataColumnSidecar<E>>)>),
+    /// Gossipsub message providing notification of an [`ExecutionProof`].
+    ExecutionProof(Arc<ExecutionProof>),
     /// Gossipsub message providing notification of a Aggregate attestation and associated proof.
     AggregateAndProofAttestation(Box<SignedAggregateAndProof<E>>),
     /// Gossipsub message providing notification of a `SingleAttestation` with its subnet id.
@@ -135,6 +137,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::DataColumnSidecar(column_sidecar_data) => {
                 GossipKind::DataColumnSidecar(column_sidecar_data.0)
             }
+            PubsubMessage::ExecutionProof(_) => GossipKind::ExecutionProof,
             PubsubMessage::AggregateAndProofAttestation(_) => GossipKind::BeaconAggregateAndProof,
             PubsubMessage::Attestation(attestation_data) => {
                 GossipKind::Attestation(attestation_data.0)
@@ -290,6 +293,23 @@ impl<E: EthSpec> PubsubMessage<E> {
                             )),
                         }
                     }
+                    GossipKind::ExecutionProof => {
+                        match fork_context.get_fork_from_context_bytes(gossip_topic.fork_digest) {
+                            // TODO(zkproofs): we don't have the ChainSpec here, so if we change this to
+                            // be for gloas, then we should change it here too
+                            Some(fork) if fork.fulu_enabled() => {
+                                let execution_proof = Arc::new(
+                                    ExecutionProof::from_ssz_bytes(data)
+                                        .map_err(|e| format!("{:?}", e))?,
+                                );
+                                Ok(PubsubMessage::ExecutionProof(execution_proof))
+                            }
+                            Some(_) | None => Err(format!(
+                                "execution_proof topic invalid for given fork digest {:?}",
+                                gossip_topic.fork_digest
+                            )),
+                        }
+                    }
                     GossipKind::VoluntaryExit => {
                         let voluntary_exit = SignedVoluntaryExit::from_ssz_bytes(data)
                             .map_err(|e| format!("{:?}", e))?;
@@ -403,6 +423,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::BeaconBlock(data) => data.as_ssz_bytes(),
             PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
+            PubsubMessage::ExecutionProof(data) => data.as_ssz_bytes(),
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
             PubsubMessage::ProposerSlashing(data) => data.as_ssz_bytes(),
@@ -437,6 +458,12 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 "DataColumnSidecar: slot: {}, column index: {}",
                 data.1.slot(),
                 data.1.index,
+            ),
+            PubsubMessage::ExecutionProof(data) => write!(
+                f,
+                "ExecutionProof: block_root: {}, proof_id: {}",
+                data.block_root,
+                data.proof_id.as_u8(),
             ),
             PubsubMessage::AggregateAndProofAttestation(att) => write!(
                 f,

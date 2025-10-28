@@ -20,6 +20,8 @@ pub struct Config {
     pub metrics_enabled: bool,
     /// Whether quic is enabled.
     pub quic_enabled: bool,
+    /// Whether execution proofs are enabled.
+    pub execution_proof_enabled : bool,
     /// Target number of peers to connect to.
     pub target_peer_count: usize,
 
@@ -40,6 +42,7 @@ impl Default for Config {
             discovery_enabled: true,
             metrics_enabled: false,
             quic_enabled: true,
+            execution_proof_enabled: false,
             target_peer_count: DEFAULT_TARGET_PEERS,
             status_interval: DEFAULT_STATUS_INTERVAL,
             ping_interval_inbound: DEFAULT_PING_INTERVAL_INBOUND,
