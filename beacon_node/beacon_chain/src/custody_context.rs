@@ -622,7 +622,8 @@ mod tests {
         assert!(start_epoch >= end_epoch);
         // Call from end_epoch down to start_epoch (inclusive), simulating backfill
         for epoch in (end_epoch.as_u64()..=start_epoch.as_u64()).rev() {
-            custody_context.update_and_backfill_custody_count_at_epoch(Epoch::new(epoch), expected_cgc);
+            custody_context
+                .update_and_backfill_custody_count_at_epoch(Epoch::new(epoch), expected_cgc);
         }
     }
 
@@ -1467,10 +1468,15 @@ mod tests {
         }
 
         // Attempt backfill with an incorrect cgc value
-        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(15), initial_cgc);
+        complete_backfill_for_epochs(
+            &custody_context,
+            Epoch::new(20),
+            Epoch::new(15),
+            initial_cgc,
+        );
 
-         // Verify epochs 15 - 20 still return latest CGC (32)
-         for epoch in 15..=20 {
+        // Verify epochs 15 - 20 still return latest CGC (32)
+        for epoch in 15..=20 {
             assert_eq!(
                 custody_context.custody_group_count_at_epoch(Epoch::new(epoch), &spec),
                 final_cgc,
