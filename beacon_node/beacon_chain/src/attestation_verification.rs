@@ -957,15 +957,9 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
             .spec
             .fork_name_at_slot::<T::EthSpec>(attestation.data.slot);
 
-        let indexed_attestation = match attestation.to_indexed(fork_name) {
-            Ok(indexed) => indexed,
-            Err(e) => {
-                return Err(SignatureNotCheckedSingle(
-                    attestation,
-                    Error::SszTypesError(e),
-                ));
-            }
-        };
+        let indexed_attestation = attestation
+            .to_indexed(fork_name)
+            .map_err(|e| SignatureNotCheckedSingle(attestation, Error::SszTypesError(e)))?;
 
         let validator_index = match Self::verify_middle_checks(attestation, chain) {
             Ok(t) => t,
