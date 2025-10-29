@@ -62,6 +62,10 @@ impl BeaconBlockHeader {
             state_root: Default::default(),
         }
     }
+
+    pub fn update_state_root(&mut self, state_root: Hash256) {
+        self.state_root = state_root;
+    }
 }
 
 #[cfg(test)]
