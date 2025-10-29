@@ -1,5 +1,5 @@
 # We only run tests on `RECENT_FORKS` on CI. To make sure we don't break prior forks, we run nightly tests to cover all prior forks.
-name: nightly-fork-tests
+name: nightly-tests
 
 on:
   schedule:
@@ -133,26 +133,3 @@ jobs:
       with:
         name: network_test_logs_${{ matrix.fork }}
         path: ${{ runner.temp }}/network_test_logs
-
-  # Summary job to check overall status
-  nightly-fork-tests-success:
-    name: nightly-fork-tests-success
-    runs-on: ubuntu-latest
-    needs: [
-      'beacon-chain-tests',
-      'http-api-tests',
-      'op-pool-tests',
-      'network-tests',
-    ]
-    if: always()
-    steps:
-      - name: Check test results
-        run: |
-          if [ "${{ needs.beacon-chain-tests.result }}" != "success" ] || \
-             [ "${{ needs.http-api-tests.result }}" != "success" ] || \
-             [ "${{ needs.op-pool-tests.result }}" != "success" ] || \
-             [ "${{ needs.network-tests.result }}" != "success" ]; then
-            echo "One or more nightly fork tests failed!"
-            exit 1
-          fi
-          echo "All nightly fork tests passed!"
