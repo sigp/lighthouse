@@ -382,11 +382,9 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
             return None;
         };
 
-        let mut missing_columns = HashSet::new();
-
         // Skip all batches (Epochs) that don't have missing columns.
         for epoch in Epoch::range_inclusive_rev(self.to_be_downloaded, column_da_boundary) {
-            missing_columns = self.beacon_chain.get_missing_columns_for_epoch(epoch);
+            let missing_columns = self.beacon_chain.get_missing_columns_for_epoch(epoch);
 
             if !missing_columns.is_empty() {
                 self.to_be_downloaded = epoch;
@@ -445,6 +443,7 @@ impl<T: BeaconChainTypes> CustodyBackFillSync<T> {
                 self.include_next_batch()
             }
             Entry::Vacant(entry) => {
+                let missing_columns = self.beacon_chain.get_missing_columns_for_epoch(batch_id);
                 entry.insert(BatchInfo::new(
                     &batch_id,
                     CUSTODY_BACKFILL_EPOCHS_PER_BATCH,
