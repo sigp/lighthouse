@@ -124,7 +124,7 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         .spec()
         .is_peer_das_enabled_for_epoch(block.epoch())
     {
-        fetch_and_process_blobs_v2(
+        fetch_and_process_blobs_v2_or_v3(
             chain_adapter,
             block_root,
             block,
@@ -239,7 +239,7 @@ async fn fetch_and_process_blobs_v1<T: BeaconChainTypes>(
 }
 
 #[instrument(skip_all, level = "debug")]
-async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
+async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
     chain_adapter: FetchBlobsBeaconAdapter<T>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -250,14 +250,25 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
     let num_expected_blobs = versioned_hashes.len();
 
     metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
-    // TODO(dknopik): implement fallback to get_blobs_v2
-    debug!(num_expected_blobs, "Fetching blobs from the EL");
-    let response = chain_adapter
-        .get_blobs_v3(versioned_hashes)
-        .await
-        .inspect_err(|_| {
-            inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
-        })?;
+
+    let response = if chain_adapter.supports_get_blobs_v3().await? {
+        debug!(num_expected_blobs, "Fetching available blobs from the EL");
+        chain_adapter
+            .get_blobs_v3(versioned_hashes)
+            .await
+            .inspect_err(|_| {
+                inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
+            })?
+    } else {
+        debug!(num_expected_blobs, "Fetching all blobs from the EL");
+        chain_adapter
+            .get_blobs_v2(versioned_hashes)
+            .await
+            .inspect_err(|_| {
+                inc_counter(&metrics::BLOBS_FROM_EL_ERROR_TOTAL);
+            })?
+            .map(|vec| vec.into_iter().map(Some).collect())
+    };
 
     let Some(blobs_and_proofs) = response else {
         debug!(num_expected_blobs, "No blobs fetched from the EL");

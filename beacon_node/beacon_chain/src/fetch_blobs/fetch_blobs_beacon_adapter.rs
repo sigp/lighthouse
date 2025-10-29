@@ -51,7 +51,6 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .map_err(FetchEngineBlobError::RequestFailed)
     }
 
-    // TODO(dknopik): fall back to this
     pub(crate) async fn get_blobs_v2(
         &self,
         versioned_hashes: Vec<Hash256>,
@@ -137,5 +136,19 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
             .canonical_head
             .fork_choice_read_lock()
             .contains_block(block_root)
+    }
+
+    pub(crate) async fn supports_get_blobs_v3(&self) -> Result<bool, FetchEngineBlobError> {
+        let execution_layer = self
+            .chain
+            .execution_layer
+            .as_ref()
+            .ok_or(FetchEngineBlobError::ExecutionLayerMissing)?;
+
+        execution_layer
+            .get_engine_capabilities(None)
+            .await
+            .map_err(FetchEngineBlobError::RequestFailed)
+            .map(|caps| caps.get_blobs_v3)
     }
 }
