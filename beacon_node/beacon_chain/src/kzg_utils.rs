@@ -397,7 +397,8 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
                 .get(col)
                 .ok_or(format!("Missing blob cell at index {col}"))?;
             let cell: Vec<u8> = cell.to_vec();
-            let cell = Cell::<E>::from(cell);
+            let cell =
+                Cell::<E>::try_from(cell).map_err(|e| format!("BytesPerCell exceeded: {e:?}"))?;
 
             let proof = blob_cell_proofs
                 .get(col)
@@ -410,33 +411,35 @@ pub(crate) fn build_partial_data_columns<E: EthSpec>(
                 .get_mut(col)
                 .ok_or(format!("Missing data column proofs at index {col}"))?;
 
-            column.push(cell);
+            column.push(cell.clone());
             column_proofs.push(*proof);
         }
     }
 
-    let sidecars: Vec<Arc<VerifiablePartialDataColumn<E>>> = columns
+    let sidecars: Result<Vec<Arc<VerifiablePartialDataColumn<E>>>, String> = columns
         .into_iter()
         .zip(column_kzg_proofs)
         .enumerate()
         .map(|(index, (col, proofs))| {
-            Arc::new(VerifiablePartialDataColumn {
+            Ok(Arc::new(VerifiablePartialDataColumn {
                 column: Arc::new(DanglingPartialDataColumn {
                     block_root: signed_block_header.message.canonical_root(),
                     index: index as u64,
                     sidecar: PartialDataColumnSidecar {
                         cells_present_bitmap: bitmap.clone(),
-                        column: DataColumn::<E>::from(col),
-                        kzg_proofs: VariableList::from(proofs),
+                        column: DataColumn::<E>::try_from(col)
+                            .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
+                        kzg_proofs: VariableList::try_from(proofs)
+                            .map_err(|e| format!("MaxBlobCommitmentsPerBlock exceeded: {e:?}"))?,
                     },
                 }),
                 kzg_commitments: kzg_commitments.clone(),
                 slot: signed_block_header.message.slot,
-            })
+            }))
         })
         .collect();
 
-    Ok(sidecars)
+    sidecars
 }
 
 /// Reconstruct blobs from a subset of data column sidecars (requires at least 50%).
