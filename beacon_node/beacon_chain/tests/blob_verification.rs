@@ -86,6 +86,7 @@ async fn rpc_blobs_with_invalid_header_signature() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::RangeSync,
             || Ok(()),
+            |_| (),
         )
         .await
         .unwrap();

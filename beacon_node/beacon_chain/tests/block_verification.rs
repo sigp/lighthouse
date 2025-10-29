@@ -504,6 +504,7 @@ async fn assert_invalid_signature(
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
+            |_| (),
         )
         .await;
     assert!(
@@ -575,6 +576,7 @@ async fn invalid_signature_gossip_block() {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
+                |_| (),
             )
             .await;
         assert!(
@@ -1018,6 +1020,7 @@ async fn block_gossip_verification() {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
+                |_| (),
             )
             .await
             .expect("should import valid gossip verified block");
@@ -1327,7 +1330,7 @@ async fn verify_and_process_gossip_data_sidecars(
 
             harness
                 .chain
-                .process_gossip_data_columns(gossip_verified, || Ok(()))
+                .process_gossip_data_columns(gossip_verified, || Ok(()), |_| ())
                 .await
                 .expect("should import valid gossip verified columns");
         }
@@ -1377,6 +1380,7 @@ async fn verify_block_for_gossip_slashing_detection() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
+            |_| (),
         )
         .await
         .unwrap();
@@ -1413,6 +1417,7 @@ async fn verify_block_for_gossip_doppelganger_detection() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
+            |_| (),
         )
         .await
         .unwrap();
@@ -1577,6 +1582,7 @@ async fn add_base_block_to_altair_chain() {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
+                |_| (),
             )
             .await
             .expect_err("should error when processing base block"),
@@ -1714,6 +1720,7 @@ async fn add_altair_block_to_base_chain() {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
+                |_| (),
             )
             .await
             .expect_err("should error when processing altair block"),

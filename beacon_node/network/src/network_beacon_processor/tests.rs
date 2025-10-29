@@ -1,6 +1,7 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
+use crate::partial_data_column_cache::PartialDataColumnCache;
 use crate::{
     network_beacon_processor::{
         ChainSegmentProcessId, DuplicateCache, InvalidBlockStorage, NetworkBeaconProcessor,
@@ -32,6 +33,7 @@ use lighthouse_network::{
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
 };
 use matches::assert_matches;
+use parking_lot::Mutex;
 use slot_clock::SlotClock;
 use std::collections::HashSet;
 use std::iter::Iterator;
@@ -265,6 +267,7 @@ impl TestRig {
         let network_beacon_processor = NetworkBeaconProcessor {
             beacon_processor_send: beacon_processor_tx.clone(),
             duplicate_cache: duplicate_cache.clone(),
+            partial_data_column_cache: Mutex::new(PartialDataColumnCache::new()),
             chain: harness.chain.clone(),
             network_tx,
             sync_tx,
@@ -1134,7 +1137,12 @@ async fn accept_processed_gossip_data_columns_without_import() {
     let block_root = rig.next_block.canonical_root();
     rig.chain
         .data_availability_checker
-        .put_gossip_verified_data_columns(block_root, rig.next_block.slot(), verified_data_columns)
+        .put_gossip_verified_data_columns(
+            block_root,
+            rig.next_block.slot(),
+            verified_data_columns,
+            |_| (),
+        )
         .expect("should put data columns into availability cache");
 
     // WHEN an already processed but unobserved data column is received via gossip

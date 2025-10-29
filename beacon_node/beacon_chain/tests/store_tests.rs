@@ -2937,6 +2937,7 @@ async fn weak_subjectivity_sync_test(
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
+                |_| (),
             )
             .await
             .unwrap();
@@ -3502,6 +3503,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
+            |_| (),
         )
         .await
         .unwrap_err();
@@ -3517,6 +3519,7 @@ async fn process_blocks_and_attestations_for_unaligned_checkpoint() {
             NotifyExecutionLayer::Yes,
             BlockImportSource::Lookup,
             || Ok(()),
+            |_| (),
         )
         .await
         .unwrap();

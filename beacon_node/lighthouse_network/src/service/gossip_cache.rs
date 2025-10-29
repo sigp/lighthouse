@@ -13,6 +13,8 @@ use tokio_util::time::delay_queue::{DelayQueue, Key};
 /// messages are ignored. This behaviour can be changed using `GossipCacheBuilder::default_timeout`
 /// to apply the same delay to every kind. Individual timeouts for specific kinds can be set and
 /// will overwrite the default_timeout if present.
+// TODO(dknopik)
+#[allow(dead_code)]
 pub struct GossipCache {
     /// Expire timeouts for each topic-msg pair.
     expirations: DelayQueue<(GossipTopic, Vec<u8>)>,
@@ -196,6 +198,8 @@ impl GossipCache {
     }
 
     // Insert a message to be sent later.
+    // TODO(dknopik)
+    #[allow(dead_code)]
     pub fn insert(&mut self, topic: GossipTopic, data: Vec<u8>) {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
