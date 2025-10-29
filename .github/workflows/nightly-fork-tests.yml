@@ -23,19 +23,30 @@ env:
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
   TEST_FEATURES: portable
-  # All prior forks to cover in nightly tests. This list should be updated when we remove a fork from `RECENT_FORKS`.
-  FORKS: '["phase0", "altair", "bellatrix", "capella", "deneb"]'
 
 jobs:
+  setup-matrix:
+    name: setup-matrix
+    runs-on: ubuntu-latest
+    outputs:
+      forks: ${{ steps.set-matrix.outputs.forks }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          # All prior forks to cover in nightly tests. This list should be updated when we remove a fork from `RECENT_FORKS`.
+          echo 'forks=["phase0", "altair", "bellatrix", "capella", "deneb"]' >> $GITHUB_OUTPUT
+
   beacon-chain-tests-all-forks:
     name: beacon-chain-tests-all-forks
+    needs: setup-matrix
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
-        fork: ${{ fromJson(env.FORKS) }}
+        fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
     - uses: actions/checkout@v5
@@ -56,13 +67,14 @@ jobs:
 
   http-api-tests-all-forks:
     name: http-api-tests-all-forks
+    needs: setup-matrix
     # Use self-hosted runners only on the sigp repo.
     runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
-        fork: ${{ fromJson(env.FORKS) }}
+        fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
     - uses: actions/checkout@v5
@@ -83,12 +95,13 @@ jobs:
 
   op-pool-tests-all-forks:
     name: op-pool-tests-all-forks
+    needs: setup-matrix
     runs-on: ubuntu-latest
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
-        fork: ${{ fromJson(env.FORKS) }}
+        fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
     - uses: actions/checkout@v5
@@ -104,12 +117,13 @@ jobs:
 
   network-tests-all-forks:
     name: network-tests-all-forks
+    needs: setup-matrix
     runs-on: ubuntu-latest
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
       matrix:
-        fork: ${{ fromJson(env.FORKS) }}
+        fork: ${{ fromJson(needs.setup-matrix.outputs.forks) }}
       fail-fast: false
     steps:
     - uses: actions/checkout@v5
