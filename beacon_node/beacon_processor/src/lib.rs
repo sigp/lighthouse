@@ -1360,9 +1360,15 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                 backfill_chain_segment.push(work, work_id)
                             }
                             Work::Status { .. } => status_queue.push(work, work_id),
-                            Work::BlocksByRangeRequest { .. } => block_brange_queue.push(work, work_id),
-                            Work::BlocksByRootsRequest { .. } => block_broots_queue.push(work, work_id),
-                            Work::BlobsByRangeRequest { .. } => blob_brange_queue.push(work, work_id),
+                            Work::BlocksByRangeRequest { .. } => {
+                                block_brange_queue.push(work, work_id)
+                            }
+                            Work::BlocksByRootsRequest { .. } => {
+                                block_broots_queue.push(work, work_id)
+                            }
+                            Work::BlobsByRangeRequest { .. } => {
+                                blob_brange_queue.push(work, work_id)
+                            }
                             Work::LightClientBootstrapRequest { .. } => {
                                 lc_bootstrap_queue.push(work, work_id)
                             }
@@ -1384,7 +1390,9 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             Work::GossipBlsToExecutionChange { .. } => {
                                 gossip_bls_to_execution_change_queue.push(work, work_id)
                             }
-                            Work::BlobsByRootsRequest { .. } => blob_broots_queue.push(work, work_id),
+                            Work::BlobsByRootsRequest { .. } => {
+                                blob_broots_queue.push(work, work_id)
+                            }
                             Work::DataColumnsByRootsRequest { .. } => {
                                 dcbroots_queue.push(work, work_id)
                             }
@@ -1435,10 +1443,10 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::ChainSegment => chain_segment_queue.len(),
                         WorkType::ChainSegmentBackfill => backfill_chain_segment.len(),
                         WorkType::Status => status_queue.len(),
-                        WorkType::BlocksByRangeRequest => blob_brange_queue.len(),
-                        WorkType::BlocksByRootsRequest => blob_broots_queue.len(),
-                        WorkType::BlobsByRangeRequest => block_brange_queue.len(),
-                        WorkType::BlobsByRootsRequest => block_broots_queue.len(),
+                        WorkType::BlocksByRangeRequest => block_brange_queue.len(),
+                        WorkType::BlocksByRootsRequest => block_broots_queue.len(),
+                        WorkType::BlobsByRangeRequest => blob_brange_queue.len(),
+                        WorkType::BlobsByRootsRequest => blob_broots_queue.len(),
                         WorkType::DataColumnsByRootsRequest => dcbroots_queue.len(),
                         WorkType::DataColumnsByRangeRequest => dcbrange_queue.len(),
                         WorkType::GossipBlsToExecutionChange => {
