@@ -178,6 +178,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Lookup,
                 || Ok(()),
+                |_| (),
             )
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Rpc, "block");

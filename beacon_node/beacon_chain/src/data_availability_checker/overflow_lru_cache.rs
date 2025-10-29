@@ -13,6 +13,7 @@ use lighthouse_tracing::SPAN_PENDING_COMPONENTS;
 use lru::LruCache;
 use parking_lot::{MappedRwLockReadGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::cmp::Ordering;
+use std::mem;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tracing::{Span, debug, debug_span};
@@ -202,13 +203,11 @@ impl<E: EthSpec> PendingComponents<E> {
     }
 
     /// Merges a given set of data columns into the cache.
-    fn merge_data_columns<
+    fn merge_data_columns<I, C>(&mut self, kzg_verified_data_columns: I) -> MergedData<E>
+    where
         I: IntoIterator<Item = KzgVerifiedCustodyDataColumn<E, C>>,
         C: DasColumn<E>,
-    >(
-        &mut self,
-        kzg_verified_data_columns: I,
-    ) -> Result<MergedData<E>, AvailabilityCheckError> {
+    {
         let mut merged_data = MergedData::empty();
 
         for data_column in kzg_verified_data_columns {
@@ -251,16 +250,18 @@ impl<E: EthSpec> PendingComponents<E> {
             }
         }
 
-        Ok(merged_data)
+        merged_data
     }
 
     /// Inserts a new block and revalidates the existing blobs against it.
     ///
     /// Blobs that don't match the new block's commitments are evicted.
-    pub fn merge_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) {
+    pub fn merge_block(&mut self, block: DietAvailabilityPendingExecutedBlock<E>) -> MergedData<E> {
         self.insert_executed_block(block);
         let reinsert = self.get_cached_blobs_mut().take();
         self.merge_blobs(reinsert);
+        let reinsert = mem::take(&mut self.verified_partial_columns);
+        self.merge_data_columns(reinsert)
     }
 
     /// Returns Some if the block has received all its required data for import. The return value
@@ -578,7 +579,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let (pending_components, ()) =
             self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
                 pending_components.merge_blobs(fixed_blobs);
-                Ok(())
             })?;
 
         pending_components.span.in_scope(|| {
@@ -600,7 +600,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         &self,
         block_root: Hash256,
         kzg_verified_data_columns: I,
-        publish_fn: impl FnOnce(MergedData<T::EthSpec>),
+        data_publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let mut kzg_verified_data_columns = kzg_verified_data_columns.into_iter().peekable();
         let Some(epoch) = kzg_verified_data_columns.peek().map(|verified_blob| {
@@ -621,7 +621,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
                 pending_components.merge_data_columns(kzg_verified_data_columns)
             })?;
 
-        publish_fn(merged_data);
+        data_publish_fn(merged_data);
 
         let num_expected_columns = self
             .custody_context
@@ -684,7 +684,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         update_fn: F,
     ) -> Result<(ComponentsLock<'_, T>, R), AvailabilityCheckError>
     where
-        F: FnOnce(&mut PendingComponents<T::EthSpec>) -> Result<R, AvailabilityCheckError>,
+        F: FnOnce(&mut PendingComponents<T::EthSpec>) -> R,
     {
         let mut write_lock = self.critical.write();
 
@@ -692,7 +692,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             let pending_components = write_lock.get_or_insert_mut(block_root, || {
                 PendingComponents::empty(block_root, self.spec.max_blobs_per_block(epoch) as usize)
             });
-            update_fn(pending_components)?
+            update_fn(pending_components)
         };
 
         RwLockReadGuard::try_map(RwLockWriteGuard::downgrade(write_lock), |cache| {
@@ -774,7 +774,6 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         let (pending_components, ()) =
             self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
                 pending_components.insert_pre_execution_block(block, source);
-                Ok(())
             })?;
 
         let num_expected_columns_opt = self.get_num_expected_columns(epoch);
@@ -804,6 +803,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     pub fn put_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+        data_publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let epoch = executed_block.as_block().epoch();
         let block_root = executed_block.import_data.block_root;
@@ -813,11 +813,12 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
             .state_cache
             .register_pending_executed_block(executed_block);
 
-        let (pending_components, ()) =
+        let (pending_components, merged_data) =
             self.update_or_insert_pending_components(block_root, epoch, |pending_components| {
-                pending_components.merge_block(diet_executed_block);
-                Ok(())
+                pending_components.merge_block(diet_executed_block)
             })?;
+
+        data_publish_fn(merged_data);
 
         let num_expected_columns_opt = self.get_num_expected_columns(epoch);
 
@@ -1125,7 +1126,7 @@ mod test {
         );
         assert!(cache.critical.read().is_empty(), "cache should be empty");
         let availability = cache
-            .put_executed_block(pending_block)
+            .put_executed_block(pending_block, |_| ())
             .expect("should put block");
         if blobs_expected == 0 {
             assert!(
@@ -1192,7 +1193,7 @@ mod test {
             );
         }
         let availability = cache
-            .put_executed_block(pending_block)
+            .put_executed_block(pending_block, |_| ())
             .expect("should put block");
         assert!(
             matches!(availability, Availability::Available(_)),
@@ -1254,7 +1255,7 @@ mod test {
 
             // put the block in the cache
             let availability = cache
-                .put_executed_block(pending_block)
+                .put_executed_block(pending_block, |_| ())
                 .expect("should put block");
 
             // grab the diet block from the cache for later testing
@@ -1449,7 +1450,7 @@ mod pending_components_tests {
             setup_pending_components(block_commitments, blobs, random_blobs);
         let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
-        cache.merge_block(block_commitments);
+        let _ = cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
 
@@ -1464,7 +1465,7 @@ mod pending_components_tests {
         let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_blobs(random_blobs);
-        cache.merge_block(block_commitments);
+        let _ = cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
 
         assert_cache_consistent(cache, max_len);
@@ -1480,7 +1481,7 @@ mod pending_components_tests {
         let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_blobs(random_blobs);
         cache.merge_blobs(blobs);
-        cache.merge_block(block_commitments);
+        let _ = cache.merge_block(block_commitments);
 
         assert_empty_blob_cache(cache);
     }
@@ -1493,7 +1494,7 @@ mod pending_components_tests {
 
         let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
-        cache.merge_block(block_commitments);
+        let _ = cache.merge_block(block_commitments);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
 
@@ -1509,7 +1510,7 @@ mod pending_components_tests {
         let block_root = Hash256::zero();
         let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_blobs(blobs);
-        cache.merge_block(block_commitments);
+        let _ = cache.merge_block(block_commitments);
         cache.merge_blobs(random_blobs);
 
         assert_cache_consistent(cache, max_len);
@@ -1525,7 +1526,7 @@ mod pending_components_tests {
         let mut cache = <PendingComponents<E>>::empty(block_root, max_len);
         cache.merge_blobs(blobs);
         cache.merge_blobs(random_blobs);
-        cache.merge_block(block_commitments);
+        let _ = cache.merge_block(block_commitments);
 
         assert_cache_consistent(cache, max_len);
     }

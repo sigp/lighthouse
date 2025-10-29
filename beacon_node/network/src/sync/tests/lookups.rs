@@ -1079,7 +1079,7 @@ impl TestRig {
             .harness
             .chain
             .data_availability_checker
-            .put_executed_block(executed_block)
+            .put_executed_block(executed_block, |_| ())
             .unwrap()
         {
             Availability::Available(_) => panic!("block removed from da_checker, available"),

@@ -3,6 +3,7 @@ use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
+use beacon_chain::data_availability_checker::MergedData;
 use beacon_chain::data_column_verification::{
     GossipVerifiedDataColumn, GossipVerifiedFullDataColumn,
 };
@@ -29,6 +30,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{Span, debug, debug_span, error, info, instrument, warn};
 use tree_hash::TreeHash;
+use types::das_column::DasColumn;
 use types::{
     AbstractExecPayload, BeaconBlockRef, BlobSidecar, BlobsList, BlockImportSource,
     DataColumnSidecar, DataColumnSubnetId, EthSpec, ExecPayload, ExecutionBlockHash, ForkName,
@@ -201,6 +203,41 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
         Ok(())
     };
 
+    let sender_clone = network_tx.clone();
+    let spec = chain.spec.clone();
+    let data_publish_fn = move |merged_data: MergedData<T::EthSpec>| {
+        debug!(
+            partial = merged_data.updated_partials.len(),
+            full = merged_data.completed_columns.len(),
+            "Sending merged data after block availability"
+        );
+        let messages: Vec<_> = merged_data
+            .updated_partials
+            .into_iter()
+            .map(|partial| {
+                PubsubMessage::PartialDataColumnSidecar(Box::new((
+                    DataColumnSubnetId::from_column_index(partial.index(), &spec),
+                    partial.column.clone().into(),
+                )))
+            })
+            .chain(merged_data.completed_columns.into_iter().flat_map(|full| {
+                let subnet = DataColumnSubnetId::from_column_index(full.index, &spec);
+                [
+                    PubsubMessage::PartialDataColumnSidecar(Box::new((
+                        subnet,
+                        (*full).clone().into_partial().column.clone().into(),
+                    ))),
+                    PubsubMessage::DataColumnSidecar(Box::new((subnet, full))),
+                ]
+            }))
+            .collect();
+        if !messages.is_empty()
+            && let Err(err) = crate::publish_pubsub_messages(&sender_clone, messages)
+        {
+            warn!(?err, "Publishing data after block availability failed")
+        }
+    };
+
     // Wait for blobs/columns to get gossip verified before proceeding further as we need them for import.
     let (gossip_verified_blobs, gossip_verified_columns) = build_sidecar_task_handle.await?;
 
@@ -275,6 +312,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
+                data_publish_fn,
             ))
             .await;
             post_block_import_logging_and_response(
@@ -325,6 +363,7 @@ pub async fn publish_block<T: BeaconChainTypes, B: IntoGossipVerifiedBlock<T>>(
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::HttpApi,
                 publish_fn,
+                data_publish_fn,
             ))
             .await;
             post_block_import_logging_and_response(

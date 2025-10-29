@@ -1800,6 +1800,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::Gossip,
                 || Ok(()),
+                |_| (),
             )
             .await;
         register_process_result_metrics(&result, metrics::BlockSource::Gossip, "block");

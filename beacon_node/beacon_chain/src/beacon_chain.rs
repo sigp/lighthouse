@@ -2929,6 +2929,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         notify_execution_layer,
                         BlockImportSource::RangeSync,
                         || Ok(()),
+                        |_| (),
                     )
                     .await
                 {
@@ -3360,6 +3361,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         notify_execution_layer: NotifyExecutionLayer,
         block_source: BlockImportSource,
         publish_fn: impl FnOnce() -> Result<(), BlockError>,
+        data_publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let block_slot = unverified_block.block().slot();
 
@@ -3429,7 +3431,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.import_available_block(Box::new(block)).await
                 }
                 ExecutedBlock::AvailabilityPending(block) => {
-                    self.check_block_availability_and_import(block).await
+                    self.check_block_availability_and_import(block, data_publish_fn)
+                        .await
                 }
             }
         };
@@ -3539,9 +3542,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     async fn check_block_availability_and_import(
         self: &Arc<Self>,
         block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+        data_publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<AvailabilityProcessingStatus, BlockError> {
         let slot = block.block.slot();
-        let availability = self.data_availability_checker.put_executed_block(block)?;
+        let availability = self
+            .data_availability_checker
+            .put_executed_block(block, data_publish_fn)?;
         self.process_availability(slot, availability, || Ok(()))
             .await
     }

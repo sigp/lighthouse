@@ -339,7 +339,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         block_root: Hash256,
         slot: Slot,
         data_columns: I,
-        publish_fn: impl FnOnce(MergedData<T::EthSpec>),
+        data_publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
         let sampling_columns = self
@@ -354,7 +354,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         self.availability_cache.put_kzg_verified_data_columns(
             block_root,
             custody_columns,
-            publish_fn,
+            data_publish_fn,
         )
     }
 
@@ -366,12 +366,12 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
         &self,
         block_root: Hash256,
         custody_columns: I,
-        publish_fn: impl FnOnce(MergedData<T::EthSpec>),
+        data_publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         self.availability_cache.put_kzg_verified_data_columns(
             block_root,
             custody_columns,
-            publish_fn,
+            data_publish_fn,
         )
     }
 
@@ -380,8 +380,10 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
     pub fn put_executed_block(
         &self,
         executed_block: AvailabilityPendingExecutedBlock<T::EthSpec>,
+        data_publish_fn: impl FnOnce(MergedData<T::EthSpec>),
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
-        self.availability_cache.put_executed_block(executed_block)
+        self.availability_cache
+            .put_executed_block(executed_block, data_publish_fn)
     }
 
     /// Inserts a pre-execution block into the cache.
@@ -901,6 +903,7 @@ impl<E: EthSpec> MaybeAvailableBlock<E> {
     }
 }
 
+#[must_use = "Publish the data within"]
 pub struct MergedData<E: EthSpec> {
     pub completed_columns: Vec<Arc<DataColumnSidecar<E>>>,
     pub updated_partials: Vec<Arc<VerifiablePartialDataColumn<E>>>,

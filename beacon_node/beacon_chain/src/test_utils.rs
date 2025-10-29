@@ -2374,6 +2374,7 @@ where
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
+                |_| (),
             )
             .await?
             .try_into()
@@ -2398,6 +2399,7 @@ where
                 NotifyExecutionLayer::Yes,
                 BlockImportSource::RangeSync,
                 || Ok(()),
+                |_| (),
             )
             .await?
             .try_into()

@@ -455,7 +455,10 @@ impl<E: EthSpec, C: DasColumn<E>> KzgVerifiedCustodyDataColumn<E, C> {
 
     // TODO(dknopik): below two functions are baaaad. They clone in far too many cases
 
-    pub fn try_as_full(&self, block: Option<&SignedBeaconBlock<E>>) -> Option<KzgVerifiedCustodyDataColumn<E, DataColumnSidecar<E>>> {
+    pub fn try_as_full(
+        &self,
+        block: Option<&SignedBeaconBlock<E>>,
+    ) -> Option<KzgVerifiedCustodyDataColumn<E, DataColumnSidecar<E>>> {
         self.data
             .as_full(block)
             .map(|full| KzgVerifiedCustodyDataColumn {
