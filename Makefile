@@ -30,10 +30,6 @@ TEST_FEATURES ?=
 # Cargo profile for regular builds.
 PROFILE ?= release
 
-# List of all hard forks. This list is used to set env variables for several tests so that
-# they run for different forks.
-FORKS=phase0 altair bellatrix capella deneb electra fulu gloas
-
 # List of all recent hard forks. This list is used to set env variables for http_api tests
 RECENT_FORKS=electra fulu gloas
 
