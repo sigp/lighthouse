@@ -17,8 +17,6 @@ env:
   RUSTFLAGS: "-D warnings -C debuginfo=0"
   # Prevent Github API rate limiting.
   LIGHTHOUSE_GITHUB_TOKEN: ${{ secrets.LIGHTHOUSE_GITHUB_TOKEN }}
-  # Enable self-hosted runners for the sigp repo only.
-  SELF_HOSTED_RUNNERS: ${{ github.repository == 'sigp/lighthouse' }}
   # Disable incremental compilation
   CARGO_INCREMENTAL: 0
   # Enable portable to prevent issues with caching `blst` for the wrong CPU type
@@ -40,8 +38,7 @@ jobs:
   beacon-chain-tests-all-forks:
     name: beacon-chain-tests-all-forks
     needs: setup-matrix
-    # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    runs-on: 'ubuntu-latest'
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
@@ -51,7 +48,6 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
@@ -60,16 +56,11 @@ jobs:
     - name: Run beacon_chain tests for ${{ matrix.fork }}
       run: make test-beacon-chain-${{ matrix.fork }}
       timeout-minutes: 60
-    - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true'
-      continue-on-error: true
-      run: sccache --show-stats
 
   http-api-tests-all-forks:
     name: http-api-tests-all-forks
     needs: setup-matrix
-    # Use self-hosted runners only on the sigp repo.
-    runs-on: ${{ github.repository == 'sigp/lighthouse' && fromJson('["self-hosted", "linux", "CI", "large"]') || 'ubuntu-latest'  }}
+    runs-on: 'ubuntu-latest'
     env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     strategy:
@@ -79,7 +70,6 @@ jobs:
     steps:
     - uses: actions/checkout@v5
     - name: Get latest version of stable Rust
-      if: env.SELF_HOSTED_RUNNERS == 'false'
       uses: moonrepo/setup-rust@v1
       with:
           channel: stable
@@ -88,10 +78,6 @@ jobs:
     - name: Run http_api tests for ${{ matrix.fork }}
       run: make test-http-api-${{ matrix.fork }}
       timeout-minutes: 60
-    - name: Show cache stats
-      if: env.SELF_HOSTED_RUNNERS == 'true'
-      continue-on-error: true
-      run: sccache --show-stats
 
   op-pool-tests-all-forks:
     name: op-pool-tests-all-forks
