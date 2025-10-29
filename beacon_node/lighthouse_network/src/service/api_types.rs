@@ -60,13 +60,19 @@ pub struct BlobsByRangeRequestId {
 pub struct DataColumnsByRangeRequestId {
     /// Id to identify this attempt at a data_columns_by_range request for `parent_request_id`
     pub id: Id,
-    /// The Id of the overall By Range request for block components.
-    pub parent_request_id: ComponentsByRangeRequestId,
+    /// The Id of the overall By Range request for either a components by range request or a custody backfill request.
+    pub parent_request_id: DataColumnsByRangeRequester,
     /// The peer id associated with the request.
     ///
     /// This is useful to penalize the peer at a later point if it returned data columns that
     /// did not match with the verified block.
     pub peer: PeerId,
+}
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum DataColumnsByRangeRequester {
+    ComponentsByRange(ComponentsByRangeRequestId),
+    CustodyBackfillSync(CustodyBackFillBatchRequestId),
 }
 
 /// Block components by range request for range sync. Includes an ID for downstream consumers to
@@ -78,6 +84,24 @@ pub struct ComponentsByRangeRequestId {
     pub id: Id,
     /// What sync component is issuing a components by range request and expecting data back
     pub requester: RangeRequestId,
+}
+
+/// A batch of data columns by range request for custody sync. Includes an ID for downstream consumers to
+/// handle retries and tie all the range requests for the given epoch together.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyBackFillBatchRequestId {
+    /// For each `epoch` we may request the same data in a later retry. This Id identifies the
+    /// current attempt.
+    pub id: Id,
+    pub batch_id: CustodyBackfillBatchId,
+}
+
+/// Custody backfill may be restarted and sync each epoch multiple times in different runs. Identify
+/// each batch by epoch and run_id for uniqueness.
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct CustodyBackfillBatchId {
+    pub epoch: Epoch,
+    pub run_id: u64,
 }
 
 /// Range sync chain or backfill batch
@@ -217,6 +241,8 @@ impl_display!(ComponentsByRangeRequestId, "{}/{}", id, requester);
 impl_display!(DataColumnsByRootRequestId, "{}/{}", id, requester);
 impl_display!(SingleLookupReqId, "{}/Lookup/{}", req_id, lookup_id);
 impl_display!(CustodyId, "{}", requester);
+impl_display!(CustodyBackFillBatchRequestId, "{}/{}", id, batch_id);
+impl_display!(CustodyBackfillBatchId, "{}/{}", epoch, run_id);
 
 impl Display for DataColumnsByRootRequester {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -237,6 +263,15 @@ impl Display for RangeRequestId {
         match self {
             Self::RangeSync { chain_id, batch_id } => write!(f, "RangeSync/{batch_id}/{chain_id}"),
             Self::BackfillSync { batch_id } => write!(f, "BackfillSync/{batch_id}"),
+        }
+    }
+}
+
+impl Display for DataColumnsByRangeRequester {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ComponentsByRange(id) => write!(f, "ByRange/{id}"),
+            Self::CustodyBackfillSync(id) => write!(f, "CustodyBackfill/{id}"),
         }
     }
 }
@@ -263,15 +298,17 @@ mod tests {
     fn display_id_data_columns_by_range() {
         let id = DataColumnsByRangeRequestId {
             id: 123,
-            parent_request_id: ComponentsByRangeRequestId {
-                id: 122,
-                requester: RangeRequestId::RangeSync {
-                    chain_id: 54,
-                    batch_id: Epoch::new(0),
+            parent_request_id: DataColumnsByRangeRequester::ComponentsByRange(
+                ComponentsByRangeRequestId {
+                    id: 122,
+                    requester: RangeRequestId::RangeSync {
+                        chain_id: 54,
+                        batch_id: Epoch::new(0),
+                    },
                 },
-            },
+            ),
             peer: PeerId::random(),
         };
-        assert_eq!(format!("{id}"), "123/122/RangeSync/0/54");
+        assert_eq!(format!("{id}"), "123/ByRange/122/RangeSync/0/54");
     }
 }

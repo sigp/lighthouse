@@ -46,7 +46,8 @@ use crate::status::ToStatusMessage;
 use crate::sync::block_lookups::{
     BlobRequestState, BlockComponent, BlockRequestState, CustodyRequestState, DownloadResult,
 };
-use crate::sync::network_context::PeerGroup;
+use crate::sync::custody_backfill_sync::CustodyBackFillSync;
+use crate::sync::network_context::{PeerGroup, RpcResponseResult};
 use beacon_chain::block_verification_types::AsBlock;
 use beacon_chain::validator_monitor::timestamp_now;
 use beacon_chain::{
@@ -56,14 +57,16 @@ use futures::StreamExt;
 use lighthouse_network::SyncInfo;
 use lighthouse_network::rpc::RPCError;
 use lighthouse_network::service::api_types::{
-    BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId, CustodyRequester,
-    DataColumnsByRangeRequestId, DataColumnsByRootRequestId, DataColumnsByRootRequester, Id,
-    SingleLookupReqId, SyncRequestId,
+    BlobsByRangeRequestId, BlocksByRangeRequestId, ComponentsByRangeRequestId,
+    CustodyBackFillBatchRequestId, CustodyBackfillBatchId, CustodyRequester,
+    DataColumnsByRangeRequestId, DataColumnsByRangeRequester, DataColumnsByRootRequestId,
+    DataColumnsByRootRequester, Id, SingleLookupReqId, SyncRequestId,
 };
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::{PeerAction, PeerId};
 use logging::crit;
 use lru_cache::LRUTimeCache;
+use slot_clock::SlotClock;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
@@ -158,6 +161,12 @@ pub enum SyncMessage<E: EthSpec> {
         result: BatchProcessResult,
     },
 
+    /// A custody batch has been processed by the processor thread.
+    CustodyBatchProcessed {
+        batch_id: CustodyBackfillBatchId,
+        result: CustodyBatchProcessResult,
+    },
+
     /// Block processed
     BlockComponentProcessed {
         process_type: BlockProcessType,
@@ -209,6 +218,19 @@ pub enum BatchProcessResult {
     NonFaultyFailure,
 }
 
+/// The result of processing multiple data columns.
+#[derive(Debug)]
+pub enum CustodyBatchProcessResult {
+    /// The custody batch was completed successfully. It carries whether the sent batch contained data columns.
+    Success {
+        #[allow(dead_code)]
+        sent_columns: usize,
+        imported_columns: usize,
+    },
+    /// The custody batch processing failed.
+    Error { peer_action: Option<PeerAction> },
+}
+
 /// The primary object for handling and driving all the current syncing logic. It maintains the
 /// current state of the syncing process, the number of useful peers, downloaded blocks and
 /// controls the logic behind both the long-range (batch) sync and the on-going potential parent
@@ -228,6 +250,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     /// Backfill syncing.
     backfill_sync: BackFillSync<T>,
+
+    /// Custody syncing.
+    custody_backfill_sync: CustodyBackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
     /// debounce duplicated `UnknownBlockHashFromAttestation` for the same root peer tuple. A peer
@@ -288,7 +313,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 fork_context.clone(),
             ),
             range_sync: RangeSync::new(beacon_chain.clone()),
-            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals),
+            backfill_sync: BackFillSync::new(beacon_chain.clone(), network_globals.clone()),
+            custody_backfill_sync: CustodyBackFillSync::new(beacon_chain.clone(), network_globals),
             block_lookups: BlockLookups::new(),
             notified_unknown_roots: LRUTimeCache::new(Duration::from_secs(
                 NOTIFIED_UNKNOWN_ROOT_EXPIRY_SECONDS,
@@ -549,6 +575,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // inform the backfill sync that a new synced peer has joined us.
                 if new_state.is_synced() {
                     self.backfill_sync.fully_synced_peer_joined();
+                    self.custody_backfill_sync.fully_synced_peer_joined();
                 }
             }
             is_connected
@@ -558,17 +585,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    /// Updates the global sync state, optionally instigating or pausing a backfill sync as well as
+    /// Updates the global sync state, optionally instigating or pausing a backfill or custody sync as well as
     /// logging any changes.
     ///
     /// The logic for which sync should be running is as follows:
-    /// - If there is a range-sync running (or required) pause any backfill and let range-sync
+    /// - If there is a range-sync running (or required) pause any backfill/custody sync and let range-sync
     ///   complete.
     /// - If there is no current range sync, check for any requirement to backfill and either
     ///   start/resume a backfill sync if required. The global state will be BackFillSync if a
     ///   backfill sync is running.
     /// - If there is no range sync and no required backfill and we have synced up to the currently
     ///   known peers, we consider ourselves synced.
+    /// - If there is no range sync and no required backfill we check if we need to execute a custody sync.
     fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
@@ -624,15 +652,51 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 error!(error = ?e, "Backfill sync failed to start");
                             }
                         }
+
+                        // If backfill is complete, check if we have a pending custody backfill to complete
+                        let anchor_info = self.chain.store.get_anchor_info();
+                        if anchor_info.block_backfill_complete(self.chain.genesis_backfill_slot) {
+                            match self.custody_backfill_sync.start(&mut self.network) {
+                                Ok(SyncStart::Syncing {
+                                    completed,
+                                    remaining,
+                                }) => {
+                                    sync_state = SyncState::CustodyBackFillSyncing {
+                                        completed,
+                                        remaining,
+                                    };
+                                }
+                                Ok(SyncStart::NotSyncing) => {} // Ignore updating the state if custody sync state didn't start.
+                                Err(e) => {
+                                    use crate::sync::custody_backfill_sync::CustodyBackfillError;
+
+                                    match &e {
+                                        CustodyBackfillError::BatchDownloadFailed(_)
+                                        | CustodyBackfillError::BatchProcessingFailed(_) => {
+                                            debug!(error=?e, "Custody backfill batch processing or downloading failed");
+                                        }
+                                        CustodyBackfillError::BatchInvalidState(_, reason) => {
+                                            error!(error=?e, reason, "Custody backfill sync failed due to invalid batch state")
+                                        }
+                                        CustodyBackfillError::InvalidSyncState(reason) => {
+                                            error!(error=?e, reason, "Custody backfill sync failed due to invalid sync state")
+                                        }
+                                        CustodyBackfillError::Paused => {}
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // Return the sync state if backfilling is not required.
                     sync_state
                 }
                 Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
-                    // If there is a backfill sync in progress pause it.
+                    // Range sync is in progress. If there is a backfill or custody sync in progress pause it.
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
+                    self.custody_backfill_sync
+                        .pause("Range sync in progress".to_string());
 
                     SyncState::SyncingFinalized {
                         start_slot,
@@ -640,9 +704,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 Some((RangeSyncType::Head, start_slot, target_slot)) => {
-                    // If there is a backfill sync in progress pause it.
+                    // Range sync is in progress. If there is a backfill or custody backfill sync
+                    // in progress pause it.
                     #[cfg(not(feature = "disable-backfill"))]
                     self.backfill_sync.pause();
+                    self.custody_backfill_sync
+                        .pause("Range sync in progress".to_string());
 
                     SyncState::SyncingHead {
                         start_slot,
@@ -662,7 +729,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             if new_state.is_synced()
                 && !matches!(
                     old_state,
-                    SyncState::Synced | SyncState::BackFillSyncing { .. }
+                    SyncState::Synced
+                        | SyncState::BackFillSyncing { .. }
+                        | SyncState::CustodyBackFillSyncing { .. }
                 )
             {
                 self.network.subscribe_core_topics();
@@ -693,6 +762,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         let mut register_metrics_interval = tokio::time::interval(Duration::from_secs(5));
 
+        // Trigger a sync state update every epoch. This helps check if we need to trigger a custody backfill sync.
+        let epoch_duration =
+            self.chain.slot_clock.slot_duration().as_secs() * T::EthSpec::slots_per_epoch();
+        let mut epoch_interval = tokio::time::interval(Duration::from_secs(epoch_duration));
+
         // process any inbound messages
         loop {
             tokio::select! {
@@ -710,6 +784,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
                 _ = register_metrics_interval.tick() => {
                     self.network.register_metrics();
+                }
+                _ = epoch_interval.tick() => {
+                    self.update_sync_state();
                 }
             }
         }
@@ -865,6 +942,21 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
             },
+            SyncMessage::CustodyBatchProcessed { result, batch_id } => {
+                match self.custody_backfill_sync.on_batch_process_result(
+                    &mut self.network,
+                    batch_id,
+                    &result,
+                ) {
+                    Ok(ProcessResult::Successful) => {}
+                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                    Err(error) => {
+                        error!(error = ?error, "Custody sync failed");
+                        // Update the global status
+                        self.update_sync_state();
+                    }
+                }
+            }
         }
     }
 
@@ -1081,11 +1173,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     RpcEvent::from_chunk(data_column, seen_timestamp),
                 );
             }
-            SyncRequestId::DataColumnsByRange(id) => self.on_data_columns_by_range_response(
-                id,
-                peer_id,
-                RpcEvent::from_chunk(data_column, seen_timestamp),
-            ),
+            SyncRequestId::DataColumnsByRange(req_id) => {
+                self.on_data_columns_by_range_response(
+                    req_id,
+                    peer_id,
+                    RpcEvent::from_chunk(data_column, seen_timestamp),
+                );
+            }
             _ => {
                 crit!(%peer_id, "bad request id for data_column");
             }
@@ -1173,11 +1267,22 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             .network
             .on_data_columns_by_range_response(id, peer_id, data_column)
         {
-            self.on_range_components_response(
-                id.parent_request_id,
-                peer_id,
-                RangeBlockComponent::CustodyColumns(id, resp),
-            );
+            match id.parent_request_id {
+                DataColumnsByRangeRequester::ComponentsByRange(components_by_range_req_id) => {
+                    self.on_range_components_response(
+                        components_by_range_req_id,
+                        peer_id,
+                        RangeBlockComponent::CustodyColumns(id, resp),
+                    );
+                }
+                DataColumnsByRangeRequester::CustodyBackfillSync(custody_backfill_req_id) => self
+                    .on_custody_backfill_columns_response(
+                        custody_backfill_req_id,
+                        id,
+                        peer_id,
+                        resp,
+                    ),
+            }
         }
     }
 
@@ -1264,6 +1369,36 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
                 },
+            }
+        }
+    }
+
+    /// Handles receiving a response for a custody range sync request that has columns.
+    fn on_custody_backfill_columns_response(
+        &mut self,
+        custody_sync_request_id: CustodyBackFillBatchRequestId,
+        req_id: DataColumnsByRangeRequestId,
+        peer_id: PeerId,
+        data_columns: RpcResponseResult<Vec<Arc<DataColumnSidecar<T::EthSpec>>>>,
+    ) {
+        if let Some(resp) = self.network.custody_backfill_data_columns_response(
+            custody_sync_request_id,
+            req_id,
+            data_columns,
+        ) {
+            match self.custody_backfill_sync.on_data_column_response(
+                &mut self.network,
+                custody_sync_request_id,
+                &peer_id,
+                resp,
+            ) {
+                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                Ok(ProcessResult::Successful) => {}
+                Err(_e) => {
+                    // The custody sync has failed, errors are reported
+                    // within.
+                    self.update_sync_state();
+                }
             }
         }
     }
