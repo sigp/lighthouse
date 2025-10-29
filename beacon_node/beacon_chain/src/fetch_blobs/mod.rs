@@ -115,11 +115,6 @@ async fn fetch_and_process_engine_blobs_inner<T: BeaconChainTypes>(
         return Ok(None);
     };
 
-    debug!(
-        num_expected_blobs = versioned_hashes.len(),
-        "Fetching blobs from the EL"
-    );
-
     if chain_adapter
         .spec()
         .is_peer_das_enabled_for_epoch(block.epoch())
