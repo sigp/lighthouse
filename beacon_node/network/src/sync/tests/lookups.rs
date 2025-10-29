@@ -577,19 +577,10 @@ impl TestRig {
     pub(super) fn expect_proof_lookup_request(&mut self, block_root: Hash256) -> SingleLookupReqId {
         self.pop_received_network_event(|ev| match ev {
             NetworkMessage::SendRequest {
-                request,
+                request: RequestType::ExecutionProofsByRoot(req),
                 app_request_id: AppRequestId::Sync(SyncRequestId::SingleExecutionProof { id }),
                 ..
-            } => match request {
-                RequestType::ExecutionProofsByRoot(req) => {
-                    if req.block_root == block_root {
-                        Some(*id)
-                    } else {
-                        None
-                    }
-                }
-                _ => None,
-            },
+            } if req.block_root == block_root => Some(*id),
             _ => None,
         })
         .unwrap_or_else(|_| panic!("Expected proof request for {block_root}"))

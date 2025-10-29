@@ -262,10 +262,8 @@ impl<T: BeaconChainTypes> SingleBlockLookup<T> {
                 }
 
                 if cx.chain.should_fetch_execution_proofs(block_epoch) {
-                    if let Some(min_proofs) = cx.chain.min_execution_proofs_required() {
-                        self.proof_request =
-                            Some(ProofRequestState::new(self.block_root, min_proofs));
-                    }
+                    self.proof_request = cx.chain.min_execution_proofs_required()
+                        .map(|min_proofs| ProofRequestState::new(self.block_root, min_proofs));
                 }
             } else {
                 // Wait to download the block before downloading blobs. Then we can be sure that the

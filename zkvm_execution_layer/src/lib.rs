@@ -16,8 +16,3 @@ pub use config::ZKVMExecutionLayerConfig;
 /// Re-export the main ZK-VM engine API and config
 pub use engine_api::ZKVMEngineApi;
 pub use registry_proof_gen::GeneratorRegistry;
-
-#[test]
-fn add() {
-    assert!(1 + 1 == 2)
-}

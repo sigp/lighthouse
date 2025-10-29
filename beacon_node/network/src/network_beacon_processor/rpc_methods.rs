@@ -437,21 +437,18 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let count_needed = request.count_needed as usize;
 
         // Get all execution proofs we have for this block from the DA checker
-        let available_proofs = match self
+        let Some(available_proofs) = self
             .chain
             .data_availability_checker
             .get_execution_proofs(&block_root)
-        {
-            Some(proofs) => proofs,
-            None => {
-                // No proofs available for this block
-                debug!(
-                    %peer_id,
-                    %block_root,
-                    "No execution proofs available for peer"
-                );
-                return Ok(());
-            }
+        else {
+            // No proofs available for this block
+            debug!(
+                %peer_id,
+                %block_root,
+                "No execution proofs available for peer"
+            );
+            return Ok(());
         };
 
         // Filter out proofs the peer already has and send up to count_needed

@@ -162,16 +162,13 @@ impl<T: BeaconChainTypes> ProofGenerationService<T> {
         let chain = self.chain.clone();
 
         // Get the generator for this proof type
-        let generator = match registry.get_generator(proof_id) {
-            Some(gen) => gen,
-            None => {
-                debug!(
-                    slot = ?slot,
-                    proof_id = ?proof_id,
-                    "No generator found for proof type"
-                );
-                return;
-            }
+        let Some(generator) = registry.get_generator(proof_id) else {
+            debug!(
+                slot = ?slot,
+                proof_id = ?proof_id,
+                "No generator found for proof type"
+            );
+            return;
         };
 
         // Spawn the generation task (async because generator.generate() is async)
@@ -293,12 +290,11 @@ mod tests {
 
     /// Create a test harness with minimal setup
     fn build_test_harness(validator_count: usize) -> TestHarness {
-        let harness = BeaconChainHarness::builder(E::default())
+        BeaconChainHarness::builder(E)
             .default_spec()
             .deterministic_keypairs(validator_count)
             .fresh_ephemeral_store()
-            .build();
-        harness
+            .build()
     }
 
     #[tokio::test]
@@ -316,9 +312,8 @@ mod tests {
         let proof_id = ExecutionProofId::new(0).unwrap();
 
         // Should return false for a proof that hasn't been observed
-        assert_eq!(
-            service.check_if_proof_exists(slot, block_root, proof_id),
-            false
+        assert!(
+            !service.check_if_proof_exists(slot, block_root, proof_id)
         );
     }
 
@@ -344,9 +339,8 @@ mod tests {
             .unwrap();
 
         // Should return true for an observed proof
-        assert_eq!(
-            service.check_if_proof_exists(slot, block_root, proof_id),
-            true
+        assert!(
+            service.check_if_proof_exists(slot, block_root, proof_id)
         );
     }
 

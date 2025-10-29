@@ -3671,7 +3671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let availability = self
             .data_availability_checker
             .put_verified_execution_proofs(block_root, std::iter::once(proof))
-            .map_err(|e| BlockError::AvailabilityCheck(e))?;
+            .map_err(BlockError::AvailabilityCheck)?;
 
         self.process_availability(slot, availability, publish_fn)
             .await

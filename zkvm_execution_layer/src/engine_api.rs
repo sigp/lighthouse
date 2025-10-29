@@ -21,9 +21,9 @@ impl<E: EthSpec> ZKVMEngineApi<E> {
     }
 
     /// Verify a new execution payload using ZK proof
-    pub async fn new_payload<'a>(
+    pub async fn new_payload(
         &self,
-        _execution_payload: &'a impl ExecPayload<E>,
+        _execution_payload: &impl ExecPayload<E>,
     ) -> Result<PayloadStatus, ExecutionLayerError> {
         // TODO(zkproofs): There are some engine_api checks that should be made, but these should be
         // done when we have the proof, check the EL newPayload method to see what these are

@@ -121,6 +121,7 @@ impl<E: EthSpec> Debug for Availability<E> {
 }
 
 impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         complete_blob_backfill: bool,
         slot_clock: T::SlotClock,
@@ -464,7 +465,7 @@ impl<T: BeaconChainTypes> DataAvailabilityChecker<T> {
                         "Proof verification failed: proof is invalid"
                     );
                     return Err(AvailabilityCheckError::InvalidProof {
-                        proof_id: proof_id,
+                        proof_id,
                         reason: "Proof verification returns false".to_string(),
                     });
                 }

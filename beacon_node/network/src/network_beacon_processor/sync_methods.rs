@@ -1006,7 +1006,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         self: Arc<NetworkBeaconProcessor<T>>,
         block_root: Hash256,
         proofs: Vec<Arc<types::ExecutionProof>>,
-        seen_timestamp: Duration,
+        _seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) {
         // Get slot directly from the first proof. All proofs should be for the same block.

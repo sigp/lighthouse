@@ -354,7 +354,7 @@ pub fn get_config<E: EthSpec>(
                     )
                 })?
                 .into_iter()
-                .map(|id| ExecutionProofId::new(id))
+                .map(ExecutionProofId::new)
                 .collect::<Result<HashSet<_>, _>>()
                 .map_err(|e| format!("Invalid subnet ID: {}", e))?
         } else {

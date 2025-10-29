@@ -1894,7 +1894,7 @@ fn test_tcp_execution_proofs_by_root_chunked() {
 
         let block_root = Hash256::random();
         let block_hash = ExecutionBlockHash::from_root(Hash256::random());
-        let proof_ids = vec![
+        let proof_ids = [
             ExecutionProofId::new(0).unwrap(),
             ExecutionProofId::new(1).unwrap(),
             ExecutionProofId::new(2).unwrap(),

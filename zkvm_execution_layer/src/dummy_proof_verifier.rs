@@ -81,7 +81,7 @@ mod tests {
 
         let result = verifier.verify(&proof);
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap());
     }
 
     #[tokio::test]

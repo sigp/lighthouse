@@ -85,7 +85,7 @@ impl ObservedExecutionProofs {
         }
 
         let key = ProofKey::new(slot, block_root);
-        let proof_ids = self.items.entry(key).or_insert_with(HashSet::new);
+        let proof_ids = self.items.entry(key).or_default();
 
         let was_duplicate = !proof_ids.insert(proof_id);
 
