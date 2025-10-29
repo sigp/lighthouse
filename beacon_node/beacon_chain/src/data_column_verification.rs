@@ -453,23 +453,11 @@ impl<E: EthSpec, C: DasColumn<E>> KzgVerifiedCustodyDataColumn<E, C> {
         self.data.index()
     }
 
-    // TODO(dknopik): below three functions are baaaad. They clone in far too many cases
+    // TODO(dknopik): below two functions are baaaad. They clone in far too many cases
 
-    pub fn try_as_full(&self) -> Option<KzgVerifiedCustodyDataColumn<E, DataColumnSidecar<E>>> {
+    pub fn try_as_full(&self, block: Option<&SignedBeaconBlock<E>>) -> Option<KzgVerifiedCustodyDataColumn<E, DataColumnSidecar<E>>> {
         self.data
-            .as_full(None)
-            .map(|full| KzgVerifiedCustodyDataColumn {
-                data: Arc::new(full.into_owned()),
-                _phantom: PhantomData,
-            })
-    }
-
-    pub fn try_upgrade_full(
-        &self,
-        block: &SignedBeaconBlock<E>,
-    ) -> Option<KzgVerifiedCustodyDataColumn<E, DataColumnSidecar<E>>> {
-        self.data
-            .as_full(Some(block))
+            .as_full(block)
             .map(|full| KzgVerifiedCustodyDataColumn {
                 data: Arc::new(full.into_owned()),
                 _phantom: PhantomData,

@@ -217,7 +217,7 @@ impl<E: EthSpec> PendingComponents<E> {
                 continue;
             }
 
-            if let Some(full) = data_column.try_as_full() {
+            if let Some(full) = data_column.try_as_full(self.block.as_ref().map(|b| b.as_block())) {
                 self.verified_partial_columns
                     .retain(|col| col.index() != full.index());
                 self.verified_data_columns.push(full);
@@ -234,7 +234,7 @@ impl<E: EthSpec> PendingComponents<E> {
                 let did_merge = cached_partial.merge(&partial);
                 if did_merge {
                     if let Some(block) = &self.block
-                        && let Some(full) = cached_partial.try_upgrade_full(block.as_block())
+                        && let Some(full) = cached_partial.try_as_full(Some(block.as_block()))
                     {
                         merged_data.completed_columns.push(full.clone_arc());
                         self.verified_data_columns.push(full);
