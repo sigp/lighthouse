@@ -73,6 +73,8 @@ pub const AGGREGATION_PRE_COMPUTE_EPOCHS: u64 = 2;
 /// Number of slots in advance to compute sync selection proofs when in `distributed` mode.
 pub const AGGREGATION_PRE_COMPUTE_SLOTS_DISTRIBUTED: u64 = 1;
 
+const MAX_HEAD_EVENT_QUEUE_LEN: usize = 1_024;
+
 type ValidatorStore<E> = LighthouseValidatorStore<SystemTimeSlotClock, E>;
 
 #[derive(Clone)]
@@ -384,8 +386,15 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
             Duration::from_secs(context.eth2_config.spec.seconds_per_slot),
         );
 
+        let (head_send, head_receiver) = mpsc::channel(MAX_HEAD_EVENT_QUEUE_LEN);
+
+        let head_send_ref = Arc::new(head_send);
+
         beacon_nodes.set_slot_clock(slot_clock.clone());
         proposer_nodes.set_slot_clock(slot_clock.clone());
+
+        beacon_nodes.set_head_send(head_send_ref.clone());
+        proposer_nodes.set_head_send(head_send_ref.clone());
 
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service::<_, E>(context.executor.clone(), beacon_nodes.clone())?;
@@ -493,8 +502,6 @@ impl<E: EthSpec> ProductionValidatorClient<E> {
         if proposer_nodes_num > 0 {
             block_service_builder = block_service_builder.proposer_nodes(proposer_nodes.clone());
         }
-
-        let (_, head_receiver) = mpsc::channel(1_024);
 
         let block_service = block_service_builder.build()?;
 

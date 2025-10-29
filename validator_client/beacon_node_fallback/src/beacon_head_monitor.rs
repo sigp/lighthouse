@@ -68,15 +68,20 @@ impl Default for BeaconHeadCache {
 //
 //
 // The cache and the candidate BNs list are refresh/purged to avoid dangling reference conditions
-// that arise due to `update_candidates_list`. The cache is refresh use the shared reference between
-// `HeadMonitorService` and `BeaconNodeFallback`.
-
+// that arise due to `update_candidates_list`.
+//
 // Starts the service to perpetually stream head events from connected beacon_nodes
 pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'static>(
     beacon_nodes: Arc<BeaconNodeFallback<T>>,
 ) -> Result<(), String> {
-    let head_cache = beacon_nodes.beacon_head_cache.clone().expect("asdf");
-    let head_monitor_send = beacon_nodes.head_monitor_send.clone().expect("asdf");
+    let head_cache = beacon_nodes
+        .beacon_head_cache
+        .clone()
+        .expect("Unable to start head monitor without beacon_head_cache");
+    let head_monitor_send = beacon_nodes
+        .head_monitor_send
+        .clone()
+        .expect("Unable to start head monitor without head_monitor_send");
 
     info!("Starting head monitoring service");
     let candidates = {
