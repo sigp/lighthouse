@@ -1,7 +1,7 @@
 use crate::fetch_blobs::{EngineGetBlobsOutput, FetchEngineBlobError};
 use crate::observed_block_producers::ProposalKey;
 use crate::{AvailabilityProcessingStatus, BeaconChain, BeaconChainTypes};
-use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
 use kzg::Kzg;
 #[cfg(test)]
 use mockall::automock;
@@ -71,7 +71,7 @@ impl<T: BeaconChainTypes> FetchBlobsBeaconAdapter<T> {
     pub(crate) async fn get_blobs_v3(
         &self,
         versioned_hashes: Vec<Hash256>,
-    ) -> Result<Option<Vec<Option<BlobAndProofV2<T::EthSpec>>>>, FetchEngineBlobError> {
+    ) -> Result<Option<Vec<BlobAndProofV3<T::EthSpec>>>, FetchEngineBlobError> {
         let execution_layer = self
             .chain
             .execution_layer

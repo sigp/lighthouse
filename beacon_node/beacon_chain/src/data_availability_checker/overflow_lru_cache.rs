@@ -645,7 +645,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
     fn check_availability_and_cache_components(
         &self,
         block_root: Hash256,
-        pending_components: MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>,
+        pending_components: ComponentsLock<'_, T>,
         num_expected_columns_opt: Option<usize>,
     ) -> Result<Availability<T::EthSpec>, AvailabilityCheckError> {
         if let Some(available_block) = pending_components.make_available(
@@ -682,7 +682,7 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         block_root: Hash256,
         epoch: Epoch,
         update_fn: F,
-    ) -> Result<(MappedRwLockReadGuard<'_, PendingComponents<T::EthSpec>>, R), AvailabilityCheckError>
+    ) -> Result<(ComponentsLock<'_, T>, R), AvailabilityCheckError>
     where
         F: FnOnce(&mut PendingComponents<T::EthSpec>) -> Result<R, AvailabilityCheckError>,
     {
@@ -886,6 +886,9 @@ impl<T: BeaconChainTypes> DataAvailabilityCheckerInner<T> {
         self.critical.read().len()
     }
 }
+
+type ComponentsLock<'a, T> =
+    MappedRwLockReadGuard<'a, PendingComponents<<T as BeaconChainTypes>::EthSpec>>;
 
 #[cfg(test)]
 mod test {

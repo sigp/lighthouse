@@ -325,6 +325,9 @@ impl<T: BeaconChainTypes, O: ObservationStrategy>
     }
 }
 
+pub type GossipVerifiedFullDataColumn<T> =
+    GossipVerifiedDataColumn<T, DataColumnSidecar<<T as BeaconChainTypes>::EthSpec>>;
+
 /// Wrapper over a `DataColumnSidecar` for which we have completed kzg verification.
 #[derive(Debug, Derivative, Clone)]
 #[derivative(PartialEq, Eq)]

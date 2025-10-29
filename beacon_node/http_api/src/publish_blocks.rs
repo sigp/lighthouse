@@ -3,7 +3,9 @@ use std::future::Future;
 
 use beacon_chain::blob_verification::{GossipBlobError, GossipVerifiedBlob};
 use beacon_chain::block_verification_types::{AsBlock, RpcBlock};
-use beacon_chain::data_column_verification::GossipVerifiedDataColumn;
+use beacon_chain::data_column_verification::{
+    GossipVerifiedDataColumn, GossipVerifiedFullDataColumn,
+};
 use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{
     AvailabilityProcessingStatus, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
@@ -407,7 +409,7 @@ fn build_data_columns<T: BeaconChainTypes>(
     block: &SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>,
     blobs: BlobsList<T::EthSpec>,
     kzg_cell_proofs: KzgProofs<T::EthSpec>,
-) -> Result<Vec<GossipVerifiedDataColumn<T, DataColumnSidecar<T::EthSpec>>>, Rejection> {
+) -> Result<Vec<GossipVerifiedFullDataColumn<T>>, Rejection> {
     let slot = block.slot();
     let data_column_sidecars =
         build_blob_data_column_sidecars(chain, block, blobs, kzg_cell_proofs).map_err(|e| {

@@ -25,7 +25,7 @@ use crate::{
     metrics,
 };
 use execution_layer::Error as ExecutionLayerError;
-use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2};
+use execution_layer::json_structures::{BlobAndProofV1, BlobAndProofV2, BlobAndProofV3};
 use metrics::{TryExt, inc_counter};
 #[cfg(test)]
 use mockall_double::double;
@@ -38,8 +38,8 @@ use types::das_column::DasColumn;
 use types::data_column_sidecar::DataColumnSidecarError;
 use types::partial_data_column_sidecar::VerifiablePartialDataColumn;
 use types::{
-    BeaconStateError, Blob, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, KzgProofs,
-    SignedBeaconBlock, SignedBeaconBlockHeader, VersionedHash,
+    BeaconStateError, BlobSidecar, ColumnIndex, EthSpec, FullPayload, Hash256, SignedBeaconBlock,
+    SignedBeaconBlockHeader, VersionedHash,
 };
 
 /// Result from engine get blobs to be passed onto `DataAvailabilityChecker` and published to the
@@ -265,11 +265,6 @@ async fn fetch_and_process_blobs_v2<T: BeaconChainTypes>(
         return Ok(None);
     };
 
-    let blobs_and_proofs: Vec<_> = blobs_and_proofs
-        .into_iter()
-        .map(|blob_and_proof| blob_and_proof.map(|BlobAndProofV2 { blob, proofs }| (blob, proofs)))
-        .collect();
-
     let num_fetched_blobs = blobs_and_proofs.len();
     metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
 
@@ -326,7 +321,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
     chain_adapter: &Arc<FetchBlobsBeaconAdapter<T>>,
     block_root: Hash256,
     block: Arc<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>>,
-    blobs_and_proofs: Vec<Option<(Blob<T::EthSpec>, KzgProofs<T::EthSpec>)>>,
+    blobs_and_proofs: Vec<BlobAndProofV3<T::EthSpec>>,
     custody_columns_indices: &[ColumnIndex],
 ) -> Result<
     Vec<KzgVerifiedCustodyDataColumn<T::EthSpec, VerifiablePartialDataColumn<T::EthSpec>>>,
@@ -352,7 +347,7 @@ async fn compute_custody_columns_to_import<T: BeaconChainTypes>(
                     .map(|option| {
                         option
                             .as_ref()
-                            .map(|(blob, proofs)| (blob, proofs.as_ref()))
+                            .map(|BlobAndProofV2 { blob, proofs }| (blob, proofs.as_ref()))
                     })
                     .collect::<Vec<_>>();
                 let data_columns_result =
