@@ -168,7 +168,8 @@ async fn light_client_bootstrap_test() {
         .chain
         .canonical_head
         .cached_head()
-        .finalized_checkpoint();
+        .finalized_checkpoint()
+        .on_chain();
 
     let block_root = finalized_checkpoint.root;
 

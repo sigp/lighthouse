@@ -263,6 +263,7 @@ impl ApiTester {
                 .canonical_head
                 .cached_head()
                 .finalized_checkpoint()
+                .on_chain()
                 .epoch,
             2,
             "precondition: finality"
@@ -272,6 +273,7 @@ impl ApiTester {
                 .canonical_head
                 .cached_head()
                 .justified_checkpoint()
+                .on_chain()
                 .epoch,
             3,
             "precondition: justification"

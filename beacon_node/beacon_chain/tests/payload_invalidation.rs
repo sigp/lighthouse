@@ -1144,9 +1144,9 @@ async fn payload_preparation_before_transition_block() {
     let forkchoice_update_params = rig
         .harness
         .chain
+        .head()
         .canonical_head
-        .fork_choice_read_lock()
-        .get_forkchoice_update_parameters();
+        .forkchoice_update_parameters();
     rig.harness
         .chain
         .update_execution_engine_forkchoice(
@@ -1294,7 +1294,7 @@ impl InvalidHeadSetup {
 
         // Import blocks until the first time the chain finalizes. This avoids
         // some edge-cases around genesis.
-        while rig.cached_head().finalized_checkpoint().epoch == 0 {
+        while rig.cached_head().finalized_checkpoint().on_chain().epoch == 0 {
             rig.import_block(Payload::Syncing).await;
         }
 

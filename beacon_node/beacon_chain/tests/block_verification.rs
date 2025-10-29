@@ -1771,7 +1771,7 @@ async fn import_duplicate_block_unrealized_justification() {
     // must be at epoch 1.
     {
         let fc = chain.canonical_head.fork_choice_read_lock();
-        assert_eq!(fc.justified_checkpoint().epoch, 0);
+        assert_eq!(fc.justified_checkpoint().on_chain().epoch, 0);
         assert_eq!(fc.unrealized_justified_checkpoint().epoch, 1);
         drop(fc);
     }
@@ -1803,7 +1803,7 @@ async fn import_duplicate_block_unrealized_justification() {
     // The store's global unrealized justification should update immediately and match the block.
     let unrealized_justification = {
         let fc = chain.canonical_head.fork_choice_read_lock();
-        assert_eq!(fc.justified_checkpoint().epoch, 0);
+        assert_eq!(fc.justified_checkpoint().on_chain().epoch, 0);
         let unrealized_justification = fc.unrealized_justified_checkpoint();
         assert_eq!(unrealized_justification.epoch, 2);
         // The fork choice node for the block should have unrealized justification.
@@ -1826,7 +1826,7 @@ async fn import_duplicate_block_unrealized_justification() {
 
     // Unrealized justification should still be updated.
     let fc3 = chain.canonical_head.fork_choice_read_lock();
-    assert_eq!(fc3.justified_checkpoint().epoch, 0);
+    assert_eq!(fc3.justified_checkpoint().on_chain().epoch, 0);
     assert_eq!(
         fc3.unrealized_justified_checkpoint(),
         unrealized_justification

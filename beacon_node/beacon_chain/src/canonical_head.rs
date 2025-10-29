@@ -978,24 +978,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_finalized_subscribers()
-        {
-            if let Some(on_chain_finalized_block) = self
+            && let Some(on_chain_finalized_block) = self
                 .canonical_head
                 .fork_choice_read_lock()
                 .get_block(&on_chain_finalized_checkpoint.root)
-            {
-                event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
-                    epoch: on_chain_finalized_checkpoint.epoch,
-                    block: on_chain_finalized_checkpoint.root,
-                    // Provide the state root of the latest finalized block, rather than the
-                    // specific state root at the first slot of the finalized epoch (which
-                    // might be a skip slot).
-                    state: on_chain_finalized_block.state_root,
-                    execution_optimistic: on_chain_finalized_block
-                        .execution_status
-                        .is_optimistic_or_invalid(),
-                }));
-            }
+        {
+            event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
+                epoch: on_chain_finalized_checkpoint.epoch,
+                block: on_chain_finalized_checkpoint.root,
+                // Provide the state root of the latest finalized block, rather than the
+                // specific state root at the first slot of the finalized epoch (which
+                // might be a skip slot).
+                state: on_chain_finalized_block.state_root,
+                execution_optimistic: on_chain_finalized_block
+                    .execution_status
+                    .is_optimistic_or_invalid(),
+            }));
         }
 
         // The store migration task and op pool pruning require the *state at the first slot of the
