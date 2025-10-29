@@ -931,21 +931,19 @@ async fn data_column_reconstruction_at_deadline() {
         .slot_clock
         .set_current_time(slot_start + Duration::from_secs(3));
 
-    let num_data_columns = rig.next_data_columns.as_ref().map(|c| c.len()).unwrap_or(0);
-    for i in 0..num_data_columns {
+    let min_columns_for_reconstruction = E::number_of_columns() / 2;
+    for i in 0..min_columns_for_reconstruction {
         rig.enqueue_gossip_data_columns(i);
         rig.assert_event_journal_completes(&[WorkType::GossipDataColumnSidecar])
             .await;
     }
 
     // Since we're at the reconstruction deadline, reconstruction should be triggered immediately
-    if num_data_columns > 0 {
-        rig.assert_event_journal_completes_with_timeout(
-            &[WorkType::ColumnReconstruction],
-            Duration::from_millis(50),
-        )
-        .await;
-    }
+    rig.assert_event_journal_completes_with_timeout(
+        &[WorkType::ColumnReconstruction],
+        Duration::from_millis(50),
+    )
+    .await;
 }
 
 // Test the column reconstruction is delayed for columns that arrive for a previous slot.
