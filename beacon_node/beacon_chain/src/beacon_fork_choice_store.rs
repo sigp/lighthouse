@@ -197,8 +197,16 @@ where
         let justified_balances = JustifiedBalances::from_justified_state(&anchor_state)?;
         let anchor_state_root = anchor_state.canonical_root()?;
 
-        let justified_checkpoint_on_chain = anchor_state.current_justified_checkpoint();
-        let finalized_checkpoint_on_chain = anchor_state.finalized_checkpoint();
+        let mut justified_checkpoint_on_chain = anchor_state.current_justified_checkpoint();
+        let mut finalized_checkpoint_on_chain = anchor_state.finalized_checkpoint();
+
+        // If the network has not justified or finalized yet, use anchor checkpoint
+        if justified_checkpoint_on_chain.root == Hash256::ZERO {
+            justified_checkpoint_on_chain = anchor_block_checkpoint;
+        }
+        if finalized_checkpoint_on_chain.root == Hash256::ZERO {
+            finalized_checkpoint_on_chain = anchor_block_checkpoint;
+        }
 
         Ok(Self {
             store,

@@ -83,6 +83,7 @@ impl ForkChoiceTestDefinition {
             self.finalized_block_slot,
             self.finalized_block_slot,
             Hash256::zero(),
+            Hash256::zero(),
             self.justified_checkpoint,
             self.finalized_checkpoint,
             self.finalized_checkpoint,

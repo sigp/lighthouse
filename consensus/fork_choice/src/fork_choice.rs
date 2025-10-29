@@ -420,6 +420,7 @@ where
         let proto_array = ProtoArrayForkChoice::new::<E>(
             current_slot,
             anchor_block_slot,
+            anchor_block_root,
             anchor_block_state_root,
             fc_store.justified_checkpoint().on_chain(),
             fc_store.finalized_checkpoint().on_chain(),

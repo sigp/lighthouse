@@ -415,6 +415,7 @@ impl ProtoArrayForkChoice {
     pub fn new<E: EthSpec>(
         current_slot: Slot,
         anchor_block_slot: Slot,
+        anchor_block_root: Hash256,
         anchor_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
@@ -435,12 +436,11 @@ impl ProtoArrayForkChoice {
 
         let block = Block {
             slot: anchor_block_slot,
-            root: local_irreversible_checkpoint.root,
+            root: anchor_block_root,
             parent_root: None,
             state_root: anchor_block_state_root,
-            // We are using the finalized_root as the target_root, since it always lies on an
-            // epoch boundary.
-            target_root: local_irreversible_checkpoint.root,
+            // TODO: What root to use here?
+            target_root: anchor_block_root,
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             justified_checkpoint,
