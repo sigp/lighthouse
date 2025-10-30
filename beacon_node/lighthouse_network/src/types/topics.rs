@@ -543,7 +543,7 @@ mod tests {
     #[test]
     fn columns_are_subscribed_in_peerdas() {
         let spec = get_spec();
-        let s = get_sampling_subnets();
+        let s = HashSet::from_iter([0.into()]);
         let topic_config = get_topic_config(&s);
         assert!(
             core_topics_to_subscribe::<E>(ForkName::Fulu, &topic_config, &spec)

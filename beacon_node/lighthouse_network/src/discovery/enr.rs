@@ -377,7 +377,8 @@ mod test {
     #[test]
     fn test_nfd_enr_encoding() {
         let spec = make_fulu_spec();
-        let enr = build_enr_with_config(NetworkConfig::default(), 4, &spec).0;
+        let enr =
+            build_enr_with_config(NetworkConfig::default(), spec.custody_requirement, &spec).0;
         assert_eq!(enr.next_fork_digest().unwrap(), TEST_NFD);
     }
 
