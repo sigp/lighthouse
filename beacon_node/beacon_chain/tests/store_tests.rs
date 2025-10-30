@@ -1561,7 +1561,7 @@ async fn proposer_duties_from_head_fulu() {
 
     // Compute the proposer duties at the next epoch from the head
     let next_epoch = head_state.next_epoch().unwrap();
-    let (_indices, dependent_root, _, fork) =
+    let (_indices, dependent_root, legacy_dependent_root, _, fork) =
         compute_proposer_duties_from_head(next_epoch, &harness.chain).unwrap();
 
     assert_eq!(
@@ -1570,6 +1570,8 @@ async fn proposer_duties_from_head_fulu() {
             .proposer_shuffling_decision_root_at_epoch(next_epoch, head_block_root.into(), spec)
             .unwrap()
     );
+    assert_ne!(dependent_root, legacy_dependent_root);
+    assert_eq!(legacy_dependent_root, Hash256::from(head_block_root));
     assert_eq!(fork, head_state.fork());
 }
 
@@ -1617,7 +1619,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
     assert_eq!(head_state.current_epoch(), gloas_fork_epoch - 1);
 
     // Compute the proposer duties at the fork epoch from the head.
-    let (indices, dependent_root, _, fork) =
+    let (indices, dependent_root, legacy_dependent_root, _, fork) =
         compute_proposer_duties_from_head(gloas_fork_epoch, &harness.chain).unwrap();
 
     assert_eq!(
@@ -1630,6 +1632,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
             )
             .unwrap()
     );
+    assert_ne!(dependent_root, legacy_dependent_root);
     assert_ne!(fork, head_state.fork());
     assert_eq!(fork, spec.fork_at_epoch(gloas_fork_epoch));
 
@@ -1639,7 +1642,7 @@ async fn proposer_lookahead_gloas_fork_epoch() {
         .add_attested_blocks_at_slots(head_state, head_state_root, &gloas_slots, &all_validators)
         .await;
 
-    let (no_lookahead_indices, no_lookahead_dependent_root, _, no_lookahead_fork) =
+    let (no_lookahead_indices, no_lookahead_dependent_root, _, _, no_lookahead_fork) =
         compute_proposer_duties_from_head(gloas_fork_epoch, &harness.chain).unwrap();
 
     assert_eq!(no_lookahead_indices, indices);

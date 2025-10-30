@@ -212,15 +212,21 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 
     // This is only required because the V1 proposer duties endpoint spec wasn't updated for Fulu. We
     // can delete this once the V1 endpoint is deprecated at the Glamsterdam fork.
-    let legacy_dependent_root = if
-    state
-        .proposer_shuffling_decision_root_at_epoch
+    let legacy_dependent_root = state
+        .legacy_proposer_shuffling_decision_root_at_epoch(request_epoch, head_block_root)
+        .map_err(BeaconChainError::from)?;
 
     // Use fork_at_epoch rather than the state's fork, because post-Fulu we may not have advanced
     // the state completely into the new epoch.
     let fork = chain.spec.fork_at_epoch(request_epoch);
 
-    Ok((indices, dependent_root, execution_status, fork))
+    Ok((
+        indices,
+        dependent_root,
+        legacy_dependent_root,
+        execution_status,
+        fork,
+    ))
 }
 
 /// If required, advance `state` to the epoch required to determine proposer indices in `target_epoch`.
