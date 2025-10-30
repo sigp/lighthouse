@@ -151,7 +151,7 @@ impl ValidatorRegistrations {
         }
     }
 
-    /// Updates the `epoch -> cgc` map by prunning records in between `effective_epoch` and `boundary_epoch`
+    /// Updates the `epoch -> cgc` map by pruning records before `effective_epoch`
     /// while setting the `cgc` at `effective_epoch` to the latest validator custody requirement.
     ///
     /// This is used to restart custody backfill sync at `effective_epoch`
