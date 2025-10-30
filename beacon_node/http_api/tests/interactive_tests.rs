@@ -1057,7 +1057,14 @@ async fn proposer_duties_with_gossip_tolerance() {
 // have been updated with the correct values.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lighthouse_restart_custody_backfill() {
-    let spec = test_spec::<E>();
+    let mut spec = test_spec::<E>();
+
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    spec.capella_fork_epoch = Some(Epoch::new(0));
+    spec.deneb_fork_epoch = Some(Epoch::new(0));
+    spec.electra_fork_epoch = Some(Epoch::new(0));
+    spec.fulu_fork_epoch = Some(Epoch::new(0));
 
     let validator_count = 24;
 
@@ -1119,6 +1126,13 @@ async fn lighthouse_custody_info() {
     // slot.
     spec.min_epochs_for_blob_sidecars_requests = 2;
     spec.min_epochs_for_data_column_sidecars_requests = 2;
+
+    spec.altair_fork_epoch = Some(Epoch::new(0));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+    spec.capella_fork_epoch = Some(Epoch::new(0));
+    spec.deneb_fork_epoch = Some(Epoch::new(0));
+    spec.electra_fork_epoch = Some(Epoch::new(0));
+    spec.fulu_fork_epoch = Some(Epoch::new(0));
 
     let validator_count = 24;
 
