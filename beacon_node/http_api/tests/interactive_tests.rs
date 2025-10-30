@@ -1083,7 +1083,7 @@ async fn lighthouse_restart_custody_backfill() {
         )
         .await;
 
-    let cgc_at_head = custody_context.custody_group_count_at_head(&spec);
+    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
     let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
 
     assert_eq!(cgc_at_head, max_cgc);
@@ -1092,9 +1092,9 @@ async fn lighthouse_restart_custody_backfill() {
     custody_context.update_and_backfill_custody_count_at_epoch(harness.chain.epoch().unwrap());
     client.post_lighthouse_custody_backfill().await.unwrap();
 
-    let cgc_at_head = custody_context.custody_group_count_at_head(&spec);
+    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
     let cgc_at_previous_epoch =
-        custody_context.custody_group_count_at_epoch(harness.chain.epoch().unwrap() - 1, &spec);
+        custody_context.custody_group_count_at_epoch(harness.chain.epoch().unwrap() - 1, spec);
     let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
 
     // `DataColumnCustodyInfo` should have been updated to the head epoch
