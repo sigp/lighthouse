@@ -5,6 +5,9 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = { workspace = true }
 autotests = false                               # using a single test binary compiles faster
 
+[features]
+fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
+
 [dependencies]
 beacon_chain = { workspace = true }
 beacon_processor = { workspace = true }

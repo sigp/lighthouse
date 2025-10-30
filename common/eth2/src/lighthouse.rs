@@ -208,6 +208,19 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
+    /// `POST lighthouse/custody/backfill`
+    pub async fn post_lighthouse_custody_backfill(&self) -> Result<(), Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("custody")
+            .push("backfill");
+
+        self.post(path, &()).await
+    }
+
     /*
      * Note:
      *

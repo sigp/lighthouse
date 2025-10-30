@@ -150,6 +150,24 @@ impl ValidatorRegistrations {
                 .or_insert(latest_validator_custody);
         }
     }
+
+    /// Updates the `epoch -> cgc` map by prunning records in between `effective_epoch` and `boundary_epoch`
+    /// while setting the `cgc` at `effective_epoch` to the latest validator custody requirement.
+    ///
+    /// This is used to restart custody backfill sync at `effective_epoch`
+    pub fn reset_validator_custody_requirements(&mut self, effective_epoch: Epoch) {
+        if let Some(latest_validator_custody_requirements) =
+            self.latest_validator_custody_requirement()
+        {
+            self.epoch_validator_custody_requirements
+                .retain(|&epoch, _| epoch >= effective_epoch);
+
+            self.epoch_validator_custody_requirements
+                .entry(effective_epoch)
+                .and_modify(|old_custody| *old_custody = latest_validator_custody_requirements)
+                .or_insert(latest_validator_custody_requirements);
+        };
+    }
 }
 
 /// Given the `validator_custody_units`, return the custody requirement based on
@@ -521,6 +539,14 @@ impl<E: EthSpec> CustodyContext<E> {
         self.validator_registrations
             .write()
             .backfill_validator_custody_requirements(effective_epoch);
+    }
+
+    /// The node is attempting to restart custody backfill. Update the internal records so that
+    /// custody backfill can start backfilling at `effective_epoch`.
+    pub fn reset_validator_custody_requirements(&self, effective_epoch: Epoch) {
+        self.validator_registrations
+            .write()
+            .reset_validator_custody_requirements(effective_epoch);
     }
 }
 
@@ -1421,6 +1447,55 @@ mod tests {
             assert_eq!(
                 custody_context.custody_group_count_at_epoch(Epoch::new(epoch), &spec),
                 mid_cgc,
+            );
+        }
+    }
+
+    #[test]
+    fn reset_validator_custody_requirements() {
+        let spec = E::default_spec();
+        let minimum_cgc = 4u64;
+        let initial_cgc = 8u64;
+        let mid_cgc = 16u64;
+        let final_cgc = 32u64;
+
+        // Setup: Node restart after multiple validator registrations causing CGC increases
+        let head_epoch = Epoch::new(20);
+        let epoch_and_cgc_tuples = vec![
+            (Epoch::new(0), initial_cgc),
+            (Epoch::new(10), mid_cgc),
+            (head_epoch, final_cgc),
+        ];
+        let custody_context = setup_custody_context(&spec, head_epoch, epoch_and_cgc_tuples);
+
+        // Backfill from epoch 20 to 9
+        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(9));
+
+        // Reset validator custody requirements to the latest cgc requirements at `head_epoch` up to the boundary epoch
+        custody_context.reset_validator_custody_requirements(head_epoch);
+
+        // Verify epochs 0 - 19 return the minimum cgc requirement because of the validator custody requirement reset
+        for epoch in 0..=19 {
+            assert_eq!(
+                custody_context.custody_group_count_at_epoch(Epoch::new(epoch), &spec),
+                minimum_cgc,
+            );
+        }
+
+        // Verify epoch 20 returns a CGC of 32
+        assert_eq!(
+            custody_context.custody_group_count_at_epoch(head_epoch, &spec),
+            final_cgc
+        );
+
+        // Rerun Backfill to epoch 20
+        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(0));
+
+        // Verify epochs 0 - 20 return the final cgc requirements
+        for epoch in 0..=20 {
+            assert_eq!(
+                custody_context.custody_group_count_at_epoch(Epoch::new(epoch), &spec),
+                final_cgc,
             );
         }
     }

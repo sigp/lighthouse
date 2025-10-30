@@ -75,13 +75,12 @@ impl<T: BeaconChainTypes> RangeDataColumnBatchRequest<T> {
                 return None;
             };
 
-
             for column in columns {
                 received_columns_for_slot
                     .entry(column.slot())
                     .or_default()
                     .push(column.clone());
-            }        
+            }
         }
 
         // Note: this assumes that only 1 peer is responsible for a column
