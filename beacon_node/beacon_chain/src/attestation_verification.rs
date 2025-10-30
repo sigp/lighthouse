@@ -1344,7 +1344,7 @@ pub fn verify_signed_aggregate_signatures<T: BeaconChainTypes>(
         .spec
         .fork_at_epoch(indexed_attestation.data().target.epoch);
 
-    let signature_sets = vec![
+    let signature_sets = [
         signed_aggregate_selection_proof_signature_set(
             |validator_index| pubkey_cache.get(validator_index).map(Cow::Borrowed),
             signed_aggregate,
