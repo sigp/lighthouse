@@ -477,6 +477,10 @@ Flags:
       --disable-packet-filter
           Disables the discovery packet filter. Useful for testing in smaller
           networks
+      --disable-partial-messages-request
+          Do not request partial messages for data columns.
+      --disable-partial-messages-support
+          Do not support receiving partial messages for data columns.
       --disable-proposer-reorgs
           Do not attempt to reorg late blocks from other validators when
           proposing.
