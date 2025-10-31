@@ -35,12 +35,14 @@ use libp2p::{PeerId, SwarmBuilder, identify};
 use logging::crit;
 use network_utils::enr_ext::EnrExt;
 use sha2::{Digest, Sha256};
+use ssz::Decode;
 use std::num::{NonZeroU8, NonZeroUsize};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, error, info, trace, warn};
+use types::partial_data_column_sidecar::CellBitmap;
 use types::{ChainSpec, ForkName};
 use types::{
     EnrForkId, EthSpec, ForkContext, Slot, SubnetId, consts::altair::SYNC_COMMITTEE_SUBNET_COUNT,
@@ -1314,8 +1316,21 @@ impl<E: EthSpec> Network<E> {
                 propagation_source,
                 group_id,
                 message,
-                metadata: _,
+                metadata,
             } => {
+                // TODO(dknopik): this currently hardcodes the data column metadata format
+                if let Some(metadata) = metadata {
+                    if let Ok(metadata) = CellBitmap::<E>::from_ssz_bytes(&metadata) {
+                        let metadata = hex::encode(metadata.as_slice());
+                        debug!(%metadata, "Got metadata")
+                    } else {
+                        warn!(?metadata, "Got weird metadata");
+                    }
+                } else {
+                    debug!("Got no metadata")
+                }
+
+                let hex_group_id = hex::encode(&group_id);
                 let topic = GossipTopic::decode(topic_id.as_str())
                     .inspect_err(|error| {
                         debug!(
@@ -1335,18 +1350,20 @@ impl<E: EthSpec> Network<E> {
                     match result {
                         Ok(_) => {
                             debug!(
-                                group_id = hex::encode(&group_id),
+                                group_id = hex_group_id,
                                 "Replied with cached partial message"
                             )
                         }
                         Err(err) => {
                             warn!(
-                                group_id = hex::encode(&group_id),
+                                group_id = hex_group_id,
                                 ?err,
                                 "Failed to reply with cached partial message"
                             );
                         }
                     }
+                } else {
+                    debug!(group_id = hex_group_id, "Did not reply to partial message");
                 }
 
                 if let Some(message) = message {
@@ -1366,6 +1383,11 @@ impl<E: EthSpec> Network<E> {
                             //);
                         }
                         Ok(message) => {
+                            debug!(
+                                %message,
+                                %propagation_source,
+                                "Decoded partial message"
+                            );
                             // Notify the network
                             return Some(NetworkEvent::PubsubMessage {
                                 id: MessageId::new(&[]), // TODO(dknopik): waht to send

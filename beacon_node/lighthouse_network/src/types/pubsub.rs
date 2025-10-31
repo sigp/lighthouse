@@ -482,7 +482,7 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
                 f,
                 "PartialDataColumnSidecar: group: {}, column index: {}, cells: {}",
                 data.1.partial_column.block_root,
-                data.1.partial_column.block_root,
+                data.1.partial_column.index,
                 hex::encode(
                     data.1
                         .partial_column
