@@ -39,7 +39,8 @@
 //! task.
 
 use crate::work_reprocessing_queue::{
-    QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock, ReprocessQueueMessage,
+    QueuedAttestationBatch, QueuedBackfillBatch, QueuedColumnReconstruction, QueuedGossipBlock,
+    ReprocessQueueMessage,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
@@ -491,6 +492,16 @@ impl<E: EthSpec> From<ReadyWork> for WorkEvent<E> {
                     work: Work::ColumnReconstruction(process_fn),
                 }
             }
+            ReadyWork::DelayedAttestationBatch(QueuedAttestationBatch {
+                process_batch,
+                attestations,
+            }) => Self {
+                drop_during_sync: true,
+                work: Work::DelayedAttestationBatch {
+                    attestations,
+                    process_batch,
+                },
+            },
         }
     }
 }
@@ -557,6 +568,10 @@ pub enum Work<E: EthSpec> {
         process_fn: BlockingFn,
     },
     GossipAttestationBatch {
+        attestations: GossipAttestationBatch,
+        process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
+    },
+    DelayedAttestationBatch {
         attestations: GossipAttestationBatch,
         process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
     },
@@ -634,6 +649,7 @@ pub enum WorkType {
     GossipAttestationToConvert,
     UnknownBlockAttestation,
     GossipAttestationBatch,
+    DelayedAttestationBatch,
     GossipAggregate,
     UnknownBlockAggregate,
     UnknownLightClientOptimisticUpdate,
@@ -683,6 +699,7 @@ impl<E: EthSpec> Work<E> {
         match self {
             Work::GossipAttestation { .. } => WorkType::GossipAttestation,
             Work::GossipAttestationBatch { .. } => WorkType::GossipAttestationBatch,
+            Work::DelayedAttestationBatch { .. } => WorkType::DelayedAttestationBatch,
             Work::GossipAggregate { .. } => WorkType::GossipAggregate,
             Work::GossipAggregateBatch { .. } => WorkType::GossipAggregateBatch,
             Work::GossipBlock(_) => WorkType::GossipBlock,
@@ -1305,6 +1322,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                             }
                             _ if can_spawn => self.spawn_worker(work, created_timestamp, idle_tx),
                             Work::GossipAttestation { .. } => attestation_queue.push(work),
+
                             // Attestation batches are formed internally within the
                             // `BeaconProcessor`, they are not sent from external services.
                             Work::GossipAttestationBatch { .. } => crit!(
@@ -1320,6 +1338,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                                     "Unsupported inbound event"
                                 )
                             }
+                            Work::DelayedAttestationBatch { .. } => {}
                             Work::GossipBlock { .. } => gossip_block_queue.push(work, work_id),
                             Work::GossipBlobSidecar { .. } => gossip_blob_queue.push(work, work_id),
                             Work::GossipDataColumnSidecar { .. } => {
@@ -1407,6 +1426,7 @@ impl<E: EthSpec> BeaconProcessor<E> {
                         WorkType::GossipAttestationToConvert => attestation_to_convert_queue.len(),
                         WorkType::UnknownBlockAttestation => unknown_block_attestation_queue.len(),
                         WorkType::GossipAttestationBatch => 0, // No queue
+                        WorkType::DelayedAttestationBatch => 0,
                         WorkType::GossipAggregate => aggregate_queue.len(),
                         WorkType::UnknownBlockAggregate => unknown_block_aggregate_queue.len(),
                         WorkType::UnknownLightClientOptimisticUpdate => {
@@ -1570,6 +1590,12 @@ impl<E: EthSpec> BeaconProcessor<E> {
                 process_batch,
             } => task_spawner.spawn_blocking(move || {
                 process_batch(aggregates);
+            }),
+            Work::DelayedAttestationBatch {
+                attestations,
+                process_batch,
+            } => task_spawner.spawn_blocking(move || {
+                process_batch(attestations);
             }),
             Work::ChainSegment(process_fn) => task_spawner.spawn_async(async move {
                 process_fn.await;

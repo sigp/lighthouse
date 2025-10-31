@@ -1203,7 +1203,7 @@ async fn import_gossip_attestation() {
 
     rig.enqueue_unaggregated_attestation();
 
-    rig.assert_event_journal_completes(&[WorkType::GossipAttestation])
+    rig.assert_event_journal_completes(&[WorkType::DelayedAttestationBatch])
         .await;
 
     assert_eq!(
@@ -1229,7 +1229,7 @@ async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod
 
     rig.enqueue_next_block_unaggregated_attestation();
 
-    rig.assert_event_journal_completes(&[WorkType::GossipAttestation])
+    rig.assert_event_journal_completes(&[WorkType::DelayedAttestationBatch])
         .await;
 
     assert_eq!(
@@ -1398,7 +1398,7 @@ async fn requeue_unknown_block_gossip_attestation_without_import() {
 
     rig.enqueue_next_block_unaggregated_attestation();
 
-    rig.assert_event_journal_completes(&[WorkType::GossipAttestation])
+    rig.assert_event_journal_completes(&[WorkType::DelayedAttestationBatch])
         .await;
 
     assert_eq!(

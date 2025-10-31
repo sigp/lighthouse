@@ -136,6 +136,7 @@ pub enum ReadyWork {
     LightClientUpdate(QueuedLightClientUpdate),
     BackfillSync(QueuedBackfillBatch),
     ColumnReconstruction(QueuedColumnReconstruction),
+    DelayedAttestationBatch(QueuedAttestationBatch),
 }
 
 /// An Attestation for which the corresponding block was not seen while processing, queued for
@@ -186,6 +187,11 @@ pub struct QueuedBatchedAttestation {
     pub attestation: Box<GossipAttestationPackage<SingleAttestation>>,
     pub process_individual:
         Box<dyn FnOnce(GossipAttestationPackage<SingleAttestation>) + Send + Sync>,
+    pub process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
+}
+
+pub struct QueuedAttestationBatch {
+    pub attestations: GossipAttestationBatch,
     pub process_batch: Box<dyn FnOnce(GossipAttestationBatch) + Send + Sync>,
 }
 
@@ -271,7 +277,7 @@ struct ReprocessQueue<S> {
     /// Queued attestations.
     queued_unaggregates: FnvHashMap<usize, (QueuedUnaggregate, DelayKey)>,
     /// Queued batch attestations.
-    queued_batch_attestations: FnvHashMap<usize, (QueuedBatchedAttestation, DelayKey)>,
+    queued_batch_attestations: FnvHashMap<usize, (Vec<QueuedBatchedAttestation>, DelayKey)>,
     /// Attestations (aggregated and unaggregated) per root.
     awaiting_attestations_per_root: HashMap<Hash256, Vec<QueuedAttestationId>>,
     /// Queued Light Client Updates.
@@ -286,6 +292,7 @@ struct ReprocessQueue<S> {
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
+    current_attestation_batch: usize,
     next_lc_update: usize,
     early_block_debounce: TimeLatch,
     rpc_block_debounce: TimeLatch,
@@ -467,6 +474,7 @@ impl<S: SlotClock> ReprocessQueue<S> {
             queued_backfill_batches: Vec::new(),
             queued_column_reconstructions: HashMap::new(),
             next_attestation: 0,
+            current_attestation_batch: 0,
             next_lc_update: 0,
             early_block_debounce: TimeLatch::default(),
             rpc_block_debounce: TimeLatch::default(),
@@ -825,21 +833,66 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::Msg(BatchedAttestation(queued_batch_attestation)) => {
-                let mut batch_processing_delay = QUEUED_BATCH_ATTESTATION_DELAY;
-                if self.batched_attestation_queue.len() >= MAXIMUM_BATCHED_ATTESTATIONS {
-                    batch_processing_delay = Duration::from_secs(0);
+                let batch_processing_delay = QUEUED_BATCH_ATTESTATION_DELAY;
+
+                let mut time_to_next_batch = 0;
+
+                if let Some(batched_queue) = self
+                    .queued_batch_attestations
+                    .get_mut(&self.current_attestation_batch)
+                {
+                    if batched_queue.0.len() >= MAXIMUM_BATCHED_ATTESTATIONS {
+                        self.current_attestation_batch += 1;
+                        if let Some(current_slot_time) =
+                            self.slot_clock.millis_from_current_slot_start()
+                        {
+                            let slot_time = current_slot_time.as_millis() as usize;
+                            let total_slot_duration =
+                                self.slot_clock.slot_duration().as_millis() as usize;
+
+                            time_to_next_batch = (0..=total_slot_duration)
+                                .step_by(batch_processing_delay.as_millis() as usize)
+                                .find(|&t| t > slot_time)
+                                .map_or(0, |t| t - slot_time);
+                        }
+
+                        let delay_key = self.batched_attestation_queue.insert(
+                            QueuedAttestationId::Batched(self.current_attestation_batch),
+                            Duration::from_millis(time_to_next_batch as u64),
+                        );
+
+                        self.queued_batch_attestations.insert(
+                            self.current_attestation_batch,
+                            (vec![queued_batch_attestation], delay_key),
+                        );
+                    } else {
+                        batched_queue.0.push(queued_batch_attestation);
+                    }
+                } else {
+                    self.current_attestation_batch += 1;
+                    if let Some(current_slot_time) =
+                        self.slot_clock.millis_from_current_slot_start()
+                    {
+                        let slot_time = current_slot_time.as_millis() as usize;
+                        let total_slot_duration =
+                            self.slot_clock.slot_duration().as_millis() as usize;
+
+                        time_to_next_batch = (0..=total_slot_duration)
+                            .step_by(batch_processing_delay.as_millis() as usize)
+                            .find(|&t| t > slot_time)
+                            .map_or(0, |t| t - slot_time);
+                    }
+
+                    let delay_key = self.batched_attestation_queue.insert(
+                        QueuedAttestationId::Batched(self.current_attestation_batch),
+                        Duration::from_millis(time_to_next_batch as u64),
+                    );
+
+                    self.queued_batch_attestations.insert(
+                        self.current_attestation_batch,
+                        (vec![queued_batch_attestation], delay_key),
+                    );
                 }
-
-                let att_id = QueuedAttestationId::Batched(self.next_attestation);
-
-                let delay_key = self
-                    .batched_attestation_queue
-                    .insert(att_id, batch_processing_delay);
-
-                self.queued_batch_attestations
-                    .insert(self.next_attestation, (queued_batch_attestation, delay_key));
-
-                self.next_attestation += 1;
             }
             // A block that was queued for later processing is now ready to be processed.
             InboundEvent::ReadyGossipBlock(ready_block) => {
@@ -918,18 +971,37 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
                 );
 
-                if let Some((batch_attestation, _delay_key)) =
-                    self.queued_batch_attestations.remove(&match queued_id {
-                        QueuedAttestationId::Batched(id) => id,
-                        _ => {
-                            error!("Invalid attestation ID for batched attestation");
-                            return;
+                let batch_id = match queued_id {
+                    QueuedAttestationId::Batched(id) => id,
+                    _ => {
+                        crit!("Invalid attestation Id batched for attestation");
+                        return;
+                    }
+                };
+
+                if let Some(batch_attestation) = self.queued_batch_attestations.remove(&batch_id) {
+                    let mut attestations = GossipAttestationBatch::new();
+                    let mut iter = batch_attestation.0.into_iter();
+
+                    if let Some(first) = iter.next() {
+                        attestations.push(*first.attestation);
+                        let process_batch = first.process_batch;
+
+                        for unaggregate in iter {
+                            attestations.push(*unaggregate.attestation);
                         }
-                    })
-                {
-                    // Call the process_batch closure with the single attestation as a batch
-                    // since the block was never imported and we're expiring the attestation.
-                    (batch_attestation.process_batch)(vec![*batch_attestation.attestation]);
+
+                        if self
+                            .ready_work_tx
+                            .try_send(ReadyWork::DelayedAttestationBatch(QueuedAttestationBatch {
+                                attestations,
+                                process_batch,
+                            }))
+                            .is_err()
+                        {
+                            error!("Failed to send batched attestations");
+                        }
+                    }
                 }
             }
 
