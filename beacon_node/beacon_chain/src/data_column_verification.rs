@@ -602,11 +602,10 @@ pub fn validate_data_column_sidecar_for_gossip<T: BeaconChainTypes, O: Observati
     // particular instance hasn't been seen / published on the gossip network yet (passed the
     // `verify_is_unknown_sidecar` check above). In this case, we should accept it for gossip
     // propagation.
-    if chain
+    if let Some(cells) = chain
         .data_availability_checker
         .determine_missing_cells(&data_column.block_root(), data_column.as_ref())
-        .ok_or_else(|| GossipDataColumnError::UnexpectedDataColumn)?
-        .is_empty()
+        && cells.is_empty()
     {
         // Observe this data column so we don't process it again.
         if O::observe() {
