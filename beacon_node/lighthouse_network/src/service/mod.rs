@@ -810,7 +810,7 @@ impl<E: EthSpec> Network<E> {
         let partial = topic.kind().supports_partial_messages();
         let topic: Topic = topic.into();
 
-        match self.gossipsub_mut().subscribe(&topic, partial) {
+        match self.gossipsub_mut().subscribe(&topic, partial, partial) {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
