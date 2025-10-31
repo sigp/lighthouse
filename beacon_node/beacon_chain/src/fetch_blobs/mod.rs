@@ -272,7 +272,7 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
         return Ok(None);
     };
 
-    let num_fetched_blobs = blobs_and_proofs.len();
+    let num_fetched_blobs = response.iter().filter(|opt| opt.is_some()).count();
     metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
 
     if !get_blobs_v3 && num_fetched_blobs != num_expected_blobs {
