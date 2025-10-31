@@ -13,7 +13,7 @@ pub type Enr = discv5::enr::Enr<discv5::enr::CombinedKey>;
 
 pub use eth2::lighthouse::sync_state::{BackFillState, CustodyBackFillState, SyncState};
 pub use globals::NetworkGlobals;
-pub use pubsub::{PubsubMessage, SnappyTransform};
+pub use pubsub::{EncodedPubsubMessage, PubsubMessage, SnappyTransform};
 pub use subnet::{Subnet, SubnetDiscovery};
 pub use topics::{
     GossipEncoding, GossipKind, GossipTopic, TopicConfig, all_topics_at_fork,

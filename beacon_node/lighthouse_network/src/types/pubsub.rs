@@ -1,13 +1,13 @@
 //! Handles the encoding and decoding of pubsub messages.
 
+use crate::{Gossipsub, TopicHash};
 use crate::types::partial::PartialDataColumnSidecarMessage;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
-use crate::{Gossipsub, TopicHash};
-use gossipsub::{IdentTopic, PublishError};
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
+use gossipsub::{IdentTopic, PublishError};
 use types::partial_data_column_sidecar::{DanglingPartialDataColumn, PartialDataColumnSidecar};
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
@@ -425,13 +425,8 @@ impl<E: EthSpec> PubsubMessage<E> {
         }
     }
 
-    /// Encodes a `PubsubMessage` based on the topic encodings. The first known encoding is used. If
-    /// no encoding is known, and error is returned.
-    pub fn publish(
-        &self,
-        gossipsub: &mut Gossipsub,
-        topic: IdentTopic,
-    ) -> Result<(), PublishError> {
+    /// Encodes a `PubsubMessage`.
+    pub fn encode(&self) -> EncodedPubsubMessage<E> {
         // Currently do not employ encoding strategies based on the topic. All messages are ssz
         // encoded.
         // Also note, that the compression is handled by the `SnappyTransform` struct. Gossipsub will compress the
@@ -441,7 +436,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::BlobSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::DataColumnSidecar(data) => data.1.as_ssz_bytes(),
             PubsubMessage::PartialDataColumnSidecar(data) => {
-                return gossipsub.publish_partial(topic, &data.1);
+                return EncodedPubsubMessage::PartialDataColumnSidecarMessage(data.1.clone());
             }
             PubsubMessage::AggregateAndProofAttestation(data) => data.as_ssz_bytes(),
             PubsubMessage::VoluntaryExit(data) => data.as_ssz_bytes(),
@@ -454,7 +449,7 @@ impl<E: EthSpec> PubsubMessage<E> {
             PubsubMessage::LightClientFinalityUpdate(data) => data.as_ssz_bytes(),
             PubsubMessage::LightClientOptimisticUpdate(data) => data.as_ssz_bytes(),
         };
-        gossipsub.publish(topic, bytes).map(|_| ())
+        EncodedPubsubMessage::Full(bytes)
     }
 }
 
@@ -526,6 +521,23 @@ impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {
             PubsubMessage::LightClientOptimisticUpdate(_data) => {
                 write!(f, "Light CLient Optimistic Update")
             }
+        }
+    }
+}
+
+pub enum EncodedPubsubMessage<E: EthSpec> {
+    Full(Vec<u8>),
+    PartialDataColumnSidecarMessage(PartialDataColumnSidecarMessage<E>),
+}
+
+impl<E: EthSpec> EncodedPubsubMessage<E> {
+    pub fn do_publish(&self, gossipsub: &mut Gossipsub, topic: IdentTopic) -> Result<(), PublishError> {
+        match self {
+            EncodedPubsubMessage::Full(bytes) => gossipsub
+                .publish(topic, bytes.clone())
+                .map(|_| ()),
+            EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) => gossipsub
+                .publish_partial(topic, partial),
         }
     }
 }

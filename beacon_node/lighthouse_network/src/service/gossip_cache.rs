@@ -1,25 +1,27 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
 use crate::GossipTopic;
-use crate::types::GossipKind;
+use crate::types::{EncodedPubsubMessage, GossipKind};
 
 use tokio_util::time::delay_queue::{DelayQueue, Key};
+use types::EthSpec;
+
+type TopicMsg<E> = (Key, EncodedPubsubMessage<E>);
 
 /// Store of gossip messages that we failed to publish and will try again later. By default, all
 /// messages are ignored. This behaviour can be changed using `GossipCacheBuilder::default_timeout`
 /// to apply the same delay to every kind. Individual timeouts for specific kinds can be set and
 /// will overwrite the default_timeout if present.
-// TODO(dknopik)
-#[allow(dead_code)]
-pub struct GossipCache {
-    /// Expire timeouts for each topic-msg pair.
+pub struct GossipCache<E: EthSpec> {
+    /// Expire timeouts for each topic-msgid triple.
     expirations: DelayQueue<(GossipTopic, Vec<u8>)>,
     /// Messages cached for each topic.
-    topic_msgs: HashMap<GossipTopic, HashMap<Vec<u8>, Key>>,
+    topic_msgs: HashMap<GossipTopic, HashMap<Vec<u8>, TopicMsg<E>>>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
     /// Timeout for blobs.
@@ -49,7 +51,7 @@ pub struct GossipCache {
 }
 
 #[derive(Default)]
-pub struct GossipCacheBuilder {
+pub struct GossipCacheBuilder<E: EthSpec> {
     default_timeout: Option<Duration>,
     /// Timeout for blocks.
     beacon_block: Option<Duration>,
@@ -77,10 +79,11 @@ pub struct GossipCacheBuilder {
     light_client_finality_update: Option<Duration>,
     /// Timeout for light client optimistic updates.
     light_client_optimistic_update: Option<Duration>,
+    _phantom: PhantomData<E>,
 }
 
 #[allow(dead_code)]
-impl GossipCacheBuilder {
+impl<E: EthSpec> GossipCacheBuilder<E> {
     /// By default, all timeouts all disabled. Setting a default timeout will enable all timeout
     /// that are not already set.
     pub fn default_timeout(mut self, timeout: Duration) -> Self {
@@ -153,7 +156,7 @@ impl GossipCacheBuilder {
         self
     }
 
-    pub fn build(self) -> GossipCache {
+    pub fn build(self) -> GossipCache<E> {
         let GossipCacheBuilder {
             default_timeout,
             beacon_block,
@@ -169,6 +172,7 @@ impl GossipCacheBuilder {
             bls_to_execution_change,
             light_client_finality_update,
             light_client_optimistic_update,
+            ..
         } = self;
         GossipCache {
             expirations: DelayQueue::default(),
@@ -190,17 +194,15 @@ impl GossipCacheBuilder {
     }
 }
 
-impl GossipCache {
+impl<E: EthSpec> GossipCache<E> {
     /// Get a builder of a `GossipCache`. Topic kinds for which no timeout is defined will be
     /// ignored if added in `insert`.
-    pub fn builder() -> GossipCacheBuilder {
+    pub fn builder() -> GossipCacheBuilder<E> {
         GossipCacheBuilder::default()
     }
 
     // Insert a message to be sent later.
-    // TODO(dknopik)
-    #[allow(dead_code)]
-    pub fn insert(&mut self, topic: GossipTopic, data: Vec<u8>) {
+    pub fn insert(&mut self, topic: GossipTopic, id: Vec<u8>, data: EncodedPubsubMessage<E>) {
         let expire_timeout = match topic.kind() {
             GossipKind::BeaconBlock => self.beacon_block,
             GossipKind::BlobSidecar(_) => self.blob_sidecar,
@@ -223,45 +225,54 @@ impl GossipCache {
             .topic_msgs
             .entry(topic.clone())
             .or_default()
-            .entry(data.clone())
+            .entry(id.clone())
         {
-            Entry::Occupied(key) => self.expirations.reset(key.get(), expire_timeout),
+            Entry::Occupied(key) => self.expirations.reset(&key.get().0, expire_timeout),
             Entry::Vacant(entry) => {
-                let key = self.expirations.insert((topic, data), expire_timeout);
-                entry.insert(key);
+                let key = self.expirations.insert((topic, id), expire_timeout);
+                entry.insert((key, data));
             }
         }
     }
 
-    // Get the registered messages for this topic.
-    pub fn retrieve(&mut self, topic: &GossipTopic) -> Option<impl Iterator<Item = Vec<u8>> + '_> {
-        if let Some(msgs) = self.topic_msgs.remove(topic) {
-            for (_, key) in msgs.iter() {
-                self.expirations.remove(key);
-            }
-            Some(msgs.into_keys())
-        } else {
-            None
-        }
+    // Get the registered messages for this topic, removing them
+    pub fn retrieve_all(
+        &mut self,
+        topic: &GossipTopic,
+    ) -> Option<impl Iterator<Item = EncodedPubsubMessage<E>> + '_> {
+        self.topic_msgs.remove(topic).map(|msgs| {
+            msgs.into_values().map(|(key, msg)| {
+                self.expirations.remove(&key);
+                msg
+            })
+        })
+    }
+
+    // Get a registered message, NOT removing it.
+    pub fn retrieve_one(&self, topic: &GossipTopic, id: &[u8]) -> Option<&EncodedPubsubMessage<E>> {
+        self.topic_msgs
+            .get(topic)
+            .and_then(|msgs| msgs.get(id))
+            .map(|(_, msg)| msg)
     }
 }
 
-impl futures::stream::Stream for GossipCache {
+impl<E: EthSpec> futures::stream::Stream for GossipCache<E> {
     type Item = Result<GossipTopic, String>; // We don't care to retrieve the expired data.
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.expirations.poll_expired(cx) {
             Poll::Ready(Some(expired)) => {
                 let expected_key = expired.key();
-                let (topic, data) = expired.into_inner();
+                let (topic, id) = expired.into_inner();
                 let topic_msg = self.topic_msgs.get_mut(&topic);
                 debug_assert!(
                     topic_msg.is_some(),
                     "Topic for registered message is not present."
                 );
                 if let Some(msgs) = topic_msg {
-                    let key = msgs.remove(&data);
-                    debug_assert_eq!(key, Some(expected_key));
+                    let key_and_data = msgs.remove(&id);
+                    debug_assert_eq!(key_and_data.map(|(key, _)| key), Some(expected_key));
                     if msgs.is_empty() {
                         // no more messages for this topic.
                         self.topic_msgs.remove(&topic);
@@ -279,10 +290,11 @@ impl futures::stream::Stream for GossipCache {
 mod tests {
     use super::*;
     use futures::stream::StreamExt;
+    use types::MainnetEthSpec;
 
     #[tokio::test]
     async fn test_stream() {
-        let mut cache = GossipCache::builder()
+        let mut cache = GossipCache::<MainnetEthSpec>::builder()
             .default_timeout(Duration::from_millis(300))
             .build();
         let test_topic = GossipTopic::new(
@@ -290,7 +302,7 @@ mod tests {
             crate::types::GossipEncoding::SSZSnappy,
             [0u8; 4],
         );
-        cache.insert(test_topic, vec![]);
+        cache.insert(test_topic, vec![], EncodedPubsubMessage::Full(vec![]));
         tokio::time::sleep(Duration::from_millis(300)).await;
         while cache.next().await.is_some() {}
         assert!(cache.expirations.is_empty());
