@@ -451,6 +451,10 @@ impl<E: EthSpec> PubsubMessage<E> {
         };
         EncodedPubsubMessage::Full(bytes)
     }
+
+    pub fn is_partial(&self) -> bool {
+        matches!(self, PubsubMessage::PartialDataColumnSidecar(_))
+    }
 }
 
 impl<E: EthSpec> std::fmt::Display for PubsubMessage<E> {

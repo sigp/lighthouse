@@ -637,8 +637,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             NetworkMessage::Publish { messages } => {
                 let mut topic_kinds = Vec::new();
                 for message in &messages {
-                    if !topic_kinds.contains(&message.kind()) {
-                        topic_kinds.push(message.kind());
+                    let message_kind = if message.is_partial() {
+                        "partial"
+                    } else {
+                        "full"
+                    };
+                    let kind = (message.kind(), message_kind);
+                    if !topic_kinds.contains(&kind) {
+                        topic_kinds.push(kind);
                     }
                 }
                 debug!(
