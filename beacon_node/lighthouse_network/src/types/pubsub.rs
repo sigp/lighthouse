@@ -1,13 +1,13 @@
 //! Handles the encoding and decoding of pubsub messages.
 
-use crate::{Gossipsub, TopicHash};
 use crate::types::partial::PartialDataColumnSidecarMessage;
 use crate::types::{GossipEncoding, GossipKind, GossipTopic};
+use crate::{Gossipsub, TopicHash};
+use gossipsub::{IdentTopic, PublishError};
 use snap::raw::{Decoder, Encoder, decompress_len};
 use ssz::{Decode, Encode};
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use gossipsub::{IdentTopic, PublishError};
 use types::partial_data_column_sidecar::{DanglingPartialDataColumn, PartialDataColumnSidecar};
 use types::{
     AttesterSlashing, AttesterSlashingBase, AttesterSlashingElectra, BlobSidecar,
@@ -531,13 +531,18 @@ pub enum EncodedPubsubMessage<E: EthSpec> {
 }
 
 impl<E: EthSpec> EncodedPubsubMessage<E> {
-    pub fn do_publish(&self, gossipsub: &mut Gossipsub, topic: IdentTopic) -> Result<(), PublishError> {
+    pub fn do_publish(
+        &self,
+        gossipsub: &mut Gossipsub,
+        topic: IdentTopic,
+    ) -> Result<(), PublishError> {
         match self {
-            EncodedPubsubMessage::Full(bytes) => gossipsub
-                .publish(topic, bytes.clone())
-                .map(|_| ()),
-            EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) => gossipsub
-                .publish_partial(topic, partial),
+            EncodedPubsubMessage::Full(bytes) => {
+                gossipsub.publish(topic, bytes.clone()).map(|_| ())
+            }
+            EncodedPubsubMessage::PartialDataColumnSidecarMessage(partial) => {
+                gossipsub.publish_partial(topic, partial)
+            }
         }
     }
 }

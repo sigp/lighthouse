@@ -1492,6 +1492,14 @@ pub fn set_network_config(
             })?;
     }
 
+    if parse_flag(cli_args, "disable-partial-messages-request") {
+        config.disable_partial_messages_request = true;
+    }
+
+    if parse_flag(cli_args, "disable-partial-messages-support") {
+        config.disable_partial_messages_support = true;
+    }
+
     Ok(())
 }
 

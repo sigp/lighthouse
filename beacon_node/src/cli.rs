@@ -670,6 +670,22 @@ pub fn cli_app() -> Command {
                 .hide(true)
                 .display_order(0)
         )
+        .arg(
+            Arg::new("disable-partial-messages-request")
+                .long("disable-partial-messages-request")
+                .help("Do not request partial messages for data columns.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
+        .arg(
+            Arg::new("disable-partial-messages-support")
+                .long("disable-partial-messages-support")
+                .help("Do not support receiving partial messages for data columns.")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .display_order(0)
+        )
         /*
          * Monitoring metrics
          */

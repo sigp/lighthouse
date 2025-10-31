@@ -807,10 +807,19 @@ impl<E: EthSpec> Network<E> {
             .write()
             .insert(topic.clone());
 
+        let config = &self.network_globals.config;
+        let disable_request =
+            config.disable_partial_messages_request || config.disable_partial_messages_support;
+        let disable_support = config.disable_partial_messages_support;
+
         let partial = topic.kind().supports_partial_messages();
         let topic: Topic = topic.into();
 
-        match self.gossipsub_mut().subscribe(&topic, partial, partial) {
+        match self.gossipsub_mut().subscribe(
+            &topic,
+            partial && !disable_request,
+            partial && !disable_support,
+        ) {
             Err(e) => {
                 warn!(%topic, error = ?e, "Failed to subscribe to topic");
                 false
