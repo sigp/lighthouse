@@ -456,10 +456,6 @@ impl<T: SlotClock> BeaconNodeFallback<T> {
         n
     }
 
-    pub fn spawn_head_monitor_process(&self, _executor: TaskExecutor) {
-        let _future = async move {};
-    }
-
     // Returns all data required by the VC notifier.
     pub async fn get_notifier_info(&self) -> (Vec<CandidateInfo>, usize, usize) {
         let candidates = self.candidates.read().await;
