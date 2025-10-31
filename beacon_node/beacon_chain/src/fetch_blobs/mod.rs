@@ -32,7 +32,7 @@ use mockall_double::double;
 use ssz_types::FixedVector;
 use state_processing::per_block_processing::deneb::kzg_commitment_to_versioned_hash;
 use std::sync::Arc;
-use tracing::{Span, debug, instrument};
+use tracing::{Span, debug, instrument, warn};
 use types::blob_sidecar::BlobSidecarError;
 use types::das_column::DasColumn;
 use types::data_column_sidecar::DataColumnSidecarError;
@@ -246,7 +246,8 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 
     metrics::observe(&metrics::BLOBS_FROM_EL_EXPECTED, num_expected_blobs as f64);
 
-    let response = if chain_adapter.supports_get_blobs_v3().await? {
+    let get_blobs_v3 = chain_adapter.supports_get_blobs_v3().await?;
+    let response = if get_blobs_v3 {
         debug!(num_expected_blobs, "Fetching available blobs from the EL");
         chain_adapter
             .get_blobs_v3(versioned_hashes)
@@ -273,6 +274,18 @@ async fn fetch_and_process_blobs_v2_or_v3<T: BeaconChainTypes>(
 
     let num_fetched_blobs = blobs_and_proofs.len();
     metrics::observe(&metrics::BLOBS_FROM_EL_RECEIVED, num_fetched_blobs as f64);
+
+    if !get_blobs_v3 && num_fetched_blobs != num_expected_blobs {
+        // This scenario is not supposed to happen if the EL is spec compliant.
+        // It should either return all requested blobs or none, but NOT partial responses.
+        // If we attempt to compute columns with partial blobs, we'd end up with invalid columns.
+        warn!(
+            num_fetched_blobs,
+            num_expected_blobs, "The EL did not return all requested blobs"
+        );
+        inc_counter(&metrics::BLOBS_FROM_EL_MISS_TOTAL);
+        return Ok(None);
+    }
 
     debug!(num_fetched_blobs, "Blobs received from the EL");
     inc_counter(&metrics::BLOBS_FROM_EL_HIT_TOTAL);
