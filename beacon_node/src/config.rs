@@ -114,7 +114,6 @@ pub fn get_config<E: EthSpec>(
     let is_semi_supernode = parse_flag(cli_args, "semi-supernode");
 
     client_config.chain.node_custody_type = if is_supernode {
-        client_config.network.subscribe_all_data_column_subnets = true;
         NodeCustodyType::Supernode
     } else if is_semi_supernode {
         NodeCustodyType::SemiSupernode
