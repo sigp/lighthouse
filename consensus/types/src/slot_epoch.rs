@@ -33,6 +33,13 @@ pub struct Slot(#[serde(with = "serde_utils::quoted_u64")] u64);
 #[serde(transparent)]
 pub struct Epoch(#[serde(with = "serde_utils::quoted_u64")] u64);
 
+impl Epoch {
+    /// Returns an iterator `(end..=start)`
+    pub fn range_inclusive_rev(start: Self, end: Self) -> impl Iterator<Item = Self> {
+        (end.0..=start.0).rev().map(Epoch)
+    }
+}
+
 impl_common!(Slot);
 impl_common!(Epoch);
 

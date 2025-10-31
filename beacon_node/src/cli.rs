@@ -60,22 +60,34 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            // TODO(das): remove this before PeerDAS release
+            Arg::new("semi-supernode")
+                .long("semi-supernode")
+                .action(ArgAction::SetTrue)
+                .help_heading(FLAG_HEADER)
+                .conflicts_with("supernode")
+                .help("Run in minimal reconstruction mode. This node will subscribe to and custody \
+                          half of the data columns (enough for reconstruction), enabling efficient \
+                          data availability with lower bandwidth and storage requirements compared to \
+                          a supernode, while still supporting full blob reconstruction.")
+                .display_order(0)
+        )
+        .arg(
             Arg::new("malicious-withhold-count")
                 .long("malicious-withhold-count")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY do not use this")
+                .help("TESTING ONLY: Withholds a subset of data columns during publishing. \
+                          Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
         .arg(
-            // TODO(das): remove this before PeerDAS release
             Arg::new("advertise-false-custody-group-count")
                 .long("advertise-false-custody-group-count")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("Advertises a false CGC for testing PeerDAS. Do NOT use in production.")
+                .help("TESTING ONLY: Advertises a false custody group count for testing PeerDAS. \
+                          Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
@@ -698,38 +710,6 @@ pub fn cli_app() -> Command {
                 .action(ArgAction::SetTrue)
                 .help_heading(FLAG_HEADER)
                 .display_order(0)
-        )
-
-        /*
-         * Eth1 Integration
-         */
-        .arg(
-            Arg::new("eth1-purge-cache")
-                .long("eth1-purge-cache")
-                .value_name("PURGE-CACHE")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("eth1-blocks-per-log-query")
-                .long("eth1-blocks-per-log-query")
-                .value_name("BLOCKS")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
-            Arg::new("eth1-cache-follow-distance")
-                .long("eth1-cache-follow-distance")
-                .value_name("BLOCKS")
-                .help("DEPRECATED")
-                .action(ArgAction::Set)
-                .display_order(0)
-                .hide(true)
         )
         .arg(
             Arg::new("slots-per-restore-point")
@@ -1499,16 +1479,6 @@ pub fn cli_app() -> Command {
                 .display_order(0)
         )
         .arg(
-            Arg::new("disable-deposit-contract-sync")
-                .long("disable-deposit-contract-sync")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-                .help_heading(FLAG_HEADER)
-                .conflicts_with("staking")
-                .display_order(0)
-                .hide(true)
-        )
-        .arg(
             Arg::new("disable-optimistic-finalized-sync")
                 .long("disable-optimistic-finalized-sync")
                 .action(ArgAction::SetTrue)
@@ -1516,15 +1486,6 @@ pub fn cli_app() -> Command {
                 .help("Force Lighthouse to verify every execution block hash with the execution \
                        client during finalized sync. By default block hashes will be checked in \
                        Lighthouse and only passed to the EL if initial verification fails.")
-                .display_order(0)
-        )
-        .arg(
-            Arg::new("light-client-server")
-                .long("light-client-server")
-                .help("DEPRECATED")
-                .action(ArgAction::SetTrue)
-
-                .help_heading(FLAG_HEADER)
                 .display_order(0)
         )
         .arg(
@@ -1645,9 +1606,9 @@ pub fn cli_app() -> Command {
                 .value_name("SECONDS")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY: Artificially delay block publishing by the specified number of seconds. \
-                        This only works for if `BroadcastValidation::Gossip` is used (default). \
-                        DO NOT USE IN PRODUCTION.")
+                .help("TESTING ONLY: Artificially delays block publishing by the specified number of seconds. \
+                       This only works if BroadcastValidation::Gossip is used (default). \
+                       Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )
@@ -1657,10 +1618,10 @@ pub fn cli_app() -> Command {
                 .value_name("SECONDS")
                 .action(ArgAction::Set)
                 .help_heading(FLAG_HEADER)
-                .help("TESTING ONLY: Artificially delay data column publishing by the specified number of seconds. \
-                       Limitation: If `delay-block-publishing` is also used, data columns will be delayed for a \
-                       minimum of `delay-block-publishing` seconds.
-                       DO NOT USE IN PRODUCTION.")
+                .help("TESTING ONLY: Artificially delays data column publishing by the specified number of seconds. \
+                       Limitation: If delay-block-publishing is also used, data columns will be delayed for a \
+                       minimum of delay-block-publishing seconds. \
+                       Do not use in production. Requires the 'testing' feature to be enabled.")
                 .hide(true)
                 .display_order(0)
         )

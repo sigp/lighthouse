@@ -1083,8 +1083,7 @@ impl<E: EthSpec + TypeName> Handler for LightClientUpdateHandler<E> {
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
         // Enabled in Altair
-        // No test in Fulu yet.
-        fork_name.altair_enabled() && fork_name != ForkName::Fulu
+        fork_name.altair_enabled()
     }
 }
 

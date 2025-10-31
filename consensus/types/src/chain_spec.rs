@@ -227,7 +227,7 @@ pub struct ChainSpec {
     pub ttfb_timeout: u64,
     pub resp_timeout: u64,
     pub attestation_propagation_slot_range: u64,
-    pub maximum_gossip_clock_disparity_millis: u64,
+    pub maximum_gossip_clock_disparity: u64,
     pub message_domain_invalid_snappy: [u8; 4],
     pub message_domain_valid_snappy: [u8; 4],
     pub subnets_per_node: u8,
@@ -255,7 +255,7 @@ pub struct ChainSpec {
      * Networking Fulu
      */
     pub(crate) blob_schedule: BlobSchedule,
-    min_epochs_for_data_column_sidecars_requests: u64,
+    pub min_epochs_for_data_column_sidecars_requests: u64,
 
     /*
      * Networking Gloas
@@ -476,15 +476,23 @@ impl ChainSpec {
     /// Returns a full `Fork` struct for a given epoch.
     pub fn fork_at_epoch(&self, epoch: Epoch) -> Fork {
         let current_fork_name = self.fork_name_at_epoch(epoch);
-        let previous_fork_name = current_fork_name.previous_fork().unwrap_or(ForkName::Base);
-        let epoch = self
+
+        let fork_epoch = self
             .fork_epoch(current_fork_name)
             .unwrap_or_else(|| Epoch::new(0));
+
+        // At genesis the Fork is initialised with two copies of the same value for both
+        // `previous_version` and `current_version` (see `initialize_beacon_state_from_eth1`).
+        let previous_fork_name = if fork_epoch == 0 {
+            current_fork_name
+        } else {
+            current_fork_name.previous_fork().unwrap_or(ForkName::Base)
+        };
 
         Fork {
             previous_version: self.fork_version_for_name(previous_fork_name),
             current_version: self.fork_version_for_name(current_fork_name),
-            epoch,
+            epoch: fork_epoch,
         }
     }
 
@@ -670,7 +678,7 @@ impl ChainSpec {
     }
 
     pub fn maximum_gossip_clock_disparity(&self) -> Duration {
-        Duration::from_millis(self.maximum_gossip_clock_disparity_millis)
+        Duration::from_millis(self.maximum_gossip_clock_disparity)
     }
 
     pub fn ttfb_timeout(&self) -> Duration {
@@ -1112,7 +1120,7 @@ impl ChainSpec {
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 2,
-            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
+            maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
             max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: default_min_epochs_for_block_requests(),
@@ -1458,7 +1466,7 @@ impl ChainSpec {
             attestation_propagation_slot_range: default_attestation_propagation_slot_range(),
             attestation_subnet_count: 64,
             subnets_per_node: 4, // Make this larger than usual to avoid network damage
-            maximum_gossip_clock_disparity_millis: default_maximum_gossip_clock_disparity_millis(),
+            maximum_gossip_clock_disparity: default_maximum_gossip_clock_disparity(),
             target_aggregators_per_committee: 16,
             max_payload_size: default_max_payload_size(),
             min_epochs_for_block_requests: 33024,
@@ -1779,9 +1787,9 @@ pub struct Config {
     #[serde(default = "default_attestation_propagation_slot_range")]
     #[serde(with = "serde_utils::quoted_u64")]
     attestation_propagation_slot_range: u64,
-    #[serde(default = "default_maximum_gossip_clock_disparity_millis")]
+    #[serde(default = "default_maximum_gossip_clock_disparity")]
     #[serde(with = "serde_utils::quoted_u64")]
-    maximum_gossip_clock_disparity_millis: u64,
+    maximum_gossip_clock_disparity: u64,
     #[serde(default = "default_message_domain_invalid_snappy")]
     #[serde(with = "serde_utils::bytes_4_hex")]
     message_domain_invalid_snappy: [u8; 4],
@@ -1995,7 +2003,7 @@ const fn default_attestation_propagation_slot_range() -> u64 {
     32
 }
 
-const fn default_maximum_gossip_clock_disparity_millis() -> u64 {
+const fn default_maximum_gossip_clock_disparity() -> u64 {
     500
 }
 
@@ -2059,7 +2067,7 @@ fn max_data_columns_by_root_request_common<E: EthSpec>(max_request_blocks: u64) 
 
     let empty_data_columns_by_root_id = DataColumnsByRootIdentifier {
         block_root: Hash256::zero(),
-        columns: VariableList::from(vec![0; E::number_of_columns()]),
+        columns: VariableList::repeat_full(0),
     };
 
     RuntimeVariableList::<DataColumnsByRootIdentifier<E>>::new(
@@ -2214,7 +2222,7 @@ impl Config {
             ttfb_timeout: spec.ttfb_timeout,
             resp_timeout: spec.resp_timeout,
             attestation_propagation_slot_range: spec.attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis: spec.maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity: spec.maximum_gossip_clock_disparity,
             message_domain_invalid_snappy: spec.message_domain_invalid_snappy,
             message_domain_valid_snappy: spec.message_domain_valid_snappy,
             max_request_blocks_deneb: spec.max_request_blocks_deneb,
@@ -2302,7 +2310,7 @@ impl Config {
             message_domain_valid_snappy,
             max_request_blocks,
             attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
@@ -2378,7 +2386,7 @@ impl Config {
             attestation_subnet_prefix_bits,
             max_request_blocks,
             attestation_propagation_slot_range,
-            maximum_gossip_clock_disparity_millis,
+            maximum_gossip_clock_disparity,
             max_request_blocks_deneb,
             max_request_blob_sidecars,
             max_request_data_column_sidecars,
@@ -3010,9 +3018,11 @@ mod yaml_tests {
     fn proposer_shuffling_decision_root_around_epoch_boundary() {
         type E = MainnetEthSpec;
         let fulu_fork_epoch = 5;
+        let gloas_fork_epoch = 10;
         let spec = {
             let mut spec = ForkName::Electra.make_genesis_spec(E::default_spec());
             spec.fulu_fork_epoch = Some(Epoch::new(fulu_fork_epoch));
+            spec.gloas_fork_epoch = Some(Epoch::new(gloas_fork_epoch));
             Arc::new(spec)
         };
 
@@ -3026,7 +3036,7 @@ mod yaml_tests {
         }
 
         // For epochs after Fulu, the decision slot is the end of the epoch two epochs prior.
-        for epoch in ((fulu_fork_epoch + 1)..(fulu_fork_epoch + 10)).map(Epoch::new) {
+        for epoch in ((fulu_fork_epoch + 1)..=(gloas_fork_epoch + 1)).map(Epoch::new) {
             assert_eq!(
                 spec.proposer_shuffling_decision_slot::<E>(epoch),
                 (epoch - 1).start_slot(E::slots_per_epoch()) - 1

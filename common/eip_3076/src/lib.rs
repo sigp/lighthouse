@@ -1,9 +1,14 @@
-use crate::InterchangeError;
 use serde::{Deserialize, Serialize};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet};
+#[cfg(feature = "json")]
 use std::io;
 use types::{Epoch, Hash256, PublicKeyBytes, Slot};
+
+#[derive(Debug)]
+pub enum Error {
+    MaxInconsistent,
+}
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -53,10 +58,12 @@ pub struct Interchange {
 }
 
 impl Interchange {
+    #[cfg(feature = "json")]
     pub fn from_json_str(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
+    #[cfg(feature = "json")]
     pub fn from_json_reader(mut reader: impl std::io::Read) -> Result<Self, io::Error> {
         // We read the entire file into memory first, as this is *a lot* faster than using
         // `serde_json::from_reader`. See https://github.com/serde-rs/json/issues/160
@@ -65,6 +72,7 @@ impl Interchange {
         Ok(Interchange::from_json_str(&json_str)?)
     }
 
+    #[cfg(feature = "json")]
     pub fn write_to(&self, writer: impl std::io::Write) -> Result<(), serde_json::Error> {
         serde_json::to_writer(writer, self)
     }
@@ -87,7 +95,7 @@ impl Interchange {
     }
 
     /// Minify an interchange by constructing a synthetic block & attestation for each validator.
-    pub fn minify(&self) -> Result<Self, InterchangeError> {
+    pub fn minify(&self) -> Result<Self, Error> {
         // Map from pubkey to optional max block and max attestation.
         let mut validator_data =
             HashMap::<PublicKeyBytes, (Option<SignedBlock>, Option<SignedAttestation>)>::new();
@@ -124,7 +132,7 @@ impl Interchange {
                     }
                 }
                 (None, None) => {}
-                _ => return Err(InterchangeError::MaxInconsistent),
+                _ => return Err(Error::MaxInconsistent),
             };
 
             // Find maximum block slot.
@@ -155,5 +163,98 @@ impl Interchange {
             metadata: self.metadata.clone(),
             data,
         })
+    }
+}
+
+#[cfg(feature = "json")]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use tempfile::tempdir;
+    use types::FixedBytesExtended;
+
+    fn get_interchange() -> Interchange {
+        Interchange {
+            metadata: InterchangeMetadata {
+                interchange_format_version: 5,
+                genesis_validators_root: Hash256::from_low_u64_be(555),
+            },
+            data: vec![
+                InterchangeData {
+                    pubkey: PublicKeyBytes::deserialize(&[1u8; 48]).unwrap(),
+                    signed_blocks: vec![SignedBlock {
+                        slot: Slot::new(100),
+                        signing_root: Some(Hash256::from_low_u64_be(1)),
+                    }],
+                    signed_attestations: vec![SignedAttestation {
+                        source_epoch: Epoch::new(0),
+                        target_epoch: Epoch::new(5),
+                        signing_root: Some(Hash256::from_low_u64_be(2)),
+                    }],
+                },
+                InterchangeData {
+                    pubkey: PublicKeyBytes::deserialize(&[2u8; 48]).unwrap(),
+                    signed_blocks: vec![],
+                    signed_attestations: vec![],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn test_roundtrip() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("interchange.json");
+
+        let interchange = get_interchange();
+
+        let mut file = File::create(&file_path).unwrap();
+        interchange.write_to(&mut file).unwrap();
+
+        let file = File::open(&file_path).unwrap();
+        let from_file = Interchange::from_json_reader(file).unwrap();
+
+        assert_eq!(interchange, from_file);
+    }
+
+    #[test]
+    fn test_empty_roundtrip() {
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("empty.json");
+
+        let empty = Interchange {
+            metadata: InterchangeMetadata {
+                interchange_format_version: 5,
+                genesis_validators_root: Hash256::zero(),
+            },
+            data: vec![],
+        };
+
+        let mut file = File::create(&file_path).unwrap();
+        empty.write_to(&mut file).unwrap();
+
+        let file = File::open(&file_path).unwrap();
+        let from_file = Interchange::from_json_reader(file).unwrap();
+
+        assert_eq!(empty, from_file);
+    }
+
+    #[test]
+    fn test_minify_roundtrip() {
+        let interchange = get_interchange();
+
+        let minified = interchange.minify().unwrap();
+
+        let temp_dir = tempdir().unwrap();
+        let file_path = temp_dir.path().join("minified.json");
+
+        let mut file = File::create(&file_path).unwrap();
+        minified.write_to(&mut file).unwrap();
+
+        let file = File::open(&file_path).unwrap();
+        let from_file = Interchange::from_json_reader(file).unwrap();
+
+        assert_eq!(minified, from_file);
     }
 }
