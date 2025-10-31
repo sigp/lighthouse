@@ -25,7 +25,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_in_block() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, _s) = mock_publish_fn();
         let block = SignedBeaconBlock::<E>::Fulu(SignedBeaconBlockFulu {
             message: BeaconBlockFulu::empty(mock_adapter.spec()),
@@ -53,7 +53,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_blobs_returned() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, _) = mock_publish_fn();
         let (block, _blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -78,7 +78,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_partial_blobs_returned() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, mut blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -111,7 +111,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_block_imported_after_el_response() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -144,7 +144,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_no_new_columns_to_import() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -184,7 +184,7 @@ mod get_blobs_v2 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v2_success() {
-        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu);
+        let mut mock_adapter = mock_beacon_adapter(ForkName::Fulu, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -259,7 +259,7 @@ mod get_blobs_v1 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v1_no_blobs_in_block() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
+        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK, false);
         let spec = mock_adapter.spec();
         let (publish_fn, _s) = mock_publish_fn();
         let block_no_blobs =
@@ -287,7 +287,7 @@ mod get_blobs_v1 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v1_no_blobs_returned() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
+        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK, false);
         let (publish_fn, _) = mock_publish_fn();
         let (block, _blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -314,7 +314,7 @@ mod get_blobs_v1 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v1_partial_blobs_returned() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
+        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let blob_count = 2;
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, blob_count);
@@ -372,7 +372,7 @@ mod get_blobs_v1 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v1_block_imported_after_el_response() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
+        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -405,7 +405,7 @@ mod get_blobs_v1 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v1_no_new_blobs_to_import() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
+        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, 2);
         let block_root = block.canonical_root();
@@ -453,7 +453,7 @@ mod get_blobs_v1 {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_fetch_blobs_v1_success() {
-        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK);
+        let mut mock_adapter = mock_beacon_adapter(ELECTRA_FORK, false);
         let (publish_fn, publish_fn_args) = mock_publish_fn();
         let blob_count = 2;
         let (block, blobs_and_proofs) = create_test_block_and_blobs(&mock_adapter, blob_count);
@@ -606,7 +606,7 @@ fn mock_publish_fn() -> (
     (publish_fn, captured_args)
 }
 
-fn mock_beacon_adapter(fork_name: ForkName) -> MockFetchBlobsBeaconAdapter<T> {
+fn mock_beacon_adapter(fork_name: ForkName, get_blobs_v3: bool) -> MockFetchBlobsBeaconAdapter<T> {
     let test_runtime = TestRuntime::default();
     let spec = Arc::new(fork_name.make_genesis_spec(E::default_spec()));
     let kzg = get_kzg(&spec);
@@ -617,5 +617,8 @@ fn mock_beacon_adapter(fork_name: ForkName) -> MockFetchBlobsBeaconAdapter<T> {
     mock_adapter
         .expect_executor()
         .return_const(test_runtime.task_executor.clone());
+    mock_adapter
+        .expect_supports_get_blobs_v3()
+        .returning(move || Ok(get_blobs_v3));
     mock_adapter
 }
