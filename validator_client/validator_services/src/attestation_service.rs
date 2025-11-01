@@ -178,40 +178,38 @@ impl<S: ValidatorStore + 'static, T: SlotClock + 'static> AttestationService<S, 
 
         let interval_fut = async move {
             loop {
-                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
-                    let mut beacon_node_index: Option<usize> = None;
-
-                    tokio::select! {
-                        _ = sleep(duration_to_next_slot + slot_duration / 3) => {},
-                        head_event = self.poll_for_head_events() => {
-                            if let Ok(event) = head_event {
-                                beacon_node_index = Some(event.beacon_node_index);
-                            }
-                        }
-                    }
-
-                    if let Some(current_slot) = self.slot_clock.now() {
-                        let mut last_slot = self.latest_attested_slot.lock().await;
-
-                        if current_slot > *last_slot {
-                            if let Err(e) =
-                                self.spawn_attestation_tasks(slot_duration, beacon_node_index)
-                            {
-                                crit!(error = e, "Failed to spawn attestation tasks")
-                            } else {
-                                *last_slot = current_slot;
-                                trace!(?current_slot, "Spawned attestation tasks");
-                            }
-                        } else {
-                            debug!(?current_slot, ?last_slot, "Already attested for this slot");
-                        }
-                    } else {
-                        error!("Failed to read slot clock after trigger");
-                    }
-                } else {
+                let Some(duration) = self.slot_clock.duration_to_next_slot() else {
                     error!("Failed to read slot clock");
                     sleep(slot_duration).await;
                     continue;
+                };
+
+                let beacon_node_index = tokio::select! {
+                    _ = sleep(duration + slot_duration /3 ) => None,
+                    Ok(event) = self.poll_for_head_events() => Some(event.beacon_node_index),
+                    else => None
+                };
+
+                let Some(current_slot) = self.slot_clock.now() else {
+                    error!("Failed to read slot clock after trigger");
+                    continue;
+                };
+
+                let mut last_slot = self.latest_attested_slot.lock().await;
+
+                if current_slot <= *last_slot {
+                    debug!(?current_slot, "Attestation already initiated for the slot");
+                    continue;
+                }
+
+                match self.spawn_attestation_tasks(slot_duration, beacon_node_index) {
+                    Ok(_) => {
+                        *last_slot = current_slot;
+                        trace!(?current_slot, "Spawned attestation tasks");
+                    }
+                    Err(e) => {
+                        crit!(error = e, "Failed to spawn attestation tasks")
+                    }
                 }
             }
         };

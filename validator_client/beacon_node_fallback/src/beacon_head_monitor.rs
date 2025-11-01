@@ -112,17 +112,18 @@ pub async fn poll_head_event_from_beacon_nodes<E: EthSpec, T: SlotClock + 'stati
                 if let Ok(EventKind::Head(head)) = event_result {
                     head_cache_ref.insert(candidate.index, head.clone()).await;
 
-                    if head_cache_ref.is_latest(&head).await {
-                        if let Ok(()) = sender_tx
-                            .send(HeadEvent {
-                                beacon_node_index: candidate.index,
-                            })
-                            .await
-                        {
-                        } else {
-                            warn!("Head monitoring service channel closed");
-                            break;
-                        }
+                    if !head_cache_ref.is_latest(&head).await {
+                        continue;
+                    }
+
+                    if sender_tx
+                        .send(HeadEvent {
+                            beacon_node_index: candidate.index,
+                        })
+                        .await
+                        .is_err()
+                    {
+                        warn!("Head monitoring service channel closed");
                     }
                 }
             }
