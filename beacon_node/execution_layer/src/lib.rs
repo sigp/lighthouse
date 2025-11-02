@@ -171,9 +171,16 @@ pub enum Error {
     InvalidPayloadBody(String),
     InvalidPayloadConversion,
     InvalidBlobConversion(String),
+    SszTypesError(ssz_types::Error),
     BeaconStateError(BeaconStateError),
     PayloadTypeMismatch,
     VerifyingVersionedHashes(versioned_hashes::Error),
+}
+
+impl From<ssz_types::Error> for Error {
+    fn from(e: ssz_types::Error) -> Self {
+        Error::SszTypesError(e)
+    }
 }
 
 impl From<BeaconStateError> for Error {
@@ -1914,9 +1921,19 @@ impl<E: EthSpec> ExecutionLayer<E> {
     ) -> Result<SubmitBlindedBlockResponse<E>, Error> {
         debug!(?block_root, "Sending block to builder");
         if spec.is_fulu_scheduled() {
-            self.post_builder_blinded_blocks_v2(block_root, block)
+            let resp = self
+                .post_builder_blinded_blocks_v2(block_root, block)
                 .await
-                .map(|()| SubmitBlindedBlockResponse::V2)
+                .map(|()| SubmitBlindedBlockResponse::V2);
+            // Fallback to v1 if v2 fails because the relay doesn't support it.
+            // Note: we should remove the fallback post fulu when all relays have support for v2.
+            if resp.is_err() {
+                self.post_builder_blinded_blocks_v1(block_root, block)
+                    .await
+                    .map(|full_payload| SubmitBlindedBlockResponse::V1(Box::new(full_payload)))
+            } else {
+                resp
+            }
         } else {
             self.post_builder_blinded_blocks_v1(block_root, block)
                 .await
@@ -2092,6 +2109,7 @@ enum InvalidBuilderPayload {
         payload: u64,
         expected: u64,
     },
+    SszTypesError(ssz_types::Error),
 }
 
 impl fmt::Display for InvalidBuilderPayload {
@@ -2133,6 +2151,7 @@ impl fmt::Display for InvalidBuilderPayload {
             InvalidBuilderPayload::GasLimitMismatch { payload, expected } => {
                 write!(f, "payload gas limit was {} not {}", payload, expected)
             }
+            Self::SszTypesError(e) => write!(f, "{:?}", e),
         }
     }
 }
@@ -2188,7 +2207,13 @@ fn verify_builder_bid<E: EthSpec>(
         .withdrawals()
         .ok()
         .cloned()
-        .map(|withdrawals| Withdrawals::<E>::from(withdrawals).tree_hash_root());
+        .map(|withdrawals| {
+            Withdrawals::<E>::try_from(withdrawals)
+                .map_err(InvalidBuilderPayload::SszTypesError)
+                .map(|w| w.tree_hash_root())
+        })
+        .transpose()?;
+
     let payload_withdrawals_root = header.withdrawals_root().ok();
     let expected_gas_limit = proposer_gas_limit
         .and_then(|target_gas_limit| expected_gas_limit(parent_gas_limit, target_gas_limit, spec));

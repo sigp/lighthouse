@@ -1,5 +1,6 @@
 use crate::blob_verification::GossipVerifiedBlob;
 use crate::block_verification_types::{AsBlock, RpcBlock};
+use crate::custody_context::NodeCustodyType;
 use crate::data_column_verification::CustodyDataColumn;
 use crate::kzg_utils::build_data_column_sidecars;
 use crate::observed_operations::ObservationOutcome;
@@ -210,7 +211,7 @@ pub struct Builder<T: BeaconChainTypes> {
     testing_slot_clock: Option<TestingSlotClock>,
     validator_monitor_config: Option<ValidatorMonitorConfig>,
     genesis_state_builder: Option<InteropGenesisBuilder<T::EthSpec>>,
-    import_all_data_columns: bool,
+    node_custody_type: NodeCustodyType,
     runtime: TestRuntime,
 }
 
@@ -356,7 +357,7 @@ where
             testing_slot_clock: None,
             validator_monitor_config: None,
             genesis_state_builder: None,
-            import_all_data_columns: false,
+            node_custody_type: NodeCustodyType::Fullnode,
             runtime,
         }
     }
@@ -442,8 +443,8 @@ where
         self
     }
 
-    pub fn import_all_data_columns(mut self, import_all_data_columns: bool) -> Self {
-        self.import_all_data_columns = import_all_data_columns;
+    pub fn node_custody_type(mut self, node_custody_type: NodeCustodyType) -> Self {
+        self.node_custody_type = node_custody_type;
         self
     }
 
@@ -565,7 +566,7 @@ where
             .execution_layer(self.execution_layer)
             .shutdown_sender(shutdown_tx)
             .chain_config(chain_config)
-            .import_all_data_columns(self.import_all_data_columns)
+            .node_custody_type(self.node_custody_type)
             .event_handler(Some(ServerSentEventHandler::new_with_capacity(5)))
             .validator_monitor_config(validator_monitor_config)
             .rng(Box::new(StdRng::seed_from_u64(42)));
@@ -2323,7 +2324,7 @@ where
             .collect::<Vec<_>>();
 
         // Building a VarList from leaves
-        let deposit_data_list = VariableList::<_, U4294967296>::from(leaves.clone());
+        let deposit_data_list = VariableList::<_, U4294967296>::try_from(leaves.clone()).unwrap();
 
         // Setting the deposit_root to be the tree_hash_root of the VarList
         state.eth1_data_mut().deposit_root = deposit_data_list.tree_hash_root();
@@ -2347,7 +2348,7 @@ where
         let deposits = datas
             .into_par_iter()
             .zip(proofs.into_par_iter())
-            .map(|(data, proof)| (data, proof.into()))
+            .map(|(data, proof)| (data, proof.try_into().unwrap()))
             .map(|(data, proof)| Deposit { proof, data })
             .collect::<Vec<_>>();
 
@@ -2437,7 +2438,7 @@ where
     }
 
     /// Builds an `RpcBlock` from a `SignedBeaconBlock` and `BlobsList`.
-    fn build_rpc_block_from_blobs(
+    pub fn build_rpc_block_from_blobs(
         &self,
         block_root: Hash256,
         block: Arc<SignedBeaconBlock<E, FullPayload<E>>>,
@@ -3380,7 +3381,7 @@ pub fn generate_rand_block_and_data_columns<E: EthSpec>(
 }
 
 /// Generate data column sidecars from pre-computed cells and proofs.
-fn generate_data_column_sidecars_from_block<E: EthSpec>(
+pub fn generate_data_column_sidecars_from_block<E: EthSpec>(
     block: &SignedBeaconBlock<E>,
     spec: &ChainSpec,
 ) -> DataColumnSidecarList<E> {
