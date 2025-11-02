@@ -101,7 +101,7 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
         let process_batch =
             move |attestations| processor.process_gossip_attestation_batch(attestations, true);
 
-        self.beacon_processor_send.try_send(BeaconWorkEvent {
+        self.try_send(BeaconWorkEvent {
             drop_during_sync: false,
             work: Work::Reprocess(ReprocessQueueMessage::BatchedAttestation(
                 QueuedBatchedAttestation {
