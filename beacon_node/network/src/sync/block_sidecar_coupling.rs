@@ -8,7 +8,7 @@ use lighthouse_network::{
     },
 };
 use std::{collections::HashMap, sync::Arc};
-use tracing::Span;
+use tracing::{Span, debug};
 use types::{
     BlobSidecar, ChainSpec, ColumnIndex, DataColumnSidecar, DataColumnSidecarList, EthSpec,
     Hash256, RuntimeVariableList, SignedBeaconBlock,
@@ -323,10 +323,10 @@ impl<E: EthSpec> RangeBlockComponentsRequest<E> {
         // if accumulated sidecars is not empty, log an error but return the responses
         // as we can still make progress.
         if blob_iter.next().is_some() {
-            tracing::debug!(
-                remaining_blobs=?blob_iter.collect::<Vec<_>>(),
-                "Received sidecars that don't pair well",
-            );
+            let remaining_blobs = blob_iter
+                .map(|b| (b.index, b.block_root()))
+                .collect::<Vec<_>>();
+            debug!(?remaining_blobs, "Received sidecars that don't pair well",);
         }
 
         Ok(responses)

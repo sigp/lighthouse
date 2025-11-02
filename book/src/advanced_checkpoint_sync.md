@@ -82,7 +82,7 @@ Once backfill is complete, a `INFO Historical block download complete` log will 
 1. What if I have an existing database? How can I use checkpoint sync?
 
     The existing beacon database needs to be deleted before Lighthouse will attempt checkpoint sync.
-    You can do this by providing the `--purge-db` flag, or by manually deleting `<DATADIR>/beacon`.
+    You can do this by providing the `--purge-db-force` flag, or by manually deleting `<DATADIR>/beacon`.
 
 1. Why is checkpoint sync faster?
 
@@ -92,7 +92,7 @@ Once backfill is complete, a `INFO Historical block download complete` log will 
 
     No, in fact it is more secure! Checkpoint sync guards against long-range attacks that genesis sync does not. This is due to a property of Proof of Stake consensus known as [Weak Subjectivity][weak-subj].
 
-## Reconstructing States
+## How to run an archived node
 
 > This section is only relevant if you are interested in running an archival node for analysis
 > purposes.
@@ -101,7 +101,7 @@ After completing backfill sync the node's database will differ from a genesis-sy
 lack of historic states. _You do not need these states to run a staking node_, but they are required
 for historical API calls (as used by block explorers and researchers).
 
-You can opt-in to reconstructing all of the historic states by providing the
+To run an archived node, you can opt-in to reconstructing all of the historic states by providing the
 `--reconstruct-historic-states` flag to the beacon node at any point (before, during or after sync).
 
 The database keeps track of three markers to determine the availability of historic blocks and
@@ -155,7 +155,7 @@ The command is as following:
 ```bash
 curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v2/debug/beacon/states/$SLOT" > state.ssz
 curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v2/beacon/blocks/$SLOT" > block.ssz
-curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v1/beacon/blob_sidecars/$SLOT" > blobs.ssz
+curl -H "Accept: application/octet-stream" "http://localhost:5052/eth/v1/beacon/blobs/$SLOT" > blobs.ssz
 ```
 
 where `$SLOT` is the slot number. A slot which is an epoch boundary slot (i.e., first slot of an epoch) should always be used for manual checkpoint sync.

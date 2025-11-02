@@ -753,10 +753,10 @@ async fn invalid_attestation_empty_bitfield() {
             MutationDelay::NoDelay,
             |attestation, _| match attestation {
                 IndexedAttestation::Base(att) => {
-                    att.attesting_indices = vec![].into();
+                    att.attesting_indices = vec![].try_into().unwrap();
                 }
                 IndexedAttestation::Electra(att) => {
-                    att.attesting_indices = vec![].into();
+                    att.attesting_indices = vec![].try_into().unwrap();
                 }
             },
             |result| {
