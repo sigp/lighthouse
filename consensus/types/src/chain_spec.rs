@@ -1117,7 +1117,7 @@ impl ChainSpec {
             samples_per_slot: 8,
             validator_custody_requirement: 8,
             balance_per_additional_custody_group: 32000000000,
-            
+
             /*
              * Gloas hard fork params
              */
