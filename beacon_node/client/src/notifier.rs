@@ -298,28 +298,28 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 
                 let speed = speedo.slots_per_second();
                 let display_speed = speed.is_some_and(|speed| speed != 0.0);
-
+                let est_time_in_secs = if let (Some(da_boundary_epoch), Some(original_slot)) = (
+                    beacon_chain.get_column_da_boundary(),
+                    original_earliest_data_column_slot,
+                ) {
+                    let target = original_slot.saturating_sub(
+                        da_boundary_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    );
+                    speedo.estimated_time_till_slot(target)
+                } else {
+                    None
+                };
                 if display_speed {
                     info!(
                         distance,
                         speed = sync_speed_pretty(speed),
-                        est_time =
-                            estimated_time_pretty(beacon_chain.get_column_da_boundary().and_then(
-                                |da_boundary| speedo.estimated_time_till_slot(
-                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch())
-                                )
-                            )),
+                        est_time = estimated_time_pretty(est_time_in_secs),
                         "Downloading historical data columns"
                     );
                 } else {
                     info!(
                         distance,
-                        est_time =
-                            estimated_time_pretty(beacon_chain.get_column_da_boundary().and_then(
-                                |da_boundary| speedo.estimated_time_till_slot(
-                                    da_boundary.start_slot(T::EthSpec::slots_per_epoch())
-                                )
-                            )),
+                        est_time = estimated_time_pretty(est_time_in_secs),
                         "Downloading historical data columns"
                     );
                 }
