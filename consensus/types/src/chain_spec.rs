@@ -1456,8 +1456,7 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             whistleblower_reward_quotient_electra: u64::checked_pow(2, 12)
                 .expect("pow does not overflow"),
-            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 3)
-                .expect("pow does not overflow"),
+            max_pending_partials_per_withdrawals_sweep: 6,
             min_per_epoch_churn_limit_electra: option_wrapper(|| {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
