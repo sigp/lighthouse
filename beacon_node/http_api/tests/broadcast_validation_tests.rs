@@ -1,3 +1,4 @@
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::test_utils::test_spec;
 use beacon_chain::{
     GossipVerifiedBlock, IntoGossipVerifiedBlock, WhenSlotSkipped,
@@ -1956,6 +1957,7 @@ pub async fn duplicate_block_status_code() {
             ..Config::default()
         },
         true,
+        NodeCustodyType::Fullnode,
     )
     .await;
 
