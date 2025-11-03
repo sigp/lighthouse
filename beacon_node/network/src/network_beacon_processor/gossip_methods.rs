@@ -10,8 +10,9 @@ use beacon_chain::data_availability_checker::MergedData;
 use beacon_chain::data_column_verification::{GossipDataColumnError, GossipVerifiedDataColumn};
 use beacon_chain::store::Error;
 use beacon_chain::{
-    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError,
-    GossipVerifiedBlock, IntoExecutionPendingBlock, NotifyExecutionLayer,
+    AvailabilityProcessingStatus, BeaconChainError, BeaconChainTypes, BlockError,
+    BlockProcessStatus, ForkChoiceError, GossipVerifiedBlock, IntoExecutionPendingBlock,
+    NotifyExecutionLayer,
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     data_availability_checker::AvailabilityCheckErrorCategory,
     light_client_finality_update_verification::Error as LightClientFinalityUpdateError,
@@ -791,26 +792,17 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
     ) {
         let partial_column = match self
             .chain
-            .store
-            .try_get_full_block(&column_sidecar.block_root)
+            .data_availability_checker
+            .get_cached_block(&column_sidecar.block_root)
         {
-            Ok(Some(DatabaseBlock::Full(block))) => {
-                Some(VerifiablePartialDataColumn::from_dangling_and_block(
-                    column_sidecar.clone(),
-                    &block,
-                ))
-            }
-            Ok(Some(DatabaseBlock::Blinded(block))) => {
-                Some(VerifiablePartialDataColumn::from_dangling_and_block(
-                    column_sidecar.clone(),
-                    &block,
-                ))
-            }
-            Ok(None) => None,
-            Err(err) => {
-                warn!(?err, "Error getting block for partial data column");
-                None
-            }
+            Some(
+                BlockProcessStatus::ExecutionValidated(block)
+                | BlockProcessStatus::NotValidated(block, _),
+            ) => Some(VerifiablePartialDataColumn::from_dangling_and_block(
+                column_sidecar.clone(),
+                &block,
+            )),
+            None | Some(BlockProcessStatus::Unknown) => None,
         };
 
         match partial_column {
