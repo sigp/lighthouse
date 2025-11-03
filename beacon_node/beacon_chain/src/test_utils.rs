@@ -81,6 +81,10 @@ pub const TEST_DATA_COLUMN_SIDECARS_SSZ: &[u8] =
 // a different value.
 pub const DEFAULT_TARGET_AGGREGATORS: u64 = u64::MAX;
 
+// Minimum and maximum number of blobs to generate in each slot when using the `NumBlobs::Random` option (default).
+const DEFAULT_MIN_BLOBS: usize = 1;
+const DEFAULT_MAX_BLOBS: usize = 2;
+
 static KZG: LazyLock<Arc<Kzg>> = LazyLock::new(|| {
     let kzg = Kzg::new_from_trusted_setup(&get_trusted_setup()).expect("should create kzg");
     Arc::new(kzg)
@@ -3253,7 +3257,7 @@ pub enum NumBlobs {
 macro_rules! add_blob_transactions {
     ($message:expr, $payload_type:ty, $num_blobs:expr, $rng:expr, $fork_name:expr) => {{
         let num_blobs = match $num_blobs {
-            NumBlobs::Random => $rng.random_range(1..=2),
+            NumBlobs::Random => $rng.random_range(DEFAULT_MIN_BLOBS..=DEFAULT_MAX_BLOBS),
             NumBlobs::Number(n) => n,
             NumBlobs::None => 0,
         };

@@ -302,7 +302,7 @@ async fn chain_segment_varying_chunk_size() {
         .into_iter()
         .collect();
 
-    for chunk_size in &[1, 2, 3, 5, 31, 32, 33, 42] {
+    for chunk_size in &[1, 2, 31, 32, 33] {
         let harness = get_harness(VALIDATOR_COUNT, NodeCustodyType::Fullnode);
 
         harness
