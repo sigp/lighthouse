@@ -29,7 +29,6 @@ pub const LIGHT_CLIENT_OPTIMISTIC_UPDATE: &str = "light_client_optimistic_update
 pub struct TopicConfig {
     pub enable_light_client_server: bool,
     pub subscribe_all_subnets: bool,
-    pub subscribe_all_data_column_subnets: bool,
     pub sampling_subnets: HashSet<DataColumnSubnetId>,
 }
 
@@ -80,14 +79,8 @@ pub fn core_topics_to_subscribe<E: EthSpec>(
     }
 
     if fork_name.fulu_enabled() {
-        if opts.subscribe_all_data_column_subnets {
-            for i in 0..spec.data_column_sidecar_subnet_count {
-                topics.push(GossipKind::DataColumnSidecar(i.into()));
-            }
-        } else {
-            for subnet in &opts.sampling_subnets {
-                topics.push(GossipKind::DataColumnSidecar(*subnet));
-            }
+        for subnet in &opts.sampling_subnets {
+            topics.push(GossipKind::DataColumnSidecar(*subnet));
         }
     }
 
@@ -125,7 +118,6 @@ pub fn all_topics_at_fork<E: EthSpec>(fork: ForkName, spec: &ChainSpec) -> Vec<G
     let opts = TopicConfig {
         enable_light_client_server: true,
         subscribe_all_subnets: true,
-        subscribe_all_data_column_subnets: true,
         sampling_subnets,
     };
     core_topics_to_subscribe::<E>(fork, &opts, spec)
@@ -520,7 +512,6 @@ mod tests {
         TopicConfig {
             enable_light_client_server: false,
             subscribe_all_subnets: false,
-            subscribe_all_data_column_subnets: false,
             sampling_subnets: sampling_subnets.clone(),
         }
     }
@@ -552,9 +543,8 @@ mod tests {
     #[test]
     fn columns_are_subscribed_in_peerdas() {
         let spec = get_spec();
-        let s = get_sampling_subnets();
-        let mut topic_config = get_topic_config(&s);
-        topic_config.subscribe_all_data_column_subnets = true;
+        let s = HashSet::from_iter([0.into()]);
+        let topic_config = get_topic_config(&s);
         assert!(
             core_topics_to_subscribe::<E>(ForkName::Fulu, &topic_config, &spec)
                 .contains(&GossipKind::DataColumnSidecar(0.into()))

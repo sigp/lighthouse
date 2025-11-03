@@ -199,7 +199,7 @@ impl<E: EthSpec> Network<E> {
             local_keypair.clone(),
             &config,
             &ctx.enr_fork_id,
-            Some(advertised_cgc),
+            advertised_cgc,
             next_fork_digest,
             &ctx.chain_spec,
         )?;

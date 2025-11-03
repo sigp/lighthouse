@@ -1316,12 +1316,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_deposits(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1330,7 +1332,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_deposits().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self
@@ -1343,12 +1350,14 @@ impl ApiTester {
                 .ok()
                 .map(|(state, _execution_optimistic, _finalized)| state);
 
-            let result = self
+            let result = match self
                 .client
                 .get_beacon_states_pending_partial_withdrawals(state_id.0)
                 .await
-                .unwrap()
-                .map(|res| res.data);
+            {
+                Ok(response) => response,
+                Err(e) => panic!("query failed incorrectly: {e:?}"),
+            };
 
             if result.is_none() && state_opt.is_none() {
                 continue;
@@ -1357,7 +1366,12 @@ impl ApiTester {
             let state = state_opt.as_mut().expect("result should be none");
             let expected = state.pending_partial_withdrawals().unwrap();
 
-            assert_eq!(result.unwrap(), expected.to_vec());
+            let response = result.unwrap();
+            assert_eq!(response.data(), &expected.to_vec());
+
+            // Check that the version header is returned in the response
+            let fork_name = state.fork_name(&self.chain.spec).unwrap();
+            assert_eq!(response.version(), Some(fork_name),);
         }
 
         self

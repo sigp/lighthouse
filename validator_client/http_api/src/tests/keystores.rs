@@ -2091,7 +2091,7 @@ async fn import_remotekey_web3signer_disabled() {
         // Import web3signers.
         tester
             .client
-            .post_lighthouse_validators_web3signer(&vec![web3signer_req])
+            .post_lighthouse_validators_web3signer(&[web3signer_req])
             .await
             .unwrap();
 
@@ -2146,7 +2146,7 @@ async fn import_remotekey_web3signer_enabled() {
         // Import web3signers.
         tester
             .client
-            .post_lighthouse_validators_web3signer(&vec![web3signer_req.clone()])
+            .post_lighthouse_validators_web3signer(&[web3signer_req.clone()])
             .await
             .unwrap();
 
