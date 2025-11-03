@@ -449,7 +449,7 @@ Sync](./advanced_checkpoint_sync.md#how-to-run-an-archived-node).
 
 ## `/lighthouse/custody/backfill`
 
-Starts a custody backfill sync from the next epoch with the nodes latest custody requirements. The sync won't begin immediately, it waits until the next epoch is finalized before triggering.
+Starts a custody backfill sync from the next epoch with the node's latest custody requirements. The sync won't begin immediately, it waits until the next epoch is finalized before triggering.
 
 This endpoint should only be used to fix nodes that may have partial custody columns due to a prior backfill bug (present in v8.0.0-rc.2). Use with caution as it re-downloads all historic custody data columns and may consume significant bandwidth.
 
