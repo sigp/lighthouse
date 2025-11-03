@@ -3,9 +3,6 @@ name = "lighthouse_version"
 version = { workspace = true }
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = { workspace = true }
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
 
 [dev-dependencies]
 regex = { workspace = true }
