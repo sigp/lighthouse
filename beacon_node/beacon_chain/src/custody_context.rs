@@ -1530,7 +1530,7 @@ mod tests {
         let custody_context = setup_custody_context(&spec, head_epoch, epoch_and_cgc_tuples);
 
         // Backfill from epoch 20 to 9
-        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(9));
+        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(9), final_cgc);
 
         // Reset validator custody requirements to the latest cgc requirements at `head_epoch` up to the boundary epoch
         custody_context.reset_validator_custody_requirements(head_epoch);
