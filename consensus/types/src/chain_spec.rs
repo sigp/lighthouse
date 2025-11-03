@@ -87,12 +87,18 @@ pub struct ChainSpec {
      */
     pub genesis_delay: u64,
     pub seconds_per_slot: u64,
+    pub slot_duration_ms: u64,
     pub min_attestation_inclusion_delay: u64,
     pub min_seed_lookahead: Epoch,
     pub max_seed_lookahead: Epoch,
     pub min_epochs_to_inactivity_penalty: u64,
     pub min_validator_withdrawability_delay: Epoch,
     pub shard_committee_period: u64,
+    pub proposer_reorg_cutoff_bps: u64,
+    pub attestation_due_bps: u64,
+    pub aggregate_due_bps: u64,
+    pub sync_message_due_bps: u64,
+    pub contribution_due_bps: u64,
 
     /*
      * Reward and penalty quotients
@@ -964,12 +970,18 @@ impl ChainSpec {
              */
             genesis_delay: 604800, // 7 days
             seconds_per_slot: 12,
+            slot_duration_ms: 12000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
             min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
             shard_committee_period: 256,
+            proposer_reorg_cutoff_bps: 1667,
+            attestation_due_bps: 3333,
+            aggregate_due_bps: 6667,
+            sync_message_due_bps: 3333,
+            contribution_due_bps: 6667,
 
             /*
              * Reward and penalty quotients
@@ -1098,7 +1110,7 @@ impl ChainSpec {
              * Fulu hard fork params
              */
             fulu_fork_version: [0x06, 0x00, 0x00, 0x00],
-            fulu_fork_epoch: None,
+            fulu_fork_epoch: Some(Epoch::new(411392)),
             custody_requirement: 4,
             number_of_custody_groups: 128,
             data_column_sidecar_subnet_count: 128,
@@ -1158,7 +1170,16 @@ impl ChainSpec {
             /*
              * Networking Fulu specific
              */
-            blob_schedule: BlobSchedule::default(),
+            blob_schedule: BlobSchedule::new(vec![
+                BlobParameters {
+                    epoch: Epoch::new(412672),
+                    max_blobs_per_block: 15,
+                },
+                BlobParameters {
+                    epoch: Epoch::new(419072),
+                    max_blobs_per_block: 21,
+                },
+            ]),
             min_epochs_for_data_column_sidecars_requests:
                 default_min_epochs_for_data_column_sidecars_requests(),
             max_data_columns_by_root_request: default_data_columns_by_root_request(),
@@ -1310,12 +1331,18 @@ impl ChainSpec {
              */
             genesis_delay: 6000, // 100 minutes
             seconds_per_slot: 5,
+            slot_duration_ms: 5000,
             min_attestation_inclusion_delay: 1,
             min_seed_lookahead: Epoch::new(1),
             max_seed_lookahead: Epoch::new(4),
             min_epochs_to_inactivity_penalty: 4,
             min_validator_withdrawability_delay: Epoch::new(256),
             shard_committee_period: 256,
+            proposer_reorg_cutoff_bps: 1667,
+            attestation_due_bps: 3333,
+            aggregate_due_bps: 6667,
+            sync_message_due_bps: 3333,
+            contribution_due_bps: 6667,
 
             /*
              * Reward and penalty quotients
@@ -1429,8 +1456,7 @@ impl ChainSpec {
                 .expect("pow does not overflow"),
             whistleblower_reward_quotient_electra: u64::checked_pow(2, 12)
                 .expect("pow does not overflow"),
-            max_pending_partials_per_withdrawals_sweep: u64::checked_pow(2, 3)
-                .expect("pow does not overflow"),
+            max_pending_partials_per_withdrawals_sweep: 6,
             min_per_epoch_churn_limit_electra: option_wrapper(|| {
                 u64::checked_pow(2, 7)?.checked_mul(u64::checked_pow(10, 9)?)
             })
