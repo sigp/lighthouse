@@ -971,12 +971,9 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
                 );
 
-                let batch_id = match queued_id {
-                    QueuedAttestationId::Batched(id) => id,
-                    _ => {
-                        crit!("Invalid attestation Id batched for attestation");
-                        return;
-                    }
+                let QueuedAttestationId::Batched(batch_id) = queued_id else {
+                    crit!("Invalid attestation Id batched for attestation");
+                    return;
                 };
 
                 if let Some(batch_attestation) = self.queued_batch_attestations.remove(&batch_id) {
