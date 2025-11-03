@@ -1131,13 +1131,6 @@ async fn lighthouse_custody_info() {
     spec.min_epochs_for_blob_sidecars_requests = 2;
     spec.min_epochs_for_data_column_sidecars_requests = 2;
 
-    spec.altair_fork_epoch = Some(Epoch::new(0));
-    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-    spec.capella_fork_epoch = Some(Epoch::new(0));
-    spec.deneb_fork_epoch = Some(Epoch::new(0));
-    spec.electra_fork_epoch = Some(Epoch::new(0));
-    spec.fulu_fork_epoch = Some(Epoch::new(0));
-
     let validator_count = 24;
 
     let tester = InteractiveTester::<E>::new(Some(spec), validator_count).await;
