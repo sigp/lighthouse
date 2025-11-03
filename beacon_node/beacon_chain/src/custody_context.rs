@@ -120,9 +120,7 @@ impl ValidatorRegistrations {
             let effective_epoch =
                 (current_slot + effective_delay_slots).epoch(E::slots_per_epoch()) + 1;
             self.epoch_validator_custody_requirements
-                .entry(effective_epoch)
-                .and_modify(|old_custody| *old_custody = validator_custody_requirement)
-                .or_insert(validator_custody_requirement);
+                .insert(effective_epoch, validator_custody_requirement);
             Some((effective_epoch, validator_custody_requirement))
         } else {
             None
@@ -154,9 +152,7 @@ impl ValidatorRegistrations {
                 });
 
             self.epoch_validator_custody_requirements
-                .entry(effective_epoch)
-                .and_modify(|old_custody| *old_custody = latest_validator_custody)
-                .or_insert(latest_validator_custody);
+                .insert(effective_epoch, latest_validator_custody);
         }
     }
 
@@ -172,9 +168,7 @@ impl ValidatorRegistrations {
                 .retain(|&epoch, _| epoch >= effective_epoch);
 
             self.epoch_validator_custody_requirements
-                .entry(effective_epoch)
-                .and_modify(|old_custody| *old_custody = latest_validator_custody_requirements)
-                .or_insert(latest_validator_custody_requirements);
+                .insert(effective_epoch, latest_validator_custody_requirements);
         };
     }
 }
@@ -1556,7 +1550,7 @@ mod tests {
         );
 
         // Rerun Backfill to epoch 20
-        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(0));
+        complete_backfill_for_epochs(&custody_context, Epoch::new(20), Epoch::new(0), final_cgc);
 
         // Verify epochs 0 - 20 return the final cgc requirements
         for epoch in 0..=20 {

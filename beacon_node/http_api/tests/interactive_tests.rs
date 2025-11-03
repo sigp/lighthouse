@@ -1057,14 +1057,12 @@ async fn proposer_duties_with_gossip_tolerance() {
 // have been updated with the correct values.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lighthouse_restart_custody_backfill() {
-    let mut spec = test_spec::<E>();
+    let spec = test_spec::<E>();
 
-    spec.altair_fork_epoch = Some(Epoch::new(0));
-    spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-    spec.capella_fork_epoch = Some(Epoch::new(0));
-    spec.deneb_fork_epoch = Some(Epoch::new(0));
-    spec.electra_fork_epoch = Some(Epoch::new(0));
-    spec.fulu_fork_epoch = Some(Epoch::new(0));
+    // Skip pre-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
 
     let validator_count = 24;
 
@@ -1096,7 +1094,8 @@ async fn lighthouse_restart_custody_backfill() {
     assert_eq!(cgc_at_head, max_cgc);
     assert_eq!(earliest_data_column_epoch, None);
 
-    custody_context.update_and_backfill_custody_count_at_epoch(harness.chain.epoch().unwrap());
+    custody_context
+        .update_and_backfill_custody_count_at_epoch(harness.chain.epoch().unwrap(), cgc_at_head);
     client.post_lighthouse_custody_backfill().await.unwrap();
 
     let cgc_at_head = custody_context.custody_group_count_at_head(spec);
@@ -1121,6 +1120,11 @@ async fn lighthouse_restart_custody_backfill() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn lighthouse_custody_info() {
     let mut spec = test_spec::<E>();
+
+    // Skip pre-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
 
     // Use a short DA expiry period so we can observe non-zero values for the oldest data column
     // slot.
