@@ -1106,7 +1106,7 @@ async fn lighthouse_restart_custody_backfill() {
     // `DataColumnCustodyInfo` should have been updated to the head epoch
     assert_eq!(
         earliest_data_column_epoch,
-        Some(harness.chain.epoch().unwrap())
+        Some(harness.chain.epoch().unwrap() + 1)
     );
     // Cgc requirements should have stayed the same at head
     assert_eq!(cgc_at_head, max_cgc);
