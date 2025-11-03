@@ -89,11 +89,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .get_data_column(&block_root, &data_column.index)?
                         .is_some()
                     {
-                        debug!(
-                            block_root = ?block_root,
-                            column_index = data_column.index,
-                            "Skipping data column import as identical data column exists"
-                        );
                         continue;
                     }
                     if block_root != data_column.block_root() {

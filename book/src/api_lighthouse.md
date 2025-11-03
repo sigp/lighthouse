@@ -447,6 +447,16 @@ indicating that all states with slots `>= 0` are available, i.e., full state his
 on the specific meanings of these fields see the docs on [Checkpoint
 Sync](./advanced_checkpoint_sync.md#how-to-run-an-archived-node).
 
+## `/lighthouse/custody/backfill`
+
+Starts a custody backfill sync from the next epoch with the node's latest custody requirements. The sync won't begin immediately, it waits until the next epoch is finalized before triggering.
+
+This endpoint should only be used to fix nodes that may have partial custody columns due to a prior backfill bug (present in v8.0.0-rc.2). Use with caution as it re-downloads all historic custody data columns and may consume significant bandwidth.
+
+```bash
+curl -X POST "http://localhost:5052/lighthouse/custody/backfill"
+```
+
 ## `/lighthouse/merge_readiness`
 
 Returns the current difficulty and terminal total difficulty of the network. Before [The Merge](https://ethereum.org/en/roadmap/merge/) on 15<sup>th</sup> September 2022, you will see that the current difficulty is less than the terminal total difficulty, An example is shown below:
