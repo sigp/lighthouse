@@ -920,7 +920,7 @@ impl<E: EthSpec> Tester<E> {
         let cached_head = self.harness.chain.canonical_head.cached_head();
         let next_slot = cached_head.snapshot.beacon_block.slot() + 1;
         let next_slot_epoch = next_slot.epoch(E::slots_per_epoch());
-        let (proposer_indices, decision_root, _, fork) =
+        let (proposer_indices, decision_root, _, _, fork) =
             compute_proposer_duties_from_head(next_slot_epoch, &self.harness.chain).unwrap();
         let proposer_index = proposer_indices[next_slot.as_usize() % E::slots_per_epoch() as usize];
 

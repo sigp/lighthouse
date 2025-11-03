@@ -911,6 +911,22 @@ impl<E: EthSpec> BeaconState<E> {
         }
     }
 
+    /// Returns the block root at the last slot of `epoch - 1`.
+    ///
+    /// This can be deleted after Glamsterdam and the removal of the v1 proposer duties endpoint.
+    pub fn legacy_proposer_shuffling_decision_root_at_epoch(
+        &self,
+        epoch: Epoch,
+        head_block_root: Hash256,
+    ) -> Result<Hash256, Error> {
+        let decision_slot = epoch.saturating_sub(1u64).end_slot(E::slots_per_epoch());
+        if self.slot() <= decision_slot {
+            Ok(head_block_root)
+        } else {
+            self.get_block_root(decision_slot).copied()
+        }
+    }
+
     /// Returns the block root which decided the proposer shuffling for the current epoch. This root
     /// can be used to key this proposer shuffling.
     ///

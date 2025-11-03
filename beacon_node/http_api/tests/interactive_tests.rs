@@ -1017,10 +1017,9 @@ async fn proposer_duties_with_gossip_tolerance() {
     assert_eq!(
         proposer_duties_tolerant_current_epoch.dependent_root,
         head_state
-            .proposer_shuffling_decision_root_at_epoch(
+            .legacy_proposer_shuffling_decision_root_at_epoch(
                 tolerant_current_epoch,
                 head_block_root,
-                spec
             )
             .unwrap()
     );
