@@ -21,7 +21,7 @@ use types::{
     Blob, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadBellatrix,
     ExecutionPayloadCapella, ExecutionPayloadDeneb, ExecutionPayloadElectra, ExecutionPayloadFulu,
     ExecutionPayloadGloas, ExecutionPayloadHeader, FixedBytesExtended, ForkName, Hash256,
-    KzgProofs, Transaction, Transactions, Uint256,
+    KzgProofs, Slot, Transaction, Transactions, Uint256,
 };
 
 use super::DEFAULT_TERMINAL_BLOCK;
@@ -263,6 +263,37 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         }
 
         ForkName::Bellatrix
+    }
+
+    /// Get the timestamp at which `fork` activates.
+    ///
+    /// This function will panic if the `fork` is not enabled or is `<= ForkName::Bellatrix`.
+    pub fn get_fork_timestamp_post_capella(&self, fork: ForkName) -> u64 {
+        match fork {
+            ForkName::Gloas => self.amsterdam_time,
+            ForkName::Fulu => self.osaka_time,
+            ForkName::Electra => self.prague_time,
+            ForkName::Deneb => self.cancun_time,
+            ForkName::Capella => self.shanghai_time,
+            _ => panic!("only the Capella fork or later is supported"),
+        }
+        .unwrap_or_else(|| panic!("fork is {fork} but no corresponding timestamp is set"))
+    }
+
+    /// This is a slightly nasty method for converting timestamps to slots, but it will suffice
+    /// until we can plumb through a slot clock.
+    pub fn timestamp_to_slot_post_capella(&self, timestamp: u64) -> Slot {
+        let fork = self.get_fork_at_timestamp(timestamp);
+        let fork_epoch = self.spec.fork_epoch(fork).unwrap();
+        let fork_timestamp = self.get_fork_timestamp_post_capella(fork);
+
+        // Number of slots since fork.
+        let slot_offset = timestamp
+            .checked_sub(fork_timestamp)
+            .expect("timestamp should be >= fork timestamp")
+            / self.spec.seconds_per_slot;
+
+        fork_epoch.start_slot(E::slots_per_epoch()) + Slot::new(slot_offset)
     }
 
     pub fn execution_block_by_number(&self, number: u64) -> Option<ExecutionBlock> {
@@ -734,9 +765,10 @@ impl<E: EthSpec> ExecutionBlockGenerator<E> {
         if fork_name.deneb_enabled() {
             // get random number between 0 and Max Blobs
             let mut rng = self.rng.lock();
-            // TODO(EIP-7892): see FIXME below
-            // FIXME: this will break with BPO forks. This function needs to calculate the epoch based on block timestamp..
-            let max_blobs = self.spec.max_blobs_per_block_within_fork(fork_name) as usize;
+            let epoch = self
+                .timestamp_to_slot_post_capella(execution_payload.timestamp())
+                .epoch(E::slots_per_epoch());
+            let max_blobs = self.spec.max_blobs_per_block(epoch) as usize;
             let num_blobs = rng.random_range(self.min_blobs_count..=max_blobs);
             let (bundle, transactions) = generate_blobs(num_blobs, fork_name)?;
             for tx in Vec::from(transactions) {

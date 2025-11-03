@@ -850,6 +850,22 @@ mod test {
             .build();
         harness.advance_slot();
 
+        // Check block generator timestamp conversion sanity.
+        {
+            let exec_block_generator = harness.execution_block_generator();
+            assert_eq!(
+                exec_block_generator
+                    .timestamp_to_slot_post_capella(exec_block_generator.osaka_time.unwrap()),
+                0
+            );
+            assert_eq!(
+                exec_block_generator.timestamp_to_slot_post_capella(
+                    exec_block_generator.osaka_time.unwrap() + harness.spec.seconds_per_slot
+                ),
+                1
+            );
+        }
+
         let verify_fn = |column_sidecar: DataColumnSidecar<E>| {
             GossipVerifiedDataColumn::<_>::new_for_block_publishing(
                 column_sidecar.into(),
