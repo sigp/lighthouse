@@ -1,4 +1,5 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
+use beacon_chain::custody_context::NodeCustodyType;
 use beacon_chain::{
     ChainConfig,
     chain_config::{DisallowedReOrgOffsets, ReOrgThreshold},
@@ -76,6 +77,7 @@ async fn state_by_root_pruned_from_fork_choice() {
         None,
         Default::default(),
         false,
+        NodeCustodyType::Fullnode,
     )
     .await;
 
@@ -433,6 +435,7 @@ pub async fn proposer_boost_re_org_test(
         })),
         Default::default(),
         false,
+        NodeCustodyType::Fullnode,
     )
     .await;
     let harness = &tester.harness;
@@ -1047,6 +1050,68 @@ async fn proposer_duties_with_gossip_tolerance() {
         proposer_duties_tolerant_current_epoch,
         proposer_duties_current_epoch
     );
+}
+
+// Test that a request to `lighthouse/custody/backfill` succeeds by verifying that `CustodyContext` and `DataColumnCustodyInfo`
+// have been updated with the correct values.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lighthouse_restart_custody_backfill() {
+    let spec = test_spec::<E>();
+
+    // Skip pre-Fulu.
+    if !spec.is_fulu_scheduled() {
+        return;
+    }
+
+    let validator_count = 24;
+
+    let tester = InteractiveTester::<E>::new_supernode(Some(spec), validator_count).await;
+    let harness = &tester.harness;
+    let spec = &harness.spec;
+    let client = &tester.client;
+    let min_cgc = spec.custody_requirement;
+    let max_cgc = spec.number_of_custody_groups;
+
+    let num_blocks = 2 * E::slots_per_epoch();
+
+    let custody_context = harness.chain.data_availability_checker.custody_context();
+
+    harness.advance_slot();
+    harness
+        .extend_chain_with_sync(
+            num_blocks as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+            SyncCommitteeStrategy::NoValidators,
+            LightClientStrategy::Disabled,
+        )
+        .await;
+
+    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
+    let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
+
+    assert_eq!(cgc_at_head, max_cgc);
+    assert_eq!(earliest_data_column_epoch, None);
+
+    custody_context
+        .update_and_backfill_custody_count_at_epoch(harness.chain.epoch().unwrap(), cgc_at_head);
+    client.post_lighthouse_custody_backfill().await.unwrap();
+
+    let cgc_at_head = custody_context.custody_group_count_at_head(spec);
+    let cgc_at_previous_epoch =
+        custody_context.custody_group_count_at_epoch(harness.chain.epoch().unwrap() - 1, spec);
+    let earliest_data_column_epoch = harness.chain.earliest_custodied_data_column_epoch();
+
+    // `DataColumnCustodyInfo` should have been updated to the head epoch
+    assert_eq!(
+        earliest_data_column_epoch,
+        Some(harness.chain.epoch().unwrap() + 1)
+    );
+    // Cgc requirements should have stayed the same at head
+    assert_eq!(cgc_at_head, max_cgc);
+    // Cgc requirements at the previous epoch should be `min_cgc`
+    // This allows for custody backfill to re-fetch columns for this epoch.
+    assert_eq!(cgc_at_previous_epoch, min_cgc);
 }
 
 // Test that a request for next epoch proposer duties suceeds when the current slot clock is within
