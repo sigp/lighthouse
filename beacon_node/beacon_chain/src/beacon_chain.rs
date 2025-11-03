@@ -3089,11 +3089,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BlockError::DuplicateFullyImported(block_root));
         }
 
-        // TODO(dknopik): impl SSE
-        //self.emit_sse_data_column_sidecar_events(
-        //    &block_root,
-        //    data_columns.iter().map(|column| column.as_data_column()),
-        //);
+        self.emit_sse_data_column_sidecar_events(
+            &block_root,
+            data_columns.iter().map(|column| column.as_data_column()),
+        );
 
         self.check_gossip_data_columns_availability_and_import(
             slot,
@@ -3166,12 +3165,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             EngineGetBlobsOutput::Blobs(blobs) => {
                 self.emit_sse_blob_sidecar_events(&block_root, blobs.iter().map(|b| b.as_blob()));
             }
-            EngineGetBlobsOutput::CustodyColumns(_columns) => {
-                // TODO(dknopik): impl SSE
-                //self.emit_sse_data_column_sidecar_events(
-                //    &block_root,
-                //    columns.iter().map(|column| column.as_data_column()),
-                //);
+            EngineGetBlobsOutput::CustodyColumns(columns) => {
+                self.emit_sse_data_column_sidecar_events(
+                    &block_root,
+                    columns.iter().map(|column| column.as_data_column()),
+                );
             }
         }
 
@@ -3200,26 +3198,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    fn emit_sse_data_column_sidecar_events<'a, I>(
+    fn emit_sse_data_column_sidecar_events<'a, I, C>(
         self: &Arc<Self>,
         block_root: &Hash256,
         data_columns_iter: I,
     ) where
-        I: Iterator<Item = &'a DataColumnSidecar<T::EthSpec>>,
+        I: Iterator<Item = &'a C>,
+        C: DasColumn<T::EthSpec> + 'a,
     {
         if let Some(event_handler) = self.event_handler.as_ref()
             && event_handler.has_data_column_sidecar_subscribers()
         {
             let imported_data_columns = self
                 .data_availability_checker
-                .cached_data_column_indexes(block_root)
+                .get_data_columns(*block_root)
                 .unwrap_or_default();
-            let new_data_columns =
-                data_columns_iter.filter(|b| !imported_data_columns.contains(&b.index));
 
-            for data_column in new_data_columns {
+            let new_data_columns_indices = data_columns_iter.map(|c| c.index()).collect::<Vec<_>>();
+
+            for data_column in imported_data_columns
+                .into_iter()
+                .filter(|c| new_data_columns_indices.contains(&c.index))
+            {
                 event_handler.register(EventKind::DataColumnSidecar(
-                    SseDataColumnSidecar::from_data_column_sidecar(data_column),
+                    SseDataColumnSidecar::from_data_column_sidecar(data_column.as_ref()),
                 ));
             }
         }

@@ -56,7 +56,6 @@ use beacon_processor::{
         ReprocessQueueMessage,
     },
 };
-use store::DatabaseBlock;
 use types::das_column::DasColumn;
 use types::partial_data_column_sidecar::{DanglingPartialDataColumn, VerifiablePartialDataColumn};
 
