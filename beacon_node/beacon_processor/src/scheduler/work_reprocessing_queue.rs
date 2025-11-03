@@ -38,6 +38,7 @@ const TASK_NAME: &str = "beacon_processor_reprocess_queue";
 const GOSSIP_BLOCKS: &str = "gossip_blocks";
 const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
+const DELAYED_BATCHED_ATTESTATIONS: &str = "delayed_batched_attestations";
 const ATTESTATIONS_PER_ROOT: &str = "attestations_per_root";
 const LIGHT_CLIENT_UPDATES: &str = "lc_updates";
 const LIGHT_CLIENT_UPDATES_PER_PARENT_ROOT: &str = "lc_updates_per_parent_root";
@@ -941,10 +942,6 @@ impl<S: SlotClock> ReprocessQueue<S> {
                 }
             }
             InboundEvent::ReadyBatchedAttestation(queued_id) => {
-                metrics::inc_counter(
-                    &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_EXPIRED_ATTESTATIONS,
-                );
-
                 let QueuedAttestationId::Batched(batch_id) = queued_id else {
                     crit!("Invalid attestation Id batched for attestation");
                     return;
@@ -1074,6 +1071,15 @@ impl<S: SlotClock> ReprocessQueue<S> {
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
             &[ATTESTATIONS],
             self.attestations_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[DELAYED_BATCHED_ATTESTATIONS],
+            self.queued_batch_attestations
+                .get(&self.current_attestation_batch)
+                .expect("Unable read to attestation batch queue")
+                .0
+                .len() as i64,
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
