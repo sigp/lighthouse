@@ -835,30 +835,16 @@ impl<S: SlotClock> ReprocessQueue<S> {
             InboundEvent::Msg(BatchedAttestation(queued_batch_attestation)) => {
                 let batch_processing_delay = QUEUED_BATCH_ATTESTATION_DELAY;
 
-                let mut time_to_next_batch = 0;
-
                 if let Some(batched_queue) = self
                     .queued_batch_attestations
                     .get_mut(&self.current_attestation_batch)
                 {
                     if batched_queue.0.len() >= MAXIMUM_BATCHED_ATTESTATIONS {
                         self.current_attestation_batch += 1;
-                        if let Some(current_slot_time) =
-                            self.slot_clock.millis_from_current_slot_start()
-                        {
-                            let slot_time = current_slot_time.as_millis() as usize;
-                            let total_slot_duration =
-                                self.slot_clock.slot_duration().as_millis() as usize;
-
-                            time_to_next_batch = (0..=total_slot_duration)
-                                .step_by(batch_processing_delay.as_millis() as usize)
-                                .find(|&t| t > slot_time)
-                                .map_or(0, |t| t - slot_time);
-                        }
 
                         let delay_key = self.batched_attestation_queue.insert(
                             QueuedAttestationId::Batched(self.current_attestation_batch),
-                            Duration::from_millis(time_to_next_batch as u64),
+                            batch_processing_delay,
                         );
 
                         self.queued_batch_attestations.insert(
@@ -870,22 +856,10 @@ impl<S: SlotClock> ReprocessQueue<S> {
                     }
                 } else {
                     self.current_attestation_batch += 1;
-                    if let Some(current_slot_time) =
-                        self.slot_clock.millis_from_current_slot_start()
-                    {
-                        let slot_time = current_slot_time.as_millis() as usize;
-                        let total_slot_duration =
-                            self.slot_clock.slot_duration().as_millis() as usize;
-
-                        time_to_next_batch = (0..=total_slot_duration)
-                            .step_by(batch_processing_delay.as_millis() as usize)
-                            .find(|&t| t > slot_time)
-                            .map_or(0, |t| t - slot_time);
-                    }
 
                     let delay_key = self.batched_attestation_queue.insert(
                         QueuedAttestationId::Batched(self.current_attestation_batch),
-                        Duration::from_millis(time_to_next_batch as u64),
+                        batch_processing_delay,
                     );
 
                     self.queued_batch_attestations.insert(
