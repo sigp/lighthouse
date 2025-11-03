@@ -292,12 +292,11 @@ impl<T: BeaconChainTypes, O: ObservationStrategy>
         // In this case, we should accept it for gossip propagation.
         verify_is_unknown_sidecar(chain, &column_sidecar)?;
 
-        // TODO(dknopik): is proper handling of none?
         if chain
             .data_availability_checker
             .determine_missing_cells(&column_sidecar.block_root(), column_sidecar.as_ref())
-            .ok_or_else(|| GossipDataColumnError::UnexpectedDataColumn)?
-            .is_empty()
+            .map(|cells| cells.is_empty())
+            .unwrap_or(false)
         {
             // Observe this data column so we don't process it again.
             if O::observe() {
@@ -679,12 +678,6 @@ pub fn validate_partial_data_column_sidecar_for_gossip<
     let kzg = &chain.kzg;
     let kzg_verified_data_column = verify_kzg_for_data_column(filtered_column, kzg)
         .map_err(|(_, e)| GossipDataColumnError::InvalidKzgProof(e))?;
-
-    // TODO(dknopik): observe?! I do not think so, as publishing works differently anyway...
-    // Basically we publish if we update our internal view, but this is merged elsewhere
-    //if O::observe() {
-    //    observe_gossip_data_column(&data_column, chain)?;
-    //}
 
     Ok(GossipVerifiedDataColumn {
         block_root: data_column.block_root(),
