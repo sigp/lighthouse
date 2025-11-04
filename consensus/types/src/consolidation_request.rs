@@ -1,24 +1,14 @@
 use crate::context_deserialize;
-use crate::{test_utils::TestRandom, Address, ForkName, PublicKeyBytes, SignedRoot};
+use crate::{Address, ForkName, PublicKeyBytes, SignedRoot, test_utils::TestRandom};
 use serde::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TreeHash,
-    TestRandom,
+    Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 #[context_deserialize(ForkName)]
 pub struct ConsolidationRequest {

@@ -370,7 +370,7 @@ macro_rules! test_suite {
         }
 
         impl OwnedSignatureSet {
-            pub fn multiple_pubkeys(&self) -> SignatureSet {
+            pub fn multiple_pubkeys(&self) -> SignatureSet<'_> {
                 let signing_keys = self.signing_keys.iter().map(Cow::Borrowed).collect();
                 SignatureSet::multiple_pubkeys(&self.signature, signing_keys, self.message)
             }

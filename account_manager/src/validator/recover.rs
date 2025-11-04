@@ -1,13 +1,13 @@
 use super::create::STORE_WITHDRAW_FLAG;
-use crate::validator::create::COUNT_FLAG;
 use crate::SECRETS_DIR_FLAG;
-use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
-use account_utils::{random_password, read_mnemonic_from_cli, STDIN_INPUTS_FLAG};
+use crate::validator::create::COUNT_FLAG;
+use account_utils::eth2_keystore::{Keystore, KeystoreBuilder, keypair_from_secret};
+use account_utils::{STDIN_INPUTS_FLAG, random_password, read_mnemonic_from_cli};
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use clap_utils::FLAG_HEADER;
-use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
+use directory::{DEFAULT_SECRET_DIR, parse_path_or_default_with_flag};
 use eth2_wallet::bip39::Seed;
-use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
+use eth2_wallet::{KeyType, ValidatorKeystores, recover_validator_secret_from_mnemonic};
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 use validator_dir::Builder as ValidatorDirBuilder;
@@ -97,7 +97,9 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         .map_err(|e| format!("Could not create secrets dir at {secrets_dir:?}: {e:?}"))?;
 
     eprintln!();
-    eprintln!("WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING.");
+    eprintln!(
+        "WARNING: KEY RECOVERY CAN LEAD TO DUPLICATING VALIDATORS KEYS, WHICH CAN LEAD TO SLASHING."
+    );
     eprintln!();
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;

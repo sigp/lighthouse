@@ -1,4 +1,4 @@
-use crate::chunked_vector::{chunk_key, Chunk, Field};
+use crate::chunked_vector::{Chunk, Field, chunk_key};
 use crate::{HotColdDB, ItemStore};
 use tracing::error;
 use types::{ChainSpec, EthSpec, Slot};

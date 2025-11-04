@@ -23,37 +23,22 @@ use std::hash::Hash;
 #[cfg(feature = "legacy-arith")]
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Rem, Sub, SubAssign};
 
-#[derive(
-    arbitrary::Arbitrary,
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Slot(#[serde(with = "serde_utils::quoted_u64")] u64);
 
-#[derive(
-    arbitrary::Arbitrary,
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Epoch(#[serde(with = "serde_utils::quoted_u64")] u64);
+
+impl Epoch {
+    /// Returns an iterator `(end..=start)`
+    pub fn range_inclusive_rev(start: Self, end: Self) -> impl Iterator<Item = Self> {
+        (end.0..=start.0).rev().map(Epoch)
+    }
+}
 
 impl_common!(Slot);
 impl_common!(Epoch);

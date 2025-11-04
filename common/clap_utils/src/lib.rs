@@ -1,8 +1,8 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
-use clap::builder::styling::*;
 use clap::ArgMatches;
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use clap::builder::styling::*;
+use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig};
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;

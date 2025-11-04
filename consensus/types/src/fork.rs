@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::{Epoch, ForkName};
-use context_deserialize_derive::context_deserialize;
+use context_deserialize::context_deserialize;
 
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -10,8 +10,8 @@ use tree_hash_derive::TreeHash;
 /// Specifies a fork of the `BeaconChain`, to prevent replay attacks.
 ///
 /// Spec v0.12.1
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
-    arbitrary::Arbitrary,
     Debug,
     Clone,
     Copy,

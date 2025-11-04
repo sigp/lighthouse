@@ -5,19 +5,18 @@
 //! syncing.
 
 use handler::RPCHandler;
+use libp2p::PeerId;
 use libp2p::core::transport::PortUse;
 use libp2p::swarm::{
-    handler::ConnectionHandler, CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler,
-    ToSwarm,
+    CloseConnection, ConnectionId, NetworkBehaviour, NotifyHandler, ToSwarm,
+    handler::ConnectionHandler,
 };
 use libp2p::swarm::{ConnectionClosed, FromSwarm, SubstreamProtocol, THandlerInEvent};
-use libp2p::PeerId;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Duration;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, trace};
 use types::{EthSpec, ForkContext};
 
 pub(crate) use handler::{HandlerErr, HandlerEvent};
@@ -143,12 +142,6 @@ pub struct RPCMessage<Id, E: EthSpec> {
 
 type BehaviourAction<Id, E> = ToSwarm<RPCMessage<Id, E>, RPCSend<Id, E>>;
 
-pub struct NetworkParams {
-    pub max_payload_size: usize,
-    pub ttfb_timeout: Duration,
-    pub resp_timeout: Duration,
-}
-
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
 pub struct RPC<Id: ReqId, E: EthSpec> {
@@ -162,25 +155,16 @@ pub struct RPC<Id: ReqId, E: EthSpec> {
     events: Vec<BehaviourAction<Id, E>>,
     fork_context: Arc<ForkContext>,
     enable_light_client_server: bool,
-    /// Networking constant values
-    network_params: NetworkParams,
     /// A sequential counter indicating when data gets modified.
     seq_number: u64,
 }
 
 impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn new(
         fork_context: Arc<ForkContext>,
         enable_light_client_server: bool,
         inbound_rate_limiter_config: Option<InboundRateLimiterConfig>,
         outbound_rate_limiter_config: Option<OutboundRateLimiterConfig>,
-        network_params: NetworkParams,
         seq_number: u64,
     ) -> Self {
         let response_limiter = inbound_rate_limiter_config.map(|config| {
@@ -200,19 +184,12 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
             events: Vec::new(),
             fork_context,
             enable_light_client_server,
-            network_params,
             seq_number,
         }
     }
 
     /// Sends an RPC response.
     /// Returns an `Err` if the request does exist in the active inbound requests list.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn send_response(
         &mut self,
         request_id: InboundRequestId,
@@ -259,17 +236,17 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         request_id: InboundRequestId,
         response: RpcResponse<E>,
     ) {
-        if let Some(response_limiter) = self.response_limiter.as_mut() {
-            if !response_limiter.allows(
+        if let Some(response_limiter) = self.response_limiter.as_mut()
+            && !response_limiter.allows(
                 peer_id,
                 protocol,
                 request_id.connection_id,
                 request_id.substream_id,
                 response.clone(),
-            ) {
-                // Response is logged and queued internally in the response limiter.
-                return;
-            }
+            )
+        {
+            // Response is logged and queued internally in the response limiter.
+            return;
         }
 
         self.events.push(ToSwarm::NotifyHandler {
@@ -282,12 +259,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, req: RequestType<E>) {
         match self
             .outbound_request_limiter
@@ -306,12 +277,6 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
     /// gracefully terminates the RPC behaviour with a goodbye message.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn shutdown(&mut self, peer_id: PeerId, id: Id, reason: GoodbyeReason) {
         self.events.push(ToSwarm::NotifyHandler {
             peer_id,
@@ -320,23 +285,11 @@ impl<Id: ReqId, E: EthSpec> RPC<Id, E> {
         });
     }
 
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn update_seq_number(&mut self, seq_number: u64) {
         self.seq_number = seq_number
     }
 
     /// Send a Ping request to the destination `PeerId` via `ConnectionId`.
-    #[instrument(parent = None,
-        level = "trace",
-        fields(service = "libp2p_rpc"),
-        name = "libp2p_rpc",
-        skip_all
-    )]
     pub fn ping(&mut self, peer_id: PeerId, id: Id) {
         let ping = Ping {
             data: self.seq_number,
@@ -367,18 +320,11 @@ where
                 max_rpc_size: self.fork_context.spec.max_payload_size as usize,
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
-                ttfb_timeout: self.network_params.ttfb_timeout,
             },
             (),
         );
 
-        let handler = RPCHandler::new(
-            protocol,
-            self.fork_context.clone(),
-            self.network_params.resp_timeout,
-            peer_id,
-            connection_id,
-        );
+        let handler = RPCHandler::new(protocol, self.fork_context.clone(), peer_id, connection_id);
 
         Ok(handler)
     }
@@ -397,18 +343,11 @@ where
                 max_rpc_size: self.fork_context.spec.max_payload_size as usize,
                 enable_light_client_server: self.enable_light_client_server,
                 phantom: PhantomData,
-                ttfb_timeout: self.network_params.ttfb_timeout,
             },
             (),
         );
 
-        let handler = RPCHandler::new(
-            protocol,
-            self.fork_context.clone(),
-            self.network_params.resp_timeout,
-            peer_id,
-            connection_id,
-        );
+        let handler = RPCHandler::new(protocol, self.fork_context.clone(), peer_id, connection_id);
 
         Ok(handler)
     }
@@ -600,15 +539,15 @@ where
     }
 
     fn poll(&mut self, cx: &mut Context) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        if let Some(response_limiter) = self.response_limiter.as_mut() {
-            if let Poll::Ready(responses) = response_limiter.poll_ready(cx) {
-                for response in responses {
-                    self.events.push(ToSwarm::NotifyHandler {
-                        peer_id: response.peer_id,
-                        handler: NotifyHandler::One(response.connection_id),
-                        event: RPCSend::Response(response.substream_id, response.response),
-                    });
-                }
+        if let Some(response_limiter) = self.response_limiter.as_mut()
+            && let Poll::Ready(responses) = response_limiter.poll_ready(cx)
+        {
+            for response in responses {
+                self.events.push(ToSwarm::NotifyHandler {
+                    peer_id: response.peer_id,
+                    handler: NotifyHandler::One(response.connection_id),
+                    event: RPCSend::Response(response.substream_id, response.response),
+                });
             }
         }
 

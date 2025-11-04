@@ -3,9 +3,9 @@ use super::{
     ChainSpec, Domain, EthSpec, Fork, ForkName, Hash256, PublicKey, SecretKey, SelectionProof,
     Signature, SignedRoot,
 };
+use crate::Attestation;
 use crate::context_deserialize;
 use crate::test_utils::TestRandom;
-use crate::Attestation;
 use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
@@ -16,7 +16,6 @@ use tree_hash_derive::TreeHash;
     variants(Base, Electra),
     variant_attributes(
         derive(
-            arbitrary::Arbitrary,
             Debug,
             Clone,
             PartialEq,
@@ -29,23 +28,29 @@ use tree_hash_derive::TreeHash;
         ),
         context_deserialize(ForkName),
         serde(bound = "E: EthSpec"),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
     ),
     ref_attributes(
-        derive(Debug, PartialEq, TreeHash, Serialize,),
+        derive(Debug, PartialEq, TreeHash, Serialize),
         serde(untagged, bound = "E: EthSpec"),
         tree_hash(enum_behaviour = "transparent")
     ),
     map_ref_into(AttestationRef)
 )]
-#[derive(
-    arbitrary::Arbitrary, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, TreeHash,
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
 )]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-#[arbitrary(bound = "E: EthSpec")]
 pub struct AggregateAndProof<E: EthSpec> {
     /// The index of the validator that created the attestation.
     #[serde(with = "serde_utils::quoted_u64")]

@@ -5,8 +5,8 @@ use crate::metrics::{
     SLASHER_NUM_BLOCKS_PROCESSED,
 };
 use crate::{
-    array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
-    IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB,
+    AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
+    IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB, array,
 };
 use parking_lot::Mutex;
 use std::collections::HashSet;

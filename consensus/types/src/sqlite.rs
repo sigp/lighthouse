@@ -1,8 +1,8 @@
 //! Implementations of SQLite compatibility traits.
 use crate::{Epoch, Slot};
 use rusqlite::{
-    types::{FromSql, FromSqlError, ToSql, ToSqlOutput, ValueRef},
     Error,
+    types::{FromSql, FromSqlError, ToSql, ToSqlOutput, ValueRef},
 };
 
 macro_rules! impl_to_from_sql {

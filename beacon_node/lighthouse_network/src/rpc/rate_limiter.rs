@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 use tokio::time::Interval;
-use types::{ChainSpec, EthSpec, ForkContext, ForkName};
+use types::{ChainSpec, Epoch, EthSpec, ForkContext};
 
 /// Nanoseconds since a given time.
 // Maintained as u64 to reduce footprint
@@ -267,7 +267,7 @@ impl RPCRateLimiterBuilder {
 
 pub trait RateLimiterItem {
     fn protocol(&self) -> Protocol;
-    fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64;
+    fn max_responses(&self, digest_epoch: Epoch, spec: &ChainSpec) -> u64;
 }
 
 impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
@@ -275,8 +275,8 @@ impl<E: EthSpec> RateLimiterItem for super::RequestType<E> {
         self.versioned_protocol().protocol()
     }
 
-    fn max_responses(&self, current_fork: ForkName, spec: &ChainSpec) -> u64 {
-        self.max_responses(current_fork, spec)
+    fn max_responses(&self, digest_epoch: Epoch, spec: &ChainSpec) -> u64 {
+        self.max_responses(digest_epoch, spec)
     }
 }
 
@@ -285,7 +285,7 @@ impl<E: EthSpec> RateLimiterItem for (super::RpcResponse<E>, Protocol) {
         self.1
     }
 
-    fn max_responses(&self, _current_fork: ForkName, _spec: &ChainSpec) -> u64 {
+    fn max_responses(&self, _digest_epoch: Epoch, _spec: &ChainSpec) -> u64 {
         // A response chunk consumes one token of the rate limiter.
         1
     }
@@ -353,7 +353,10 @@ impl RPCRateLimiter {
     ) -> Result<(), RateLimitedErr> {
         let time_since_start = self.init_time.elapsed();
         let tokens = request
-            .max_responses(self.fork_context.current_fork(), &self.fork_context.spec)
+            .max_responses(
+                self.fork_context.current_fork_epoch(),
+                &self.fork_context.spec,
+            )
             .max(1);
 
         let check =
@@ -379,16 +382,41 @@ impl RPCRateLimiter {
 
     pub fn prune(&mut self) {
         let time_since_start = self.init_time.elapsed();
-        self.ping_rl.prune(time_since_start);
-        self.status_rl.prune(time_since_start);
-        self.metadata_rl.prune(time_since_start);
-        self.goodbye_rl.prune(time_since_start);
-        self.bbrange_rl.prune(time_since_start);
-        self.bbroots_rl.prune(time_since_start);
-        self.blbrange_rl.prune(time_since_start);
-        self.blbroot_rl.prune(time_since_start);
-        self.dcbrange_rl.prune(time_since_start);
-        self.dcbroot_rl.prune(time_since_start);
+
+        let Self {
+            prune_interval: _,
+            init_time: _,
+            goodbye_rl,
+            ping_rl,
+            metadata_rl,
+            status_rl,
+            bbrange_rl,
+            bbroots_rl,
+            blbrange_rl,
+            blbroot_rl,
+            dcbroot_rl,
+            dcbrange_rl,
+            lc_bootstrap_rl,
+            lc_optimistic_update_rl,
+            lc_finality_update_rl,
+            lc_updates_by_range_rl,
+            fork_context: _,
+        } = self;
+
+        goodbye_rl.prune(time_since_start);
+        ping_rl.prune(time_since_start);
+        metadata_rl.prune(time_since_start);
+        status_rl.prune(time_since_start);
+        bbrange_rl.prune(time_since_start);
+        bbroots_rl.prune(time_since_start);
+        blbrange_rl.prune(time_since_start);
+        blbroot_rl.prune(time_since_start);
+        dcbrange_rl.prune(time_since_start);
+        dcbroot_rl.prune(time_since_start);
+        lc_bootstrap_rl.prune(time_since_start);
+        lc_optimistic_update_rl.prune(time_since_start);
+        lc_finality_update_rl.prune(time_since_start);
+        lc_updates_by_range_rl.prune(time_since_start);
     }
 }
 
@@ -503,25 +531,37 @@ mod tests {
         //        |  |  |  |  |
         //        0     1     2
 
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.0), &key, 4)
-            .is_ok());
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.0), &key, 4)
+                .is_ok()
+        );
         limiter.prune(Duration::from_secs_f32(0.1));
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.1), &key, 1)
-            .is_err());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.5), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(1.0), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(1.4), &key, 1)
-            .is_err());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(2.0), &key, 2)
-            .is_ok());
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.1), &key, 1)
+                .is_err()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.5), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(1.0), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(1.4), &key, 1)
+                .is_err()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(2.0), &key, 2)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -536,21 +576,31 @@ mod tests {
         // first half second, when one token will be available again. Check also that before
         // regaining a token, another request is rejected
 
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.0), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.1), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.2), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.3), &key, 1)
-            .is_ok());
-        assert!(limiter
-            .allows(Duration::from_secs_f32(0.4), &key, 1)
-            .is_err());
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.0), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.1), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.2), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.3), &key, 1)
+                .is_ok()
+        );
+        assert!(
+            limiter
+                .allows(Duration::from_secs_f32(0.4), &key, 1)
+                .is_err()
+        );
     }
 
     #[test]

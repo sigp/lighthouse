@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 use types::{
-    indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
     AggregateSignature, AttestationData, AttesterSlashing, AttesterSlashingBase,
     AttesterSlashingElectra, BeaconBlockHeader, ChainSpec, Checkpoint, Epoch, EthSpec,
     FixedBytesExtended, Hash256, IndexedAttestation, MainnetEthSpec, Signature,
     SignedBeaconBlockHeader, Slot,
+    indexed_attestation::{IndexedAttestationBase, IndexedAttestationElectra},
 };
 
 pub type E = MainnetEthSpec;

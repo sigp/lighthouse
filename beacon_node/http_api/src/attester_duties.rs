@@ -16,7 +16,12 @@ pub fn attester_duties<T: BeaconChainTypes>(
     request_indices: &[u64],
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    let current_epoch = chain.epoch().map_err(warp_utils::reject::unhandled_error)?;
+    let current_epoch = chain
+        .slot_clock
+        .now_or_genesis()
+        .map(|slot| slot.epoch(T::EthSpec::slots_per_epoch()))
+        .ok_or(BeaconChainError::UnableToReadSlot)
+        .map_err(warp_utils::reject::unhandled_error)?;
 
     // Determine what the current epoch would be if we fast-forward our system clock by
     // `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
@@ -24,11 +29,17 @@ pub fn attester_duties<T: BeaconChainTypes>(
     // Most of the time, `tolerant_current_epoch` will be equal to `current_epoch`. However, during
     // the first `MAXIMUM_GOSSIP_CLOCK_DISPARITY` duration of the epoch `tolerant_current_epoch`
     // will equal `current_epoch + 1`
-    let tolerant_current_epoch = chain
-        .slot_clock
-        .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
-        .ok_or_else(|| warp_utils::reject::custom_server_error("unable to read slot clock".into()))?
-        .epoch(T::EthSpec::slots_per_epoch());
+    let tolerant_current_epoch = if chain.slot_clock.is_prior_to_genesis().unwrap_or(true) {
+        current_epoch
+    } else {
+        chain
+            .slot_clock
+            .now_with_future_tolerance(chain.spec.maximum_gossip_clock_disparity())
+            .ok_or_else(|| {
+                warp_utils::reject::custom_server_error("unable to read slot clock".into())
+            })?
+            .epoch(T::EthSpec::slots_per_epoch())
+    };
 
     if request_epoch == current_epoch
         || request_epoch == current_epoch + 1

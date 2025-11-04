@@ -1,9 +1,10 @@
 use crate::upgrade::{
     upgrade_to_altair, upgrade_to_bellatrix, upgrade_to_capella, upgrade_to_deneb,
-    upgrade_to_electra, upgrade_to_fulu,
+    upgrade_to_electra, upgrade_to_fulu, upgrade_to_gloas,
 };
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
+use tracing::instrument;
 use types::*;
 
 #[derive(Debug, PartialEq)]
@@ -25,6 +26,7 @@ impl From<ArithError> for Error {
 /// If the root of the supplied `state` is known, then it can be passed as `state_root`. If
 /// `state_root` is `None`, the root of `state` will be computed using a cached tree hash.
 /// Providing the `state_root` makes this function several orders of magnitude faster.
+#[instrument(level = "debug", skip_all)]
 pub fn per_slot_processing<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Option<Hash256>,
@@ -76,6 +78,11 @@ pub fn per_slot_processing<E: EthSpec>(
             upgrade_to_fulu(state, spec)?;
         }
 
+        // Gloas.
+        if spec.gloas_fork_epoch == Some(state.current_epoch()) {
+            upgrade_to_gloas(state, spec)?;
+        }
+
         // Additionally build all caches so that all valid states that are advanced always have
         // committee caches built, and we don't have to worry about initialising them at higher
         // layers.
@@ -85,6 +92,7 @@ pub fn per_slot_processing<E: EthSpec>(
     Ok(summary)
 }
 
+#[instrument(skip_all)]
 fn cache_state<E: EthSpec>(
     state: &mut BeaconState<E>,
     state_root: Option<Hash256>,

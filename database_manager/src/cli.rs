@@ -1,6 +1,6 @@
 pub use clap::{Arg, ArgAction, Args, Command, FromArgMatches, Parser};
-use clap_utils::get_color_style;
 use clap_utils::FLAG_HEADER;
+use clap_utils::get_color_style;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use store::hdiff::HierarchyConfig;

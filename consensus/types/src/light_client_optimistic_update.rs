@@ -2,9 +2,9 @@ use super::{ContextDeserialize, EthSpec, ForkName, LightClientHeader, Slot, Sync
 use crate::context_deserialize;
 use crate::test_utils::TestRandom;
 use crate::{
-    light_client_update::*, ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella,
-    LightClientHeaderDeneb, LightClientHeaderElectra, LightClientHeaderFulu,
-    SignedBlindedBeaconBlock,
+    ChainSpec, LightClientHeaderAltair, LightClientHeaderCapella, LightClientHeaderDeneb,
+    LightClientHeaderElectra, LightClientHeaderFulu, LightClientHeaderGloas,
+    SignedBlindedBeaconBlock, light_client_update::*,
 };
 use derivative::Derivative;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -19,7 +19,7 @@ use tree_hash_derive::TreeHash;
 /// A LightClientOptimisticUpdate is the update we send on each slot,
 /// it is based off the current unfinalized epoch is verified only against BLS signature.
 #[superstruct(
-    variants(Altair, Capella, Deneb, Electra, Fulu),
+    variants(Altair, Capella, Deneb, Electra, Fulu, Gloas),
     variant_attributes(
         derive(
             Debug,
@@ -31,20 +31,27 @@ use tree_hash_derive::TreeHash;
             Decode,
             Encode,
             TestRandom,
-            arbitrary::Arbitrary,
             TreeHash,
         ),
         serde(bound = "E: EthSpec", deny_unknown_fields),
-        arbitrary(bound = "E: EthSpec"),
+        cfg_attr(
+            feature = "arbitrary",
+            derive(arbitrary::Arbitrary),
+            arbitrary(bound = "E: EthSpec"),
+        ),
         context_deserialize(ForkName),
     )
 )]
-#[derive(Debug, Clone, Serialize, Encode, TreeHash, arbitrary::Arbitrary, PartialEq)]
+#[cfg_attr(
+    feature = "arbitrary",
+    derive(arbitrary::Arbitrary),
+    arbitrary(bound = "E: EthSpec")
+)]
+#[derive(Debug, Clone, Serialize, Encode, TreeHash, PartialEq)]
 #[serde(untagged)]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 #[serde(bound = "E: EthSpec", deny_unknown_fields)]
-#[arbitrary(bound = "E: EthSpec")]
 pub struct LightClientOptimisticUpdate<E: EthSpec> {
     /// The last `BeaconBlockHeader` from the last attested block by the sync committee.
     #[superstruct(only(Altair), partial_getter(rename = "attested_header_altair"))]
@@ -57,6 +64,8 @@ pub struct LightClientOptimisticUpdate<E: EthSpec> {
     pub attested_header: LightClientHeaderElectra<E>,
     #[superstruct(only(Fulu), partial_getter(rename = "attested_header_fulu"))]
     pub attested_header: LightClientHeaderFulu<E>,
+    #[superstruct(only(Gloas), partial_getter(rename = "attested_header_gloas"))]
+    pub attested_header: LightClientHeaderGloas<E>,
     /// current sync aggregate
     pub sync_aggregate: SyncAggregate<E>,
     /// Slot of the sync aggregated signature
@@ -112,6 +121,13 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 sync_aggregate,
                 signature_slot,
             }),
+            ForkName::Gloas => Self::Gloas(LightClientOptimisticUpdateGloas {
+                attested_header: LightClientHeaderGloas::block_to_light_client_header(
+                    attested_block,
+                )?,
+                sync_aggregate,
+                signature_slot,
+            }),
             ForkName::Base => return Err(Error::AltairForkNotActive),
         };
 
@@ -128,6 +144,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             Self::Deneb(_) => func(ForkName::Deneb),
             Self::Electra(_) => func(ForkName::Electra),
             Self::Fulu(_) => func(ForkName::Fulu),
+            Self::Gloas(_) => func(ForkName::Gloas),
         }
     }
 
@@ -167,10 +184,13 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
                 Self::Electra(LightClientOptimisticUpdateElectra::from_ssz_bytes(bytes)?)
             }
             ForkName::Fulu => Self::Fulu(LightClientOptimisticUpdateFulu::from_ssz_bytes(bytes)?),
+            ForkName::Gloas => {
+                Self::Gloas(LightClientOptimisticUpdateGloas::from_ssz_bytes(bytes)?)
+            }
             ForkName::Base => {
                 return Err(ssz::DecodeError::BytesInvalid(format!(
                     "LightClientOptimisticUpdate decoding for {fork_name} not implemented"
-                )))
+                )));
             }
         };
 
@@ -188,6 +208,7 @@ impl<E: EthSpec> LightClientOptimisticUpdate<E> {
             ForkName::Deneb => <LightClientOptimisticUpdateDeneb<E> as Encode>::ssz_fixed_len(),
             ForkName::Electra => <LightClientOptimisticUpdateElectra<E> as Encode>::ssz_fixed_len(),
             ForkName::Fulu => <LightClientOptimisticUpdateFulu<E> as Encode>::ssz_fixed_len(),
+            ForkName::Gloas => <LightClientOptimisticUpdateGloas<E> as Encode>::ssz_fixed_len(),
         };
         fixed_len + LightClientHeader::<E>::ssz_max_var_len_for_fork(fork_name)
     }
@@ -222,7 +243,7 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientOptimisti
                 return Err(serde::de::Error::custom(format!(
                     "LightClientOptimisticUpdate failed to deserialize: unsupported fork '{}'",
                     context
-                )))
+                )));
             }
             ForkName::Altair | ForkName::Bellatrix => {
                 Self::Altair(Deserialize::deserialize(deserializer).map_err(convert_err)?)
@@ -238,6 +259,9 @@ impl<'de, E: EthSpec> ContextDeserialize<'de, ForkName> for LightClientOptimisti
             }
             ForkName::Fulu => {
                 Self::Fulu(Deserialize::deserialize(deserializer).map_err(convert_err)?)
+            }
+            ForkName::Gloas => {
+                Self::Gloas(Deserialize::deserialize(deserializer).map_err(convert_err)?)
             }
         })
     }
@@ -274,5 +298,11 @@ mod tests {
     mod fulu {
         use crate::{LightClientOptimisticUpdateFulu, MainnetEthSpec};
         ssz_tests!(LightClientOptimisticUpdateFulu<MainnetEthSpec>);
+    }
+
+    #[cfg(test)]
+    mod gloas {
+        use crate::{LightClientOptimisticUpdateGloas, MainnetEthSpec};
+        ssz_tests!(LightClientOptimisticUpdateGloas<MainnetEthSpec>);
     }
 }

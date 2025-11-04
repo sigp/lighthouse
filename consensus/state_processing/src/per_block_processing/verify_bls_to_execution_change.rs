@@ -1,6 +1,6 @@
 use super::errors::{BlockOperationError, BlsExecutionChangeInvalid as Invalid};
-use crate::per_block_processing::signature_sets::bls_execution_change_signature_set;
 use crate::VerifySignatures;
+use crate::per_block_processing::signature_sets::bls_execution_change_signature_set;
 use ethereum_hashing::hash;
 use types::*;
 

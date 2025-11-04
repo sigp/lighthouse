@@ -1,4 +1,4 @@
-use crate::{consts::altair::NUM_FLAG_INDICES, test_utils::TestRandom, Hash256};
+use crate::{Hash256, consts::altair::NUM_FLAG_INDICES, test_utils::TestRandom};
 use safe_arith::{ArithError, SafeArith};
 use serde::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
@@ -7,7 +7,7 @@ use tree_hash::{PackedEncoding, TreeHash, TreeHashType};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Deserialize, Serialize, TestRandom)]
 #[serde(transparent)]
-#[derive(arbitrary::Arbitrary)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ParticipationFlags {
     #[serde(with = "serde_utils::quoted_u8")]
     bits: u8,

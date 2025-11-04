@@ -5,11 +5,11 @@ use eth2::{
 };
 use serde::Serialize;
 use types::{
+    BeaconResponse, ForkName, ForkVersionedResponse, InconsistentFork, Uint256,
+    UnversionedResponse,
     beacon_response::{
         ExecutionOptimisticFinalizedBeaconResponse, ExecutionOptimisticFinalizedMetadata,
     },
-    BeaconResponse, ForkName, ForkVersionedResponse, InconsistentFork, Uint256,
-    UnversionedResponse,
 };
 use warp::reply::{self, Reply, Response};
 

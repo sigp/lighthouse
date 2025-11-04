@@ -1,13 +1,14 @@
 use crate::local_network::LocalNetworkParams;
 use crate::local_network::TERMINAL_BLOCK;
-use crate::{checks, LocalNetwork};
+use crate::{LocalNetwork, checks};
 use clap::ArgMatches;
 
 use crate::retry::with_retry;
 use futures::prelude::*;
 use node_test_rig::{
+    ApiTopic, ValidatorFiles,
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_validator_config, ApiTopic, ValidatorFiles,
+    testing_validator_config,
 };
 use rayon::prelude::*;
 use std::cmp::max;
@@ -17,7 +18,7 @@ use std::time::Duration;
 
 use environment::tracing_common;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 use logging::build_workspace_filter;
 use tokio::time::sleep;
@@ -25,12 +26,14 @@ use tracing::Level;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
 const END_EPOCH: u64 = 16;
-const GENESIS_DELAY: u64 = 32;
+const GENESIS_DELAY: u64 = 38;
 const ALTAIR_FORK_EPOCH: u64 = 0;
 const BELLATRIX_FORK_EPOCH: u64 = 0;
 const CAPELLA_FORK_EPOCH: u64 = 0;
 const DENEB_FORK_EPOCH: u64 = 0;
 const ELECTRA_FORK_EPOCH: u64 = 2;
+// const FULU_FORK_EPOCH: u64 = 3;
+// const GLOAS_FORK_EPOCH: u64 = 4;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];

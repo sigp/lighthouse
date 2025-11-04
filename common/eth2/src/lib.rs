@@ -24,13 +24,13 @@ use libp2p_identity::PeerId;
 use pretty_reqwest_error::PrettyReqwestError;
 pub use reqwest;
 use reqwest::{
-    header::{HeaderMap, HeaderValue},
     Body, IntoUrl, RequestBuilder, Response,
+    header::{HeaderMap, HeaderValue},
 };
 pub use reqwest::{StatusCode, Url};
 use reqwest_eventsource::{Event, EventSource};
 pub use sensitive_url::{SensitiveError, SensitiveUrl};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use ssz::Encode;
 use std::fmt;
 use std::future::Future;
@@ -55,11 +55,13 @@ pub const JSON_CONTENT_TYPE_HEADER: &str = "application/json";
 const HTTP_ATTESTATION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT: u32 = 24;
+const HTTP_ATTESTATION_AGGREGATOR_TIMEOUT_QUOTIENT: u32 = 24; // For DVT involving middleware only
 const HTTP_LIVENESS_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_PROPOSAL_TIMEOUT_QUOTIENT: u32 = 2;
 const HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT: u32 = 4;
+const HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT: u32 = 24; // For DVT involving middleware only
 const HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT: u32 = 4;
 const HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT: u32 = 4;
 const HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT: u32 = 4;
@@ -150,11 +152,13 @@ pub struct Timeouts {
     pub attestation: Duration,
     pub attester_duties: Duration,
     pub attestation_subscriptions: Duration,
+    pub attestation_aggregators: Duration,
     pub liveness: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
     pub sync_committee_contribution: Duration,
     pub sync_duties: Duration,
+    pub sync_aggregators: Duration,
     pub get_beacon_blocks_ssz: Duration,
     pub get_debug_beacon_states: Duration,
     pub get_deposit_snapshot: Duration,
@@ -168,11 +172,13 @@ impl Timeouts {
             attestation: timeout,
             attester_duties: timeout,
             attestation_subscriptions: timeout,
+            attestation_aggregators: timeout,
             liveness: timeout,
             proposal: timeout,
             proposer_duties: timeout,
             sync_committee_contribution: timeout,
             sync_duties: timeout,
+            sync_aggregators: timeout,
             get_beacon_blocks_ssz: timeout,
             get_debug_beacon_states: timeout,
             get_deposit_snapshot: timeout,
@@ -187,12 +193,14 @@ impl Timeouts {
             attester_duties: base_timeout / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
             attestation_subscriptions: base_timeout
                 / HTTP_ATTESTATION_SUBSCRIPTIONS_TIMEOUT_QUOTIENT,
+            attestation_aggregators: base_timeout / HTTP_ATTESTATION_AGGREGATOR_TIMEOUT_QUOTIENT,
             liveness: base_timeout / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
             proposal: base_timeout / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
             proposer_duties: base_timeout / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
             sync_committee_contribution: base_timeout
                 / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
             sync_duties: base_timeout / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+            sync_aggregators: base_timeout / HTTP_SYNC_AGGREGATOR_TIMEOUT_QUOTIENT,
             get_beacon_blocks_ssz: base_timeout / HTTP_GET_BEACON_BLOCK_SSZ_TIMEOUT_QUOTIENT,
             get_debug_beacon_states: base_timeout / HTTP_GET_DEBUG_BEACON_STATE_QUOTIENT,
             get_deposit_snapshot: base_timeout / HTTP_GET_DEPOSIT_SNAPSHOT_QUOTIENT,
@@ -490,7 +498,7 @@ impl BeaconNodeHttpClient {
             .post(url)
             .timeout(timeout.unwrap_or(self.timeouts.default));
         let response = builder.json(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -510,7 +518,7 @@ impl BeaconNodeHttpClient {
             .json(body)
             .send()
             .await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function that includes octet-stream content type header.
@@ -527,7 +535,7 @@ impl BeaconNodeHttpClient {
             HeaderValue::from_static("application/octet-stream"),
         );
         let response = builder.headers(headers).json(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -552,7 +560,7 @@ impl BeaconNodeHttpClient {
             HeaderValue::from_static("application/octet-stream"),
         );
         let response = builder.headers(headers).body(body).send().await?;
-        ok_or_error(response).await
+        success_or_error(response).await
     }
 
     /// `GET beacon/genesis`
@@ -935,7 +943,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_beacon_states_pending_consolidations(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ExecutionOptimisticFinalizedResponse<Vec<PendingConsolidation>>>, Error>
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<PendingConsolidation>>>, Error>
     {
         let mut path = self.eth_path(V1)?;
 
@@ -946,7 +954,9 @@ impl BeaconNodeHttpClient {
             .push(&state_id.to_string())
             .push("pending_consolidations");
 
-        self.get_opt(path).await
+        self.get_fork_contextual(path, |fork| fork)
+            .await
+            .map(|opt| opt.map(BeaconResponse::ForkVersioned))
     }
 
     /// `GET beacon/light_client/updates`
@@ -979,6 +989,32 @@ impl BeaconNodeHttpClient {
                     .collect()
             })
         })
+    }
+
+    /// `GET beacon/light_client/updates`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_beacon_light_client_updates_ssz<E: EthSpec>(
+        &self,
+        start_period: u64,
+        count: u64,
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("light_client")
+            .push("updates");
+
+        path.query_pairs_mut()
+            .append_pair("start_period", &start_period.to_string());
+
+        path.query_pairs_mut()
+            .append_pair("count", &count.to_string());
+
+        self.get_bytes_opt_accept_header(path, Accept::Ssz, self.timeouts.default)
+            .await
     }
 
     /// `GET beacon/light_client/bootstrap`
@@ -1223,16 +1259,17 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version(
-            self.post_beacon_blocks_v2_path(validation_level)?,
-            block_contents,
-            Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version(
+                self.post_beacon_blocks_v2_path(validation_level)?,
+                block_contents,
+                Some(self.timeouts.proposal),
+                block_contents.signed_block().message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blocks`
@@ -1240,16 +1277,17 @@ impl BeaconNodeHttpClient {
         &self,
         block_contents: &PublishBlockRequest<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version_and_ssz_body(
-            self.post_beacon_blocks_v2_path(validation_level)?,
-            block_contents.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            block_contents.signed_block().message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version_and_ssz_body(
+                self.post_beacon_blocks_v2_path(validation_level)?,
+                block_contents.as_ssz_bytes(),
+                Some(self.timeouts.proposal),
+                block_contents.signed_block().message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blinded_blocks`
@@ -1257,16 +1295,17 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version(
-            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            signed_block,
-            Some(self.timeouts.proposal),
-            signed_block.message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version(
+                self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+                signed_block,
+                Some(self.timeouts.proposal),
+                signed_block.message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// `POST v2/beacon/blinded_blocks`
@@ -1274,16 +1313,17 @@ impl BeaconNodeHttpClient {
         &self,
         signed_block: &SignedBlindedBeaconBlock<E>,
         validation_level: Option<BroadcastValidation>,
-    ) -> Result<(), Error> {
-        self.post_generic_with_consensus_version_and_ssz_body(
-            self.post_beacon_blinded_blocks_v2_path(validation_level)?,
-            signed_block.as_ssz_bytes(),
-            Some(self.timeouts.proposal),
-            signed_block.message().body().fork_name(),
-        )
-        .await?;
+    ) -> Result<Response, Error> {
+        let response = self
+            .post_generic_with_consensus_version_and_ssz_body(
+                self.post_beacon_blinded_blocks_v2_path(validation_level)?,
+                signed_block.as_ssz_bytes(),
+                Some(self.timeouts.proposal),
+                signed_block.message().body().fork_name(),
+            )
+            .await?;
 
-        Ok(())
+        Ok(response)
     }
 
     /// Path for `v2/beacon/blocks`
@@ -1298,12 +1338,23 @@ impl BeaconNodeHttpClient {
     }
 
     /// Path for `v1/beacon/blob_sidecars/{block_id}`
-    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+    pub fn get_blob_sidecars_path(&self, block_id: BlockId) -> Result<Url, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("blob_sidecars")
+            .push(&block_id.to_string());
+        Ok(path)
+    }
+
+    /// Path for `v1/beacon/blobs/{blob_id}`
+    pub fn get_blobs_path(&self, block_id: BlockId) -> Result<Url, Error> {
+        let mut path = self.eth_path(V1)?;
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blobs")
             .push(&block_id.to_string());
         Ok(path)
     }
@@ -1336,13 +1387,13 @@ impl BeaconNodeHttpClient {
     /// `GET v1/beacon/blob_sidecars/{block_id}`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn get_blobs<E: EthSpec>(
+    pub async fn get_blob_sidecars<E: EthSpec>(
         &self,
         block_id: BlockId,
         indices: Option<&[u64]>,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<BlobSidecarList<E>>>, Error> {
-        let mut path = self.get_blobs_path(block_id)?;
+        let mut path = self.get_blob_sidecars_path(block_id)?;
         if let Some(indices) = indices {
             let indices_string = indices
                 .iter()
@@ -1360,6 +1411,31 @@ impl BeaconNodeHttpClient {
         })
         .await
         .map(|opt| opt.map(BeaconResponse::ForkVersioned))
+    }
+
+    /// `GET v1/beacon/blobs/{block_id}`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn get_blobs<E: EthSpec>(
+        &self,
+        block_id: BlockId,
+        versioned_hashes: Option<&[Hash256]>,
+    ) -> Result<Option<ExecutionOptimisticFinalizedBeaconResponse<Vec<BlobWrapper<E>>>>, Error>
+    {
+        let mut path = self.get_blobs_path(block_id)?;
+        if let Some(hashes) = versioned_hashes {
+            let hashes_string = hashes
+                .iter()
+                .map(|hash| hash.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            path.query_pairs_mut()
+                .append_pair("versioned_hashes", &hashes_string);
+        }
+
+        self.get_opt(path)
+            .await
+            .map(|opt| opt.map(BeaconResponse::Unversioned))
     }
 
     /// `GET v1/beacon/blinded_blocks/{block_id}`
@@ -2755,7 +2831,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_events<E: EthSpec>(
         &self,
         topic: &[EventTopic],
-    ) -> Result<impl Stream<Item = Result<EventKind<E>, Error>>, Error> {
+    ) -> Result<impl Stream<Item = Result<EventKind<E>, Error>> + use<E>, Error> {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
@@ -2815,6 +2891,42 @@ impl BeaconNodeHttpClient {
         )
         .await
     }
+
+    /// `POST validator/beacon_committee_selections`
+    pub async fn post_validator_beacon_committee_selections(
+        &self,
+        selections: &[BeaconCommitteeSelection],
+    ) -> Result<GenericResponse<Vec<BeaconCommitteeSelection>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("beacon_committee_selections");
+
+        self.post_with_timeout_and_response(
+            path,
+            &selections,
+            self.timeouts.attestation_aggregators,
+        )
+        .await
+    }
+
+    /// `POST validator/sync_committee_selections`
+    pub async fn post_validator_sync_committee_selections(
+        &self,
+        selections: &[SyncCommitteeSelection],
+    ) -> Result<GenericResponse<Vec<SyncCommitteeSelection>>, Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("sync_committee_selections");
+
+        self.post_with_timeout_and_response(path, &selections, self.timeouts.sync_aggregators)
+            .await
+    }
 }
 
 /// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
@@ -2823,6 +2935,23 @@ pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
     if status == StatusCode::OK {
+        Ok(response)
+    } else if let Ok(message) = response.json().await {
+        match message {
+            ResponseError::Message(message) => Err(Error::ServerMessage(message)),
+            ResponseError::Indexed(indexed) => Err(Error::ServerIndexedMessage(indexed)),
+        }
+    } else {
+        Err(Error::StatusCode(status))
+    }
+}
+
+/// Returns `Ok(response)` if the response is a success (2xx) response. Otherwise, creates an
+/// appropriate error message.
+pub async fn success_or_error(response: Response) -> Result<Response, Error> {
+    let status = response.status();
+
+    if status.is_success() {
         Ok(response)
     } else if let Ok(message) = response.json().await {
         match message {

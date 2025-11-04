@@ -2,8 +2,8 @@
 use crate::database::leveldb_impl;
 #[cfg(feature = "redb")]
 use crate::database::redb_impl;
-use crate::{config::DatabaseBackend, KeyValueStoreOp, StoreConfig};
-use crate::{metrics, ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore};
+use crate::{ColumnIter, ColumnKeyIter, DBColumn, Error, ItemStore, Key, KeyValueStore, metrics};
+use crate::{KeyValueStoreOp, StoreConfig, config::DatabaseBackend};
 use std::collections::HashSet;
 use std::path::Path;
 use types::EthSpec;

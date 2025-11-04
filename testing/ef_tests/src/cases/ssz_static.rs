@@ -1,6 +1,5 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::cases::common::DataColumnsByRootIdentifierWrapper;
 use crate::decode::{context_yaml_decode_file, snappy_decode_file, yaml_decode_file};
 use context_deserialize::ContextDeserialize;
 use serde::Deserialize;
@@ -168,11 +167,9 @@ impl<E: EthSpec> Case for SszStaticWithSpec<SignedBeaconBlock<E>> {
     }
 }
 
-impl<E: EthSpec> LoadCase for SszStaticWithSpec<DataColumnsByRootIdentifierWrapper<E>> {
+impl<E: EthSpec> LoadCase for SszStaticWithSpec<DataColumnsByRootIdentifier<E>> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
-        let spec = &testing_spec::<E>(fork_name);
-        let context = (fork_name, spec.number_of_columns as usize);
-        load_from_dir_with_context(path, context).map(|(roots, serialized, value)| Self {
+        load_from_dir(path, fork_name).map(|(roots, serialized, value)| Self {
             roots,
             serialized,
             value,
@@ -180,12 +177,10 @@ impl<E: EthSpec> LoadCase for SszStaticWithSpec<DataColumnsByRootIdentifierWrapp
     }
 }
 
-impl<E: EthSpec> Case for SszStaticWithSpec<DataColumnsByRootIdentifierWrapper<E>> {
-    fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        let spec = &testing_spec::<E>(fork_name);
+impl<E: EthSpec> Case for SszStaticWithSpec<DataColumnsByRootIdentifier<E>> {
+    fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         check_serialization(&self.value, &self.serialized, |bytes| {
-            DataColumnsByRootIdentifier::from_ssz_bytes(bytes, spec.number_of_columns as usize)
-                .map(Into::into)
+            DataColumnsByRootIdentifier::from_ssz_bytes(bytes)
         })?;
         check_tree_hash(&self.roots.root, self.value.tree_hash_root().as_slice())?;
         Ok(())

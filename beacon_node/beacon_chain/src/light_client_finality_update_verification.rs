@@ -116,7 +116,13 @@ impl<T: BeaconChainTypes> VerifiedLightClientFinalityUpdate<T> {
         // Verify that the gossiped finality update is the same as the locally constructed one.
         if latest_finality_update != rcv_finality_update {
             let signature_slot = latest_finality_update.signature_slot();
+
             if signature_slot != rcv_finality_update.signature_slot() {
+                // The locally constructed finality update is not up to date, probably
+                // because the node has fallen behind and needs to sync.
+                if rcv_finality_update.signature_slot() > signature_slot {
+                    return Err(Error::Ignore);
+                }
                 return Err(Error::MismatchedSignatureSlot {
                     local: signature_slot,
                     observed: rcv_finality_update.signature_slot(),

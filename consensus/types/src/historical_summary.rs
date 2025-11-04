@@ -13,6 +13,7 @@ use tree_hash_derive::TreeHash;
 /// in the Capella hard fork.
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/capella/beacon-chain.md#historicalsummary
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[derive(
     Debug,
     PartialEq,
@@ -27,7 +28,6 @@ use tree_hash_derive::TreeHash;
     Clone,
     Copy,
     Default,
-    arbitrary::Arbitrary,
 )]
 #[context_deserialize(ForkName)]
 pub struct HistoricalSummary {
