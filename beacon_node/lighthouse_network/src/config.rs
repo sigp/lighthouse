@@ -507,6 +507,7 @@ pub fn gossipsub_config(
         .duplicate_cache_time(duplicate_cache_time)
         .message_id_fn(gossip_message_id)
         .allow_self_origin(true)
+        .idontwant_on_publish(true)
         .idontwant_message_size_threshold(idontwant_message_size_threshold)
         .build()
         .expect("valid gossipsub configuration")
