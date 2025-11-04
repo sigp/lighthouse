@@ -864,6 +864,9 @@ impl<T: BeaconChainTypes> NetworkBeaconProcessor<T> {
                     "Reconstruction not required for block"
                 );
             }
+            Err(BlockError::DuplicateFullyImported(_)) => {
+                debug!("Block has already been imported");
+            }
             Err(e) => {
                 error!(
                     %block_root,
