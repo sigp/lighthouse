@@ -105,6 +105,10 @@ jobs:
     runs-on: ${{ github.repository == 'sigp/lighthouse' && 'warp-windows-latest-x64-16x' || 'windows-latest' }}
     steps:
     - uses: actions/checkout@v5
+    - name: Install LLVM and Clang
+      uses: KyleMayes/install-llvm-action@v2
+      with:
+        version: "17.0"
     - name: Get latest version of stable Rust
       uses: moonrepo/setup-rust@v1
       with:
@@ -119,8 +123,6 @@ jobs:
         version: nightly-ca67d15f4abd46394b324c50e21e66f306a1162d
     - name: Install make
       run: choco install -y make
-    - name: Set LIBCLANG_PATH
-      run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
       run: make test-release
   beacon-chain-tests:
